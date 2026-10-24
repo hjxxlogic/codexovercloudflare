@@ -13,7 +13,7 @@
 - 线上安全头、JS/CSS 字节、健康 200、未登录 401、跨域 403；实际下载三个归档的 SHA256 / 源码身份、手册 UTF-8 / 浏览器字符集 / 源文件字节均通过。下载的 Agent 和 CLI 的 `update` 实际访问线上清单并返回 Already up to date，无替换现有版本。
 - 线上临时 API Key 和配对 A/CC、CW Cookie、角色/目标隔离、510 条目录与中文正文分块、CW IndexedDB、CC 在线/离线缓存、恢复线程及确定性任务通过。撤销本次临时授权、退出管理后旧 Cookie 被拒绝，临时进程与凭据已清理；未修改用户已有设备、服务或 OWNER_SECRET。
 
-远端 CI 的 ASan/UBSan 已通过。regression 的依赖安装已修复并通过（retry 0.4.3、type-check 0.4.0）；其后 TLS 夹具对所有 HTTP 请求断言业务凭据，误拒绝新加入的无凭据更新请求。发布后修正夹具为显式关闭自动更新，TLS 独立回归通过；更新网络请求由专用 ELF/HTTP 用例验证。远端 regression 的最终结果仍须单独观察，不能把此前失败算作通过。
+远端 CI 的 ASan/UBSan 已通过。regression 的依赖安装已修复并通过（retry 0.4.3、type-check 0.4.0）；其后 TLS 夹具对所有 HTTP 请求断言业务凭据，误拒绝新加入的无凭据更新请求。发布后修正夹具为显式关闭自动更新，TLS 独立回归通过；更新网络请求由专用 ELF/HTTP 用例验证。2026-10-25（Asia/Shanghai）提交 `67e737a` 的[远端 CI](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40109322123) 完整通过：regression（构建、全部独立回归、浏览器 e2e 与 UI 压力）及 ASan/UBSan 均成功；此前失败保留为历史记录。
 
 0.5.1 及更早版本需首次手动安装 0.5.2 才获得自动更新；安装目录须归运行用户所有且可写。保留上一版下载及部署信息，未执行生产回滚、真实 DO 休眠/升级、八小时负载、掉电或真机辅助技术验收；原有稳定化边界继续有效。
 
