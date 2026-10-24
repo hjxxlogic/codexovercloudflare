@@ -1,5 +1,36 @@
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
+export function mergeEvents(events: Event[]) {
+  const latest = new Map<number, Event>();
+  for (const event of events) {
+    const previous = latest.get(event.seq);
+    if (
+      !previous ||
+      (event.revision ?? event.seq) >= (previous.revision ?? previous.seq)
+    )
+      latest.set(event.seq, event);
+  }
+  return [...latest.values()].sort((a, b) => a.seq - b.seq);
+}
+
+export function eventWindow(
+  events: Event[],
+  limit = 400,
+  maxBytes = 192 * 1024,
+) {
+  const merged = mergeEvents(events);
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let start = merged.length;
+  while (start > 0 && merged.length - start < limit) {
+    const size = encoder.encode(JSON.stringify(merged[start - 1])).length;
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    start--;
+  }
+  return merged.slice(start);
+}
+
 export function visibleEvents(events: Event[]) {
   const visible = new Set([
     'user',
@@ -16,16 +47,21 @@ export function visibleEvents(events: Event[]) {
     'error',
     'approvalResolved',
     'sessionClosed',
+    'largeRpc',
   ]);
   const result: Event[] = [];
   const seen = new Set<number>();
   const fragments = new Map<string, number>();
   const tools = new Map<string, number>();
-  for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
+  for (const event of mergeEvents(events)) {
     if (seen.has(event.seq)) continue;
     seen.add(event.seq);
-    if (!visible.has(event.type)) continue;
+    if (!visible.has(event.type) && event.contentSeq === undefined) continue;
     const data = event.data as any;
+    if (event.contentSeq !== undefined) {
+      result.push(event);
+      continue;
+    }
     if (['user', 'turn/started', 'turn/completed'].includes(event.type)) {
       fragments.clear();
       tools.clear();

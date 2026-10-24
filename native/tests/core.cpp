@@ -123,6 +123,72 @@ void core() {
   std::cout << "PASS: URL validation, web schemas, RPC isolation, policy, redaction, SQLite "
                "replay/restart/deduplication, private configuration\n";
 }
+void history_test() {
+  Temp temp;
+  Store store(temp.path);
+  store.save({{"id", "history"}, {"state", "closed"}, {"createdAt", 1}});
+  for (int i = 0; i < 450; ++i)
+    store.event("history", "user", {{"text", std::to_string(i)}});
+  auto latest = store.history("history");
+  check(latest["events"].size() == 200 && latest["more"] == true, "Latest page is bounded");
+  auto watermark = latest["snapshotSeq"].get<int64_t>();
+  store.event("other", "user", {{"text", "private"}});
+  store.event("history", "user", {{"text", "new"}});
+  auto older = store.history("history", latest["cursor"]);
+  check(older["events"].size() == 200 &&
+            older["events"].back()["seq"] < latest["events"].front()["seq"],
+        "Keyset pagination is stable across live inserts");
+  auto forward = store.history("history", 0, watermark);
+  check(forward["events"].size() == 1 && forward["events"][0]["data"]["text"] == "new",
+        "Snapshot handoff does not lose live messages or cross sessions");
+  auto first = store.event("history", "item/agentMessage/delta",
+                           {{"itemId", "answer"}, {"delta", "hello "}});
+  auto second =
+      store.event("history", "item/agentMessage/delta", {{"itemId", "answer"}, {"delta", "world"}});
+  check(first["seq"] == second["seq"] && second["revision"] > first["revision"] &&
+            second["data"]["delta"] == "hello world",
+        "Streaming fragments materialize into a stable message with revisions");
+  auto updated = store.history("history", 0, first["revision"]);
+  check(updated["events"].size() == 1 && updated["events"][0]["data"]["delta"] == "hello world",
+        "Reconnect replays message updates by revision");
+  std::string text;
+  for (int i = 0; i < 50000; ++i)
+    text += "你好";
+  auto large = store.event("history", "user", {{"text", text}});
+  check(large.contains("contentSeq") && large.dump().size() < 1024,
+        "Large messages become small references");
+  std::string reconstructed;
+  int64_t offset = 0;
+  while (true) {
+    auto chunk = store.content("history", large["seq"], offset, large["revision"]);
+    check(chunk.dump().size() < max_frame, "Content chunks fit transport frames");
+    reconstructed += chunk["text"].get<std::string>();
+    offset = chunk["nextOffset"];
+    if (chunk["more"] == false)
+      break;
+  }
+  check(reconstructed == text, "UTF-8 content round trips across chunks");
+  rejects([&] { store.content("other", large["seq"], 0); }, "CONTENT_NOT_FOUND");
+  rejects([&] { store.content("history", second["seq"], 0, first["revision"]); },
+          "CONTENT_CHANGED");
+  store.archive_page("history",
+                     Json::array({{{"type", "user"}, {"data", {{"text", "archive-new"}}}},
+                                  {{"type", "user"}, {"data", {{"text", "archive-old"}}}}}),
+                     nullptr);
+  auto archive = store.history("history", 1);
+  check(archive["events"].size() == 2 && archive["events"][0]["data"]["text"] == "archive-old",
+        "Lazy archived items sort before live messages");
+  store.cleanup();
+  check(store.history("history")["snapshotSeq"] == large["revision"],
+        "Cleanup retains old closed-session history");
+  store.cache_put("page", latest);
+  check(store.cache_get("page") == latest, "Local SQLite page cache round trip");
+  store.cache_clear();
+  check(store.cache_get("page").is_null() && !store.history("history")["events"].empty(),
+        "Clearing cache preserves authoritative history");
+  std::cout << "PASS: bounded history, stable cursors, revision sync, UTF-8 chunks, archive "
+               "ordering, retention and cache isolation\n";
+}
 void files_test() {
   Temp t, outside;
   WorkspaceFiles files;
@@ -290,6 +356,7 @@ int main(int argc, char **argv) {
       process_test(true, mode == "--task");
     else {
       core();
+      history_test();
       files_test();
       process_test(false, false);
     }

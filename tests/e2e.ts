@@ -213,6 +213,7 @@ async function cliCommand(
     env: {
       ...process.env,
       COC_CREDENTIALS: join(dir, 'credentials.json'),
+      COC_HISTORY_DIR: join(dir, 'client-history'),
       ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -532,6 +533,58 @@ try {
   pass(
     'local thread listing filters project metadata and rejects cross-host/project resume',
   );
+  const largeSession = await api('/sessions', {
+    hostId: enrolled.hostId,
+    projectId: 'test-project',
+    mode: 'web',
+    threadId: 'large-history',
+  });
+  const hp = peer('/ws/v1/history/' + largeSession.id);
+  await wait(
+    () => hp.messages.some((m) => m.type === 'history-ready'),
+    'read-only history connection',
+  );
+  const historyRead = async (data: Record<string, unknown>) => {
+    const requestId = randomUUID();
+    hp.ws.send(JSON.stringify({ ...data, requestId }));
+    await wait(
+      () => hp.messages.some((m) => m.requestId === requestId),
+      'history response',
+    );
+    return hp.messages.find((m) => m.requestId === requestId);
+  };
+  const latestHistory = await historyRead({ operation: 'page', before: 0 });
+  assert(latestHistory.events.length <= 200 && latestHistory.more);
+  assert(Buffer.byteLength(JSON.stringify(latestHistory)) < 256 * 1024);
+  const largeItem = latestHistory.events.find(
+    (e: any) => e.contentSeq !== undefined,
+  );
+  assert(largeItem && largeItem.contentSeq < 0);
+  const chunk = await historyRead({
+    operation: 'content',
+    seq: largeItem.contentSeq,
+    revision: largeItem.revision,
+  });
+  assert(chunk.more && chunk.nextOffset === 4096 && !chunk.text.includes('�'));
+  let before = latestHistory.cursor;
+  for (let i = 0; i < 2; i++) {
+    const page = await historyRead({ operation: 'page', before });
+    assert(page.events.length > 0 && page.cursor < before && page.more);
+    before = page.cursor;
+  }
+  // A reader neither owns the control lease nor prevents attaching an execution client.
+  const controller = await web(largeSession.id);
+  assert.equal(hp.ws.readyState, WebSocket.OPEN);
+  await api(`/sessions/${largeSession.id}/stop`, {});
+  const closedPage = await historyRead({ operation: 'page', before: 0 });
+  assert(closedPage.events.length > 0);
+  const closedOlder = await historyRead({ operation: 'page', before });
+  assert(closedOlder.events.length > 0 && closedOlder.cursor < before);
+  controller.ws.close();
+  hp.ws.close();
+  pass(
+    'large Codex resume excludes full history, lazily pages items and chunks UTF-8 over bidirectional Worker WebSockets without acquiring control',
+  );
   const key = randomUUID();
   const s = await api(
     '/sessions',
@@ -566,11 +619,11 @@ try {
     .filter((m) => m.type === 'event')
     .map((m) => m.event);
   assert.deepEqual(
-    liveEvents.map((e) => e.seq),
-    liveEvents.map((e) => e.seq).sort((a, b) => a - b),
+    liveEvents.map((e) => e.revision),
+    liveEvents.map((e) => e.revision).sort((a, b) => a - b),
   );
   assert.equal(
-    liveEvents
+    [...new Map(liveEvents.map((e) => [e.seq, e])).values()]
       .filter((e) => e.type === 'item/agentMessage/delta')
       .map((e) => e.data.delta)
       .join(''),
@@ -678,6 +731,36 @@ try {
   );
   assert(!cp.messages.some((m) => m.id === 3 && m.result));
   pass('CLI raw protocol routing and unsafe RPC rejection');
+  const cliThread = cp.messages.find((m) => m.id === 2).result.thread.id;
+  cp.ws.send(
+    JSON.stringify({
+      id: 4,
+      method: 'turn/start',
+      params: {
+        threadId: cliThread,
+        input: [{ type: 'text', text: 'local cache test' }],
+      },
+    }),
+  );
+  await wait(
+    () => cp.messages.some((m) => m.method === 'turn/completed'),
+    'CLI history source',
+  );
+  const cachedCli = JSON.parse(await cliCommand(['history', cli.id]));
+  assert(
+    cachedCli.events.some(
+      (e: any) => e.type === 'user' && e.data.text === 'local cache test',
+    ),
+  );
+  const offlineCli = JSON.parse(
+    await cliCommand(['history', cli.id, '--offline', 'true']),
+  );
+  assert.deepEqual(offlineCli.events, cachedCli.events);
+  assert.equal(statSync(join(dir, 'client-history')).isDirectory(), true);
+  pass(
+    'CC fetches history over Worker WebSocket and persists scoped SQLite pages for offline reads',
+  );
+
   await cliCommand(['stop', cli.id]);
   const binDir = join(dir, 'bin');
   mkdirSync(binDir);
@@ -956,6 +1039,55 @@ try {
   pass(
     'character-by-character English/Chinese streaming and ordered history after browser reload',
   );
+  const cacheSize = await visitorPage.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coc-history');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise<number>((resolve) => {
+      const request = db.transaction('events').objectStore('events').count();
+      request.onsuccess = () => {
+        db.close();
+        resolve(request.result);
+      };
+    });
+  });
+  assert(cacheSize > 0);
+  let historyOffline = true;
+  await visitorPage.routeWebSocket('**/ws/v1/history/**', (route) => {
+    if (historyOffline)
+      route.close({ code: 1013, reason: 'Test history offline' });
+    else route.connectToServer();
+  });
+  await visitorPage.route('**/api/v1/hosts/*/projects', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'HOST_OFFLINE', message: 'Test Agent offline' },
+      }),
+    }),
+  );
+  await visitorPage.reload();
+  await feature(visitorPage, /连接设置 主机/);
+  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await feature(visitorPage, /^会话记录/);
+  await visitorPage
+    .getByRole('button', { name: /进行中的对话/ })
+    .first()
+    .click();
+  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage.screenshot({
+    path: '.local/cw-history-cache.png',
+    fullPage: true,
+  });
+  historyOffline = false;
+  await visitorPage.unroute('**/api/v1/hosts/*/projects');
+  pass(
+    'CW persists IndexedDB history and restores cached host/session catalog when Agent metadata is unavailable',
+  );
+
   await visitorPage.screenshot({
     path: process.env.COC_SCREENSHOT_PATH || join(dir, 'browser.png'),
     fullPage: true,

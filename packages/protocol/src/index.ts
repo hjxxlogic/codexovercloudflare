@@ -50,6 +50,31 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     allow: z.boolean(),
   }),
 ]);
+const sequenceSchema = z
+  .number()
+  .int()
+  .min(-Number.MAX_SAFE_INTEGER)
+  .max(Number.MAX_SAFE_INTEGER);
+export const historyCommandSchema = z.discriminatedUnion('operation', [
+  z
+    .object({
+      operation: z.literal('page'),
+      requestId: idSchema,
+      before: sequenceSchema.optional(),
+      after: sequenceSchema.nonnegative().optional(),
+    })
+    .refine(
+      (v) => v.before === undefined || v.after === undefined,
+      'Choose one pagination direction',
+    ),
+  z.object({
+    operation: z.literal('content'),
+    requestId: idSchema,
+    seq: sequenceSchema,
+    offset: sequenceSchema.nonnegative().default(0),
+    revision: sequenceSchema.nonnegative().optional(),
+  }),
+]);
 export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('list'),
@@ -91,7 +116,14 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.enum(['finish', 'cancel']), uploadId: idSchema }),
 ]);
 export type WebCommand = z.infer<typeof webCommandSchema>;
-export type Event = { seq: number; type: string; data: unknown; time: number };
+export type Event = {
+  seq: number;
+  type: string;
+  data: unknown;
+  time: number;
+  contentSeq?: number;
+  revision?: number;
+};
 export type Rpc = {
   id?: string | number;
   method?: string;

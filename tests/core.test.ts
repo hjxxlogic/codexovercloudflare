@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_FRAME,
+  historyCommandSchema,
   parseFrame,
   relayUrl,
   webCommandSchema,
@@ -15,6 +16,25 @@ describe('protocol boundaries', () => {
       'https://example.com/path',
     ])
       expect(() => relayUrl(u)).toThrow();
+  });
+  it('bounds history cursors and accepts one read direction only', () => {
+    expect(
+      historyCommandSchema.parse({
+        operation: 'page',
+        requestId: 'read',
+        before: -20,
+      }),
+    ).toMatchObject({ before: -20 });
+    for (const data of [
+      { operation: 'page', before: 2, after: 3 },
+      { operation: 'page', after: -1 },
+      { operation: 'page', before: Number.MAX_SAFE_INTEGER + 1 },
+      { operation: 'content', seq: 2, offset: -1 },
+      { operation: 'prompt' },
+    ])
+      expect(() =>
+        historyCommandSchema.parse({ ...data, requestId: 'read' }),
+      ).toThrow();
   });
   it('rejects oversized frames and unknown web commands', () => {
     expect(() => parseFrame(' '.repeat(MAX_FRAME + 1))).toThrow();

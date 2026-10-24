@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   AppError,
   MAX_QUEUE,
+  historyCommandSchema,
   parseFrame,
 } from '../../../packages/protocol/src/index.ts';
 import {
@@ -23,6 +24,7 @@ type Attachment = {
   sessionId?: string;
   epoch: number;
   authenticated: boolean;
+  history?: boolean;
   deadline: number;
 };
 type Ticket = {
@@ -124,7 +126,9 @@ export class HostRelayDO extends DurableObject<Env> {
         const active = this.ctx
           .getWebSockets('session:' + sessionId)
           .some(
-            (ws) => (ws.deserializeAttachment() as Attachment).authenticated,
+            (ws) =>
+              (ws.deserializeAttachment() as Attachment).authenticated &&
+              !(ws.deserializeAttachment() as Attachment).history,
           );
         if (active && !d.takeover)
           throw new AppError(
@@ -166,6 +170,26 @@ export class HostRelayDO extends DurableObject<Env> {
           epoch,
           authenticated: true,
           deadline: a.expires,
+        });
+      }
+      if (u.pathname === '/history') {
+        const sessionId = u.searchParams.get('sessionId')!;
+        const info = await this.command('get', { sessionId });
+        if (info.mode !== auth.role)
+          throw new AppError(
+            'FORBIDDEN',
+            'Wrong credential for session mode',
+            403,
+          );
+        return await this.upgrade(req, {
+          role: auth.role as 'web' | 'cli',
+          auth,
+          hostId,
+          sessionId,
+          history: true,
+          epoch: 0,
+          authenticated: true,
+          deadline: auth.expires,
         });
       }
       if (u.pathname === '/web')
@@ -227,7 +251,10 @@ export class HostRelayDO extends DurableObject<Env> {
   async acquire(sessionId: string, takeover: boolean) {
     const sockets = this.ctx
       .getWebSockets('session:' + sessionId)
-      .filter((ws) => (ws.deserializeAttachment() as Attachment).authenticated);
+      .filter((ws) => {
+        const a = ws.deserializeAttachment() as Attachment;
+        return a.authenticated && !a.history;
+      });
     const epoch = await this.ctx.storage.transaction(async (tx) => {
       const lease = (await tx.get<{ epoch: number; active: boolean }>(
         'lease:' + sessionId,
@@ -264,6 +291,7 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.schedule();
     if (a.role === 'agent')
       this.send(pair[1], { v: 1, type: 'hello', epoch: a.epoch });
+    if (a.history) this.send(pair[1], { type: 'history-ready' });
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -324,11 +352,16 @@ export class HostRelayDO extends DurableObject<Env> {
             'session:' + d.sessionId,
           )) {
             const ca = client.deserializeAttachment() as Attachment;
-            if (!ca.authenticated || ca.epoch !== d.epoch) continue;
+            if (!ca.authenticated || (!ca.history && ca.epoch !== d.epoch))
+              continue;
             try {
               await registryCall(this.env, 'authHash', { hash: ca.auth.hash });
             } catch {
               client.close(4001, 'Authorization revoked');
+              continue;
+            }
+            if (ca.history) {
+              if (d.type === 'event') this.send(client, d.payload);
               continue;
             }
             if (d.type === 'rpc' && ca.role === 'cli')
@@ -337,6 +370,15 @@ export class HostRelayDO extends DurableObject<Env> {
               this.send(client, d.payload);
           }
         }
+        return;
+      }
+      if (a.history) {
+        const { requestId, ...data } = historyCommandSchema.parse(d);
+        const result = await this.command('history', {
+          ...data,
+          sessionId: a.sessionId,
+        });
+        this.send(ws, { type: 'history', requestId, ...result });
         return;
       }
       if (!a.authenticated) {
@@ -384,6 +426,7 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   async webSocketClose(ws: WebSocket) {
+    if ((ws.deserializeAttachment() as Attachment)?.history) return;
     const a = ws.deserializeAttachment() as Attachment;
     if (a.role === 'agent') {
       if (a.epoch !== (await this.ctx.storage.get('agentEpoch'))) return;

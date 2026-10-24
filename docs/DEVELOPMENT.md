@@ -83,8 +83,9 @@ C++ 使用 2 空格、snake_case 函数、PascalCase 类及 `.clang-format`，�
 
 - `.dev.vars`、`.local/owner-secret`：开发秘密；所有者密钥至少 32 字符。
 - `.local/agent.json`：设备令牌与项目配置；Agent 登录写入权限 `0600`。
+- CC `COC_HISTORY_DIR/<身份摘要>/agent.db`：本机 SQLite 缓存；CW `coc-history` IndexedDB：分页、消息版本、内容块和目录缓存。两者均不替代 Agent 权威历史。
 - `.wrangler/`：DO 开发状态；删除会丢失设备登记与登录会话。
-- Agent `dataDir/agent.db`：SQLite 会话、去重和事件；WAL，默认保留 7 天、约 1 GiB 上限。
+- Agent `dataDir/agent.db`：SQLite 会话、去重、完整事件及消息投影；WAL，历史不按时间或总量自动清理，幂等记录保留 7 天。SQLite 须提供 JSON 函数。首次升级在 SQLite 内建立投影索引，迁移耗时和磁盘开销取决于既有日志规模。
 - `~/.config/coc-client/credentials.json`：CLI 凭据；可用 `COC_CREDENTIALS` 指定路径。
 
 停止旧 TypeScript Agent 后，直接用 C++ Agent 读取原配置和 dataDir。表结构不变；启动后旧活动会话标记失败，不恢复旧进程。每个 dataDir 只运行一个 Agent；C++ 使用文件锁拒绝第二个实例。不要直接复制活跃 WAL 数据库的单个 `.db` 文件；停机备份或使用 SQLite 备份机制。
@@ -114,3 +115,9 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 专注聊天布局的浏览器回归还检查：聊天区超过窗口高度的 90%、空闲消息区超过 65%，输入区保持在窗口内且页面没有横纵溢出；主机 / 项目、会话列表 / 详情默认不占聊天空间。测试通过菜单访问历史与详情，检查选中后自动关闭、Escape 退出，以及执行中的停止和审批仍可操作。
 
 工作区文件 UI 在 `files.tsx`，通用请求在 `api.ts`；`native/src/files.cpp` 负责文件访问、分段与临时上传，Agent 生命周期负责清理。新增操作须同步更新协议 Zod、Worker 路由与原生校验。CTest 覆盖越界路径、符号链接、所有者 / 项目隔离、只读策略、二进制内容、重试、取消和覆盖冲突；浏览器回归上传 / 下载超过两个分段的二进制文件并逐字节比较、拒绝默认覆盖及确认替换，截图 `.local/cw-workspace-files.png`。不调用模型。
+
+## 双向历史开发
+
+`/ws/v1/history/:sessionId` 是经过角色 / 主机 / 会话校验的只读 WebSocket，不取得或更新控制租约。请求为带 `requestId` 的 `page`（`before` 或 `after` 二选一）/ `content`；Agent 同时可主动发送 `event`。使用 `npm run test:e2e` 覆盖真实 Wrangler、原生程序及 Chromium IndexedDB；测试把 `COC_HISTORY_DIR` 指向临时目录。无需模型调用。
+
+消息以稳定 `seq` 排序，以递增 `revision` 同步更新；`snapshotSeq` 是首次快照同步位置，后续按响应的 `cursor` 推进，不能使用交错到达的实时消息推进补发游标。历史分页按 `seq`，补发按 `revision`，负 `seq` 表示惰性导入的既有 Codex 历史。大内容分块通过 `revision` 检测读取期间的变化。

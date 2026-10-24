@@ -12,9 +12,12 @@ struct Socket {
 using SocketMessage = std::function<void(Json)>;
 using SocketClosed = std::function<void(unsigned)>;
 std::shared_ptr<Socket> connect_socket(asio::io_context &, const Url &, const std::string &token,
-                                       SocketMessage, SocketClosed);
+                                       SocketMessage, SocketClosed,
+                                       const std::string &path = "/ws/v1/agent");
 std::shared_ptr<Socket> plain_socket(asio::io_context &, const Url &, const std::string &,
-                                     SocketMessage, SocketClosed);
+                                     SocketMessage, SocketClosed,
+                                     const std::string &path = "/ws/v1/agent");
 std::shared_ptr<Socket> tls_socket(asio::io_context &, const Url &, const std::string &,
-                                   SocketMessage, SocketClosed);
+                                   SocketMessage, SocketClosed,
+                                   const std::string &path = "/ws/v1/agent");
 } // namespace coc

@@ -1,7 +1,12 @@
 #include "coc/login.hpp"
+#include "coc/store.hpp"
+#include <algorithm>
 #include <csignal>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <openssl/sha.h>
+#include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
 namespace coc {
@@ -46,6 +51,100 @@ class Cli {
     return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"));
   }
   Json host() { return api("/hosts").at(0); }
+  std::unique_ptr<Store> history_cache(const Json &credential) {
+    auto identity = credential.at("relay").get<std::string>() + "\n" +
+                    credential.at("hostId").get<std::string>() + "\n" +
+                    credential.at("token").get<std::string>();
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char *>(identity.data()), identity.size(), digest);
+    std::ostringstream scope;
+    for (auto byte : digest)
+      scope << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(byte);
+    auto root = option("cache-dir", config_path("COC_HISTORY_DIR", "coc-client/history").string());
+    return std::make_unique<Store>((std::filesystem::path(root) / scope.str()).string(), false);
+  }
+  int64_t cursor_option(const std::string &name) {
+    auto text = option(name, "0");
+    if (text.empty() ||
+        text.find_first_not_of(name == "before" || name == "seq" ? "-0123456789" : "0123456789") !=
+            std::string::npos ||
+        text.size() > 17)
+      throw Error("USAGE", "Invalid --" + name);
+    size_t used = 0;
+    auto n = std::stoll(text, &used);
+    if (used != text.size())
+      throw Error("USAGE", "Invalid --" + name);
+    if (n > 9007199254740991LL || n < -9007199254740991LL)
+      throw Error("USAGE", "Cursor exceeds safe integer range");
+    return n;
+  }
+  void history(const std::string &id, bool clear = false) {
+    if (id.empty() || id.find('~') == std::string::npos)
+      throw Error("USAGE", "history <session-id> [--before SEQ] [--offline true]");
+    auto c = load();
+    if (id.substr(0, id.find('~')) != c.at("hostId"))
+      throw Error("FORBIDDEN", "Session belongs to another host");
+    auto cache = history_cache(c);
+    if (clear) {
+      cache->cache_clear();
+      std::cout << "Local history cache cleared for selected credential and host\n";
+      return;
+    }
+    Json request = {
+        {"operation", "page"}, {"before", cursor_option("before")}, {"requestId", uuid()}};
+    auto key = id + ":page:" + std::to_string(cursor_option("before"));
+    if (!option("seq").empty()) {
+      request = {{"operation", "content"},
+                 {"seq", cursor_option("seq")},
+                 {"offset", cursor_option("offset")},
+                 {"requestId", uuid()}};
+      key = id + ":content:" + option("seq") + ":" + std::to_string(cursor_option("offset"));
+    }
+    if (option("offline") == "true") {
+      auto value = cache->cache_get(key);
+      if (value.is_null())
+        throw Error("CACHE_MISS", "This page has not been cached on this computer");
+      std::cout << value.dump(2) << '\n';
+      return;
+    }
+    asio::io_context io;
+    asio::steady_timer timeout(io);
+    std::shared_ptr<Socket> socket;
+    Json result, error;
+    timeout.expires_after(std::chrono::seconds(20));
+    timeout.async_wait([&](auto ec) {
+      if (!ec) {
+        error = {{"code", "TIMEOUT"}, {"message", "History request timed out"}};
+        socket->close();
+      }
+    });
+    socket = connect_socket(
+        io, relay_url(c.at("relay")), c.at("token"),
+        [&](Json d) {
+          if (d.value("type", "") == "history-ready")
+            socket->send(request);
+          if (d.value("type", "") == "error") {
+            error = d.at("error");
+            timeout.cancel();
+            socket->close();
+          }
+          if (d.value("type", "") == "history" &&
+              d.value("requestId", "") == request["requestId"]) {
+            result = d;
+            cache->cache_put(key, result);
+            timeout.cancel();
+            socket->close();
+          }
+        },
+        [&](unsigned) { timeout.cancel(); }, "/ws/v1/history/" + id);
+    socket->start();
+    io.run();
+    if (!error.is_null())
+      throw Error(error.value("code", "HISTORY_ERROR"), error.value("message", "History failed"));
+    if (result.is_null())
+      throw Error("HOST_OFFLINE", "History unavailable; use --offline true for cached pages");
+    std::cout << result.dump(2) << '\n';
+  }
   void attach(const std::string &id) {
     if (id.empty())
       throw Error("USAGE", "attach <session-id>");
@@ -78,11 +177,69 @@ class Cli {
       execvp(argv[0], argv.data());
       _exit(127);
     }
-    int status;
-    while (waitpid(pid, &status, 0) < 0) {
-      if (errno != EINTR)
-        throw Error("SPAWN_FAILED", "Cannot wait for Codex TUI");
+    asio::io_context history_io;
+    std::unique_ptr<Store> cache;
+    try {
+      cache = history_cache(c);
+    } catch (const std::exception &e) {
+      std::cerr << "Local history cache unavailable: " << e.what() << '\n';
     }
+    auto pageKey = id + ":page:0";
+    auto tail = cache ? cache->cache_get(pageKey) : Json();
+    if (tail.is_null())
+      tail = {{"events", Json::array()}, {"more", false}, {"cursor", 0}};
+    std::shared_ptr<Socket> reader;
+    reader = connect_socket(
+        history_io, u, c.at("token"),
+        [&](Json d) {
+          if (d.value("type", "") == "history-ready")
+            reader->send({{"operation", "page"}, {"before", 0}, {"requestId", "initial"}});
+          if (d.value("type", "") == "history" && d.contains("events")) {
+            tail = d;
+            if (cache)
+              cache->cache_put(pageKey, tail);
+          }
+          if (d.value("type", "") == "event") {
+            auto &events = tail["events"];
+            auto event = d.at("event");
+            bool found = false;
+            for (auto &e : events)
+              if (e["seq"] == event["seq"]) {
+                e = event;
+                found = true;
+              }
+            if (!found)
+              events.push_back(event);
+            std::sort(events.begin(), events.end(),
+                      [](const Json &a, const Json &b) { return a["seq"] < b["seq"]; });
+            size_t bytes = events.dump().size();
+            while (events.size() > 1 && (events.size() > 200 || bytes > 96 * 1024)) {
+              bytes -= events.front().dump().size();
+              events.erase(events.begin());
+              tail["more"] = true;
+            }
+            tail["cursor"] = events.empty() ? Json(0) : events.front()["seq"];
+            if (cache)
+              cache->cache_put(pageKey, tail);
+          }
+        },
+        [](unsigned) {}, "/ws/v1/history/" + id);
+    reader->start();
+    int status;
+    while (true) {
+      auto done = waitpid(pid, &status, WNOHANG);
+      if (done == pid)
+        break;
+      if (done < 0 && errno != EINTR)
+        throw Error("SPAWN_FAILED", "Cannot wait for Codex TUI");
+      history_io.restart();
+      history_io.run_for(std::chrono::milliseconds(100));
+      if (history_io.stopped())
+        usleep(10000);
+    }
+    reader->close();
+    history_io.restart();
+    history_io.poll();
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
       throw Error("CODEX_EXITED", "Codex TUI exited unsuccessfully");
   }
@@ -170,7 +327,9 @@ public:
       auto s = api("/sessions",
                    {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}});
       attach(s.at("id"));
-    } else if (command == "attach")
+    } else if (command == "history" || command == "cache-clear")
+      history(id, command == "cache-clear");
+    else if (command == "attach")
       attach(id);
     else if (command == "stop") {
       if (id.empty())
@@ -179,9 +338,10 @@ public:
     } else {
       std::cout
           << "Usage: coc-client "
-             "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop> [options]\n"
+             "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop|history|cache-"
+             "clear> [options]\n"
              "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover "
-             "--api-key\n"
+             "--api-key --before SEQ --seq SEQ --offset N --offline true --cache-dir PATH\n"
              "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
              "displayed request in the management website. logout only removes "
              "local credentials.\n";

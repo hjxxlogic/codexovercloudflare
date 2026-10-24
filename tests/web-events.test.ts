@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from '../packages/protocol/src/index.ts';
-import { visibleEvents } from '../apps/web/src/events.ts';
+import { visibleEvents, eventWindow } from '../apps/web/src/events.ts';
 
 const delta = (seq: number, text: string, itemId = 'reply'): Event => ({
   seq,
@@ -97,6 +97,30 @@ describe('web reply assembly', () => {
       item: { aggregatedOutput: 'ok', exitCode: 0 },
     });
     expect(events).toEqual(original);
+  });
+
+  it('keeps the latest message revision when cache and live snapshots overlap', () => {
+    const events = [
+      { ...delta(1, 'hello'), revision: 8 },
+      { ...delta(1, 'hel'), revision: 6 },
+    ];
+    expect(visibleEvents(events)).toEqual([events[0]]);
+    expect(eventWindow(events)).toEqual([events[0]]);
+  });
+
+  it('bounds the display window by actual UTF-8 bytes', () => {
+    const events = Array.from({ length: 100 }, (_, i) =>
+      delta(i + 1, '你好'.repeat(300)),
+    );
+    const window = eventWindow(events, 400, 16 * 1024);
+    expect(window.length).toBeLessThan(10);
+    expect(window.at(-1)?.seq).toBe(100);
+    expect(
+      window.reduce(
+        (n, e) => n + new TextEncoder().encode(JSON.stringify(e)).length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(16 * 1024);
   });
 
   it('keeps distinct response items separate', () => {

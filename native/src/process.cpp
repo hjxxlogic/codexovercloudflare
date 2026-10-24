@@ -144,8 +144,8 @@ void CodexProcess::read() {
       return;
     }
     try {
-      if (n > max_frame - 4096)
-        throw Error("MESSAGE_TOO_LARGE", "Codex output exceeds frame limit");
+      if (n > max_queue - 4096)
+        throw Error("MESSAGE_TOO_LARGE", "Single Codex RPC exceeds local buffer limit");
       std::istream input(&self->buffer_);
       std::string line;
       std::getline(input, line);

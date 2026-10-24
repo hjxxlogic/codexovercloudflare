@@ -4,9 +4,10 @@ import type { Event, Session } from '../../../packages/protocol/src/index.ts';
 import './style.css';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { visibleEvents } from './events.ts';
+import { visibleEvents, eventWindow } from './events.ts';
 import { api } from './api.ts';
 import { WorkspaceFiles } from './files.tsx';
+import { HistoryCache, type HistoryPage } from './history.ts';
 
 function MenuIcon() {
   return (
@@ -60,6 +61,20 @@ function App() {
     else if (!panel && dialog?.open) dialog.close();
   }, [panel]);
   const historyRequest = useRef(0);
+  const historySocket = useRef<WebSocket | null>(null);
+  const localHistory = useRef<HistoryCache | null>(null);
+  const catalog = useRef<HistoryCache | null>(null);
+  const olderView = useRef(false);
+  const loadContent = useRef<
+    (seq: number, offset: number, revision: number) => void
+  >(() => {});
+  const loadHistory = useRef<(before?: number) => void>(() => {});
+  const [olderCursor, setOlderCursor] = useState(0);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [contentChunks, setContentChunks] = useState<
+    Record<number, { text: string; nextOffset: number; more: boolean }>
+  >({});
   const messageList = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
   const menu = useRef<HTMLElement>(null);
@@ -220,23 +235,46 @@ function App() {
     setSessions([]);
     setSelected(undefined);
     if (!host) return;
-    void Promise.all([
-      api(`/hosts/${host}/projects`),
-      api('/sessions?hostId=' + host),
-    ])
-      .then(([p, s]) => {
+    catalog.current = null;
+    void (async () => {
+      try {
+        const { identity } = await api(
+          `/client/identity?hostId=${encodeURIComponent(host)}`,
+        );
+        if (disposed) return;
+        const cache = new HistoryCache(
+          JSON.stringify([location.origin, identity, host]),
+        );
+        const stored = await cache.record('catalog').catch(() => undefined);
+        if (disposed) return;
+        if (stored) {
+          setProjects(stored.projects);
+          setProject(stored.projects[0]?.id || '');
+          setSessions(stored.sessions);
+        }
+        catalog.current = cache;
+        const [p, s] = await Promise.all([
+          api(`/hosts/${host}/projects`),
+          api('/sessions?hostId=' + host),
+        ]);
         if (disposed) return;
         setProjects(p);
         setProject(p[0]?.id || '');
         setSessions(s);
-      })
-      .catch((e) => {
+      } catch (e) {
         if (!disposed) report(e);
-      });
+      }
+    })();
     return () => {
       disposed = true;
     };
   }, [host]);
+  useEffect(() => {
+    if (projects.length && catalog.current)
+      void catalog.current
+        .record('catalog', { projects, sessions })
+        .catch(() => {});
+  }, [projects, sessions]);
   async function loadThreads(append = false) {
     if (!host || !project) return;
     const request = ++historyRequest.current;
@@ -294,8 +332,21 @@ function App() {
       messageList.current.scrollTop = messageList.current.scrollHeight;
   }, [events, view]);
   useEffect(() => {
+    const visible = new Set(events.map((event) => String(event.seq)));
+    setContentChunks((chunks) =>
+      Object.keys(chunks).some((seq) => !visible.has(seq))
+        ? Object.fromEntries(
+            Object.entries(chunks).filter(([seq]) => visible.has(seq)),
+          )
+        : chunks,
+    );
+  }, [events]);
+  useEffect(() => {
     setReady(false);
     setEvents([]);
+    setHasOlder(false);
+    setContentChunks({});
+    olderView.current = false;
     setApprovals([]);
     setText('');
     followMessages.current = true;
@@ -308,14 +359,23 @@ function App() {
     setApprovals([]);
     setReady(false);
     setPending(false);
-    setBusy(selected.running);
-    const seen = new Set<number>();
+    setBusy(selected.state === 'ready' && selected.running);
+    const seen = new Map<number, number>();
     let stateSeq = 0;
-    const add = (e: Event) => {
-      if (seen.has(e.seq)) return;
-      seen.add(e.seq);
+    const add = (e: Event, live = true) => {
+      const revision = e.revision ?? e.seq;
+      if ((seen.get(e.seq) ?? -1) >= revision) return;
+      seen.set(e.seq, revision);
+      if (seen.size > 2000) seen.delete(seen.keys().next().value!);
       after.current = Math.max(after.current, e.seq);
-      setEvents((v) => [...v, e].sort((a, b) => a.seq - b.seq).slice(-1000));
+      if (!olderView.current)
+        setEvents((v) => {
+          const merged = eventWindow([...v, e]);
+          if (v.length && merged[0]?.seq > v[0].seq) setHasOlder(true);
+          setOlderCursor(merged[0]?.seq ?? 0);
+          return merged;
+        });
+      if (!live) return;
       const d = e.data as any;
       if (e.type === 'sessionClosed') {
         setReady(false);
@@ -361,7 +421,12 @@ function App() {
           try {
             const d = JSON.parse(message.data);
             if (d.type === 'attached') {
-              ws.send(JSON.stringify({ action: 'sync', after: after.current }));
+              ws.send(
+                JSON.stringify({
+                  action: 'sync',
+                  after: Number.MAX_SAFE_INTEGER,
+                }),
+              );
               return;
             }
             if (d.type === 'sync') {
@@ -419,14 +484,192 @@ function App() {
         }
       }
     };
-    void connect();
+    let historyTimer: ReturnType<typeof setTimeout>;
+    let cache: HistoryCache | undefined;
+    let checkpoint: number | undefined;
+    const requests = new Map<string, number | 'sync'>();
+    const cacheError = () => {
+      if (!disposed) setError('本地历史缓存不可用；仍可从 Agent 读取历史。');
+    };
+    const showPage = (page: HistoryPage) => {
+      setContentChunks({});
+      setEvents((v) =>
+        olderView.current ? page.events : eventWindow([...v, ...page.events]),
+      );
+      setOlderCursor(page.events[0]?.seq ?? 0);
+      setHasOlder(page.more);
+      setLoadingHistory(false);
+    };
+    const requestPage = (before = 0) => {
+      olderView.current = before !== 0;
+      followMessages.current = before === 0;
+      setLoadingHistory(true);
+      void (async () => {
+        if (before && cache) {
+          const stored = await cache.page(before).catch(() => undefined);
+          if (disposed) return;
+          if (stored) {
+            showPage(stored);
+            return;
+          }
+        }
+        const hs = historySocket.current;
+        if (hs?.readyState !== WebSocket.OPEN) {
+          setLoadingHistory(false);
+          return;
+        }
+        const requestId = crypto.randomUUID();
+        requests.set(requestId, before);
+        hs.send(JSON.stringify({ operation: 'page', before, requestId }));
+      })();
+    };
+    loadHistory.current = requestPage;
+    loadContent.current = (seq, offset, revision) => {
+      void (async () => {
+        const stored = await cache
+          ?.content(seq, offset, revision)
+          .catch(() => undefined);
+        if (disposed) return;
+        if (stored) {
+          setContentChunks((v) => ({ ...v, [seq]: stored }));
+          return;
+        }
+        historySocket.current?.send(
+          JSON.stringify({
+            operation: 'content',
+            seq,
+            offset,
+            revision,
+            requestId: crypto.randomUUID(),
+          }),
+        );
+      })();
+    };
+    const connectHistory = async () => {
+      try {
+        const { identity } = await api(
+          `/client/identity?hostId=${encodeURIComponent(host)}`,
+        );
+        if (disposed) return;
+        if (!cache) {
+          cache = new HistoryCache(
+            JSON.stringify([location.origin, identity, host, selected.id]),
+          );
+          localHistory.current = cache;
+          const stored = await cache.latest().catch(() => {
+            cacheError();
+            return undefined;
+          });
+          if (disposed) return;
+          if (stored) {
+            checkpoint = stored.checkpoint;
+            setEvents((v) => eventWindow([...stored.events, ...v]));
+            setOlderCursor(stored.events[0]?.seq ?? 0);
+            setHasOlder(stored.events.length > 0);
+          }
+        }
+        const hs = new WebSocket(
+          location.origin.replace(/^http/, 'ws') +
+            '/ws/v1/history/' +
+            selected.id,
+        );
+        historySocket.current = hs;
+        const sync = () => {
+          const requestId = crypto.randomUUID();
+          requests.set(requestId, 'sync');
+          hs.send(
+            JSON.stringify({
+              operation: 'page',
+              requestId,
+              ...(checkpoint === undefined ? {} : { after: checkpoint }),
+            }),
+          );
+        };
+        hs.onmessage = (message) => {
+          if (disposed) return;
+          try {
+            const d = JSON.parse(message.data);
+            if (d.type === 'history-ready') {
+              sync();
+              return;
+            }
+            if (d.type === 'event') {
+              add(d.event);
+              void cache?.write([d.event]).catch(cacheError);
+              return;
+            }
+            if (d.type === 'error') {
+              setLoadingHistory(false);
+              setError(d.error.message);
+              return;
+            }
+            if (d.type !== 'history') return;
+            if (d.text !== undefined) {
+              void cache
+                ?.content(d.seq, d.offset, d.revision, d)
+                .catch(cacheError);
+              setContentChunks((v) => ({
+                ...v,
+                [d.seq]: {
+                  text: d.text,
+                  nextOffset: d.nextOffset,
+                  more: d.more,
+                },
+              }));
+              return;
+            }
+            const request = requests.get(d.requestId);
+            requests.delete(d.requestId);
+            if (request === 'sync') {
+              // Advance only from the replay response, never from interleaved live events.
+              checkpoint = d.direction === 'before' ? d.snapshotSeq : d.cursor;
+              for (const e of d.events) add(e, false);
+              void cache?.write(d.events, checkpoint).catch(cacheError);
+              if (d.direction === 'before') {
+                if (!olderView.current) {
+                  setOlderCursor(d.events[0]?.seq ?? 0);
+                  setHasOlder(d.more);
+                }
+              }
+              if (d.direction === 'after' && d.more) sync();
+            } else if (typeof request === 'number') {
+              showPage(d);
+              void cache
+                ?.write(d.events, undefined, request, d)
+                .catch(cacheError);
+            }
+          } catch (e) {
+            report(e);
+          }
+        };
+        hs.onclose = () => {
+          requests.clear();
+          if (!disposed) setLoadingHistory(false);
+          if (!disposed)
+            historyTimer = setTimeout(() => void connectHistory(), 3000);
+        };
+      } catch (e) {
+        if (!disposed) {
+          report(e);
+          historyTimer = setTimeout(() => void connectHistory(), 5000);
+        }
+      }
+    };
+    void connectHistory();
+    if (selected.state === 'ready') void connect();
+    else setStatus('查看已结束会话的历史');
     return () => {
+      clearTimeout(historyTimer);
+      historySocket.current?.close();
+      historySocket.current = null;
+      localHistory.current = null;
+      requests.clear();
       disposed = true;
       clearTimeout(timer);
       socket.current?.close();
       socket.current = null;
     };
-  }, [selected?.id, takeover]);
+  }, [selected?.id, takeover, host]);
   const send = (data: unknown) => {
     if (socket.current?.readyState !== WebSocket.OPEN || !ready) return;
     setPending(true);
@@ -1066,8 +1309,8 @@ function App() {
                         (s) =>
                           s.projectId === project &&
                           s.mode === 'web' &&
-                          s.state === 'ready' &&
-                          !threads.some((t) => t.id === s.threadId),
+                          (s.state !== 'ready' ||
+                            !threads.some((t) => t.id === s.threadId)),
                       )
                       .filter((s) => s.id.includes(search))
                       .map((s) => (
@@ -1080,7 +1323,9 @@ function App() {
                             setPanel(null);
                           }}
                         >
-                          进行中的对话
+                          {s.state === 'ready'
+                            ? '进行中的对话'
+                            : '历史会话（只读）'}
                           <small>
                             {new Date(s.createdAt).toLocaleString()}
                           </small>
@@ -1184,6 +1429,32 @@ function App() {
                           el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                       }}
                     >
+                      <div className="row">
+                        {hasOlder && (
+                          <button
+                            disabled={loadingHistory}
+                            onClick={() => loadHistory.current(olderCursor)}
+                          >
+                            加载更早内容
+                          </button>
+                        )}
+                        <button
+                          disabled={loadingHistory}
+                          onClick={() => loadHistory.current()}
+                        >
+                          返回最新内容
+                        </button>
+                        <button
+                          onClick={() =>
+                            void localHistory.current
+                              ?.clear()
+                              .then(() => setStatus('本机会话缓存已清理'))
+                              .catch(report)
+                          }
+                        >
+                          清理本机会话缓存
+                        </button>
+                      </div>
                       {visibleEvents(events)
                         .filter(
                           (e) =>
@@ -1199,7 +1470,7 @@ function App() {
                           const isChat =
                             e.type === 'user' ||
                             e.type === 'item/agentMessage/delta';
-                          return isChat ? (
+                          return isChat && e.contentSeq === undefined ? (
                             <article
                               className={`message ${e.type === 'user' ? 'user-message' : 'assistant-message'}`}
                               key={e.seq}
@@ -1236,7 +1507,40 @@ function App() {
                           ) : (
                             <details className="tool-output" key={e.seq}>
                               <summary>{eventTitle(e)}</summary>
-                              <pre>{eventText(e)}</pre>
+                              {e.contentSeq !== undefined ? (
+                                <>
+                                  <pre>
+                                    {contentChunks[e.seq]?.text ??
+                                      '此内容较大，按块读取。'}
+                                  </pre>
+                                  <button
+                                    onClick={() =>
+                                      loadContent.current(
+                                        e.contentSeq!,
+                                        0,
+                                        e.revision ?? 0,
+                                      )
+                                    }
+                                  >
+                                    读取内容
+                                  </button>
+                                  {contentChunks[e.seq]?.more && (
+                                    <button
+                                      onClick={() =>
+                                        loadContent.current(
+                                          e.contentSeq!,
+                                          contentChunks[e.seq].nextOffset,
+                                          e.revision ?? 0,
+                                        )
+                                      }
+                                    >
+                                      下一块
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <pre>{eventText(e)}</pre>
+                              )}
                             </details>
                           );
                         })}

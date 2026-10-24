@@ -29,6 +29,7 @@ class Agent {
   asio::steady_timer retry_, maintenance_;
   asio::signal_set signals_;
   bool stopped_ = false, listing_threads_ = false;
+  std::set<std::string> archive_loading_;
   int attempts_ = 0;
   int64_t pong_ = now();
 
@@ -149,6 +150,37 @@ public:
     }
   }
   void control(const std::string &action, const Json &d, Completion done) {
+    if (action == "history") {
+      auto id = d.at("sessionId").get<std::string>();
+      auto s = store_.get(id);
+      if (d.value("operation", "page") == "content") {
+        done(store_.content(id, d.at("seq"), d.value("offset", int64_t(0)),
+                            d.value("revision", int64_t(-1))),
+             nullptr);
+        return;
+      }
+      auto page = store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)));
+      if (d.contains("after") || s.value("archiveDone", true)) {
+        done(page, nullptr);
+        return;
+      }
+      if (!page["events"].empty()) {
+        page["more"] = true;
+        done(page, nullptr);
+        return;
+      }
+      load_archive(id, [this, id, d, done](Json, Json error) {
+        if (!error.is_null()) {
+          done(nullptr, error);
+          return;
+        }
+        auto page = store_.history(id, d.value("before", int64_t(0)));
+        if (!store_.get(id).value("archiveDone", true))
+          page["more"] = true;
+        done(page, nullptr);
+      });
+      return;
+    }
     if (action == "files") {
       auto p = project(d.at("projectId"));
       done(files_.request(p["path"], config_["sandbox"], d.at("owner"), d), nullptr);
@@ -298,8 +330,10 @@ public:
                        {"sandbox", config_["sandbox"]},
                        {"approvalPolicy", "on-request"},
                        {"approvalsReviewer", "user"}};
-        if (d.contains("threadId"))
+        if (d.contains("threadId")) {
           params["threadId"] = d.at("threadId");
+          params["excludeTurns"] = true;
+        }
         rt->process->request(d.contains("threadId") ? "thread/resume" : "thread/start", params,
                              [this, id, key, d, done](Json result, Json error) {
                                if (!error.is_null()) {
@@ -310,10 +344,24 @@ public:
                                auto current = store_.get(id);
                                current["threadId"] = result.at("thread").at("id");
                                store_.save(current);
-                               if (d.contains("threadId"))
-                                 restore_history(id, result.at("thread"));
-                               store_.finish(key, current);
-                               done(current, nullptr);
+                               if (d.contains("threadId")) {
+                                 current["archiveDone"] = false;
+                                 current["archiveCursor"] = nullptr;
+                                 store_.save(current);
+                                 load_archive(id, [this, id, key, done](Json, Json error) {
+                                   if (!error.is_null()) {
+                                     stop(id);
+                                     done(nullptr, error);
+                                     return;
+                                   }
+                                   auto current = store_.get(id);
+                                   store_.finish(key, current);
+                                   done(current, nullptr);
+                                 });
+                               } else {
+                                 store_.finish(key, current);
+                                 done(current, nullptr);
+                               }
                              });
       };
       if (!d.contains("threadId")) {
@@ -338,22 +386,82 @@ public:
           });
     });
   }
-  void restore_history(const std::string &id, const Json &thread) {
-    for (auto &turn : thread.value("turns", Json::array()))
-      for (auto &item : turn.value("items", Json::array())) {
-        auto type = item.value("type", "");
-        if (type == "userMessage") {
-          std::string text;
-          for (auto &content : item.value("content", Json::array()))
-            if (content.value("type", "") == "text")
-              text += content.value("text", "");
-          emit(id, "user", {{"text", text}});
-        } else if (type == "agentMessage")
-          emit(id, "item/agentMessage/delta",
-               {{"itemId", item.value("id", "")}, {"delta", item.value("text", "")}});
-        else if (type == "commandExecution" || type == "fileChange" || type == "mcpToolCall")
-          emit(id, "item/completed", {{"item", item}});
-      }
+  void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
+                    int remaining, Completion done) {
+    auto s = store_.get(id);
+    process->request("thread/items/list",
+                     {{"threadId", s.at("threadId")},
+                      {"cursor", s.value("archiveCursor", Json())},
+                      {"sortDirection", "desc"},
+                      {"limit", 1}},
+                     [this, id, process, temporary, remaining, done](Json result, Json error) {
+                       if (!error.is_null()) {
+                         archive_loading_.erase(id);
+                         if (temporary)
+                           process->close();
+                         done(nullptr, error);
+                         return;
+                       }
+                       Json events = Json::array();
+                       for (auto &entry : result.value("data", Json::array())) {
+                         auto item = entry.at("item");
+                         auto type = item.value("type", "");
+                         auto turn = entry.value("turnId", "");
+                         if (type == "userMessage") {
+                           std::string text;
+                           for (auto &content : item.value("content", Json::array()))
+                             if (content.value("type", "") == "text")
+                               text += content.value("text", "");
+                           events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
+                         } else if (type == "agentMessage")
+                           events.push_back({{"type", "item/agentMessage/delta"},
+                                             {"data",
+                                              {{"itemId", item.value("id", "")},
+                                               {"turnId", turn},
+                                               {"delta", item.value("text", "")}}}});
+                         else
+                           events.push_back({{"type", "item/completed"},
+                                             {"data", {{"item", item}, {"turnId", turn}}}});
+                       }
+                       auto cursor = result.value("nextCursor", Json());
+                       store_.archive_page(id, events, cursor);
+                       if (!cursor.is_null() && remaining > 1) {
+                         read_archive(id, process, temporary, remaining - 1, done);
+                         return;
+                       }
+                       archive_loading_.erase(id);
+                       if (temporary)
+                         process->close();
+                       done(nullptr, nullptr);
+                     });
+  }
+  void load_archive(const std::string &id, Completion done) {
+    auto s = store_.get(id);
+    auto existing = runtimes_.find(id);
+    // Closed sessions can still fetch uncached archive pages after Agent restart.
+    const bool temporary = existing == runtimes_.end() || s["state"] != "ready";
+    auto process = temporary
+                       ? std::make_shared<CodexProcess>(
+                             io_, config_, project(s["projectId"])["path"], [](Json) {}, [] {})
+                       : existing->second->process;
+    if (archive_loading_.count(id))
+      throw Error("BACKPRESSURE", "Archive page is already loading");
+    archive_loading_.insert(id);
+    auto read = [this, id, process, temporary, done]() {
+      read_archive(id, process, temporary, 10, done);
+    };
+    if (temporary) {
+      process->start();
+      process->initialize([this, id, process, read, done](Json, Json error) {
+        if (!error.is_null()) {
+          archive_loading_.erase(id);
+          process->close();
+          done(nullptr, error);
+        } else
+          read();
+      });
+    } else
+      read();
   }
   void check_busy(const Json &s) {
     for (auto &o : store_.sessions())
@@ -361,7 +469,18 @@ public:
           o["running"] == true)
         throw Error("PROJECT_BUSY", "Another session is executing in this project");
   }
-  void rpc(const std::string &id, const Json &m) {
+  void rpc(const std::string &id, const Json &raw) {
+    auto m = redact(raw);
+    if (m.dump().size() > max_frame - 4096) {
+      emit(id, "largeRpc", m);
+      if (m.contains("id") && !m.contains("method"))
+        m = {{"id", m["id"]},
+             {"error",
+              {{"code", -32000},
+               {"message", "Large result is available through coc-client history content reads"}}}};
+      else
+        return; // Full content remains in the Agent journal and read-only history stream.
+    }
     auto it = runtimes_.find(id);
     if (it != runtimes_.end())
       send({{"type", "rpc"},
@@ -406,6 +525,12 @@ public:
       }
       if (m.contains("id"))
         rt->requests[id_key(m["id"])] = method;
+      if (method == "turn/start" || method == "turn/steer") {
+        std::string text;
+        for (auto &input : guarded["params"].value("input", Json::array()))
+          text += input.value("text", "");
+        emit(id, "user", {{"text", text}});
+      }
       rt->process->send(guarded);
     } catch (const std::exception &e) {
       rpc(id, {{"id", m.is_object() ? m.value("id", Json()) : Json()},
@@ -468,9 +593,11 @@ public:
         return;
       }
     }
-    if (s["mode"] == "cli")
+    if (s["mode"] == "cli") {
+      if (!method.empty() && !m.contains("id"))
+        emit(id, method, m.value("params", Json::object()));
       rpc(id, m);
-    else if (!method.empty())
+    } else if (!method.empty())
       emit(id, method, m.value("params", Json::object()));
   }
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {

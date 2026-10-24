@@ -22,7 +22,7 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   tcp::resolver resolver_;
   websocket::stream<Transport> ws_;
   Url url_;
-  std::string token_;
+  std::string token_, path_;
   SocketMessage message_;
   SocketClosed closed_;
   beast::flat_buffer buf_{max_frame};
@@ -31,14 +31,16 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   bool open_ = false, ended_ = false;
 
 public:
-  Connection(asio::io_context &io, Url u, std::string t, SocketMessage m, SocketClosed c)
+  Connection(asio::io_context &io, Url u, std::string t, SocketMessage m, SocketClosed c,
+             std::string path)
       : io_(io), resolver_(io),
 #ifdef COC_TLS
         ws_(io, ctx_),
 #else
         ws_(io),
 #endif
-        url_(std::move(u)), token_(std::move(t)), message_(std::move(m)), closed_(std::move(c)) {
+        url_(std::move(u)), token_(std::move(t)), path_(std::move(path)), message_(std::move(m)),
+        closed_(std::move(c)) {
   }
   void start() override {
     auto self = shared_from_this();
@@ -83,7 +85,7 @@ public:
     ws_.set_option(websocket::stream_base::decorator([token = token_](websocket::request_type &r) {
       r.set(beast::http::field::authorization, "Bearer " + token);
     }));
-    ws_.async_handshake(url_.authority, "/ws/v1/agent", [self](auto ec) {
+    ws_.async_handshake(url_.authority, path_, [self](auto ec) {
       if (ec) {
         self->finish();
         return;
@@ -157,7 +159,7 @@ public:
 };
 } // namespace
 std::shared_ptr<Socket> COC_FACTORY(asio::io_context &io, const Url &u, const std::string &t,
-                                    SocketMessage m, SocketClosed c) {
-  return std::make_shared<Connection>(io, u, t, m, c);
+                                    SocketMessage m, SocketClosed c, const std::string &path) {
+  return std::make_shared<Connection>(io, u, t, m, c, path);
 }
 } // namespace coc

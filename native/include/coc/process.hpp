@@ -13,7 +13,7 @@ class CodexProcess : public std::enable_shared_from_this<CodexProcess> {
   asio::io_context &io_;
   asio::posix::stream_descriptor input_, output_;
   asio::steady_timer poll_, kill_;
-  boost::asio::streambuf buffer_{max_frame};
+  boost::asio::streambuf buffer_{max_queue};
   std::deque<std::string> writes_;
   size_t queued_ = 0;
   int pid_ = -1, next_ = 0;

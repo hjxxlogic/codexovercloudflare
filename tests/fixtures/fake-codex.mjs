@@ -5,6 +5,25 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 const send = (d) => console.log(JSON.stringify(d));
+const restoredItems = [
+  {
+    id: 'old-user',
+    type: 'userMessage',
+    content: [{ type: 'text', text: 'Previous local task' }],
+  },
+  {
+    id: 'old-reply',
+    type: 'agentMessage',
+    text: '## Restored reply\n\n**Markdown** works.\n\n| File | Status |\n| --- | --- |\n| app.ts | ready |\n\n```ts\nconst restored = true;\n```\n\n[unsafe](javascript:alert(1))',
+  },
+  {
+    id: 'old-command',
+    type: 'commandExecution',
+    command: 'echo restored',
+    aggregatedOutput: 'restored',
+    status: 'completed',
+  },
+];
 let nextApproval = 100,
   turn = 0,
   approval;
@@ -61,36 +80,37 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         turns: [],
       },
     };
-  if (m.method === 'thread/resume')
+  if (m.method === 'thread/resume') {
+    if (!m.params.excludeTurns)
+      throw new Error('Resume must exclude full history');
     result = {
-      thread: {
-        id: m.params.threadId,
-        cwd: process.cwd(),
-        turns: [
-          {
-            items: [
-              {
-                id: 'old-user',
-                type: 'userMessage',
-                content: [{ type: 'text', text: 'Previous local task' }],
-              },
-              {
-                id: 'old-reply',
-                type: 'agentMessage',
-                text: '## Restored reply\n\n**Markdown** works.\n\n| File | Status |\n| --- | --- |\n| app.ts | ready |\n\n```ts\nconst restored = true;\n```\n\n[unsafe](javascript:alert(1))',
-              },
-              {
-                id: 'old-command',
-                type: 'commandExecution',
-                command: 'echo restored',
-                aggregatedOutput: 'restored',
-                status: 'completed',
-              },
-            ],
-          },
-        ],
-      },
+      thread: { id: m.params.threadId, cwd: process.cwd(), turns: [] },
     };
+  }
+  if (m.method === 'thread/items/list') {
+    if (m.params.threadId === 'large-history' && m.params.limit !== 1)
+      throw new Error(
+        'Large histories must read one bounded item per local RPC',
+      );
+    const items =
+      m.params.threadId === 'large-history'
+        ? Array.from({ length: 510 }, (_, i) => ({
+            id: 'large-' + i,
+            type: 'agentMessage',
+            text: i >= 500 ? '你好'.repeat(180000) : 'Archived message ' + i,
+          }))
+        : restoredItems;
+    const offset = Number(m.params.cursor || 0);
+    const descending = [...items].reverse();
+    const page = descending.slice(offset, offset + m.params.limit);
+    result = {
+      data: page.map((item) => ({ item, turnId: 'archived-turn' })),
+      nextCursor:
+        offset + page.length < items.length
+          ? String(offset + page.length)
+          : null,
+    };
+  }
   if (m.method === 'turn/start') {
     turn++;
     result = { turn: { id: 'turn-' + turn, status: 'inProgress' } };

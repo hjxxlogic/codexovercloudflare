@@ -16,7 +16,7 @@ Json exchange(Stream &s, const Url &u, const std::string &path, const Json &body
   req.set(http::field::host, u.authority);
   req.set(http::field::content_type, "application/json");
   req.set(http::field::origin, u.origin);
-  req.set(http::field::user_agent, "coc/0.4.0");
+  req.set(http::field::user_agent, "coc/0.5.0");
   if (!token.empty())
     req.set(http::field::authorization, "Bearer " + token);
   if (!body.is_null()) {
@@ -58,7 +58,7 @@ Json http_json(const Url &u, const std::string &path, const Json &body, const st
   return exchange(s, u, path, body, token);
 }
 std::shared_ptr<Socket> connect_socket(asio::io_context &io, const Url &u, const std::string &t,
-                                       SocketMessage m, SocketClosed c) {
-  return u.tls ? tls_socket(io, u, t, m, c) : plain_socket(io, u, t, m, c);
+                                       SocketMessage m, SocketClosed c, const std::string &path) {
+  return u.tls ? tls_socket(io, u, t, m, c, path) : plain_socket(io, u, t, m, c, path);
 }
 } // namespace coc

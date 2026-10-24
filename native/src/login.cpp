@@ -20,7 +20,8 @@ Options::Options(int argc, char **argv) {
     } else if (a.rfind("--", 0) == 0) {
       const auto key = a.substr(2);
       if (key != "relay" && key != "host" && key != "name" && key != "config" && key != "project" &&
-          key != "project-id")
+          key != "project-id" && key != "before" && key != "seq" && key != "offset" &&
+          key != "offline" && key != "cache-dir")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);

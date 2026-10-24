@@ -441,6 +441,24 @@ export default {
           ),
         );
       }
+      if (p === '/api/v1/client/identity' && req.method === 'GET') {
+        const hostId = idSchema.parse(u.searchParams.get('hostId'));
+        const auth = await authenticate(req, env, hostId);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        return json({ identity: auth.hash });
+      }
+      const historySocket = p.match(/^\/ws\/v1\/history\/([\w~-]+)$/);
+      if (historySocket && req.method === 'GET') {
+        const hostId = idSchema.parse(historySocket[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        await registryCall(env, 'host', { id: hostId });
+        return hostStub(env, hostId).fetch(
+          internal(req, '/history?sessionId=' + historySocket[1], auth, hostId),
+        );
+      }
       const web = p.match(/^\/ws\/v1\/web\/([\w~-]+)$/);
       if (web && req.method === 'GET') {
         const hostId = idSchema.parse(web[1].split('~')[0]);
