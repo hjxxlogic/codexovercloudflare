@@ -7,7 +7,9 @@
 - 连接设置移至会话记录面板顶部，覆盖主机 / 项目、创建会话、登录与授权；手机布局将选择框与操作按钮分行展示，聊天区继续保留在弹窗后方。
 - Chromium UI 回归通过：两组各 600 条消息分别验证手动加载和向上滚动自动异步加载，延迟响应期间滚动事件不重复发请求，读取失败可重试，首次及后续分页均保持阅读位置，完整保留超过 400 条 / 192 KiB 的内容，已读旧页命中 IndexedDB，读至开头后不再自动请求。截图 `.local/cw-scroll-history/ui/cw-session-connections.png`、`cw-loaded-history.png`。
 - 网页构建、Worker dry-run、typecheck、lint 与 Vitest 6 文件 43 项通过。自动分页未命中离线缓存时，提示放在消息区内，避免常驻全局提示挤压聊天区域。未调用模型。
-- Bookworm 隔离容器中的完整 e2e 与 UI 压力最终全部通过：真实 Wrangler / DO、已发布 0.5.2 原生程序及 Chromium，覆盖调整后的登录、多 A 授权 / 切换、创建与恢复会话、桌面 / 手机布局、审批、文件、重连及撤销；日志 `.local/cw-scroll-history/e2e.log`。截图位于 `.local/cw-scroll-history/container-screenshots/`。部署结果另行记录。
+- Bookworm 隔离容器中的完整 e2e 与 UI 压力最终全部通过：真实 Wrangler / DO、已发布 0.5.2 原生程序及 Chromium，覆盖调整后的登录、多 A 授权 / 切换、创建与恢复会话、桌面 / 手机布局、审批、文件、重连及撤销；日志 `.local/cw-scroll-history/e2e.log`。截图位于 `.local/cw-scroll-history/container-screenshots/`。
+- 2026-10-25 07:35（Asia/Shanghai）源码提交 `299a14d00757f403c979b781d55f7a63c1708de2` 已推送并部署到 `https://r.xlogic.cc`。Worker 版本 `0f30bdd8-dd2e-410d-ba74-e679c60957c7`，部署 ID `f225e0c0-aee7-4ec8-b6a1-53938d3fecb5`，部署列表确认 100% 流量。部署前再次通过网页构建、Worker dry-run、typecheck 和 lint，三个既有下载归档 SHA256 均通过；在线手册同步更新，原生发行仍为 0.5.2。
+- 线上首页引用新资源，JS / CSS 与本地构建字节一致；健康 200、未登录业务 401、跨域登录 403、安全头、在线手册 UTF-8 / 文档字节、原生清单及三个归档 SHA256 全部通过。证据 `.local/cw-scroll-deploy/online-verification.json`、`deploy.log`、`deployments-after.json`。线上范围为未登录 HTTP 与静态产物检查，交互行为由本地 Chromium / 真实 Wrangler e2e 验证；本次未创建生产设备或操作既有会话，未调用模型。
 
 ![手机会话记录顶部的连接设置](assets/cw-history-2026-10-25/session-connections-mobile.png)
 
