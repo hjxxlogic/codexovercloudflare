@@ -21,21 +21,34 @@ export const agentConfigSchema = z.object({
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export type Project = z.infer<typeof projectSchema>;
-export type Session = {
-  id: string;
-  projectId: string;
-  mode: 'web' | 'cli';
-  state: 'ready' | 'closed' | 'failed';
-  threadId?: string;
-  turnId?: string;
-  sandbox?: 'read-only' | 'workspace-write';
-  running: boolean;
-  createdAt: number;
-};
+export const sessionSchema = z.object({
+  id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$/),
+  projectId: idSchema,
+  mode: z.enum(['web', 'cli']),
+  state: z.enum(['starting', 'ready', 'closing', 'closed', 'failed']),
+  threadId: idSchema.optional(),
+  turnId: z.string().max(200).optional(),
+  sandbox: z.enum(['read-only', 'workspace-write']).optional(),
+  running: z.boolean(),
+  createdAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  updatedAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional(),
+  title: z.string().max(320).optional(),
+});
+export type Session = z.infer<typeof sessionSchema>;
 export const webCommandSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('sync'),
-    after: z.number().int().nonnegative().default(0),
+    after: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(0),
   }),
   z.object({
     action: z.literal('prompt'),
@@ -113,17 +126,122 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
       .max(20 * 1024 * 1024),
     data: z.string().max(87384),
   }),
-  z.object({ operation: z.enum(['finish', 'cancel']), uploadId: idSchema }),
+  z.object({
+    operation: z.enum(['finish', 'cancel', 'status']),
+    uploadId: idSchema,
+  }),
 ]);
 export type WebCommand = z.infer<typeof webCommandSchema>;
-export type Event = {
-  seq: number;
-  type: string;
-  data: unknown;
-  time: number;
-  contentSeq?: number;
-  revision?: number;
-};
+export const eventSchema = z.object({
+  seq: sequenceSchema,
+  type: z.string().min(1).max(200),
+  data: z.unknown(),
+  time: sequenceSchema.nonnegative(),
+  contentSeq: sequenceSchema.optional(),
+  revision: sequenceSchema.nonnegative().optional(),
+});
+export type Event = z.infer<typeof eventSchema>;
+export const agentBuildSchema = z.object({
+  version: z.string().min(1).max(50),
+  commit: z.string().regex(/^[a-f0-9]{40,64}$/),
+  sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  target: z.string().min(1).max(100),
+  protocol: z.literal(1),
+  capabilities: z.array(z.string().min(1).max(100)).max(32),
+  dirty: z.boolean(),
+  verified: z.boolean().optional(),
+});
+export type AgentBuild = z.infer<typeof agentBuildSchema>;
+const sessionIdSchema = sessionSchema.shape.id;
+const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
+  z.object({ action: z.literal(action), data });
+export const controlCommandSchema = z.discriminatedUnion('action', [
+  control('projects', z.object({})),
+  control(
+    'list',
+    z.object({
+      paged: z.boolean().default(false),
+      cursor: z.string().max(201).default(''),
+      projectId: idSchema.optional(),
+      mode: z.enum(['web', 'cli']).optional(),
+      state: sessionSchema.shape.state.optional(),
+    }),
+  ),
+  control('get', z.object({ sessionId: sessionIdSchema })),
+  control('stop', z.object({ sessionId: sessionIdSchema })),
+  control(
+    'attach',
+    z.object({
+      sessionId: sessionIdSchema,
+      epoch: sequenceSchema.positive(),
+      expires: sequenceSchema.nonnegative(),
+    }),
+  ),
+  control(
+    'create',
+    z.object({
+      key: z.string().min(1).max(202),
+      projectId: idSchema,
+      mode: z.enum(['web', 'cli']),
+      threadId: idSchema.optional(),
+    }),
+  ),
+  control(
+    'request',
+    z.object({
+      sessionId: sessionIdSchema.optional(),
+      requestId: z.string().min(1).max(202),
+      mode: z.enum(['web', 'cli']),
+    }),
+  ),
+  control(
+    'threads',
+    z.object({
+      projectId: idSchema,
+      cursor: z.string().max(4096).nullable().optional(),
+    }),
+  ),
+  control(
+    'history',
+    z
+      .object({
+        sessionId: sessionIdSchema,
+        operation: z.enum(['page', 'content']),
+        before: sequenceSchema.optional(),
+        after: sequenceSchema.nonnegative().optional(),
+        seq: sequenceSchema.optional(),
+        offset: sequenceSchema.nonnegative().optional(),
+        revision: sequenceSchema.nonnegative().optional(),
+      })
+      .refine((v) =>
+        v.operation === 'content'
+          ? v.seq !== undefined
+          : v.before === undefined || v.after === undefined,
+      ),
+  ),
+  control(
+    'files',
+    z.intersection(
+      workspaceFileCommandSchema,
+      z.object({
+        projectId: idSchema,
+        owner: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    ),
+  ),
+]);
+export type ControlCommand = z.infer<typeof controlCommandSchema>;
+export const controlResultSchema = z
+  .object({
+    type: z.literal('result'),
+    v: z.literal(1),
+    requestId: idSchema,
+    data: z.unknown().optional(),
+    error: z
+      .object({ code: z.string().max(100), message: z.string().max(4096) })
+      .optional(),
+  })
+  .refine((v) => (v.error === undefined) !== (v.data === undefined));
 export type Rpc = {
   id?: string | number;
   method?: string;

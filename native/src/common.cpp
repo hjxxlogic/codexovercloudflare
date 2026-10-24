@@ -1,13 +1,35 @@
 #include "coc/common.hpp"
+#include <algorithm>
 #include <chrono>
 #include <fcntl.h>
 #include <fstream>
 #include <openssl/rand.h>
 #include <regex>
 #include <set>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 namespace coc {
+PrivateLock::PrivateLock(const std::filesystem::path &path) {
+  auto parent = path.parent_path();
+  if (!parent.empty() && !std::filesystem::exists(parent)) {
+    std::filesystem::create_directories(parent);
+    chmod(parent.c_str(), 0700);
+  }
+  fd_ = open((path.string() + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd_ < 0)
+    throw Error("CONFIG_ERROR", "Cannot open configuration lock");
+  if (flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+    close(fd_);
+    fd_ = -1;
+    throw Error("CONFIG_BUSY", "Another credential update is in progress");
+  }
+}
+PrivateLock::~PrivateLock() {
+  if (fd_ >= 0)
+    close(fd_);
+}
+
 Json error_data(const std::exception &e) {
   auto p = dynamic_cast<const Error *>(&e);
   return {{"code", p ? p->code : "INTERNAL_ERROR"},
@@ -52,26 +74,51 @@ void save_private(const std::filesystem::path &p, const Json &j, bool exclusive)
     std::filesystem::create_directories(parent);
     chmod(parent.c_str(), 0700);
   }
-  int fd = open(p.c_str(),
-                O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW | (exclusive ? O_EXCL : O_TRUNC), 0600);
-  if (fd < 0)
-    throw Error("CONFIG_ERROR", "Cannot securely write configuration");
-  auto s = j.dump(2) + "\n";
-  size_t n = 0;
-  bool ok = fchmod(fd, 0600) == 0;
-  while (ok && n < s.size()) {
-    auto w = write(fd, s.data() + n, s.size() - n);
-    if (w < 0 && errno == EINTR)
-      continue;
-    if (w <= 0) {
-      ok = false;
-      break;
+  auto directory = parent.empty() ? std::filesystem::path(".") : parent;
+  int dirfd = open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (dirfd < 0)
+    throw Error("CONFIG_ERROR", "Cannot open configuration directory");
+  const auto temporary = p.string() + ".tmp-" + uuid();
+  int fd = -1;
+  try {
+    struct stat existing {};
+    if (lstat(p.c_str(), &existing) == 0 && !S_ISREG(existing.st_mode))
+      throw Error("CONFIG_ERROR", "Configuration must be a regular file");
+    fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+      throw Error("CONFIG_ERROR", "Cannot create private configuration");
+    if (fchmod(fd, 0600) != 0)
+      throw Error("CONFIG_ERROR", "Cannot set private configuration permissions");
+    const auto text = j.dump(2) + "\n";
+    size_t offset = 0;
+    while (offset < text.size()) {
+      auto count = write(fd, text.data() + offset, text.size() - offset);
+      if (count < 0 && errno == EINTR)
+        continue;
+      if (count <= 0)
+        throw Error("CONFIG_ERROR", "Configuration write failed");
+      offset += count;
     }
-    n += w;
+    if (fsync(fd) != 0)
+      throw Error("CONFIG_ERROR", "Configuration sync failed");
+    close(fd);
+    fd = -1;
+    if (exclusive) {
+      if (link(temporary.c_str(), p.c_str()) != 0)
+        throw Error("CONFIG_ERROR", "Configuration already exists or cannot be published");
+      unlink(temporary.c_str());
+    } else if (rename(temporary.c_str(), p.c_str()) != 0)
+      throw Error("CONFIG_ERROR", "Configuration replacement failed");
+    if (fsync(dirfd) != 0)
+      throw Error("CONFIG_ERROR", "Configuration directory sync failed");
+    close(dirfd);
+  } catch (...) {
+    if (fd >= 0)
+      close(fd);
+    close(dirfd);
+    unlink(temporary.c_str());
+    throw;
   }
-  close(fd);
-  if (!ok)
-    throw Error("CONFIG_ERROR", "Configuration write failed");
 }
 Url relay_url(std::string s) {
   std::smatch m;
@@ -93,6 +140,29 @@ Url relay_url(std::string s) {
   return u;
 }
 namespace {
+std::string trim_text(const std::string &text) {
+  size_t first = text.size(), last = 0;
+  for (size_t i = 0; i < text.size();) {
+    const auto begin = i;
+    unsigned char leading = text[i++];
+    uint32_t point = leading;
+    int count = leading < 0x80 ? 0 : leading < 0xe0 ? 1 : leading < 0xf0 ? 2 : 3;
+    if (count) {
+      point &= (1u << (6 - count)) - 1;
+      for (int n = 0; n < count && i < text.size(); ++n)
+        point = (point << 6) | (static_cast<unsigned char>(text[i++]) & 63);
+    }
+    const bool space = (point >= 9 && point <= 13) || point == 32 || point == 160 ||
+                       point == 5760 || (point >= 8192 && point <= 8202) || point == 8232 ||
+                       point == 8233 || point == 8239 || point == 8287 || point == 12288 ||
+                       point == 65279;
+    if (!space) {
+      first = std::min(first, begin);
+      last = i;
+    }
+  }
+  return last ? text.substr(first, last - first) : "";
+}
 size_t utf16_length(const std::string &text) {
   size_t units = 0;
   for (unsigned char c : text)
@@ -124,6 +194,7 @@ Json agent_config(Json c) {
       c["projects"].size() > 20)
     throw Error("CONFIG_ERROR", "Register 1 to 20 projects");
   std::set<std::string> ids;
+  std::vector<std::filesystem::path> roots;
   for (auto &p : c["projects"]) {
     auto id = p.at("id").get<std::string>();
     if (!valid_id(id) || !ids.insert(id).second || !p.at("name").is_string() ||
@@ -132,6 +203,15 @@ Json agent_config(Json c) {
     auto path = std::filesystem::canonical(p.at("path").get<std::string>());
     if (!std::filesystem::is_directory(path))
       throw Error("CONFIG_ERROR", "Project must be a directory");
+    for (const auto &root : roots) {
+      auto prefix = [](const auto &a, const auto &b) {
+        auto pair = std::mismatch(a.begin(), a.end(), b.begin(), b.end());
+        return pair.first == a.end();
+      };
+      if (prefix(root, path) || prefix(path, root))
+        throw Error("CONFIG_ERROR", "Project roots must not duplicate or overlap");
+    }
+    roots.push_back(path);
     p["path"] = path.string();
   }
   c["dataDir"] = std::filesystem::absolute(c["dataDir"].get<std::string>()).string();
@@ -263,7 +343,7 @@ Json web_command(Json v) {
   std::string a = v.value("action", "");
   if (a == "sync") {
     auto n = v.value("after", Json(0));
-    if (!n.is_number_integer() || n.get<int64_t>() < 0)
+    if (!n.is_number_integer() || n.get<int64_t>() < 0 || n.get<int64_t>() > 9007199254740991LL)
       throw Error("INVALID_REQUEST", "Invalid cursor");
     return {{"action", a}, {"after", n}};
   }
@@ -272,10 +352,9 @@ Json web_command(Json v) {
   Json out = {{"action", a}, {"requestId", v["requestId"]}};
   if (a == "prompt") {
     auto s = v.at("text").get<std::string>();
-    auto start = s.find_first_not_of(" \r\n\t");
-    if (start == std::string::npos)
+    s = trim_text(s);
+    if (s.empty())
       throw Error("INVALID_REQUEST", "Empty prompt");
-    s = s.substr(start, s.find_last_not_of(" \r\n\t") - start + 1);
     if (utf16_length(s) > 64000)
       throw Error("INVALID_REQUEST", "Prompt exceeds limit");
     out["text"] = s;

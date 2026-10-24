@@ -2,12 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Event, Session } from '../../../packages/protocol/src/index.ts';
 import './style.css';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { visibleEvents, eventWindow } from './events.ts';
-import { api } from './api.ts';
+import { eventWindow, mergeEvents } from './events.ts';
+import { api, ApiError, retryable } from './api.ts';
+import { ApprovalQueue, WorkspaceHeader } from './workspace.tsx';
+import {
+  ConversationView,
+  CopyText,
+  type ContentChunk,
+} from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
 import { HistoryCache, type HistoryPage } from './history.ts';
+import { SessionHistory, type Thread } from './session-history.tsx';
 
 function MenuIcon() {
   return (
@@ -41,7 +46,6 @@ function CodexMark() {
     </svg>
   );
 }
-type Thread = { id: string; preview: string; name?: string; updatedAt: number };
 type View = 'chat' | 'connection' | 'devices' | 'keys';
 function App() {
   const [view, setView] = useState<View>('chat');
@@ -49,6 +53,7 @@ function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(false);
+  const [threadError, setThreadError] = useState('');
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
   const [panel, setPanel] = useState<'sessions' | 'details' | 'files' | null>(
@@ -73,23 +78,26 @@ function App() {
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [contentChunks, setContentChunks] = useState<
-    Record<number, { text: string; nextOffset: number; more: boolean }>
+    Record<number, ContentChunk>
   >({});
+  const [readingContent, setReadingContent] = useState<Record<number, boolean>>(
+    {},
+  );
   const messageList = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
   const menu = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
-    const timer = setTimeout(() => {
-      if (!menu.current?.querySelector('nav')?.contains(document.activeElement))
-        setMenuOpen(false);
-    }, 4000);
+    const outside = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
     const escape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false);
     };
     document.addEventListener('keydown', escape);
     return () => {
-      clearTimeout(timer);
+      document.removeEventListener('pointerdown', outside);
       document.removeEventListener('keydown', escape);
     };
   }, [menuOpen]);
@@ -133,6 +141,36 @@ function App() {
     [pending, setPending] = useState(false),
     [busy, setBusy] = useState(false),
     [takeover, setTakeover] = useState(false);
+  const [createOperation, setCreateOperation] = useState<{
+    requestId: string;
+    threadId?: string;
+  }>();
+  const [fileBusy, setFileBusy] = useState(false);
+  const closePanel = () => {
+    if (
+      fileBusy &&
+      !confirm(
+        '关闭面板会取消传输；正在提交的文件可能已经发布，请重新打开核对结果。继续？',
+      )
+    )
+      return;
+    setFileBusy(false);
+    setPanel(null);
+  };
+  const [notice, setNotice] = useState('');
+  const [reconnect, setReconnect] = useState(0);
+  const [away, setAway] = useState(false);
+  const [sessionCursor, setSessionCursor] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState<{
+    requestId: string;
+    text?: string;
+    action: string;
+  }>();
+  const pendingCommand = useRef<typeof unconfirmed>(undefined);
+  const draft = useRef('');
+  draft.current = text;
+  const online = hosts.find((h) => h.id === host)?.online === true;
+  const remoteTarget = `${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`;
   const projectContext = useRef({ host, project });
   useEffect(() => {
     projectContext.current = { host, project };
@@ -151,6 +189,10 @@ function App() {
         available.some((h: any) => h.id === current) ? current : '',
       );
     } else {
+      if (retryable(results[0].reason)) {
+        setChecking(false);
+        return;
+      }
       setHosts([]);
       setLogged(false);
       setSelected(undefined);
@@ -170,6 +212,8 @@ function App() {
       history.replaceState(null, '', location.pathname + location.search);
     }
     void refresh();
+    const timer = setInterval(() => void refresh(), 15000);
+    return () => clearInterval(timer);
   }, []);
   useEffect(() => {
     if (!admin) return;
@@ -235,6 +279,7 @@ function App() {
     setSessions([]);
     setSelected(undefined);
     if (!host) return;
+    catalog.current?.close();
     catalog.current = null;
     void (async () => {
       try {
@@ -253,14 +298,19 @@ function App() {
           setSessions(stored.sessions);
         }
         catalog.current = cache;
-        const [p, s] = await Promise.all([
+        const operation = await cache
+          .record(`create:${stored?.projects[0]?.id || ''}`)
+          .catch(() => undefined);
+        if (!disposed && operation) setCreateOperation(operation);
+        const [p, result] = await Promise.all([
           api(`/hosts/${host}/projects`),
-          api('/sessions?hostId=' + host),
+          api('/sessions?paged=true&hostId=' + host),
         ]);
         if (disposed) return;
         setProjects(p);
         setProject(p[0]?.id || '');
-        setSessions(s);
+        setSessions(result.data);
+        setSessionCursor(result.nextCursor);
       } catch (e) {
         if (!disposed) report(e);
       }
@@ -275,10 +325,64 @@ function App() {
         .record('catalog', { projects, sessions })
         .catch(() => {});
   }, [projects, sessions]);
+  useEffect(() => {
+    let disposed = false;
+    setCreateOperation(undefined);
+    void catalog.current
+      ?.record(`create:${project}`)
+      .then((operation) => {
+        if (!disposed) setCreateOperation(operation || undefined);
+      })
+      .catch(report);
+    return () => {
+      disposed = true;
+    };
+  }, [host, project]);
+  useEffect(() => {
+    if (!createOperation || !host || !project) return;
+    let disposed = false;
+    const controller = new AbortController();
+    const query = async () => {
+      try {
+        const result = await api(
+          `/hosts/${host}/requests/${createOperation.requestId}`,
+          undefined,
+          controller.signal,
+        );
+        if (disposed) return;
+        if (result.state === 'completed') {
+          const session = result.result as Session;
+          setSessions((sessions) => [
+            session,
+            ...sessions.filter((s) => s.id !== session.id),
+          ]);
+          setSelected(session);
+          setTakeover(false);
+          setPanel(null);
+          setCreateOperation(undefined);
+          void catalog.current?.record(`create:${project}`, null);
+        } else if (result.state === 'failed') {
+          setError(result.result.requestError.message);
+          setCreateOperation(undefined);
+          void catalog.current?.record(`create:${project}`, null);
+        }
+      } catch {
+        /* Read-only status polling can wait for reconnection. */
+      }
+    };
+    void query();
+    const timer = setInterval(() => void query(), 5000);
+    return () => {
+      disposed = true;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [host, project, createOperation?.requestId]);
   async function loadThreads(append = false) {
-    if (!host || !project) return;
+    if (!host || !project || !online) return;
     const request = ++historyRequest.current;
     setLoadingThreads(true);
+    setThreadError('');
     try {
       let result;
       for (let attempt = 0; ; attempt++) {
@@ -313,20 +417,24 @@ function App() {
       );
       setCursor(result.nextCursor);
     } catch (e) {
-      if (request === historyRequest.current) report(e);
+      if (request === historyRequest.current) {
+        setThreadError(e instanceof Error ? e.message : String(e));
+        report(e);
+      }
     } finally {
       if (request === historyRequest.current) setLoadingThreads(false);
     }
   }
   useEffect(() => {
     setThreads([]);
+    setThreadError('');
     setCursor(null);
     setSearch('');
     void loadThreads();
     return () => {
       historyRequest.current++;
     };
-  }, [host, project]);
+  }, [host, project, online]);
   useEffect(() => {
     if (followMessages.current && messageList.current)
       messageList.current.scrollTop = messageList.current.scrollHeight;
@@ -346,13 +454,17 @@ function App() {
     setEvents([]);
     setHasOlder(false);
     setContentChunks({});
+    setReadingContent({});
     olderView.current = false;
     setApprovals([]);
     setText('');
+    setUnconfirmed(undefined);
+    pendingCommand.current = undefined;
     followMessages.current = true;
     if (!selected) return;
     let disposed = false,
       timer: ReturnType<typeof setTimeout>,
+      handshake: ReturnType<typeof setTimeout>,
       attempt = 0;
     after.current = 0;
     setEvents([]);
@@ -380,6 +492,11 @@ function App() {
       if (e.type === 'sessionClosed') {
         setReady(false);
         setStatus('会话已结束');
+        setSelected((current) =>
+          current?.id === selected.id
+            ? { ...current, state: d.state, running: false }
+            : current,
+        );
         setSessions((v) =>
           v.map((s) =>
             s.id === selected.id ? { ...s, state: d.state, running: false } : s,
@@ -401,6 +518,45 @@ function App() {
         setBusy(e.type === 'turn/started');
       }
     };
+    const controller = new AbortController();
+    let terminal = false;
+    const retry = () => {
+      if (disposed || terminal) return;
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => void connect(),
+        Math.min(15000, 1000 * 2 ** Math.min(attempt++, 5)) *
+          (0.8 + Math.random() * 0.4),
+      );
+    };
+    const checkPending = async () => {
+      const command = pendingCommand.current;
+      if (!command) return;
+      try {
+        const result = await api(
+          `/hosts/${host}/requests/${command.requestId}?sessionId=${encodeURIComponent(selected.id)}`,
+          undefined,
+          controller.signal,
+        );
+        if (disposed) return;
+        if (result.state === 'completed' || result.state === 'failed') {
+          pendingCommand.current = undefined;
+          setUnconfirmed(undefined);
+          setPending(false);
+          void cache?.record('pending', null);
+          if (result.state === 'failed') {
+            setText((text) => text || command.text || '');
+            setError(result.result.requestError.message);
+          }
+        } else {
+          setPending(false);
+          setUnconfirmed(command);
+          setNotice('提交结果尚未确认，请核对远程历史；不要重复提交同一任务。');
+        }
+      } catch (e) {
+        if (!disposed) report(e);
+      }
+    };
     const connect = async () => {
       setStatus(attempt ? '正在重连' : '正在连接');
       setReady(false);
@@ -408,18 +564,26 @@ function App() {
         const t = await api(
           `/sessions/${selected.id}/${takeover ? 'takeover' : 'attach'}`,
           {},
+          controller.signal,
         );
         if (disposed) return;
         const ws = new WebSocket(
           location.origin.replace(/^http/, 'ws') + '/ws/v1/web/' + selected.id,
         );
         socket.current = ws;
-        ws.onopen = () =>
-          ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
+        handshake = setTimeout(() => ws.close(), 15000);
+        ws.onopen = () => {
+          if (!disposed)
+            ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
+        };
         ws.onmessage = (message) => {
           if (disposed) return;
           try {
             const d = JSON.parse(message.data);
+            if (d.receiptId)
+              ws.send(
+                JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
+              );
             if (d.type === 'attached') {
               ws.send(
                 JSON.stringify({
@@ -430,6 +594,7 @@ function App() {
               return;
             }
             if (d.type === 'sync') {
+              clearTimeout(handshake);
               setApprovals(d.approvals);
               setBusy(d.session.running);
               for (const e of d.events) add(e);
@@ -443,13 +608,41 @@ function App() {
                 setStatus('已连接');
                 attempt = 0;
                 setPending(false);
+                void checkPending();
               }
               return;
             }
             if (d.type === 'event') add(d.event);
-            if (d.type === 'ack') setPending(false);
+            if (d.type === 'ack') {
+              if (pendingCommand.current?.requestId === d.requestId) {
+                pendingCommand.current = undefined;
+                setUnconfirmed(undefined);
+                void cache?.record('pending', null);
+              }
+              setPending(false);
+            }
             if (d.type === 'error') {
               setPending(false);
+              if (
+                d.requestId === pendingCommand.current?.requestId &&
+                d.error.code !== 'RESULT_UNKNOWN'
+              ) {
+                const command = pendingCommand.current;
+                setText((text) => text || command?.text || '');
+                pendingCommand.current = undefined;
+                setUnconfirmed(undefined);
+                void cache?.record('pending', null);
+              }
+              if (
+                [
+                  'SESSION_BUSY',
+                  'STALE_CONTROLLER',
+                  'UNAUTHORIZED',
+                  'FORBIDDEN',
+                  'SESSION_CLOSED',
+                ].includes(d.error.code)
+              )
+                terminal = true;
               setError(d.error.code + ': ' + d.error.message);
             }
           } catch (e) {
@@ -457,22 +650,23 @@ function App() {
           }
         };
         ws.onclose = (e) => {
+          clearTimeout(handshake);
           if (disposed) return;
           setReady(false);
           setPending(false);
           setStatus('已断开');
           if (e.code === 4009) {
+            terminal = true;
+            setStatus('只读观察 · 其他设备控制');
             setError('控制权已被其他设备接管');
             return;
           }
           if (e.code === 4001) {
+            terminal = true;
             setError('登录已过期或被撤销，请重新登录');
             return;
           }
-          timer = setTimeout(
-            () => void connect(),
-            Math.min(15000, 1000 * 2 ** attempt++),
-          );
+          retry();
         };
         ws.onerror = () => {
           if (!disposed) setStatus('连接错误');
@@ -480,7 +674,13 @@ function App() {
       } catch (e) {
         if (!disposed) {
           report(e);
-          setStatus('无法连接');
+          setStatus(
+            retryable(e)
+              ? '连接中断，正在等待恢复；远程任务可能仍在执行'
+              : '只读观察 · 无法取得控制权',
+          );
+          if (retryable(e)) retry();
+          else terminal = true;
         }
       }
     };
@@ -488,17 +688,44 @@ function App() {
     let cache: HistoryCache | undefined;
     let checkpoint: number | undefined;
     const requests = new Map<string, number | 'sync'>();
+    const contentReads = new Map<
+      number,
+      { requestId: string; timer: ReturnType<typeof setTimeout> }
+    >();
+    const finishRead = (seq: number) => {
+      clearTimeout(contentReads.get(seq)?.timer);
+      contentReads.delete(seq);
+      if (!disposed) setReadingContent((state) => ({ ...state, [seq]: false }));
+    };
     const cacheError = () => {
       if (!disposed) setError('本地历史缓存不可用；仍可从 Agent 读取历史。');
     };
     const showPage = (page: HistoryPage) => {
-      setContentChunks({});
-      setEvents((v) =>
-        olderView.current ? page.events : eventWindow([...v, ...page.events]),
-      );
+      const list = messageList.current;
+      const anchor = list?.querySelector<HTMLElement>('[data-event-seq]');
+      const anchorSeq = anchor?.dataset.eventSeq;
+      const anchorTop = anchor?.getBoundingClientRect().top;
+      setEvents((previous) => {
+        const merged = mergeEvents([...page.events, ...previous]);
+        if (!olderView.current) return eventWindow(merged);
+        let bytes = 0;
+        const window = merged.filter((event, index) => {
+          bytes += new TextEncoder().encode(JSON.stringify(event)).length;
+          return index < 400 && bytes <= 192 * 1024;
+        });
+        return window;
+      });
       setOlderCursor(page.events[0]?.seq ?? 0);
       setHasOlder(page.more);
       setLoadingHistory(false);
+      if (anchorSeq && anchorTop !== undefined && olderView.current)
+        requestAnimationFrame(() => {
+          const restored = list?.querySelector<HTMLElement>(
+            `[data-event-seq="${anchorSeq}"]`,
+          );
+          if (restored && list)
+            list.scrollTop += restored.getBoundingClientRect().top - anchorTop;
+        });
     };
     const requestPage = (before = 0) => {
       olderView.current = before !== 0;
@@ -525,22 +752,52 @@ function App() {
     };
     loadHistory.current = requestPage;
     loadContent.current = (seq, offset, revision) => {
+      if (contentReads.has(seq)) return;
+      const requestId = crypto.randomUUID();
+      contentReads.set(seq, {
+        requestId,
+        timer: setTimeout(() => {
+          finishRead(seq);
+          if (!disposed)
+            setError('内容读取超时，可重试；远程任务不会因此重新执行。');
+        }, 15000),
+      });
+      setReadingContent((state) => ({ ...state, [seq]: true }));
       void (async () => {
         const stored = await cache
           ?.content(seq, offset, revision)
           .catch(() => undefined);
-        if (disposed) return;
+        if (disposed || contentReads.get(seq)?.requestId !== requestId) return;
         if (stored) {
-          setContentChunks((v) => ({ ...v, [seq]: stored }));
+          finishRead(seq);
+          setContentChunks((v) => ({
+            ...v,
+            [seq]: {
+              ...stored,
+              truncated:
+                !!offset &&
+                (!!v[seq]?.truncated ||
+                  (v[seq]?.text.length || 0) + stored.text.length > 131072),
+              text:
+                offset && v[seq]?.revision === revision
+                  ? (v[seq].text + stored.text).slice(-131072)
+                  : stored.text,
+            },
+          }));
           return;
         }
-        historySocket.current?.send(
+        if (historySocket.current?.readyState !== WebSocket.OPEN) {
+          finishRead(seq);
+          setNotice('此部分未缓存，服务器连接恢复后可读取。');
+          return;
+        }
+        historySocket.current.send(
           JSON.stringify({
             operation: 'content',
             seq,
             offset,
             revision,
-            requestId: crypto.randomUUID(),
+            requestId,
           }),
         );
       })();
@@ -556,6 +813,17 @@ function App() {
             JSON.stringify([location.origin, identity, host, selected.id]),
           );
           localHistory.current = cache;
+          const savedDraft = await cache.record('draft').catch(() => undefined);
+          const savedPending = await cache
+            .record('pending')
+            .catch(() => undefined);
+          if (disposed) return;
+          setText(savedDraft || '');
+          if (savedPending) {
+            pendingCommand.current = savedPending;
+            setUnconfirmed(savedPending);
+            void checkPending();
+          }
           const stored = await cache.latest().catch(() => {
             cacheError();
             return undefined;
@@ -589,6 +857,10 @@ function App() {
           if (disposed) return;
           try {
             const d = JSON.parse(message.data);
+            if (d.receiptId)
+              hs.send(
+                JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
+              );
             if (d.type === 'history-ready') {
               sync();
               return;
@@ -600,18 +872,41 @@ function App() {
             }
             if (d.type === 'error') {
               setLoadingHistory(false);
+              for (const [seq, read] of contentReads) {
+                if (!d.requestId || read.requestId === d.requestId) {
+                  finishRead(seq);
+                  if (d.error.code === 'CONTENT_CHANGED') {
+                    setContentChunks((chunks) => {
+                      const next = { ...chunks };
+                      delete next[seq];
+                      return next;
+                    });
+                    sync();
+                  }
+                }
+              }
               setError(d.error.message);
               return;
             }
             if (d.type !== 'history') return;
             if (d.text !== undefined) {
+              if (contentReads.get(d.seq)?.requestId !== d.requestId) return;
+              finishRead(d.seq);
               void cache
                 ?.content(d.seq, d.offset, d.revision, d)
                 .catch(cacheError);
               setContentChunks((v) => ({
                 ...v,
                 [d.seq]: {
-                  text: d.text,
+                  truncated:
+                    !!d.offset &&
+                    (!!v[d.seq]?.truncated ||
+                      (v[d.seq]?.text.length || 0) + d.text.length > 131072),
+                  text:
+                    d.offset && v[d.seq]?.revision === d.revision
+                      ? (v[d.seq].text + d.text).slice(-131072)
+                      : d.text,
+                  revision: d.revision,
                   nextOffset: d.nextOffset,
                   more: d.more,
                 },
@@ -643,6 +938,7 @@ function App() {
           }
         };
         hs.onclose = () => {
+          for (const seq of contentReads.keys()) finishRead(seq);
           requests.clear();
           if (!disposed) setLoadingHistory(false);
           if (!disposed)
@@ -651,7 +947,8 @@ function App() {
       } catch (e) {
         if (!disposed) {
           report(e);
-          historyTimer = setTimeout(() => void connectHistory(), 5000);
+          if (retryable(e))
+            historyTimer = setTimeout(() => void connectHistory(), 5000);
         }
       }
     };
@@ -659,23 +956,73 @@ function App() {
     if (selected.state === 'ready') void connect();
     else setStatus('查看已结束会话的历史');
     return () => {
+      disposed = true;
+      controller.abort();
+      void cache
+        ?.record('draft', draft.current)
+        .catch(() => {})
+        .finally(() => cache?.close());
       clearTimeout(historyTimer);
       historySocket.current?.close();
       historySocket.current = null;
       localHistory.current = null;
       requests.clear();
+      for (const seq of contentReads.keys()) finishRead(seq);
       disposed = true;
       clearTimeout(timer);
+      clearTimeout(handshake);
       socket.current?.close();
       socket.current = null;
     };
-  }, [selected?.id, takeover, host]);
-  const send = (data: unknown) => {
-    if (socket.current?.readyState !== WebSocket.OPEN || !ready) return;
-    setPending(true);
-    socket.current.send(
-      JSON.stringify({ ...(data as object), requestId: crypto.randomUUID() }),
-    );
+  }, [selected?.id, takeover, host, reconnect]);
+  const send = (data: {
+    action: string;
+    text?: string;
+    [key: string]: unknown;
+  }) => {
+    if (socket.current?.readyState !== WebSocket.OPEN || !ready || !online)
+      return;
+    if (data.action === 'prompt' && pendingCommand.current) return;
+    const command = { ...data, requestId: crypto.randomUUID() };
+    const targetSocket = socket.current;
+    const targetCache = localHistory.current;
+    if (data.action === 'prompt') {
+      pendingCommand.current = command;
+      setUnconfirmed(command);
+      // Persist the identity before the send. Cache failure leaves the draft intact.
+      void (async () => {
+        let submitted = false;
+        try {
+          if (!targetCache) throw new Error('本机存储尚未就绪');
+          await targetCache.record('pending', command);
+          if (
+            socket.current !== targetSocket ||
+            targetSocket.readyState !== WebSocket.OPEN
+          )
+            throw new Error('连接或会话已切换，任务尚未发送');
+          setPending(true);
+          submitted = true;
+          targetSocket.send(JSON.stringify(command));
+          setText((current) => (current === data.text ? '' : current));
+          if (draft.current === data.text) void targetCache.record('draft', '');
+        } catch (e) {
+          if (!submitted) {
+            void targetCache?.record('pending', null).catch(() => {});
+            if (pendingCommand.current?.requestId === command.requestId) {
+              pendingCommand.current = undefined;
+              setUnconfirmed(undefined);
+            }
+          }
+          if (socket.current === targetSocket) {
+            report(e);
+            setPending(false);
+          }
+        }
+      })();
+    } else {
+      setPending(true);
+      socket.current.send(JSON.stringify(command));
+    }
   };
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -701,10 +1048,21 @@ function App() {
       setGenerating(false);
     }
   }
+  useEffect(() => {
+    if (managing && view === 'devices')
+      document
+        .getElementById(`request-${managing}`)
+        ?.scrollIntoView({ block: 'nearest' });
+  }, [managing, view, devices.pending.length]);
   async function manage(action: 'approve' | 'reject' | 'revoke', id: string) {
+    const device = devices.credentials.find((item) => item.id === id);
     if (
       action === 'revoke' &&
-      !confirm('撤销此凭证？撤销 A 会使其所有客户端授权失效，并关闭相关连接。')
+      !confirm(
+        device?.role === 'agent'
+          ? `停用服务器 ${device.name} 并撤销其所有客户端授权？相关连接会关闭。`
+          : `撤销客户端 ${device?.name || id} 的访问？该客户端连接会关闭，其他授权保留。`,
+      )
     )
       return;
     setGenerating(true);
@@ -720,7 +1078,7 @@ function App() {
     }
   }
   async function create(threadId?: string) {
-    if (creating) return;
+    if (creating || !online) return;
     const existing = sessions.find(
       (s) => s.threadId === threadId && s.state === 'ready',
     );
@@ -737,12 +1095,30 @@ function App() {
     setCreating(true);
     try {
       setError('');
-      const s = await api('/sessions', {
-        hostId: host,
-        projectId: project,
-        mode: 'web',
+      const cache = catalog.current;
+      if (!cache) throw new Error('本机存储尚未就绪，请稍后重试');
+      const previous = await cache.record(`create:${project}`);
+      if (previous && previous.threadId !== threadId)
+        throw new Error('当前项目有待确认的会话创建请求，请先查询结果。');
+      const operation = previous || {
+        requestId: crypto.randomUUID(),
         ...(threadId ? { threadId } : {}),
-      });
+      };
+      await cache.record(`create:${project}`, operation);
+      setCreateOperation(operation);
+      const s = await api(
+        '/sessions',
+        {
+          hostId: host,
+          projectId: project,
+          mode: 'web',
+          ...(threadId ? { threadId } : {}),
+        },
+        undefined,
+        operation.requestId,
+      );
+      await cache.record(`create:${project}`, null);
+      setCreateOperation(undefined);
       if (
         projectContext.current.host !== host ||
         projectContext.current.project !== project
@@ -754,6 +1130,15 @@ function App() {
       setPanel(null);
       void loadThreads();
     } catch (e) {
+      if (
+        e instanceof ApiError &&
+        e.status < 500 &&
+        e.code !== 'RESULT_UNKNOWN' &&
+        e.code !== 'IDEMPOTENCY_CONFLICT'
+      ) {
+        void catalog.current?.record(`create:${project}`, null);
+        setCreateOperation(undefined);
+      }
       report(e);
     } finally {
       setCreating(false);
@@ -782,6 +1167,17 @@ function App() {
             </>
           )}
         </a>
+        {logged && view === 'chat' && (
+          <div className="header-actions">
+            <button onClick={() => setPanel('sessions')}>历史</button>
+            <button
+              disabled={!online || !project || creating}
+              onClick={() => void create()}
+            >
+              新建
+            </button>
+          </div>
+        )}
         <button
           className="menu-toggle"
           aria-expanded={menuOpen}
@@ -791,11 +1187,7 @@ function App() {
           <MenuIcon /> 功能菜单
         </button>
         {menuOpen && (
-          <nav
-            id="feature-menu"
-            aria-label="功能菜单"
-            onMouseLeave={() => setMenuOpen(false)}
-          >
+          <nav id="feature-menu" aria-label="功能菜单">
             {logged && (
               <>
                 <button
@@ -809,7 +1201,7 @@ function App() {
                   <small>恢复与搜索历史对话</small>
                 </button>
                 <button
-                  disabled={creating}
+                  disabled={creating || !online}
                   onClick={() => {
                     setMenuOpen(false);
                     setPanel(null);
@@ -876,6 +1268,42 @@ function App() {
           </nav>
         )}
       </header>
+      {logged && view === 'chat' && (
+        <WorkspaceHeader
+          host={hosts.find((h) => h.id === host)?.name || host}
+          project={projects.find((p) => p.id === project)?.name || project}
+          status={
+            !online
+              ? '服务器离线 · 只读缓存'
+              : approvals.length
+                ? '等待你的确认'
+                : status
+          }
+          onDetails={() => {
+            if (selected) setPanel('details');
+            else setView('connection');
+          }}
+        />
+      )}
+      {createOperation && (
+        <div className="notice" role="status">
+          正在确认 {remoteTarget} 的会话创建结果。请求：
+          {createOperation.requestId}
+          <button
+            disabled={creating || !online}
+            onClick={() => void create(createOperation.threadId)}
+          >
+            以原请求继续确认
+          </button>
+          <small>重复使用同一请求身份；不会自动另建任务。</small>
+        </div>
+      )}
+      {notice && (
+        <div role="status" className="notice">
+          {notice}
+          <button onClick={() => setNotice('')}>关闭</button>
+        </div>
+      )}
       {view !== 'chat' && (
         <div className="page-heading">
           <span>
@@ -943,8 +1371,8 @@ function App() {
       {!checking &&
         (view !== 'chat' || !logged) &&
         (adminLogin ? !admin : !logged || adding) && (
-          <form onSubmit={login} className="card">
-            <h2>{adminLogin ? '管理员登录' : '连接指定 A'}</h2>
+          <form onSubmit={login} className="card login-card">
+            <h2>{adminLogin ? '管理员登录' : '连接远程服务器'}</h2>
             {adminLogin ? (
               <label>
                 所有者密钥
@@ -960,14 +1388,17 @@ function App() {
             ) : (
               <>
                 <label>
-                  A 标识
+                  服务器标识
                   <input
-                    aria-label="A 标识"
+                    aria-label="服务器标识"
                     required
                     value={targetHost}
                     onChange={(e) => setTargetHost(e.target.value)}
                   />
                 </label>
+                <small>
+                  服务器标识可从服务器登录结果或管理员处获取。设备名称供管理员识别这台浏览器。
+                </small>
                 <label>
                   设备名称
                   <input
@@ -991,19 +1422,35 @@ function App() {
                 <p>
                   等待管理员批准，配对码：<strong>{grant.code}</strong>
                 </p>
-                <p>请求：{grant.id}</p>
+                <p>
+                  服务器：{targetHost} · 设备：{deviceName}
+                </p>
+                <details>
+                  <summary>请求标识</summary>
+                  <p>{grant.id}</p>
+                </details>
                 <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
               </div>
             )}
             <p>
-              每份网页凭证仅访问一个 A，可保留多个 A
-              的授权；批准后长期有效，直到 R 撤销。
+              填写服务器 → 提交申请 →
+              管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
             </p>
           </form>
         )}
       {admin && view === 'devices' && (
         <section className="card">
           <h2>设备授权管理</h2>
+          <button
+            onClick={() => {
+              if (confirm('撤销其他浏览器的管理员登录？设备与客户端授权保留。'))
+                void api('/auth/logout-others', {})
+                  .then(() => setNotice('其他管理会话已撤销'))
+                  .catch(report);
+            }}
+          >
+            退出其他管理会话
+          </button>
           <p>
             批准前请与申请方核对配对码、角色和目标 A。管理身份不能直接操作 Codex
             会话。
@@ -1012,16 +1459,31 @@ function App() {
           <h3>待授权请求</h3>
           {!devices.pending.length && <p>暂无待授权请求</p>}
           {devices.pending.map((d) => (
-            <div className="card" key={d.id}>
+            <div
+              className={`card ${d.id === managing ? 'highlight-request' : ''}`}
+              id={`request-${d.id}`}
+              key={d.id}
+            >
               <p>
                 {d.name} ·{' '}
-                {d.role === 'agent' ? 'A' : d.role === 'cli' ? 'CC' : 'CW'} ·
-                配对码 {d.code}
+                {d.role === 'agent'
+                  ? '服务器 Agent'
+                  : d.role === 'cli'
+                    ? '命令行客户端'
+                    : '网页客户端'}{' '}
+                · 配对码 {d.code}
               </p>
-              <p>目标 A：{d.hostId}</p>
               <p>
-                请求：{d.id} · 有效期至 {new Date(d.expires).toLocaleString()}
+                目标服务器：
+                {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                  d.hostId}
               </p>
+              <details>
+                <summary>请求标识与有效期</summary>
+                <p>
+                  {d.id} · 有效期至 {new Date(d.expires).toLocaleString()}
+                </p>
+              </details>
               <button
                 disabled={generating}
                 onClick={() => void manage('approve', d.id)}
@@ -1038,13 +1500,26 @@ function App() {
           ))}
           <h3>已授权设备</h3>
           {devices.credentials.map((d) => (
-            <div className="card" key={d.id}>
+            <div className="card" key={d.id} data-credential-id={d.id}>
               <p>
                 {d.name} ·{' '}
-                {d.role === 'agent' ? 'A' : d.role === 'cli' ? 'CC' : 'CW'} ·
-                A：{d.hostId}
+                {d.role === 'agent'
+                  ? '服务器 Agent'
+                  : d.role === 'cli'
+                    ? '命令行客户端'
+                    : '网页客户端'}{' '}
+                · 服务器：
+                {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                  d.hostId}
               </p>
               <p>授权时间：{new Date(d.created).toLocaleString()} · 长期有效</p>
+              <details>
+                <summary>授权标识与服务器</summary>
+                <p className="id">
+                  {d.id} · {d.hostId}
+                </p>
+                <CopyText text={d.id} />
+              </details>
               <button
                 disabled={generating}
                 onClick={() => void manage('revoke', d.id)}
@@ -1129,7 +1604,12 @@ function App() {
               <input aria-label="新 API_KEY" readOnly value={newKey} />
               <button
                 onClick={() =>
-                  void navigator.clipboard.writeText(newKey).catch(report)
+                  void navigator.clipboard
+                    .writeText(newKey)
+                    .then(() => setNotice('已复制'))
+                    .catch(() =>
+                      setNotice('剪贴板不可用，请选择上方文本手动复制'),
+                    )
                 }
               >
                 复制 API_KEY
@@ -1141,7 +1621,10 @@ function App() {
             <div className="card" key={k.id}>
               <p>
                 {k.name} · {k.role === 'agent' ? 'coc-agent' : 'coc-client'} ·
-                A：{k.hostId || '等待首次使用绑定'}
+                服务器：
+                {keyHosts.find((host) => host.id === k.hostId)?.name ||
+                  k.hostId ||
+                  '等待首次使用绑定'}
               </p>
               <p>创建于 {new Date(k.created).toLocaleString()} · 长期有效</p>
               <button
@@ -1190,7 +1673,7 @@ function App() {
                   >
                     <option value="">请选择</option>
                     {hosts.map((h) => (
-                      <option key={h.id} value={h.id} disabled={!h.online}>
+                      <option key={h.id} value={h.id}>
                         {h.name} · {h.online ? '在线' : '离线'}
                       </option>
                     ))}
@@ -1236,7 +1719,7 @@ function App() {
                   </button>
                 )}
                 <button
-                  disabled={!host || !project || creating}
+                  disabled={!online || !host || !project || creating}
                   onClick={() => {
                     setView('chat');
                     void create();
@@ -1253,10 +1736,26 @@ function App() {
                 className="chat-panel"
                 ref={panelDialog}
                 aria-labelledby="chat-panel-title"
-                onClose={() => setPanel(null)}
-                onCancel={() => setPanel(null)}
+                onClose={() => {
+                  setPanel(null);
+                  menu.current
+                    ?.querySelector<HTMLButtonElement>('.menu-toggle')
+                    ?.focus();
+                }}
+                onCancel={(event) => {
+                  event.preventDefault();
+                  closePanel();
+                }}
                 onClick={(e) => {
-                  if (e.target === e.currentTarget) setPanel(null);
+                  const bounds = e.currentTarget.getBoundingClientRect();
+                  if (
+                    e.target === e.currentTarget &&
+                    (e.clientX < bounds.left ||
+                      e.clientX > bounds.right ||
+                      e.clientY < bounds.top ||
+                      e.clientY > bounds.bottom)
+                  )
+                    closePanel();
                 }}
               >
                 <div className="panel-heading">
@@ -1267,18 +1766,24 @@ function App() {
                         ? '工作区文件'
                         : '会话记录'}
                   </h2>
-                  <button aria-label="关闭面板" onClick={() => setPanel(null)}>
+                  <button aria-label="关闭面板" onClick={closePanel}>
                     关闭
                   </button>
                 </div>
                 {panel === 'files' && (
-                  <WorkspaceFiles host={host} project={project} />
+                  <WorkspaceFiles
+                    host={host}
+                    project={project}
+                    target={remoteTarget}
+                    onBusy={setFileBusy}
+                    cache={catalog.current}
+                  />
                 )}
                 {panel === 'sessions' && (
                   <aside className="session-sidebar">
                     <button
                       className="new-chat"
-                      disabled={!host || !project || creating}
+                      disabled={!online || !host || !project || creating}
                       onClick={() => void create()}
                     >
                       ＋ 新建对话
@@ -1294,8 +1799,11 @@ function App() {
                       disabled={!host || loadingThreads}
                       onClick={() => {
                         void loadThreads();
-                        void api('/sessions?hostId=' + host)
-                          .then(setSessions)
+                        void api('/sessions?paged=true&hostId=' + host)
+                          .then((page) => {
+                            setSessions(page.data);
+                            setSessionCursor(page.nextCursor);
+                          })
                           .catch(report);
                       }}
                     >
@@ -1304,60 +1812,48 @@ function App() {
                     <p className="sidebar-caption">
                       与远程 Codex 共用历史 · 当前项目
                     </p>
-                    {sessions
-                      .filter(
-                        (s) =>
-                          s.projectId === project &&
-                          s.mode === 'web' &&
-                          (s.state !== 'ready' ||
-                            !threads.some((t) => t.id === s.threadId)),
-                      )
-                      .filter((s) => s.id.includes(search))
-                      .map((s) => (
-                        <button
-                          className={`session ${selected?.id === s.id ? 'active' : ''}`}
-                          key={s.id}
-                          onClick={() => {
-                            setTakeover(false);
-                            setSelected(s);
-                            setPanel(null);
-                          }}
-                        >
-                          {s.state === 'ready'
-                            ? '进行中的对话'
-                            : '历史会话（只读）'}
-                          <small>
-                            {new Date(s.createdAt).toLocaleString()}
-                          </small>
-                        </button>
-                      ))}
-                    {threads
-                      .filter((t) =>
-                        `${t.name || ''} ${t.preview} ${t.id}`
-                          .toLowerCase()
-                          .includes(search.toLowerCase()),
-                      )
-                      .map((t) => (
-                        <button
-                          className={`session ${selected?.threadId === t.id ? 'active' : ''}`}
-                          key={t.id}
-                          disabled={creating}
-                          onClick={() => void create(t.id)}
-                          title={t.preview || t.id}
-                        >
-                          <span>{t.name || t.preview || '未命名对话'}</span>
-                          <small>
-                            {new Date(t.updatedAt * 1000).toLocaleString()}
-                            {selected?.threadId === t.id ? ' · 当前对话' : ''}
-                          </small>
-                        </button>
-                      ))}
-                    {!loadingThreads && !threads.length && (
-                      <p className="empty-hint">
-                        {host && project
-                          ? '暂无本地历史，创建新对话开始。'
-                          : '请先选择主机与项目。'}
-                      </p>
+                    <SessionHistory
+                      sessions={sessions}
+                      threads={threads}
+                      project={project}
+                      projectName={
+                        projects.find((p) => p.id === project)?.name || project
+                      }
+                      selected={selected}
+                      search={search}
+                      online={online}
+                      loading={loadingThreads}
+                      error={threadError}
+                      creating={creating}
+                      onSelect={(session) => {
+                        setTakeover(false);
+                        setSelected(session);
+                        setPanel(null);
+                      }}
+                      onResume={(threadId) => void create(threadId)}
+                    />
+                    {sessionCursor && (
+                      <button
+                        disabled={!online}
+                        onClick={() =>
+                          void api(
+                            `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
+                          )
+                            .then((page) => {
+                              setSessions((old) => [
+                                ...old,
+                                ...page.data.filter(
+                                  (s: Session) =>
+                                    !old.some((o) => o.id === s.id),
+                                ),
+                              ]);
+                              setSessionCursor(page.nextCursor);
+                            })
+                            .catch(report)
+                        }
+                      >
+                        加载更多会话记录
+                      </button>
                     )}
                     {cursor && (
                       <button
@@ -1375,10 +1871,47 @@ function App() {
                       {status} · {busy ? '执行中' : '空闲'} · 远程项目{' '}
                       {selected.projectId}
                     </p>
-                    <p className="id">{selected.id}</p>
+                    {selected.state !== 'ready' && selected.threadId && (
+                      <button
+                        disabled={!online || creating}
+                        onClick={() => {
+                          if (confirm(`在 ${remoteTarget} 恢复并继续此线程？`))
+                            void create(selected.threadId);
+                        }}
+                      >
+                        恢复并继续
+                      </button>
+                    )}
+                    <p>{remoteTarget}</p>
+                    <p>{projects.find((p) => p.id === project)?.path}</p>
+                    <details>
+                      <summary>会话标识</summary>
+                      <p className="id">{selected.id}</p>
+                    </details>
+                    <details>
+                      <summary>本机存储</summary>
+                      <p>
+                        清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                            )
+                          )
+                            void localHistory.current
+                              ?.clear()
+                              .then(() => setNotice('本机会话缓存已清理'))
+                              .catch(report);
+                        }}
+                      >
+                        清理本机会话缓存
+                      </button>
+                    </details>
                     <div className="row">
                       <button
-                        disabled={!ready || pending || !busy}
+                        disabled={!ready || !online || !busy}
                         onClick={() => send({ action: 'interrupt' })}
                       >
                         停止本轮
@@ -1404,11 +1937,23 @@ function App() {
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm('接管会断开其他控制端，继续？'))
+                          setTakeover(false);
+                          setReconnect((n) => n + 1);
+                        }}
+                      >
+                        重新连接
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `接管 ${remoteTarget} 的当前会话会断开其他控制端，继续？`,
+                            )
+                          )
                             setTakeover((v) => !v);
                         }}
                       >
-                        重新连接 / 接管
+                        接管控制权
                       </button>
                     </div>
                   </section>
@@ -1422,13 +1967,19 @@ function App() {
                       ref={messageList}
                       role="log"
                       aria-label="对话消息"
-                      aria-live="polite"
+                      aria-live="off"
                       onScroll={(e) => {
                         const el = e.currentTarget;
                         followMessages.current =
                           el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                        setAway(!followMessages.current);
                       }}
                     >
+                      {olderView.current && (
+                        <p className="status">
+                          正在浏览较早内容 · 显示有界历史窗口，可返回最新。
+                        </p>
+                      )}
                       <div className="row">
                         {hasOlder && (
                           <button
@@ -1438,200 +1989,153 @@ function App() {
                             加载更早内容
                           </button>
                         )}
-                        <button
-                          disabled={loadingHistory}
-                          onClick={() => loadHistory.current()}
-                        >
-                          返回最新内容
-                        </button>
-                        <button
-                          onClick={() =>
-                            void localHistory.current
-                              ?.clear()
-                              .then(() => setStatus('本机会话缓存已清理'))
-                              .catch(report)
-                          }
-                        >
-                          清理本机会话缓存
-                        </button>
+                        {(away || olderView.current) && (
+                          <button
+                            disabled={loadingHistory}
+                            onClick={() => {
+                              olderView.current = false;
+                              setAway(false);
+                              loadHistory.current();
+                            }}
+                          >
+                            返回最新内容
+                          </button>
+                        )}
                       </div>
-                      {visibleEvents(events)
-                        .filter(
-                          (e) =>
-                            !['turn/started', 'approvalResolved'].includes(
-                              e.type,
-                            ) &&
-                            !(
-                              e.type === 'turn/completed' &&
-                              (e.data as any).turn?.status === 'completed'
-                            ),
-                        )
-                        .map((e) => {
-                          const isChat =
-                            e.type === 'user' ||
-                            e.type === 'item/agentMessage/delta';
-                          return isChat && e.contentSeq === undefined ? (
-                            <article
-                              className={`message ${e.type === 'user' ? 'user-message' : 'assistant-message'}`}
-                              key={e.seq}
-                            >
-                              <strong className="message-role">
-                                {eventTitle(e)}
-                              </strong>
-                              {e.type === 'user' ? (
-                                <div className="user-text">{eventText(e)}</div>
-                              ) : (
-                                <div className="markdown">
-                                  <Markdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                      a: ({ children, ...props }) => (
-                                        <a
-                                          {...props}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                        >
-                                          {children}
-                                        </a>
-                                      ),
-                                      img: ({ alt }) => (
-                                        <span>[图片：{alt}]</span>
-                                      ),
-                                    }}
-                                  >
-                                    {eventText(e)}
-                                  </Markdown>
-                                </div>
-                              )}
-                            </article>
-                          ) : (
-                            <details className="tool-output" key={e.seq}>
-                              <summary>{eventTitle(e)}</summary>
-                              {e.contentSeq !== undefined ? (
-                                <>
-                                  <pre>
-                                    {contentChunks[e.seq]?.text ??
-                                      '此内容较大，按块读取。'}
-                                  </pre>
-                                  <button
-                                    onClick={() =>
-                                      loadContent.current(
-                                        e.contentSeq!,
-                                        0,
-                                        e.revision ?? 0,
-                                      )
-                                    }
-                                  >
-                                    读取内容
-                                  </button>
-                                  {contentChunks[e.seq]?.more && (
-                                    <button
-                                      onClick={() =>
-                                        loadContent.current(
-                                          e.contentSeq!,
-                                          contentChunks[e.seq].nextOffset,
-                                          e.revision ?? 0,
-                                        )
-                                      }
-                                    >
-                                      下一块
-                                    </button>
-                                  )}
-                                </>
-                              ) : (
-                                <pre>{eventText(e)}</pre>
-                              )}
-                            </details>
-                          );
-                        })}
+                      <ConversationView
+                        events={events}
+                        chunks={contentChunks}
+                        reading={readingContent}
+                        onRead={(seq, offset, revision) =>
+                          loadContent.current(seq, offset, revision)
+                        }
+                      />
                       {busy && (
                         <p className="thinking" role="status">
-                          ● Codex 正在处理…
+                          ●{' '}
+                          {approvals.length
+                            ? '等待你的确认'
+                            : 'Codex 正在处理…'}
                         </p>
                       )}
                       {!events.length && (
                         <p className="empty-hint">对话已就绪，发送任务开始。</p>
                       )}
                     </div>
-                    {approvals.map((a) => (
-                      <section className="approval" key={a.approvalId}>
-                        <h3>等待审批</h3>
-                        <pre>{JSON.stringify(a.params, null, 2)}</pre>
+                    <ApprovalQueue
+                      approvals={approvals}
+                      events={events}
+                      target={`${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`}
+                      ready={ready && online}
+                      pending={pending}
+                      onAnswer={(approvalId, allow) =>
+                        send({ action: 'approval', approvalId, allow })
+                      }
+                    />
+                    {unconfirmed && (
+                      <div className="submission-state" role="status">
+                        <strong>
+                          {pending ? '正在提交任务' : '任务提交结果待确认'}
+                        </strong>
+                        <p>{unconfirmed.text}</p>
                         <button
-                          disabled={!ready || pending}
-                          onClick={() =>
-                            send({
-                              action: 'approval',
-                              approvalId: a.approvalId,
-                              allow: true,
-                            })
-                          }
-                        >
-                          允许
-                        </button>
-                        <button
-                          disabled={!ready || pending}
-                          onClick={() =>
-                            send({
-                              action: 'approval',
-                              approvalId: a.approvalId,
-                              allow: false,
-                            })
-                          }
-                        >
-                          拒绝
-                        </button>
-                      </section>
-                    ))}
-                    <form
-                      className="composer"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (text.trim() && ready && !pending && !busy) {
-                          send({ action: 'prompt', text });
-                          setText('');
-                        }
-                      }}
-                    >
-                      <label>
-                        任务内容
-                        <textarea
-                          aria-label="任务内容"
-                          value={text}
-                          onKeyDown={(e) => {
-                            if (
-                              e.key === 'Enter' &&
-                              !e.shiftKey &&
-                              !e.nativeEvent.isComposing
-                            ) {
-                              e.preventDefault();
-                              e.currentTarget.form?.requestSubmit();
-                            }
+                          onClick={() => {
+                            setTakeover(false);
+                            setReconnect((n) => n + 1);
                           }}
-                          onChange={(e) => setText(e.target.value)}
-                          maxLength={64000}
-                          title="Enter 发送，Shift + Enter 换行"
-                          placeholder="发送消息给 Codex…"
-                        />
-                      </label>
-                      {busy ? (
-                        <button
-                          type="button"
-                          disabled={!ready || pending}
-                          onClick={() => send({ action: 'interrupt' })}
                         >
-                          停止本轮
+                          重新连接并查询结果
                         </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          disabled={!ready || pending || !text.trim()}
-                        >
-                          发送
-                        </button>
-                      )}
-                      {!ready && <small role="status">{status}</small>}
-                    </form>
+                        <small>
+                          请求 {unconfirmed.requestId}
+                          ；请先核对远程历史，避免重复执行。
+                        </small>
+                      </div>
+                    )}
+                    {selected.state !== 'ready' ? (
+                      <p className="readonly-hint">
+                        会话已结束 · 历史只读，请从历史记录显式恢复并继续。
+                      </p>
+                    ) : (
+                      <form
+                        className="composer"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (
+                            text.trim() &&
+                            ready &&
+                            !pending &&
+                            !busy &&
+                            !pendingCommand.current
+                          ) {
+                            send({ action: 'prompt', text });
+                          }
+                        }}
+                      >
+                        <label>
+                          任务内容
+                          <textarea
+                            aria-label="任务内容"
+                            value={text}
+                            onKeyDown={(e) => {
+                              if (
+                                e.key === 'Enter' &&
+                                !e.shiftKey &&
+                                !e.nativeEvent.isComposing &&
+                                !matchMedia('(pointer: coarse)').matches
+                              ) {
+                                e.preventDefault();
+                                e.currentTarget.form?.requestSubmit();
+                              }
+                            }}
+                            onChange={(e) => {
+                              setText(e.target.value);
+                              void localHistory.current
+                                ?.record('draft', e.target.value)
+                                .catch(report);
+                            }}
+                            maxLength={64000}
+                            title="Enter 发送，Shift + Enter 换行"
+                            placeholder={
+                              busy
+                                ? '可编辑下一条草稿，任务结束后发送…'
+                                : '发送消息给 Codex…'
+                            }
+                          />
+                        </label>
+                        {busy ? (
+                          <button
+                            type="button"
+                            disabled={!ready || !online}
+                            onClick={() => send({ action: 'interrupt' })}
+                          >
+                            停止本轮
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={
+                              !ready ||
+                              !online ||
+                              pending ||
+                              !!unconfirmed ||
+                              !text.trim()
+                            }
+                          >
+                            发送
+                          </button>
+                        )}
+                        <small>
+                          {matchMedia('(pointer: coarse)').matches
+                            ? 'Enter 换行，点击发送提交'
+                            : 'Enter 发送 · Shift+Enter 换行'}
+                          {text.length > 60000
+                            ? ` · 剩余 ${64000 - text.length} 字符`
+                            : ''}
+                        </small>
+                        {!ready && <small role="status">{status}</small>}
+                      </form>
+                    )}
                   </>
                 ) : (
                   <div className="chat-welcome">
@@ -1641,7 +2145,7 @@ function App() {
                     <h2>今天要一起完成什么？</h2>
                     <p>恢复 Codex 本地会话，或在远程项目中开始新对话。</p>
                     <button
-                      disabled={creating}
+                      disabled={creating || !online}
                       onClick={() => {
                         if (host && project) void create();
                         else setView('connection');
@@ -1660,66 +2164,6 @@ function App() {
         <footer>文件和命令在远程服务器执行。关闭页面不会立即停止任务。</footer>
       )}
     </main>
-  );
-}
-function eventTitle(e: Event) {
-  return (
-    (
-      {
-        user: '你',
-        'item/agentMessage/delta': 'Codex',
-        'turn/started': '开始任务',
-        'turn/completed': '本轮结束',
-        'turn/diff/updated': '代码差异',
-        'turn/plan/updated': '执行计划',
-        'item/started': '工具操作',
-        'item/completed': '工具结果',
-        'item/commandExecution/outputDelta': '命令输出',
-        'item/fileChange/outputDelta': '文件变更',
-        warning: '提示',
-        error: '错误',
-        approvalResolved: '审批结果',
-        sessionClosed: '会话结束',
-      } as Record<string, string>
-    )[e.type] || '任务活动'
-  );
-}
-function eventText(e: Event): string {
-  const d = e.data as any;
-  if (e.type === 'turn/started') return '任务已开始。';
-  if (e.type === 'turn/completed')
-    return d.turn?.status === 'completed'
-      ? '任务已完成。'
-      : '任务已停止或失败：' +
-          (d.turn?.error?.message || d.turn?.status || '未知状态');
-  if (e.type === 'approvalResolved')
-    return d.allow ? '已允许该操作。' : '已拒绝该操作。';
-  if (e.type === 'sessionClosed') return '会话已结束：' + d.state;
-  if (e.type === 'turn/plan/updated')
-    return (
-      (d.explanation || '') +
-      '\n' +
-      (d.plan || [])
-        .map((step: any) => step.status + ' · ' + step.step)
-        .join('\n')
-    );
-  if (['item/started', 'item/completed'].includes(e.type))
-    return d.item?.command
-      ? [
-          d.item.command,
-          d.item.aggregatedOutput,
-          d.item.exitCode != null ? '退出码：' + d.item.exitCode : '',
-        ]
-          .filter(Boolean)
-          .join('\n\n')
-      : JSON.stringify(d.item || {}, null, 2);
-  return (
-    d.text ||
-    d.delta ||
-    d.diff ||
-    d.message ||
-    d.error?.message ||
-    '状态已更新。'
   );
 }
 createRoot(document.getElementById('root')!).render(<App />);

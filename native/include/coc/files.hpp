@@ -3,12 +3,15 @@
 #include <map>
 #include <memory>
 namespace coc {
+class Store;
 class WorkspaceFiles {
+  Store *store_;
+  std::map<std::string, Json> completed_;
   struct Upload;
   std::map<std::string, std::unique_ptr<Upload>> uploads_;
 
 public:
-  WorkspaceFiles();
+  explicit WorkspaceFiles(Store *store = nullptr);
   ~WorkspaceFiles();
   Json request(const std::string &root, const std::string &sandbox, const std::string &owner,
                const Json &data);

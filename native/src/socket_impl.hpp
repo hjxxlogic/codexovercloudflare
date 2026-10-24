@@ -120,7 +120,9 @@ public:
     if (!open_ || ended_)
       return;
     auto text = data.dump();
-    if (text.size() > max_frame || queued_ + text.size() > max_queue) {
+    if (text.size() > max_frame)
+      throw Error("MESSAGE_TOO_LARGE", "Outgoing message exceeds frame budget");
+    if (queued_ + text.size() > max_queue) {
       finish();
       return;
     }

@@ -17,6 +17,7 @@ import { chromium, type Page } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
+const artifacts = process.env.COC_ARTIFACT_DIR || '.local';
 const secret = randomBytes(32).toString('hex');
 const server = createServer();
 await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -120,7 +121,14 @@ function peer(path: string, auth?: string) {
     closeCode = code;
   });
   const messages: any[] = [];
-  ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
+  ws.on('message', (raw) => {
+    const message = JSON.parse(raw.toString());
+    messages.push(message);
+    if (message.receiptId)
+      ws.send(
+        JSON.stringify({ type: 'receipt', receiptId: message.receiptId }),
+      );
+  });
   ws.on('error', () => {});
   sockets.push(ws);
   return {
@@ -161,6 +169,7 @@ async function idle(page: Page) {
 }
 async function sessionId(page: Page) {
   await feature(page, /^会话详情/);
+  await page.getByRole('dialog').getByText('会话标识', { exact: true }).click();
   const id = await page.getByRole('dialog').locator('.id').innerText();
   await page.getByRole('button', { name: '关闭面板' }).click();
   return id;
@@ -196,7 +205,8 @@ async function focusedChat(page: Page) {
       scrollHeight: document.documentElement.scrollHeight,
     };
   });
-  assert(geometry.chatHeight > geometry.height * 0.9);
+  assert(geometry.chatHeight > geometry.height * 0.85);
+  assert.equal(await page.locator('.workspace-context').isVisible(), true);
   assert(geometry.messageHeight > geometry.height * 0.65);
   assert(geometry.composerBottom <= geometry.height);
   assert(geometry.scrollWidth <= geometry.width);
@@ -315,6 +325,15 @@ try {
     process.env.COC_AGENT_BINARY || 'build/coc-agent',
   );
   const config = JSON.parse(readFileSync(configFile, 'utf8'));
+  const homepage = await fetch(origin + '/');
+  assert.equal(homepage.status, 200);
+  for (const header of [
+    'Content-Security-Policy',
+    'X-Content-Type-Options',
+    'Referrer-Policy',
+  ])
+    assert(homepage.headers.get(header), header);
+  pass('real static resource routing applies security response headers');
   const enrolled = { hostId: config.hostId, token: config.token };
   assert.equal(statSync(configFile).mode & 0o777, 0o600);
   await cliCommand(['login', '--relay', origin, '--host', enrolled.hostId]);
@@ -426,7 +445,7 @@ try {
         mode: 'web',
       })
     ).r.status,
-    409,
+    404,
   );
   const fileEndpoint = `/hosts/${enrolled.hostId}/files`;
   assert.equal(
@@ -517,7 +536,7 @@ try {
         threadId: 'foreign-history',
       })
     ).r.status,
-    409,
+    403,
   );
   assert.equal(
     (
@@ -601,14 +620,45 @@ try {
     ).id,
     s.id,
   );
+  const cliDirectory = JSON.parse(
+    await cliCommand(['sessions', '--host', 'local-test']),
+  );
+  assert(Array.isArray(cliDirectory.data));
+  assert(cliDirectory.data.every((session: any) => session.mode === 'cli'));
+  assert(!cliDirectory.data.some((session: any) => session.id === s.id));
+  pass('Agent online, project allowlist and idempotent session creation');
   assert.equal(
-    JSON.parse(await cliCommand(['sessions', '--host', 'local-test'])).find(
-      (session: any) => session.id === s.id,
-    )?.id,
+    (await api(`/hosts/${enrolled.hostId}/requests/${key}`)).result.id,
     s.id,
   );
-  pass('Agent online, project allowlist and idempotent session creation');
-  const p = await web(s.id);
+  const tickets = await Promise.all([
+    api(`/sessions/${s.id}/attach`, {}),
+    api(`/sessions/${s.id}/attach`, {}),
+  ]);
+  const competitors = tickets.map(() => peer('/ws/v1/web/' + s.id));
+  await Promise.all(
+    competitors.map(
+      (p) => new Promise<void>((resolve) => p.ws.once('open', resolve)),
+    ),
+  );
+  competitors.forEach((p, i) =>
+    p.ws.send(JSON.stringify({ type: 'auth', ticket: tickets[i].ticket })),
+  );
+  await wait(
+    () =>
+      competitors.some((p) => p.messages.some((m) => m.type === 'attached')) &&
+      competitors.some((p) => p.ws.readyState === WebSocket.CLOSED),
+    'concurrent attach resolves',
+  );
+  assert.equal(
+    competitors.filter((p) => p.messages.some((m) => m.type === 'attached'))
+      .length,
+    1,
+  );
+  const p = competitors.find((p) =>
+    p.messages.some((m) => m.type === 'attached'),
+  )!;
+  pass('real DO concurrent attach permits exactly one controller');
   const prompt = { action: 'prompt', requestId: randomUUID(), text: 'hello' };
   p.ws.send(JSON.stringify(prompt));
   await wait(
@@ -639,6 +689,32 @@ try {
   );
   assert.equal(p.messages.filter((m) => m.event?.type === 'user').length, 1);
   pass('streaming and duplicate prompt suppression');
+  agent.loseNextAttachReply();
+  const lostTicket = await api(`/sessions/${s.id}/takeover`, {});
+  const lostController = peer('/ws/v1/web/' + s.id);
+  await new Promise<void>((done) => lostController.ws.once('open', done));
+  lostController.ws.send(
+    JSON.stringify({ type: 'auth', ticket: lostTicket.ticket }),
+  );
+  await wait(
+    () =>
+      lostController.messages.some((m) => m.error?.code === 'RESULT_UNKNOWN'),
+    'lost attach confirmation',
+    16000,
+  );
+  assert.equal(p.ws.readyState, WebSocket.OPEN);
+  p.ws.send(JSON.stringify(prompt));
+  await wait(
+    () =>
+      p.messages.filter(
+        (m) => m.type === 'ack' && m.requestId === prompt.requestId,
+      ).length === 3,
+    'old controller survives lost takeover acknowledgement',
+  );
+  pass(
+    'lost Agent attach acknowledgement preserves existing native controller',
+  );
+  await new Promise((done) => setTimeout(done, 3200));
   p.ws.send(
     JSON.stringify({
       action: 'prompt',
@@ -924,9 +1000,9 @@ try {
     'API key revocation closes A socket',
   );
   assert.equal(agentKeyPeer.closeCode, 4001);
-  mkdirSync('.local', { recursive: true });
+  mkdirSync(artifacts, { recursive: true });
   await page.screenshot({
-    path: '.local/api-key-management.png',
+    path: join(artifacts, 'api-key-management.png'),
     fullPage: true,
   });
   pass(
@@ -937,7 +1013,7 @@ try {
   const visitor = await browser.newContext();
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
-  await visitorPage.getByLabel('A 标识').fill(enrolled.hostId);
+  await visitorPage.getByLabel('服务器标识').fill(enrolled.hostId);
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
@@ -962,7 +1038,7 @@ try {
   await visitorPage.getByRole('button', { name: '功能菜单' }).click();
   await visitorPage.getByRole('button', { name: /连接设置 主机/ }).click();
   await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
-  await visitorPage.getByLabel('A 标识').fill(other.hostId);
+  await visitorPage.getByLabel('服务器标识').fill(other.hostId);
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
@@ -1027,7 +1103,7 @@ try {
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
-    .getByRole('button', { name: /进行中的对话/ })
+    .getByRole('button', { name: /browser hello/ })
     .first()
     .click();
   assert.equal(await sessionId(visitorPage), browserSession);
@@ -1074,12 +1150,12 @@ try {
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
-    .getByRole('button', { name: /进行中的对话/ })
+    .getByRole('button', { name: /browser hello/ })
     .first()
     .click();
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await visitorPage.screenshot({
-    path: '.local/cw-history-cache.png',
+    path: join(artifacts, 'cw-history-cache.png'),
     fullPage: true,
   });
   historyOffline = false;
@@ -1112,6 +1188,9 @@ try {
     .locator('.tool-output')
     .filter({ hasText: 'echo restored' });
   assert.equal(await tool.getAttribute('open'), null);
+  const group = tool.locator('xpath=..');
+  assert.equal(await group.getAttribute('open'), null);
+  await group.locator(':scope > summary').click();
   await tool.locator('summary').click();
   assert.notEqual(await tool.getAttribute('open'), null);
   await feature(visitorPage, /^会话记录/);
@@ -1141,7 +1220,7 @@ try {
     el.scrollTop = 0;
   });
   await visitorPage.screenshot({
-    path: '.local/cw-chat-markdown.png',
+    path: join(artifacts, 'cw-chat-markdown.png'),
     fullPage: true,
   });
   await visitorPage
@@ -1154,13 +1233,13 @@ try {
   await idle(visitorPage);
   await focusedChat(visitorPage);
   await visitorPage.screenshot({
-    path: '.local/cw-chat-desktop.png',
+    path: join(artifacts, 'cw-chat-desktop.png'),
     fullPage: true,
   });
   await visitorPage.setViewportSize({ width: 390, height: 844 });
   await focusedChat(visitorPage);
   await visitorPage.screenshot({
-    path: '.local/cw-chat-mobile.png',
+    path: join(artifacts, 'cw-chat-mobile.png'),
     fullPage: true,
   });
   assert(
@@ -1179,10 +1258,11 @@ try {
     0,
   );
   await visitorPage.getByRole('button', { name: '功能菜单' }).click();
-  await visitorPage
-    .getByRole('navigation', { name: '功能菜单' })
-    .waitFor({ state: 'hidden', timeout: 7000 });
-  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage.waitForTimeout(4500);
+  assert.equal(
+    await visitorPage.getByRole('navigation', { name: '功能菜单' }).isVisible(),
+    true,
+  );
   await visitorPage.getByRole('button', { name: /CW 对话 会话/ }).click();
   await visitorPage
     .getByText('echo: continue restored conversation', { exact: true })
@@ -1203,7 +1283,7 @@ try {
   await idle(visitorPage);
   await visitorPage.getByLabel('任务内容').fill('approval focused chat');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
-  await visitorPage.getByRole('heading', { name: '等待审批' }).waitFor();
+  await visitorPage.getByText('等待你的确认 · 1 / 1').waitFor();
   await visitorPage.getByRole('button', { name: '拒绝', exact: true }).click();
   await visitorPage.getByText('denied', { exact: true }).waitFor();
   await idle(visitorPage);
@@ -1266,7 +1346,7 @@ try {
     'replacement',
   );
   await visitorPage.screenshot({
-    path: '.local/cw-workspace-files.png',
+    path: join(artifacts, 'cw-workspace-files.png'),
     fullPage: true,
   });
   await visitorPage.setViewportSize({ width: 390, height: 844 });
@@ -1276,7 +1356,7 @@ try {
     ),
   );
   await visitorPage.screenshot({
-    path: '.local/cw-workspace-files-mobile.png',
+    path: join(artifacts, 'cw-workspace-files-mobile.png'),
     fullPage: true,
   });
   await visitorPage.keyboard.press('Escape');
@@ -1298,12 +1378,7 @@ try {
   );
   page.once('dialog', (dialog) => void dialog.accept());
   await page
-    .locator('.card')
-    .filter({
-      has: page.getByRole('button', { name: '撤销 网页客户端', exact: true }),
-    })
-    .filter({ hasText: enrolled.hostId })
-    .last()
+    .locator(`[data-credential-id="${visitorGrant.id}"]`)
     .getByRole('button', { name: '撤销 网页客户端', exact: true })
     .click();
   await wait(

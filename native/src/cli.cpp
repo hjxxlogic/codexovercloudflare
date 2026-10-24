@@ -1,3 +1,5 @@
+#include "coc/build.hpp"
+#include "coc/diagnostics.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
 #include <algorithm>
@@ -48,7 +50,8 @@ class Cli {
   }
   Json api(const std::string &p, const Json &body = nullptr) {
     const auto c = load();
-    return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"));
+    return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"),
+                     option("request-id"));
   }
   Json host() { return api("/hosts").at(0); }
   std::unique_ptr<Store> history_cache(const Json &credential) {
@@ -98,7 +101,16 @@ class Cli {
                  {"seq", cursor_option("seq")},
                  {"offset", cursor_option("offset")},
                  {"requestId", uuid()}};
-      key = id + ":content:" + option("seq") + ":" + std::to_string(cursor_option("offset"));
+      auto versionKey = id + ":revision:" + option("seq");
+      auto version = option("revision").empty() ? cache->cache_get(versionKey)
+                                                : Json(cursor_option("revision"));
+      if (version.is_null() && cursor_option("offset") != 0)
+        throw Error("REVISION_REQUIRED", "Read offset zero first or specify --revision");
+      if (!version.is_null())
+        request["revision"] = version;
+      key = id + ":content:" + option("seq") + ":" +
+            (version.is_null() ? "initial" : version.dump()) + ":" +
+            std::to_string(cursor_option("offset"));
     }
     if (option("offline") == "true") {
       auto value = cache->cache_get(key);
@@ -121,6 +133,8 @@ class Cli {
     socket = connect_socket(
         io, relay_url(c.at("relay")), c.at("token"),
         [&](Json d) {
+          if (d.contains("receiptId"))
+            socket->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
           if (d.value("type", "") == "history-ready")
             socket->send(request);
           if (d.value("type", "") == "error") {
@@ -131,6 +145,11 @@ class Cli {
           if (d.value("type", "") == "history" &&
               d.value("requestId", "") == request["requestId"]) {
             result = d;
+            if (request["operation"] == "content") {
+              cache->cache_put(id + ":revision:" + option("seq"), d.at("revision"));
+              key = id + ":content:" + option("seq") + ":" + d.at("revision").dump() + ":" +
+                    std::to_string(cursor_option("offset"));
+            }
             cache->cache_put(key, result);
             timeout.cancel();
             socket->close();
@@ -149,6 +168,7 @@ class Cli {
     if (id.empty())
       throw Error("USAGE", "attach <session-id>");
     auto c = load();
+    verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
     auto u = relay_url(c.at("relay"));
     auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), Json::object());
     if (t["mode"] != "cli")
@@ -188,43 +208,83 @@ class Cli {
     auto tail = cache ? cache->cache_get(pageKey) : Json();
     if (tail.is_null())
       tail = {{"events", Json::array()}, {"more", false}, {"cursor", 0}};
+    const auto persist_tail = [&] {
+      auto &events = tail["events"];
+      std::sort(events.begin(), events.end(),
+                [](const Json &a, const Json &b) { return a["seq"] < b["seq"]; });
+      size_t bytes = events.dump().size();
+      while (events.size() > 1 && (events.size() > 200 || bytes > 96 * 1024)) {
+        bytes -= events.front().dump().size();
+        events.erase(events.begin());
+        tail["more"] = true;
+      }
+      tail["cursor"] = events.empty() ? Json(0) : events.front()["seq"];
+      if (cache) {
+        try {
+          cache->cache_put(pageKey, tail);
+        } catch (const std::exception &error) {
+          std::cerr << "History cache: " << error_data(error).dump() << '\n';
+          cache.reset();
+        }
+      }
+    };
     std::shared_ptr<Socket> reader;
-    reader = connect_socket(
-        history_io, u, c.at("token"),
-        [&](Json d) {
-          if (d.value("type", "") == "history-ready")
-            reader->send({{"operation", "page"}, {"before", 0}, {"requestId", "initial"}});
-          if (d.value("type", "") == "history" && d.contains("events")) {
-            tail = d;
-            if (cache)
-              cache->cache_put(pageKey, tail);
-          }
-          if (d.value("type", "") == "event") {
-            auto &events = tail["events"];
-            auto event = d.at("event");
-            bool found = false;
-            for (auto &e : events)
-              if (e["seq"] == event["seq"]) {
-                e = event;
-                found = true;
+    asio::steady_timer retry(history_io);
+    bool finished = false;
+    std::function<void()> reconnect = [&] {
+      reader = connect_socket(
+          history_io, u, c.at("token"),
+          [&](Json d) {
+            if (d.contains("receiptId"))
+              reader->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
+            if (d.value("type", "") == "history-ready")
+              reader->send({{"operation", "page"}, {"before", 0}, {"requestId", "initial"}});
+            if (d.value("type", "") == "history" && d.contains("events")) {
+              auto current = tail["events"];
+              tail = d;
+              for (auto &event : current) {
+                bool found = false;
+                for (auto &existing : tail["events"])
+                  if (existing["seq"] == event["seq"]) {
+                    if (event.value("revision", event["seq"].get<int64_t>()) >
+                        existing.value("revision", existing["seq"].get<int64_t>()))
+                      existing = event;
+                    found = true;
+                  }
+                if (!found)
+                  tail["events"].push_back(event);
               }
-            if (!found)
-              events.push_back(event);
-            std::sort(events.begin(), events.end(),
-                      [](const Json &a, const Json &b) { return a["seq"] < b["seq"]; });
-            size_t bytes = events.dump().size();
-            while (events.size() > 1 && (events.size() > 200 || bytes > 96 * 1024)) {
-              bytes -= events.front().dump().size();
-              events.erase(events.begin());
-              tail["more"] = true;
+              persist_tail();
             }
-            tail["cursor"] = events.empty() ? Json(0) : events.front()["seq"];
-            if (cache)
-              cache->cache_put(pageKey, tail);
-          }
-        },
-        [](unsigned) {}, "/ws/v1/history/" + id);
-    reader->start();
+            if (d.value("type", "") == "event") {
+              auto &events = tail["events"];
+              auto event = d.at("event");
+              bool found = false;
+              for (auto &e : events)
+                if (e["seq"] == event["seq"]) {
+                  if (event.value("revision", event["seq"].get<int64_t>()) >=
+                      e.value("revision", e["seq"].get<int64_t>()))
+                    e = event;
+                  found = true;
+                }
+              if (!found)
+                events.push_back(event);
+              persist_tail();
+            }
+          },
+          [&](unsigned code) {
+            if (finished || code == 4001)
+              return;
+            retry.expires_after(std::chrono::seconds(3));
+            retry.async_wait([&](auto error) {
+              if (!error && !finished)
+                reconnect();
+            });
+          },
+          "/ws/v1/history/" + id);
+      reader->start();
+    };
+    reconnect();
     int status;
     while (true) {
       auto done = waitpid(pid, &status, WNOHANG);
@@ -237,6 +297,8 @@ class Cli {
       if (history_io.stopped())
         usleep(10000);
     }
+    finished = true;
+    retry.cancel();
     reader->close();
     history_io.restart();
     history_io.poll();
@@ -255,6 +317,9 @@ public:
     auto id = options_.args.size() > 1 ? options_.args[1] : "";
     if (options_.api_key && command != "login")
       throw Error("USAGE", "--api-key is only valid for login");
+    std::unique_ptr<PrivateLock> config_lock;
+    if (command == "login" || command == "logout" || command == "use")
+      config_lock = std::make_unique<PrivateLock>(credentials_);
     if (command == "login") {
       if (options_.args.size() != 1)
         throw Error("USAGE", "Unexpected login argument");
@@ -297,6 +362,11 @@ public:
       data["selected"] = key(entry);
       save_private(credentials_, data);
       std::cout << "Selected " << entry.at("hostId") << '\n';
+    } else if (command == "doctor") {
+      auto result = doctor(load(), false);
+      std::cout << result.dump(2) << '\n';
+      if (result["ok"] != true)
+        throw Error("DOCTOR_FAILED", "One or more diagnostic checks failed");
     } else if (command == "status")
       std::cout << credential_status(load()).dump(2) << '\n';
     else if (command == "hosts") {
@@ -319,13 +389,34 @@ public:
       std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/projects").dump(2)
                 << '\n';
     else if (command == "sessions")
-      std::cout << api("/sessions?hostId=" + host().at("id").get<std::string>()).dump(2) << '\n';
-    else if (command == "connect") {
+      std::cout << api("/sessions?paged=true&hostId=" + host().at("id").get<std::string>() +
+                       "&cursor=" + option("cursor"))
+                       .dump(2)
+                << '\n';
+    else if (command == "request") {
+      if (!valid_id(id))
+        throw Error("USAGE", "request <request-id> [--session SESSION]");
+      std::cout << api("/hosts/" + load().at("hostId").get<std::string>() + "/requests/" + id +
+                       (option("session").empty() ? "" : "?sessionId=" + option("session")))
+                       .dump(2)
+                << '\n';
+    } else if (command == "connect") {
       auto h = host();
       if (option("project").empty())
         throw Error("USAGE", "Select --project <project-id>");
-      auto s = api("/sessions",
-                   {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}});
+      auto request_id = option("request-id", uuid());
+      if (!valid_id(request_id))
+        throw Error("USAGE", "Invalid --request-id");
+      auto credential = load();
+      auto journal = history_cache(credential);
+      journal->cache_put("create:" + request_id,
+                         {{"projectId", option("project")}, {"requestId", request_id}});
+      std::cerr << "Create request ID: " << request_id << "; query with coc-client request "
+                << request_id << " if unconfirmed\n";
+      auto s =
+          http_json(relay_url(credential.at("relay")), "/api/v1/sessions",
+                    {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}},
+                    credential.at("token"), request_id);
       attach(s.at("id"));
     } else if (command == "history" || command == "cache-clear")
       history(id, command == "cache-clear");
@@ -341,7 +432,8 @@ public:
              "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop|history|cache-"
              "clear> [options]\n"
              "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover "
-             "--api-key --before SEQ --seq SEQ --offset N --offline true --cache-dir PATH\n"
+             "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
+             "--session ID --offline true --cache-dir PATH\n"
              "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
              "displayed request in the management website. logout only removes "
              "local credentials.\n";
@@ -354,6 +446,10 @@ public:
 int main(int argc, char **argv) {
   try {
     signal(SIGPIPE, SIG_IGN);
+    if (argc == 2 && std::string(argv[1]) == "--version") {
+      std::cout << COC_BUILD_JSON << '\n';
+      return 0;
+    }
     coc::Cli(argc, argv).run();
     return 0;
   } catch (const std::exception &e) {

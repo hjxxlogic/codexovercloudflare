@@ -1,0 +1,61 @@
+{
+  "environment": "Ubuntu 20.04 shared development host; default SQLite WAL durability; four interleaved sessions; 30 second append budget per case",
+  "results": [
+    {
+      "charactersPerSession": 1324,
+      "completed": false,
+      "cpuSeconds": 2.347737,
+      "databaseBytes": 978944,
+      "deltaCharacters": 1,
+      "elapsedSeconds": 30.037764817,
+      "eventP95MicrosecondsSampled": 49716.3,
+      "events": 5296,
+      "peakRssKiB": 8192,
+      "sessions": 4,
+      "targetCharactersPerSession": 1048576,
+      "walPeakBytes": 4152992
+    },
+    {
+      "charactersPerSession": 4030,
+      "completed": false,
+      "cpuSeconds": 0.562523,
+      "databaseBytes": 421888,
+      "deltaCharacters": 10,
+      "elapsedSeconds": 30.018664374,
+      "eventP95MicrosecondsSampled": 131481.338,
+      "events": 1612,
+      "peakRssKiB": 7296,
+      "sessions": 4,
+      "targetCharactersPerSession": 1048576,
+      "walPeakBytes": 4144752
+    },
+    {
+      "charactersPerSession": 54900,
+      "completed": false,
+      "cpuSeconds": 0.804831,
+      "databaseBytes": 913408,
+      "deltaCharacters": 100,
+      "elapsedSeconds": 30.002335159,
+      "eventP95MicrosecondsSampled": 115571.473,
+      "events": 2196,
+      "peakRssKiB": 7808,
+      "sessions": 4,
+      "targetCharactersPerSession": 1048576,
+      "walPeakBytes": 4157112
+    },
+    {
+      "charactersPerSession": 346000,
+      "completed": false,
+      "cpuSeconds": 0.403773,
+      "databaseBytes": 3235840,
+      "deltaCharacters": 1000,
+      "elapsedSeconds": 30.002529101,
+      "eventP95MicrosecondsSampled": 149933.301,
+      "events": 1384,
+      "peakRssKiB": 8704,
+      "sessions": 4,
+      "targetCharactersPerSession": 4194304,
+      "walPeakBytes": 4157112
+    }
+  ]
+}

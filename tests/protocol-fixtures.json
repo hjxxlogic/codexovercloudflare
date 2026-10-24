@@ -1,0 +1,48 @@
+[
+  { "input": { "action": "sync" }, "output": { "action": "sync", "after": 0 } },
+  {
+    "input": { "action": "sync", "after": 9007199254740991 },
+    "output": { "action": "sync", "after": 9007199254740991 }
+  },
+  { "input": { "action": "sync", "after": 9007199254740992 }, "error": true },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "r1",
+      "text": " 你好🙂 \n",
+      "ignored": true
+    },
+    "output": { "action": "prompt", "requestId": "r1", "text": "你好🙂" }
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "r2",
+      "text": "\u3000你好\u00a0"
+    },
+    "output": { "action": "prompt", "requestId": "r2", "text": "你好" }
+  },
+  {
+    "input": { "action": "prompt", "requestId": "r", "text": "\u3000" },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "approval",
+      "requestId": "r3",
+      "approvalId": "a1",
+      "allow": false
+    },
+    "output": {
+      "action": "approval",
+      "requestId": "r3",
+      "approvalId": "a1",
+      "allow": false
+    }
+  },
+  {
+    "input": { "action": "interrupt", "requestId": "r4" },
+    "output": { "action": "interrupt", "requestId": "r4" }
+  },
+  { "input": { "action": "exec", "requestId": "r5" }, "error": true }
+]

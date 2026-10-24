@@ -1,10 +1,16 @@
 #include "coc/common.hpp"
 #include "coc/files.hpp"
+#include "coc/network.hpp"
 #include "coc/process.hpp"
 #include "coc/store.hpp"
+#include <condition_variable>
+#include <ctime>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 namespace {
 using namespace coc;
@@ -33,6 +39,13 @@ struct Temp {
   ~Temp() { std::filesystem::remove_all(path); }
 };
 void core() {
+  for (auto &fixture :
+       read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/protocol-fixtures.json")) {
+    if (fixture.value("error", false))
+      rejects([&] { web_command(fixture["input"]); }, "INVALID_REQUEST");
+    else
+      check(web_command(fixture["input"]) == fixture["output"], "Shared C++/Zod protocol example");
+  }
   check(relay_url("https://r.xlogic.cc/").origin == "https://r.xlogic.cc", "Relay normalization");
   check(relay_url("http://[::1]:8787").host == "::1", "IPv6 loopback");
   for (auto s : {"http://evil.example", "https://user:pass@r.xlogic.cc", "https://r.xlogic.cc/path",
@@ -189,6 +202,246 @@ void history_test() {
   std::cout << "PASS: bounded history, stable cursors, revision sync, UTF-8 chunks, archive "
                "ordering, retention and cache isolation\n";
 }
+void stabilization_test() {
+  Temp temp;
+  { Store store(temp.path); }
+  sqlite3 *database = nullptr;
+  check(sqlite3_open((temp.path + "/agent.db").c_str(), &database) == SQLITE_OK, "Seed database");
+  sqlite3_exec(database, "BEGIN", nullptr, nullptr, nullptr);
+  sqlite3_stmt *statement = nullptr;
+  sqlite3_prepare_v2(database, "INSERT INTO sessions VALUES(?,?)", -1, &statement, nullptr);
+  for (int i = 0; i < 100000; ++i) {
+    const auto id = std::to_string(100000 + i);
+    const auto value = Json{{"id", id},          {"projectId", "p"}, {"mode", "web"},
+                            {"state", "closed"}, {"running", false}, {"createdAt", i}}
+                           .dump();
+    sqlite3_bind_text(statement, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    check(sqlite3_step(statement) == SQLITE_DONE, "Seed session");
+    sqlite3_reset(statement);
+  }
+  sqlite3_finalize(statement);
+  sqlite3_exec(database, "COMMIT", nullptr, nullptr, nullptr);
+  sqlite3_close(database);
+  {
+    Store store(temp.path);
+    for (int i = 0; i < 4; ++i)
+      store.save({{"id", "live-" + std::to_string(i)},
+                  {"projectId", "p"},
+                  {"mode", "web"},
+                  {"state", "ready"},
+                  {"running", true},
+                  {"createdAt", now()}});
+    check(store.sessions(true).size() == 4, "Active scans ignore 100000 archived sessions");
+    std::string cursor;
+    size_t count = 0;
+    do {
+      auto page = store.session_page(
+          {{"cursor", cursor}, {"state", "closed"}, {"projectId", "p"}, {"mode", "web"}});
+      check(page.dump().size() < 100 * 1024 && page["data"].size() <= 100,
+            "Session page byte/count budgets");
+      for (auto &session : page["data"]) {
+        check(session["id"].get<std::string>() > cursor, "Stable directory cursor");
+        cursor = session["id"];
+        ++count;
+      }
+      if (page["nextCursor"].is_null())
+        break;
+    } while (true);
+    check(count == 100000 && store.sessions(true).size() == 4,
+          "Complete directory without disrupting running sessions");
+    Json stream;
+    const std::string delta(1000, 'x');
+    for (int i = 0; i < 1100; ++i)
+      stream = store.event("live-0", "item/agentMessage/delta",
+                           {{"itemId", "stream"}, {"delta", delta}});
+    check(stream.contains("contentSeq"), "Chunked stream is referenced");
+    std::string text;
+    for (int64_t offset = 0;;) {
+      const auto part = store.content("live-0", stream["seq"], offset, stream["revision"]);
+      text += part["text"].get<std::string>();
+      offset = part["nextOffset"];
+      if (part["more"] == false)
+        break;
+    }
+    check(text == std::string(1100000, 'x'), "Append-only chunks reconstruct 1 MiB stream");
+    store.begin("failed", "test");
+    store.finish("failed", {{"requestError", {{"code", "PROJECT_BUSY"}, {"message", "Busy"}}}});
+    check(store.request_status("failed")["state"] == "failed", "Known failure is queryable");
+    rejects([&] { store.begin("failed", "test"); }, "PROJECT_BUSY");
+    check(store.request_status("absent")["state"] == "not_found",
+          "Unknown identity is distinct from unknown execution");
+    WorkspaceFiles files(&store);
+    files.request(
+        temp.path, "workspace-write", "owner",
+        {{"operation", "begin"}, {"uploadId", "persistent"}, {"path", "empty"}, {"size", 0}});
+    const auto result = files.request(temp.path, "workspace-write", "owner",
+                                      {{"operation", "finish"}, {"uploadId", "persistent"}});
+    check(result["state"] == "completed" &&
+              result["sha256"] ==
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "Upload completion checksum");
+  }
+  {
+    Store store(temp.path);
+    WorkspaceFiles files(&store);
+    auto result = files.request(temp.path, "read-only", "owner",
+                                {{"operation", "status"}, {"uploadId", "persistent"}});
+    check(result["state"] == "completed",
+          "Upload result survives Agent restart and policy changes");
+    rejects(
+        [&] {
+          files.request(temp.path, "workspace-write", "owner",
+                        {{"operation", "begin"},
+                         {"uploadId", "persistent"},
+                         {"path", "another"},
+                         {"size", 0}});
+        },
+        "UPLOAD_EXISTS");
+    check(files.request(temp.path, "read-only", "other",
+                        {{"operation", "status"}, {"uploadId", "persistent"}})["state"] ==
+              "not_found",
+          "Upload status credential isolation");
+  }
+  auto path = std::filesystem::path(temp.path) / "credential.json";
+  save_private(path, {{"value", "old"}});
+  {
+    PrivateLock lock(path);
+    rejects([&] { PrivateLock other(path); }, "CONFIG_BUSY");
+  }
+  save_private(path, {{"value", "new"}});
+  check(read_json(path)["value"] == "new", "Atomic private replacement");
+  std::filesystem::create_symlink(path, temp.path + "/symlink");
+  rejects([&] { save_private(temp.path + "/symlink", Json::object()); }, "CONFIG_ERROR");
+  check(read_json(path)["value"] == "new", "Rejected symlink preserves credential");
+  std::cout << "PASS: 100000 session directory, active indexes, append-only 1 MiB stream, request "
+               "failures, durable upload results, atomic credentials\n";
+}
+void http_deadline_test() {
+  for (const auto &phase : {"header", "body", "tls"}) {
+    asio::io_context server_io;
+    asio::ip::tcp::acceptor acceptor(server_io, {asio::ip::make_address("127.0.0.1"), 0});
+    const auto port = acceptor.local_endpoint().port();
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool finished = false;
+    std::thread server([&] {
+      asio::ip::tcp::socket socket(server_io);
+      acceptor.accept(socket);
+      if (std::string(phase) == "body") {
+        const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{";
+        boost::system::error_code ignored;
+        asio::write(socket, asio::buffer(response), ignored);
+      }
+      std::unique_lock<std::mutex> lock(mutex);
+      condition.wait(lock, [&] { return finished; });
+    });
+    std::string code;
+    const auto start = now();
+    try {
+      http_json(relay_url(std::string(std::string(phase) == "tls" ? "https" : "http") +
+                          "://127.0.0.1:" + std::to_string(port)),
+                "/", nullptr, "", "", std::chrono::milliseconds(150));
+    } catch (const Error &error) {
+      code = error.code;
+    }
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      finished = true;
+    }
+    condition.notify_one();
+    server.join();
+    check(code == "HTTP_TIMEOUT" && now() - start < 2000,
+          "HTTP/TLS stall deadline cancels transport");
+  }
+  std::cout << "PASS: stalled HTTP headers/body and TLS handshake time out and release sockets\n";
+}
+void storage_failure_test() {
+  Temp temp;
+  Store store(temp.path);
+  bool failed = false;
+  store.on_failure([&] { failed = true; });
+  sqlite3 *writer = nullptr;
+  check(sqlite3_open((temp.path + "/agent.db").c_str(), &writer) == SQLITE_OK,
+        "Open contending writer");
+  check(sqlite3_exec(writer, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) == SQLITE_OK,
+        "Lock journal");
+  const auto start = now();
+  rejects([&] { store.cache_put("blocked", "value"); }, "STORAGE_BUSY");
+  check(failed && now() - start < 2000, "Storage fault is explicit and bounded");
+  sqlite3_exec(writer, "ROLLBACK", nullptr, nullptr, nullptr);
+  sqlite3_close(writer);
+  check(store.cache_get("blocked").is_null(), "Failed write never appears committed");
+  std::cout << "PASS: bounded SQLite contention, fault callback and no partial commit\n";
+}
+void stream_benchmark(int delta_size, int bytes, int seconds) {
+  if (delta_size < 1 || delta_size > 1000 || bytes < 1 || bytes > 16 * 1024 * 1024 || seconds < 1 ||
+      seconds > 28800)
+    throw Error("USAGE", "--benchmark DELTA(1..1000) BYTES(1..16MiB) MAX_SECONDS(1..28800)");
+  Temp temp;
+  Store store(temp.path);
+  for (int i = 0; i < 4; ++i)
+    store.save({{"id", "bench-" + std::to_string(i)},
+                {"projectId", "project"},
+                {"mode", "web"},
+                {"state", "ready"},
+                {"running", true},
+                {"createdAt", now()}});
+  const auto start = std::chrono::steady_clock::now();
+  const auto cpu_start = std::clock();
+  std::vector<double> durations;
+  size_t events = 0;
+  int characters = 0;
+  int64_t wal_peak = 0;
+  Json last[4];
+  while (characters < bytes &&
+         std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
+    const std::string delta(std::min(delta_size, bytes - characters), 'x');
+    for (int i = 0; i < 4; ++i) {
+      const auto began = std::chrono::steady_clock::now();
+      last[i] = store.event("bench-" + std::to_string(i), "item/agentMessage/delta",
+                            {{"itemId", "stream"}, {"delta", delta}});
+      if (events++ % 16 == 0)
+        durations.push_back(
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - began)
+                .count());
+    }
+    characters += delta.size();
+    if (events % 4096 == 0) {
+      std::error_code ignored;
+      wal_peak = std::max(
+          wal_peak, int64_t(std::filesystem::file_size(temp.path + "/agent.db-wal", ignored)));
+    }
+  }
+  for (int i = 0; i < 4; ++i) {
+    const auto offset = std::max(0, characters - 4096);
+    auto part =
+        store.content("bench-" + std::to_string(i), last[i]["seq"], offset, last[i]["revision"]);
+    check(part["text"] == std::string(characters - offset, 'x') && part["more"] == false,
+          "Benchmark content remains consistent");
+  }
+  std::sort(durations.begin(), durations.end());
+  rusage usage{};
+  getrusage(RUSAGE_SELF, &usage);
+  std::error_code ignored;
+  const auto wal = std::filesystem::file_size(temp.path + "/agent.db-wal", ignored);
+  std::cout
+      << Json{{"sessions", 4},
+              {"deltaCharacters", delta_size},
+              {"targetCharactersPerSession", bytes},
+              {"charactersPerSession", characters},
+              {"completed", characters == bytes},
+              {"events", events},
+              {"elapsedSeconds",
+               std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
+              {"cpuSeconds", double(std::clock() - cpu_start) / CLOCKS_PER_SEC},
+              {"eventP95MicrosecondsSampled", durations[durations.size() * 95 / 100]},
+              {"peakRssKiB", usage.ru_maxrss},
+              {"databaseBytes", std::filesystem::file_size(temp.path + "/agent.db")},
+              {"walPeakBytes", std::max(wal_peak, int64_t(wal))}}
+             .dump()
+      << '\n';
+}
 void files_test() {
   Temp t, outside;
   WorkspaceFiles files;
@@ -342,22 +595,40 @@ void process_test(bool real, bool task) {
   });
   io.run();
   check(success, failure.c_str());
-  std::cout
-      << (task ? "PASS: real Codex model created proof.txt in temporary project\n"
-               : real ? "PASS: C++ initialize + thread/start against real Codex; no model call\n"
-                      : "PASS: C++ subprocess bidirectional RPC and approval rejection\n");
+  if (task)
+    std::cout << "PASS: real Codex model created proof.txt in temporary project\n";
+  else if (real)
+    std::cout << "PASS: C++ initialize + thread/start against real Codex; no model call\n";
+  else
+    std::cout << "PASS: C++ subprocess bidirectional RPC and approval rejection\n";
 }
 } // namespace
 int main(int argc, char **argv) {
   try {
+    std::cout.setf(std::ios::unitbuf);
+    std::cerr.setf(std::ios::unitbuf);
     signal(SIGPIPE, SIG_IGN);
     std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "--codex" || mode == "--task")
+    if (mode == "--benchmark") {
+      if (argc != 5)
+        throw Error("USAGE", "--benchmark DELTA BYTES MAX_SECONDS");
+      stream_benchmark(std::stoi(argv[2]), std::stoi(argv[3]), std::stoi(argv[4]));
+    } else if (mode == "--codex" || mode == "--task")
       process_test(true, mode == "--task");
     else {
+      std::cout << "RUN: core\n";
       core();
+      std::cout << "RUN: history\n";
       history_test();
+      std::cout << "RUN: files\n";
       files_test();
+      std::cout << "RUN: stabilization\n";
+      stabilization_test();
+      std::cout << "RUN: HTTP deadlines\n";
+      http_deadline_test();
+      std::cout << "RUN: storage failures\n";
+      storage_failure_test();
+      std::cout << "RUN: subprocess\n";
       process_test(false, false);
     }
     return 0;

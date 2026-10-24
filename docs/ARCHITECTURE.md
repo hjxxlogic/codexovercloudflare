@@ -2,7 +2,7 @@
 
 > 实现进展：本文件保留初始目标基线；当前开发版本的实际能力与测试结果见 [README](../README.md) 和 [测试记录](TEST_REPORT.md)。
 
-> 状态：C++ 本机实现与后续目标。版本：0.2。日期：2026-10-24。
+> 状态：0.5.0 基础上的未发布稳定化实现；目标与实际状态对照见文末。日期：2026-10-24。
 > 对应 [项目需求](REQUIREMENTS.md)，保留 [原始构想](IDEARS.md) 作为背景记录。
 
 ## 1. 架构结论
@@ -199,7 +199,7 @@ Agent 链路使用项目自定义信封，例如：
 - Agent 以 1 秒起步、最大 30 秒、带随机抖动的指数退避重连；成功稳定连接后重置计数。
 - Agent 心跳初始间隔 30 秒；连续 3 次无响应即重建连接。离线状态基于最后活动时间计算，不能依赖关闭事件必达。
 - HostRelayDO 持久化递增 `connectionEpoch`，只接受当前 Agent 连接；旧连接及旧控制端帧直接拒绝，Agent 同样检查版本。
-- 状态变更写入本地事务记录后才回复 accepted；标识保留 7 天。已转交 Codex 但未确认结果的请求记为 unknown，不自动重试。
+- 状态变更写入本地事务记录后才回复 accepted；请求身份与确定结果长期保留。已转交 Codex 但未确认结果的请求记为 unknown，不自动重试。
 - 保证应用层去重，不声称网络与 Codex 子进程之间具备 exactly-once。崩溃窗口通过查询线程历史和人工确认处理。
 
 ### 7.2 网页回放与 CLI 恢复
@@ -212,7 +212,7 @@ CLI 断线后不重放已经发送的请求和响应。M0 验证同一 app-serve
 
 一个会话仅一个控制租约，携带递增 `controllerEpoch`。接管由 HostRelayDO 原子更新并关闭旧连接；Agent 只接受新版本请求。客户端断开不自动将审批授权给其他会话。
 
-审批持久化 pending/resolved 状态，并关联会话、线程、轮次、原始 RPC ID 和 runtime 实例 ID。答复使用 compare-and-set，重复答复返回已有结果；进程重启后旧审批不可提交给新 runtime。超时默认拒绝；Codex 的其他服务端请求如用户问答也必须有明确映射或返回不支持，不能永久挂起。
+目标（尚未实现持久审批）：审批持久化 pending/resolved 状态，并关联会话、线程、轮次、原始 RPC ID 和 runtime 实例 ID。答复使用 compare-and-set，重复答复返回已有结果；进程重启后旧审批不可提交给新 runtime。超时默认拒绝；Codex 的其他服务端请求如用户问答也必须有明确映射或返回不支持，不能永久挂起。
 
 ## 8. 存储与 DO 休眠
 
@@ -221,7 +221,7 @@ CLI 断线后不重放已经发送的请求和响应。M0 验证同一 app-serve
 | RegistryDO SQLite    | 所有者/设备凭据摘要、设备归属、撤销版本 | 持久，撤销保留必要审计记录             |
 | HostRelayDO SQLite   | 当前连接版本、租约、短期票据消费状态    | 持久控制元数据；票据与结束租约定期清理 |
 | WebSocket attachment | 连接角色、主机/会话 ID、版本、过期时间  | 仅连接存续期；不存正文和原始凭据       |
-| Agent SQLite         | 会话索引、幂等记录、未决审批、网页事件  | 历史长期本地保留；去重记录保留 7 天    |
+| Agent SQLite         | 会话索引、请求日志、网页事件与正文块  | 历史与请求结果长期保留；审批仅 runtime 内存    |
 | 服务器 Codex home    | Codex 原生配置、认证和线程历史          | 遵循 Codex 自身配置与人工管理          |
 
 DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。心跳由 Agent 发起，不在 DO 中设置永久 interval。心跳与日志仍会消耗请求资源，休眠不代表系统零成本。
@@ -324,4 +324,33 @@ Agent SQLite 保留原始事件，并事务更新 `history` 消息投影。文�
 
 既有 Codex 线程先以 `excludeTurns=true` 恢复，再用 `thread/items/list` 按降序每个本地 RPC 读取 1 项，最多连续读取 10 项组成一批，用户翻到已导入历史边界时才读取下一页。归档页与游标在本地事务中保存，负 `seq` 保证其排在新消息前；归档导入不干扰活动文字流。已结束会话在 Agent 在线时仍可读取；必要时通过临时 app-server 读取尚未缓存的 Codex 条目。
 
-CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史页、内容块和目录；界面使用有界页面 / 实时窗口，翻页替换显示内容。CC 保留原生 TUI，并使用独立只读连接缓存最新页，`history` 命令分页 / 分块读取和离线访问，`cache-clear` 删除当前身份缓存。缓存身份包含中继、凭证身份和主机，会话键独立；本地目录 / SQLite 权限分别为 0700 / 0600。缓存不可用不应被视为云端有历史副本。
+CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史页、内容块和目录；界面使用有界消息窗口，向上加载合并并保持阅读锚点。CC 保留原生 TUI，并使用独立只读连接缓存最新页，`history` 命令分页 / 分块读取和离线访问，`cache-clear` 删除当前身份缓存。缓存身份包含中继、凭证身份和主机，会话键独立；本地目录 / SQLite 权限分别为 0700 / 0600。缓存不可用不应被视为云端有历史副本。
+
+
+## 2026-10-24 稳定化实现状态
+
+[原始评估](audit-2026-10-24.md) 是基线；当前实现记录见 [整改跟踪](stabilization-2026-10-24.md)。本轮保留 C++ Agent + 每主机 DO + React 的分工。
+
+- 会话元数据使用 SQLite JSON 表达式索引；列表采用 ID keyset 游标和 100 条/96 KiB 双预算。活动检查只读 ready/starting/closing 集合。超大控制结果转为请求错误。
+- DO 租约包含 epoch/active/pending(id,epoch,expires)。事务拒绝重叠预约；Agent attach 仅预约，首个新控制帧才激活，超时不会提前切断旧控制。旧连接 close 以事务条件更新，保留正在进行的预约。
+- 请求日志分 received/submitted/completed/failed；旧格式或丢确认保守视为 unknown。具体请求与结果永久保留以免长延迟重试重复执行。创建键包含凭证 hash；任务结果查询校验主机与模式。
+- 流式消息继续保留原始事件作为事实日志。小投影内联有界正文，大流使用 bodies/chunks 追加；seq 稳定，revision 递增，按字符偏移有界读取。原始事件、分块和投影同一事务提交。历史迁移按需导入旧投影。存储和业务状态运行在独立串行 Asio 执行线程；网络与心跳使用独立事件循环，跨线程入站/出站各限 8 MiB，存储故障停止接受副作用并关闭 Agent。
+- 原生 HTTP 使用统一 deadline；DNS 在独立 getent 进程执行，取消时 kill/reap，不依赖不能中断的 Asio getaddrinfo 工作线程。TLS 验证仍检查 CA 与主机名。
+- 连接入站队列按连接 8 MiB、主机 16 MiB；HTTP pending 最多 64、连接最多 40、任务 runtime 最多 4，临时归档与任务共同使用进程预算。历史/网页出站通过 receiptId 回执限制累计 8 MiB/1000 帧，慢端单独关闭。原生 CLI RPC 仍受平台没有通用 bufferedAmount 的限制，不宣称已测得整个平台出站内存上限。
+- Registry 鉴权缓存最长 5 秒/128 项，显式撤销清缓存并关闭连接，alarm 保持复核。缓存不延长凭证有效期。
+- Agent hello 报告 build/protocol/capabilities，显式不支持的 v 被拒绝；存储 schema、业务协议 1 和认证 version 2 独立。共享 JSON 样例由 C++/Zod 双方验证。
+- CW 拆出 WorkspaceHeader、ApprovalQueue、ConversationView；消息按相邻工具活动分组且默认关闭。IndexedDB v2 保留旧库，连接显式 close/versionchange；缓存以身份/主机/会话隔离并做数量/字节修剪，草稿和待确认身份属于操作状态。
+- 上传发布后 fsync 父目录，完成状态与摘要写入 Agent SQLite；结果保留 24 小时。文件系统发布与 SQLite 不是跨资源原子事务，断电窗口须人工核对。
+
+仍需独立验证或后续设计：CLI 原始 RPC 的平台背压、完整跨语言代码生成/多版本兼容窗口、跨 DO 真正休眠/升级、八小时四会话负载、精细指标与显式 stderr 诊断提取。JSON Schema 与共享样例已生成/校验，不能替代多版本运行验证。这些目标不可因新增字段或测试脚本视为已验收。
+
+
+| 设计目标 | 当前状态与边界 | 验证入口 |
+| --- | --- | --- |
+| 持久幂等与结果恢复 | 请求日志已实现；不明状态不自动重发，旧 runtime 不恢复 | core / e2e / ui-stability |
+| 持久审批与完整状态机 | 审批仅绑定当前 runtime；重启后不恢复待审批，旧会话终结 | core / e2e；持久审批未验收 |
+| 网络不被同步存储阻塞 | 独立网络循环与串行业务线程；队列有界 | e2e；心跳抖动长稳未测 |
+| 协议协商和兼容窗口 | protocol 1 握手、能力及构建检查已实现；暂无多版本窗口 | relay-order / protocol-fixtures |
+| DO 休眠和升级恢复 | 持久租约和 attachment 重建路径；真实平台升级未验收 | 本地 Wrangler 与租约竞争测试 |
+| 观测与诊断 | 元数据日志、SQLite 分类错误、doctor；无正文和 stderr 提取 | core / native --version / doctor |
+| 平台出站背压 | 网页与历史回执预算已实现；CLI 原始 RPC 总量仍受平台限制 | relay-order 慢读者用例 |

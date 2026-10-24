@@ -10,6 +10,15 @@ struct Error : std::runtime_error {
   std::string code;
   Error(std::string c, std::string m) : std::runtime_error(m), code(std::move(c)) {}
 };
+class PrivateLock {
+  int fd_ = -1;
+
+public:
+  explicit PrivateLock(const std::filesystem::path &path);
+  ~PrivateLock();
+  PrivateLock(const PrivateLock &) = delete;
+  PrivateLock &operator=(const PrivateLock &) = delete;
+};
 Json error_data(const std::exception &e);
 int64_t now();
 std::string uuid();

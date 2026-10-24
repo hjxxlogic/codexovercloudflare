@@ -20,5 +20,5 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RegistryDO", "HostRelayDO"] },
   ],
-  "observability": { "enabled": false },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
 }

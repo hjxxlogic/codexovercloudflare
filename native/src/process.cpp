@@ -1,5 +1,6 @@
 #include "coc/process.hpp"
 #include <fcntl.h>
+#include <iostream>
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -216,7 +217,7 @@ void CodexProcess::request(const std::string &m, const Json &p, Completion done)
 void CodexProcess::initialize(Completion done) {
   auto self = shared_from_this();
   request("initialize",
-          {{"clientInfo", {{"name", "coc-web"}, {"version", "0.2.1"}}},
+          {{"clientInfo", {{"name", "coc-web"}, {"version", "0.5.1"}}},
            {"capabilities", {{"experimentalApi", false}}}},
           [self, done](Json r, Json e) {
             if (e.is_null())
@@ -232,9 +233,15 @@ void CodexProcess::reap() {
       return;
     int status;
     int r = waitpid(self->pid_, &status, WNOHANG);
-    if (r == self->pid_ || (r < 0 && errno == ECHILD))
+    if (r == self->pid_ || (r < 0 && errno == ECHILD)) {
+      Json metadata = {{"event", "codex_exit"}, {"time", now()}, {"expected", self->closing_}};
+      if (r == self->pid_) {
+        metadata["exitCode"] = WIFEXITED(status) ? Json(WEXITSTATUS(status)) : Json();
+        metadata["signal"] = WIFSIGNALED(status) ? Json(WTERMSIG(status)) : Json();
+      }
+      std::cerr << metadata.dump() << '\n';
       self->exit();
-    else
+    } else
       self->reap();
   });
 }

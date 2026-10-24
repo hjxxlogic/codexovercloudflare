@@ -11,6 +11,11 @@ export class Agent {
   private proxy?: WebSocketServer;
   private peers = new Set<WebSocket>();
   private starting?: Promise<void>;
+  private loseAttach = false;
+  private lostReplies = new Set<string>();
+  loseNextAttachReply() {
+    this.loseAttach = true;
+  }
   constructor(private config: AgentConfig) {}
   start() {
     this.starting = this.launch();
@@ -34,6 +39,12 @@ export class Agent {
       this.peers.add(upstream);
       const queue: string[] = [];
       downstream.on('message', (d) => {
+        const message = JSON.parse(d.toString());
+        if (
+          message.type === 'result' &&
+          this.lostReplies.delete(message.requestId)
+        )
+          return;
         if (upstream.readyState === WebSocket.OPEN) upstream.send(d.toString());
         else queue.push(d.toString());
       });
@@ -42,6 +53,15 @@ export class Agent {
         queue.length = 0;
       });
       upstream.on('message', (d) => {
+        const message = JSON.parse(d.toString());
+        if (
+          this.loseAttach &&
+          message.type === 'control' &&
+          message.action === 'attach'
+        ) {
+          this.loseAttach = false;
+          this.lostReplies.add(message.requestId);
+        }
         if (downstream.readyState === WebSocket.OPEN)
           downstream.send(d.toString());
       });

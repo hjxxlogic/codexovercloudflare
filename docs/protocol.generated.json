@@ -1,0 +1,1081 @@
+{
+  "webCommand": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "sync"
+          },
+          "after": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "action",
+          "after"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "prompt"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64000
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "interrupt"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "requestId"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "approval"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "approvalId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "allow": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "approvalId",
+          "allow"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "historyCommand": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "page"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "before": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "operation",
+          "requestId"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "content"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "operation",
+          "requestId",
+          "seq",
+          "offset"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "workspaceFileCommand": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "list"
+          },
+          "path": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4096
+          },
+          "after": {
+            "default": "",
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "after"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "read"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20971520
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "begin"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uploadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20971520
+          },
+          "overwrite": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "uploadId",
+          "size",
+          "overwrite"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "chunk"
+          },
+          "uploadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20971520
+          },
+          "data": {
+            "type": "string",
+            "maxLength": 87384
+          }
+        },
+        "required": [
+          "operation",
+          "uploadId",
+          "offset",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "finish",
+              "cancel",
+              "status"
+            ]
+          },
+          "uploadId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "operation",
+          "uploadId"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "session": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+      },
+      "projectId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "web",
+          "cli"
+        ]
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "starting",
+          "ready",
+          "closing",
+          "closed",
+          "failed"
+        ]
+      },
+      "threadId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "turnId": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "sandbox": {
+        "type": "string",
+        "enum": [
+          "read-only",
+          "workspace-write"
+        ]
+      },
+      "running": {
+        "type": "boolean"
+      },
+      "createdAt": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "updatedAt": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "title": {
+        "type": "string",
+        "maxLength": 320
+      }
+    },
+    "required": [
+      "id",
+      "projectId",
+      "mode",
+      "state",
+      "running",
+      "createdAt"
+    ],
+    "additionalProperties": false
+  },
+  "event": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "seq": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "type": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "data": {},
+      "time": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "contentSeq": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "seq",
+      "type",
+      "data",
+      "time"
+    ],
+    "additionalProperties": false
+  },
+  "agentBuild": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50
+      },
+      "commit": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{40,64}$"
+      },
+      "sourceDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "protocol": {
+        "type": "number",
+        "const": 1
+      },
+      "capabilities": {
+        "maxItems": 32,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "dirty": {
+        "type": "boolean"
+      },
+      "verified": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "version",
+      "commit",
+      "sourceDigest",
+      "target",
+      "protocol",
+      "capabilities",
+      "dirty"
+    ],
+    "additionalProperties": false
+  },
+  "controlCommand": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "projects"
+          },
+          "data": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "paged": {
+                "default": false,
+                "type": "boolean"
+              },
+              "cursor": {
+                "default": "",
+                "type": "string",
+                "maxLength": 201
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "ready",
+                  "closing",
+                  "closed",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "paged",
+              "cursor"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "get"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "stop"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "attach"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "epoch": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expires": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sessionId",
+              "epoch",
+              "expires"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "create"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 202
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "threadId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "key",
+              "projectId",
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "request"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 202
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              }
+            },
+            "required": [
+              "requestId",
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "threads"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "history"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "page",
+                  "content"
+                ]
+              },
+              "before": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sessionId",
+              "operation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "files"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "const": "list"
+                  },
+                  "path": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "after": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 255
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "owner",
+                  "operation",
+                  "path",
+                  "after"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "const": "read"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "offset": {
+                    "default": 0,
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 20971520
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "owner",
+                  "operation",
+                  "path",
+                  "offset"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "const": "begin"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "uploadId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 20971520
+                  },
+                  "overwrite": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "owner",
+                  "operation",
+                  "path",
+                  "uploadId",
+                  "size",
+                  "overwrite"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "const": "chunk"
+                  },
+                  "uploadId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 20971520
+                  },
+                  "data": {
+                    "type": "string",
+                    "maxLength": 87384
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "owner",
+                  "operation",
+                  "uploadId",
+                  "offset",
+                  "data"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "finish",
+                      "cancel",
+                      "status"
+                    ]
+                  },
+                  "uploadId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "owner",
+                  "operation",
+                  "uploadId"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "controlResult": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "const": "result"
+      },
+      "v": {
+        "type": "number",
+        "const": 1
+      },
+      "requestId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "data": {},
+      "error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "type",
+      "v",
+      "requestId"
+    ],
+    "additionalProperties": false
+  }
+}

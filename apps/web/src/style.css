@@ -685,3 +685,258 @@ button.file-name {
   margin: 8px auto;
   max-height: 30dvh;
 }
+
+:root {
+  --surface: #20232b;
+  --border: #414856;
+  --muted: #aeb8c8;
+  --accent: #d9e5f7;
+  --warning: #a38c4d;
+  --danger: #e49aa8;
+  font-size: 16px;
+}
+small {
+  font-size: 13px;
+}
+button {
+  min-height: 44px;
+}
+.login-card {
+  max-width: 500px;
+  margin: 32px auto;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.workspace-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 2px 20px 8px;
+  min-height: 32px;
+  text-align: left;
+  font-size: 13px;
+}
+.workspace-context span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-context span:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.chat-workspace .brand {
+  flex: 1;
+}
+.messages {
+  padding-left: max(16px, calc((100% - 860px) / 2));
+  padding-right: max(16px, calc((100% - 860px) / 2));
+}
+.composer {
+  width: min(calc(100% - 24px), 860px);
+  margin-top: 6px;
+  padding: 8px 12px;
+  gap: 4px 8px;
+}
+.composer textarea {
+  font-size: 16px;
+  min-height: 48px;
+  max-height: min(20dvh, 160px);
+  field-sizing: content;
+  resize: none;
+}
+.composer small,
+.session small,
+.id,
+.sidebar-caption {
+  font-size: 12px;
+}
+.tool-group {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tool-group > summary {
+  padding: 8px 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.tool-output summary {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.tool-output,
+.tool-group,
+.message {
+  min-width: 0;
+  max-width: 100%;
+}
+.approval-queue {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(36dvh, 320px);
+  width: min(calc(100% - 24px), 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 4px auto;
+  border: 1px solid var(--warning);
+  border-radius: 12px;
+  background: #38301f;
+  font-size: 13px;
+}
+.approval-heading,
+.approval-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 10px;
+  flex-wrap: wrap;
+}
+.approval-heading {
+  justify-content: space-between;
+}
+.approval-heading button {
+  padding: 4px 8px;
+  min-height: 32px;
+}
+.approval-body {
+  overflow: auto;
+  min-height: 0;
+  padding: 0 12px;
+  overscroll-behavior: contain;
+}
+.approval-body p,
+.approval-body h3 {
+  margin: 8px 0;
+}
+.approval-body pre {
+  user-select: text;
+}
+.approval-actions {
+  border-top: 1px solid var(--warning);
+}
+.primary {
+  background: var(--accent);
+  color: #15243e;
+}
+.notice,
+.submission-state,
+.readonly-hint {
+  padding: 8px 12px;
+  font-size: 13px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.chat-workspace > .notice {
+  flex-shrink: 0;
+  max-height: 12dvh;
+}
+.submission-state {
+  width: min(100%, 860px);
+  margin: 0 auto;
+  max-height: 15dvh;
+  flex-shrink: 0;
+}
+.submission-state p {
+  max-height: 4em;
+  overflow: auto;
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.submission-state small {
+  display: block;
+}
+.chat-workspace > .error {
+  max-height: 14dvh;
+  font-size: 13px;
+  margin: 0 12px 4px;
+  padding: 6px;
+}
+@media (max-width: 760px) {
+  .chat-workspace .topbar {
+    padding: 0 8px;
+  }
+  .header-actions {
+    gap: 4px;
+  }
+  .header-actions button {
+    padding: 6px 10px;
+  }
+  .workspace-context {
+    padding: 2px 12px 6px;
+    gap: 6px;
+  }
+  .workspace-context span:last-child {
+    max-width: 48%;
+  }
+  .messages {
+    padding: 12px;
+  }
+  .approval-queue {
+    max-height: 34dvh;
+  }
+  .composer {
+    margin-top: 4px;
+  }
+}
+@media (max-height: 520px) {
+  .chat-workspace .topbar {
+    height: 44px;
+  }
+  .composer textarea {
+    min-height: 32px;
+    max-height: 12dvh;
+  }
+  .composer {
+    padding: 4px 8px;
+  }
+  .composer small {
+    font-size: 12px;
+  }
+  .approval-queue {
+    max-height: 32dvh;
+  }
+  .approval-heading {
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+}
+.diff-add {
+  display: block;
+  background: #183b2d;
+  color: #b9eecf;
+}
+.diff-remove {
+  display: block;
+  background: #492831;
+  color: #ffccd4;
+}
+.code-block {
+  max-width: 100%;
+}
+.code-block > button {
+  font-size: 12px;
+  min-height: 32px;
+}
+progress {
+  width: 100%;
+}
+.highlight-request {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+}

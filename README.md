@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.0 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.1 开发预览版，完整目标和已验证范围见文档。
 
 ## 本机快速开始
 
@@ -61,7 +61,7 @@ npm run test:native
 - 网页支持文本任务、流式事件、命令/文件审批、停止、同模式回放恢复和显式接管。
 - CLI 只开放已声明的 RPC；配置/账号写入、任意命令 RPC、附件和跨会话历史访问被拒绝。
 - CLI 首次附着后暂不支持再次附着现有 runtime；会返回明确错误。请结束旧会话再创建新会话，勿重复提交状态不明的任务。
-- 单帧上限 256 KiB，超大 Codex 输出会终止对应 runtime；尚未实现架构规划中的分片。
+- 网络单帧上限 256 KiB；本地 Codex RPC 缓冲上限约 8 MiB。大历史正文以引用和带 revision 的分块读取；超大控制响应返回单请求错误，不关闭共享上行。超出本地 RPC 缓冲仍会关闭对应 runtime。
 - Agent 重启后会将原活动会话标记失败；CW 可从同一运行用户、同一项目的 Codex 本地历史显式恢复线程，不恢复旧进程或自动重发任务。
 - 网页中的补充问题/MCP elicitation 暂不支持，会明确拒绝；不隐式批准操作。
 - 代码修改留在远程服务器；不提供文件同步、端到端加密或不可信多用户隔离。
@@ -73,3 +73,5 @@ npm run test:native
 - [开发与本机测试](docs/DEVELOPMENT.md)
 - [测试记录](docs/TEST_REPORT.md)
 - [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：完整目标，部分能力尚待实现。
+
+当前稳定化实现与验证边界见 [实施记录](docs/stabilization-2026-10-24.md)。0.5.1 发布候选包含这些整改；发布结果见测试记录。

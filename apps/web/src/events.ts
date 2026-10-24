@@ -122,3 +122,20 @@ export function visibleEvents(events: Event[]) {
   }
   return result;
 }
+
+// Group only adjacent tool activity. Chat, plans, warnings and errors keep their order.
+export function groupToolEvents(events: Event[]) {
+  const groups: { tools: boolean; events: Event[] }[] = [];
+  for (const event of events) {
+    const tools = [
+      'item/started',
+      'item/completed',
+      'item/commandExecution/outputDelta',
+      'item/fileChange/outputDelta',
+    ].includes(event.type);
+    const previous = groups.at(-1);
+    if (tools && previous?.tools) previous.events.push(event);
+    else groups.push({ tools, events: [event] });
+  }
+  return groups;
+}

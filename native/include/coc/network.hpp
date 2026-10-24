@@ -2,7 +2,8 @@
 #include "process.hpp"
 namespace coc {
 Json http_json(const Url &, const std::string &path, const Json &body,
-               const std::string &token = "");
+               const std::string &token = "", const std::string &request_id = "",
+               std::chrono::milliseconds timeout = std::chrono::seconds(30));
 struct Socket {
   virtual ~Socket() = default;
   virtual void start() = 0;

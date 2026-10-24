@@ -96,7 +96,7 @@ export default {
       const u = new URL(req.url),
         p = u.pathname;
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true });
+        return json({ ok: true, version: '0.5.0', protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);
@@ -187,8 +187,14 @@ export default {
         const auth = await authenticate(req, env, undefined, true);
         return json({ role: auth.role, expires: auth.expires });
       }
+      if (p === '/api/v1/auth/logout-others' && req.method === 'POST') {
+        const auth = await authenticate(req, env, undefined, true);
+        await registryCall(env, 'logoutOthers', { hash: auth.hash });
+        return json({ ok: true });
+      }
       if (p === '/api/v1/auth/logout' && req.method === 'POST') {
-        await authenticate(req, env, undefined, true);
+        const auth = await authenticate(req, env, undefined, true);
+        await registryCall(env, 'logout', { hash: auth.hash });
         return json({ ok: true }, 200, {
           'Set-Cookie': cookieHeader(req, 'coc_admin', '', 0),
         });
@@ -287,7 +293,7 @@ export default {
               const status: any = await (
                 await hostStub(env, h.id).fetch('https://internal/status')
               ).json();
-              return { ...h, online: status.online };
+              return { ...h, ...status };
             }),
           ),
         );
@@ -385,7 +391,16 @@ export default {
         const d =
           req.method === 'POST'
             ? await body(req)
-            : { hostId: u.searchParams.get('hostId') };
+            : {
+                hostId: u.searchParams.get('hostId'),
+                paged: u.searchParams.get('paged') === 'true',
+                cursor: z
+                  .string()
+                  .max(200)
+                  .parse(u.searchParams.get('cursor') || ''),
+                projectId: u.searchParams.get('projectId') || undefined,
+                state: u.searchParams.get('state') || undefined,
+              };
         const hostId = idSchema.parse(d.hostId);
         const auth = await authenticate(req, env, hostId);
         await registryCall(env, 'host', { id: hostId });
@@ -414,11 +429,34 @@ export default {
             .min(1)
             .max(100)
             .parse(req.headers.get('idempotency-key'));
+          d.key = auth.hash + ':' + d.key;
         }
+        if (req.method === 'GET') d.mode = auth.role;
         return hostStub(env, hostId).fetch(
           internal(req, '/control', auth, hostId, {
             action: req.method === 'POST' ? 'create' : 'list',
             data: d,
+          }),
+        );
+      }
+      const operation = p.match(
+        /^\/api\/v1\/hosts\/([\w-]+)\/requests\/([\w-]+)$/,
+      );
+      if (operation && req.method === 'GET') {
+        const auth = await authenticate(req, env, operation[1]);
+        const sessionId = u.searchParams.get('sessionId');
+        if (sessionId && !sessionId.startsWith(operation[1] + '~'))
+          throw new AppError('FORBIDDEN', 'Wrong host', 403);
+        return hostStub(env, operation[1]).fetch(
+          internal(req, '/control', auth, operation[1], {
+            action: 'request',
+            data: {
+              requestId: sessionId
+                ? operation[2]
+                : auth.hash + ':' + operation[2],
+              mode: auth.role,
+              ...(sessionId ? { sessionId } : {}),
+            },
           }),
         );
       }

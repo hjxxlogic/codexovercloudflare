@@ -78,6 +78,34 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('revokes administrator sessions on logout, other-session logout and owner rotation', async () => {
+    const first = (await op('login', { secret: env.OWNER_SECRET })).data;
+    const second = (await op('login', { secret: env.OWNER_SECRET })).data;
+    const device = await grant('agent');
+    const request = (path: string, token: string) =>
+      worker.fetch(
+        new Request('https://relay.test/api/v1' + path, {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + token,
+            Origin: 'https://relay.test',
+          },
+        }),
+        env,
+      );
+    expect((await request('/auth/logout-others', first.token)).status).toBe(
+      200,
+    );
+    expect((await op('auth', { token: second.token })).status).toBe(401);
+    expect((await op('auth', { token: first.token })).status).toBe(200);
+    expect((await op('auth', { token: device.token })).status).toBe(200);
+    expect((await request('/auth/logout', first.token)).status).toBe(200);
+    expect((await op('auth', { token: first.token })).status).toBe(401);
+    const third = (await op('login', { secret: env.OWNER_SECRET })).data;
+    env.OWNER_SECRET = 'rotated'.repeat(10);
+    expect((await op('auth', { token: third.token })).status).toBe(401);
+    expect((await op('auth', { token: device.token })).status).toBe(200);
+  });
   it('keeps credentials valid years later and rejects legacy broad credentials', async () => {
     const a = await grant('agent');
     const cc = await grant('cli', a.hostId);

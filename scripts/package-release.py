@@ -15,7 +15,18 @@ parser.add_argument('--platform', required=True, help='Distribution identifier, 
 args = parser.parse_args()
 if not re.fullmatch(r'[a-zA-Z0-9._-]+', args.platform):
     parser.error('Invalid platform identifier')
-version = json.loads(pathlib.Path('package.json').read_text())['version']
+from importlib.util import spec_from_file_location, module_from_spec
+spec = spec_from_file_location('build_metadata', 'scripts/build-metadata.py')
+metadata_module = module_from_spec(spec)
+spec.loader.exec_module(metadata_module)
+metadata = metadata_module.identity()
+if metadata['dirty']:
+    parser.error('Release requires a clean tracked working tree')
+version = metadata['version']
+for executable in ('coc-client', 'coc-agent'):
+    built = json.loads(subprocess.check_output([str(pathlib.Path(args.build_dir).resolve() / executable), '--version'], text=True))
+    if any(built.get(key) != metadata[key] for key in ('version', 'commit', 'sourceDigest', 'protocol', 'dirty', 'target')):
+        parser.error(f'{executable} build identity does not match the clean source tree')
 output = pathlib.Path('dist/web/downloads')
 output.mkdir(parents=True, exist_ok=True)
 name = f'coc-{version}-linux-x86_64-{args.platform}'
@@ -47,7 +58,7 @@ archives = sorted(output.glob('*.tar.gz'))
     hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in archives))
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 (output / 'index.json').write_text(json.dumps({
-    'version': version, 'commit': commit, 'files': [path.name for path in archives],
+    'version': version, 'commit': commit, 'sourceDigest': metadata['sourceDigest'], 'protocol': metadata['protocol'], 'files': [path.name for path in archives],
     'checksums': 'SHA256SUMS', 'manual': 'USER_GUIDE.md',
 }, indent=2) + '\n')
 links = ''.join(f'<li><a href="{path.name}">{path.name}</a></li>' for path in archives)

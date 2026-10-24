@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from '../packages/protocol/src/index.ts';
-import { visibleEvents, eventWindow } from '../apps/web/src/events.ts';
+import {
+  visibleEvents,
+  eventWindow,
+  groupToolEvents,
+} from '../apps/web/src/events.ts';
 
 const delta = (seq: number, text: string, itemId = 'reply'): Event => ({
   seq,
@@ -131,6 +135,36 @@ describe('web reply assembly', () => {
     expect(result.map((e) => e.data)).toEqual([
       { itemId: 'a', delta: 'First' },
       { itemId: 'b', delta: 'Second' },
+    ]);
+  });
+});
+
+describe('consecutive tool groups', () => {
+  it('groups adjacent tools and keeps chat and warnings as visible boundaries', () => {
+    const tool = (seq: number): Event => ({
+      seq,
+      time: seq,
+      type: 'item/completed',
+      data: { item: { type: 'commandExecution', id: String(seq) } },
+    });
+    const warning: Event = {
+      seq: 4,
+      time: 4,
+      type: 'warning',
+      data: { message: 'check' },
+    };
+    const groups = groupToolEvents([
+      tool(1),
+      tool(2),
+      delta(3, 'reply'),
+      warning,
+      tool(5),
+    ]);
+    expect(groups.map((group) => [group.tools, group.events.length])).toEqual([
+      [true, 2],
+      [false, 1],
+      [false, 1],
+      [true, 1],
     ]);
   });
 });

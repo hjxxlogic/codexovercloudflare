@@ -11,17 +11,63 @@ export type HistoryPage = {
 // Every record is scoped by relay origin, credential identity, host and session.
 export class HistoryCache {
   private db: Promise<IDBDatabase>;
+  private generation = 0;
+  private nextPrune = 0;
   constructor(private scope: string) {
     this.db = new Promise((resolve, reject) => {
-      const request = indexedDB.open('coc-history', 1);
+      const request = indexedDB.open('coc-history', 2);
       request.onupgradeneeded = () => {
-        request.result.createObjectStore('events', {
-          keyPath: ['scope', 'seq'],
-        });
-        request.result.createObjectStore('pages');
+        if (!request.result.objectStoreNames.contains('events'))
+          request.result.createObjectStore('events', {
+            keyPath: ['scope', 'seq'],
+          });
+        if (!request.result.objectStoreNames.contains('pages'))
+          request.result.createObjectStore('pages');
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        request.result.onversionchange = () => request.result.close();
+        resolve(request.result);
+      };
       request.onerror = () => reject(request.error);
+    });
+  }
+  close() {
+    void this.db.then((db) => db.close()).catch(() => {});
+  }
+  private async prune() {
+    if (Date.now() < this.nextPrune) return;
+    this.nextPrune = Date.now() + 5000;
+    const db = await this.db;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['events', 'pages'], 'readwrite');
+      for (const name of ['events', 'pages']) {
+        let bytes = 0,
+          count = 0;
+        const cursor = tx.objectStore(name).openCursor(undefined, 'prev');
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) return;
+          const scope =
+            name === 'events' ? row.value.scope : (row.key as IDBValidKey[])[0];
+          const key = (row.key as IDBValidKey[])[1];
+          if (
+            scope === this.scope &&
+            (name === 'events' ||
+              typeof key === 'number' ||
+              String(key).startsWith('content:'))
+          ) {
+            bytes += new TextEncoder().encode(JSON.stringify(row.value)).length;
+            if (
+              ++count > (name === 'events' ? 2000 : 512) ||
+              bytes > 4 * 1024 * 1024
+            )
+              row.delete();
+          }
+          row.continue();
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
   async latest(): Promise<{ events: Event[]; checkpoint?: number }> {
@@ -64,7 +110,9 @@ export class HistoryCache {
     before?: number,
     page?: HistoryPage,
   ) {
+    const generation = this.generation;
     const db = await this.db;
+    if (generation !== this.generation) return;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
       for (const event of events) {
@@ -95,6 +143,7 @@ export class HistoryCache {
         reject(tx.error || new Error('Local history write aborted'));
       tx.onerror = () => reject(tx.error);
     });
+    await this.prune();
   }
   async page(before: number): Promise<HistoryPage | undefined> {
     const db = await this.db;
@@ -121,8 +170,10 @@ export class HistoryCache {
     revision: number,
     value?: unknown,
   ): Promise<any> {
+    const generation = this.generation;
     const db = await this.db;
-    return new Promise((resolve, reject) => {
+    if (value !== undefined && generation !== this.generation) return;
+    const result = await new Promise((resolve, reject) => {
       const tx = db.transaction(
         'pages',
         value === undefined ? 'readonly' : 'readwrite',
@@ -135,8 +186,15 @@ export class HistoryCache {
       tx.oncomplete = () => resolve(value ?? request.result);
       tx.onerror = () => reject(tx.error);
     });
+    if (value !== undefined) await this.prune();
+    return result;
   }
   async record(key: string, value?: unknown): Promise<any> {
+    if (
+      value !== undefined &&
+      new TextEncoder().encode(JSON.stringify(value)).length > 4 * 1024 * 1024
+    )
+      throw new Error('Local cache record exceeds its 4 MiB budget');
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction(
@@ -152,6 +210,7 @@ export class HistoryCache {
     });
   }
   async clear() {
+    this.generation++;
     const db = await this.db;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
@@ -165,7 +224,13 @@ export class HistoryCache {
               ? row.value.scope
               : (row.key as IDBValidKey[])[0]) === this.scope
           )
-            row.delete();
+            if (
+              name === 'events' ||
+              !['draft', 'pending'].includes(
+                String((row.key as IDBValidKey[])[1]),
+              )
+            )
+              row.delete();
           row.continue();
         };
       }

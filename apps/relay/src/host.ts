@@ -3,7 +3,11 @@ import { z } from 'zod';
 import {
   AppError,
   MAX_QUEUE,
+  MAX_FRAME,
   historyCommandSchema,
+  webCommandSchema,
+  agentBuildSchema,
+  controlCommandSchema,
   parseFrame,
 } from '../../../packages/protocol/src/index.ts';
 import {
@@ -26,6 +30,8 @@ type Attachment = {
   authenticated: boolean;
   history?: boolean;
   deadline: number;
+  build?: unknown;
+  protocol?: number;
 };
 type Ticket = {
   sessionId: string;
@@ -34,7 +40,34 @@ type Ticket = {
   expires: number;
   takeover: boolean;
 };
+type Lease = {
+  epoch: number;
+  active: boolean;
+  pending?: { epoch: number; id: string; expires: number };
+};
 export class HostRelayDO extends DurableObject<Env> {
+  private authorization = new Map<
+    string,
+    { expires: number; checked: number }
+  >();
+  private outbound = new WeakMap<WebSocket, Map<string, number>>();
+  private incomingBytes = 0;
+  async authorized(hash: string) {
+    const cached = this.authorization.get(hash);
+    if (
+      cached &&
+      cached.checked + 5000 > Date.now() &&
+      cached.expires > Date.now()
+    )
+      return;
+    const auth: Auth = await registryCall(this.env, 'authHash', { hash });
+    if (this.authorization.size >= 128)
+      this.authorization.delete(this.authorization.keys().next().value!);
+    this.authorization.set(hash, {
+      expires: auth.expires,
+      checked: Date.now(),
+    });
+  }
   private messages = new WeakMap<
     WebSocket,
     { tail: Promise<void>; bytes: number }
@@ -51,20 +84,77 @@ export class HostRelayDO extends DurableObject<Env> {
     return this.ctx.getWebSockets('agent').find((s) => s.readyState === 1);
   }
   send(ws: WebSocket, data: unknown) {
-    const value = typeof data === 'string' ? data : JSON.stringify(data);
-    // The runtime doesn't expose bufferedAmount on every release. Cap individual frames;
-    // the Node endpoints additionally enforce the aggregate queue limit.
-    if (new TextEncoder().encode(value).length > MAX_QUEUE)
-      throw new AppError('MESSAGE_TOO_LARGE', 'Outgoing frame too large');
+    const attachment = ws.deserializeAttachment() as Attachment | undefined;
+    const receipts =
+      attachment?.history ||
+      (attachment?.role === 'web' && attachment.authenticated);
+    const receiptId = receipts ? crypto.randomUUID() : undefined;
+    const value =
+      typeof data === 'string'
+        ? data
+        : JSON.stringify({
+            ...(data as object),
+            ...(receiptId ? { receiptId } : {}),
+          });
+    const bytes = new TextEncoder().encode(value).length;
+    if (bytes > MAX_FRAME)
+      throw new AppError('MESSAGE_TOO_LARGE', 'Outgoing frame too large', 413);
+    if (receiptId) {
+      let queue = this.outbound.get(ws);
+      if (!queue) {
+        queue = new Map();
+        this.outbound.set(ws, queue);
+      }
+      let total = bytes;
+      for (const size of queue.values()) total += size;
+      if (total > MAX_QUEUE || queue.size >= 1000) {
+        ws.close(4008, 'Reader acknowledgement budget exhausted');
+        return;
+      }
+      queue.set(receiptId, bytes);
+    }
     ws.send(value);
   }
+
   async command(action: string, data: any) {
+    data = controlCommandSchema.parse({ action, data }).data;
     const ws = this.agent();
     if (!ws) throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
+    const agent = ws.deserializeAttachment() as Attachment;
+    if (agent.protocol !== 1)
+      throw new AppError(
+        'AGENT_NEGOTIATING',
+        'Agent must complete protocol negotiation; upgrade the Agent if this persists',
+        503,
+      );
+    if (this.pending.size >= 64)
+      throw new AppError(
+        'BACKPRESSURE',
+        'Host control request budget exhausted',
+        429,
+      );
     const requestId = crypto.randomUUID();
+    const started = Date.now();
+    console.log(
+      JSON.stringify({
+        event: 'control_started',
+        action,
+        requestId,
+        sessionId: data?.sessionId,
+        pending: this.pending.size,
+      }),
+    );
     return new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        console.log(
+          JSON.stringify({
+            event: 'control_timeout',
+            action,
+            requestId,
+            durationMs: Date.now() - started,
+          }),
+        );
         reject(
           new AppError(
             'RESULT_UNKNOWN',
@@ -87,9 +177,18 @@ export class HostRelayDO extends DurableObject<Env> {
     try {
       const u = new URL(req.url),
         s = this.ctx.storage;
-      if (u.pathname === '/status') return json({ online: !!this.agent() });
+      if (u.pathname === '/status') {
+        const agent = this.agent();
+        const a = agent?.deserializeAttachment() as Attachment | undefined;
+        return json({
+          online: !!agent && a?.protocol === 1,
+          build: a?.build,
+          protocol: a?.protocol,
+        });
+      }
       if (u.pathname === '/revoke-auth') {
         const d = await body(req);
+        this.authorization.clear();
         for (const ws of this.ctx.getWebSockets())
           if (
             d.agent ||
@@ -123,6 +222,12 @@ export class HostRelayDO extends DurableObject<Env> {
           );
         if (info.state !== 'ready')
           throw new AppError('SESSION_CLOSED', 'Session is not active', 409);
+        if (info.mode === 'cli' && info.canReattach === false)
+          throw new AppError(
+            'CLI_REATTACH_UNSUPPORTED',
+            'End this CLI session and create a new one',
+            409,
+          );
         const active = this.ctx
           .getWebSockets('session:' + sessionId)
           .some(
@@ -255,26 +360,66 @@ export class HostRelayDO extends DurableObject<Env> {
         const a = ws.deserializeAttachment() as Attachment;
         return a.authenticated && !a.history;
       });
-    const epoch = await this.ctx.storage.transaction(async (tx) => {
-      const lease = (await tx.get<{ epoch: number; active: boolean }>(
-        'lease:' + sessionId,
-      )) || { epoch: 0, active: false };
-      if (lease.active && sockets.length && !takeover)
+    const key = 'lease:' + sessionId;
+    const reservation = await this.ctx.storage.transaction(async (tx) => {
+      const lease = (await tx.get<Lease>(key)) || { epoch: 0, active: false };
+      if (lease.pending && lease.pending.expires > Date.now())
+        throw new AppError(
+          'SESSION_BUSY',
+          'Session attach is in progress',
+          409,
+        );
+      if (lease.active && !takeover)
         throw new AppError('SESSION_BUSY', 'Session already controlled', 409);
-      await tx.put('lease:' + sessionId, {
-        epoch: lease.epoch + 1,
-        active: true,
-      });
-      return lease.epoch + 1;
+      const pending = {
+        epoch: Math.max(lease.epoch, lease.pending?.epoch || 0) + 1,
+        id: crypto.randomUUID(),
+        expires: Date.now() + 15000,
+      };
+      await tx.put(key, { ...lease, pending });
+      return pending;
     });
-    for (const ws of sockets) ws.close(4009, 'Control taken over');
-    // Establish epoch at Agent before the new controller can issue commands.
-    await this.command('attach', { sessionId, epoch });
-    return epoch;
+    try {
+      await this.command('attach', {
+        sessionId,
+        epoch: reservation.epoch,
+        expires: reservation.expires,
+      });
+      await this.ctx.storage.transaction(async (tx) => {
+        const lease = await tx.get<Lease>(key);
+        if (lease?.pending?.id !== reservation.id)
+          throw new AppError(
+            'STALE_CONTROLLER',
+            'Attach reservation replaced',
+            409,
+          );
+        await tx.put(key, {
+          epoch: reservation.epoch,
+          active: true,
+        } satisfies Lease);
+      });
+      for (const ws of sockets) ws.close(4009, 'Control taken over');
+      return reservation.epoch;
+    } catch (error) {
+      // A lost confirmation may already have changed the Agent epoch. Keep that
+      // reservation fenced until its deadline; never restore an unconfirmed epoch.
+      if (!(error instanceof AppError) || error.code !== 'RESULT_UNKNOWN')
+        await this.ctx.storage.transaction(async (tx) => {
+          const lease = await tx.get<Lease>(key);
+          if (lease?.pending?.id === reservation.id) {
+            const { pending: _pending, ...previous } = lease;
+            await tx.put(key, previous);
+          }
+        });
+      throw error;
+    }
   }
+
   async upgrade(req: Request, a: Attachment) {
     if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
       throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
+    if (this.ctx.getWebSockets().length >= 40)
+      throw new AppError('CAPACITY', 'Host connection budget exhausted', 429);
     if (a.role !== 'agent' && !this.agent())
       throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
     if (a.role === 'agent') {
@@ -290,7 +435,12 @@ export class HostRelayDO extends DurableObject<Env> {
     pair[1].serializeAttachment(a);
     await this.schedule();
     if (a.role === 'agent')
-      this.send(pair[1], { v: 1, type: 'hello', epoch: a.epoch });
+      this.send(pair[1], {
+        v: 1,
+        minProtocol: 1,
+        type: 'hello',
+        epoch: a.epoch,
+      });
     if (a.history) this.send(pair[1], { type: 'history-ready' });
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -304,11 +454,15 @@ export class HostRelayDO extends DurableObject<Env> {
       queue = { tail: Promise.resolve(), bytes: 0 };
       this.messages.set(ws, queue);
     }
-    if (queue.bytes + bytes > MAX_QUEUE) {
+    if (
+      queue.bytes + bytes > MAX_QUEUE ||
+      this.incomingBytes + bytes > MAX_QUEUE * 2
+    ) {
       ws.close(4000, 'Incoming message queue full');
       return;
     }
     queue.bytes += bytes;
+    this.incomingBytes += bytes;
     const current = queue.tail
       .catch(() => {})
       .then(() => this.handleMessage(ws, raw));
@@ -317,19 +471,41 @@ export class HostRelayDO extends DurableObject<Env> {
       await current;
     } finally {
       queue.bytes -= bytes;
+      this.incomingBytes -= bytes;
       if (queue.tail === current) this.messages.delete(ws);
     }
   }
   private async handleMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+    let requestId: string | undefined;
     try {
       if (typeof raw !== 'string')
         throw new AppError('INVALID_REQUEST', 'Text frames required');
       const a = ws.deserializeAttachment() as Attachment;
       if (a.deadline <= Date.now())
         throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
-      await registryCall(this.env, 'authHash', { hash: a.auth.hash });
+      await this.authorized(a.auth.hash);
       const d = parseFrame(raw);
+      if (typeof d.requestId === 'string' && d.requestId.length <= 100)
+        requestId = d.requestId;
+      if (d.type === 'receipt' && typeof d.receiptId === 'string') {
+        this.outbound.get(ws)?.delete(d.receiptId);
+        return;
+      }
       if (a.role === 'agent') {
+        if (d.v !== undefined && d.v !== 1)
+          throw new AppError('PROTOCOL_MISMATCH', 'Unsupported protocol', 409);
+        if (d.type === 'capabilities') {
+          if (d.protocol !== 1)
+            throw new AppError(
+              'PROTOCOL_MISMATCH',
+              'Unsupported Agent protocol',
+              409,
+            );
+          a.protocol = d.protocol;
+          a.build = agentBuildSchema.parse(d.build);
+          ws.serializeAttachment(a);
+          return;
+        }
         if (a.epoch !== (await this.ctx.storage.get('agentEpoch')))
           throw new AppError('STALE_AGENT', 'Old Agent connection');
         if (d.type === 'ping') {
@@ -342,7 +518,13 @@ export class HostRelayDO extends DurableObject<Env> {
             clearTimeout(p.timer);
             this.pending.delete(d.requestId);
             if (d.error)
-              p.reject(new AppError(d.error.code, d.error.message, 409));
+              p.reject(
+                new AppError(
+                  d.error.code,
+                  d.error.message,
+                  agentErrorStatus(d.error.code),
+                ),
+              );
             else p.resolve(d.data);
           }
           return;
@@ -355,7 +537,7 @@ export class HostRelayDO extends DurableObject<Env> {
             if (!ca.authenticated || (!ca.history && ca.epoch !== d.epoch))
               continue;
             try {
-              await registryCall(this.env, 'authHash', { hash: ca.auth.hash });
+              await this.authorized(ca.auth.hash);
             } catch {
               client.close(4001, 'Authorization revoked');
               continue;
@@ -409,19 +591,31 @@ export class HostRelayDO extends DurableObject<Env> {
         type: a.role === 'cli' ? 'rpc' : 'web',
         sessionId: a.sessionId,
         epoch: a.epoch,
-        payload: d,
+        payload: a.role === 'web' ? webCommandSchema.parse(d) : d,
       });
     } catch (e) {
       try {
         this.send(ws, {
           type: 'error',
+          requestId,
           error:
             e instanceof AppError
               ? { code: e.code, message: e.message }
               : { code: 'INVALID_REQUEST', message: 'Invalid message' },
         });
       } finally {
-        ws.close(4000, 'Connection rejected');
+        const history = (ws.deserializeAttachment() as Attachment)?.history;
+        if (!(
+          history &&
+          e instanceof AppError &&
+          [
+            'CONTENT_CHANGED',
+            'CONTENT_NOT_FOUND',
+            'HOST_OFFLINE',
+            'RESULT_UNKNOWN',
+          ].includes(e.code)
+        ))
+          ws.close(4000, 'Connection rejected');
       }
     }
   }
@@ -435,14 +629,14 @@ export class HostRelayDO extends DurableObject<Env> {
       return;
     }
     if (!a.authenticated) return;
-    const current = await this.ctx.storage.get<{ epoch: number }>(
-      'lease:' + a.sessionId,
-    );
-    if (current?.epoch === a.epoch) {
-      await this.ctx.storage.put('lease:' + a.sessionId, {
-        epoch: a.epoch,
-        active: false,
-      });
+    const detached = await this.ctx.storage.transaction(async (tx) => {
+      const key = 'lease:' + a.sessionId;
+      const current = await tx.get<Lease>(key);
+      if (current?.epoch !== a.epoch) return false;
+      await tx.put(key, { ...current, active: false });
+      return true;
+    });
+    if (detached) {
       const agent = this.agent();
       if (agent)
         this.send(agent, {
@@ -452,6 +646,7 @@ export class HostRelayDO extends DurableObject<Env> {
         });
     }
   }
+
   async webSocketError(ws: WebSocket) {
     ws.close(1011, 'Transport error');
     await this.webSocketClose(ws);
@@ -478,4 +673,20 @@ export class HostRelayDO extends DurableObject<Env> {
     if (this.ctx.getWebSockets().length)
       await this.ctx.storage.setAlarm(Date.now() + 30000);
   }
+}
+
+function agentErrorStatus(code: string) {
+  if (['FORBIDDEN', 'UNAUTHORIZED'].includes(code))
+    return code === 'FORBIDDEN' ? 403 : 401;
+  if (['CAPACITY', 'BACKPRESSURE'].includes(code)) return 429;
+  if (
+    ['SESSION_NOT_FOUND', 'CONTENT_NOT_FOUND', 'PROJECT_NOT_FOUND'].includes(
+      code,
+    )
+  )
+    return 404;
+  if (code === 'MESSAGE_TOO_LARGE') return 413;
+  if (code === 'RESULT_UNKNOWN') return 504;
+  if (['STORAGE_ERROR', 'INTERNAL_ERROR', 'FILE_IO'].includes(code)) return 500;
+  return 409;
 }

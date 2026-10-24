@@ -1,0 +1,37 @@
+name: checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17.0
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+      - run: npm ci
+      - run: npm run lint && npm run lint:cpp && npm run typecheck && npm run protocol:check
+      - run: npm run build
+      - run: npm test && npm run test:tls && npm run test:backup && npm run test:release
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e && npm run test:ui
+        env:
+          COC_ARTIFACT_DIR: .local/screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: .local/screenshots
+  sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
+      - run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON && cmake --build build-sanitize -j 2
+      - run: ctest --test-dir build-sanitize --output-on-failure

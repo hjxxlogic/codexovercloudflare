@@ -1,11 +1,15 @@
+#include "coc/build.hpp"
+#include "coc/diagnostics.hpp"
 #include "coc/files.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
+#include <atomic>
 #include <csignal>
 #include <iostream>
 #include <map>
 #include <openssl/rand.h>
 #include <set>
+#include <thread>
 namespace coc {
 struct Approval {
   Json rpc;
@@ -13,70 +17,171 @@ struct Approval {
 };
 struct Runtime {
   std::shared_ptr<CodexProcess> process;
-  int64_t epoch = 0, detached = now();
-  bool submitted = false, busy = false;
+  int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
+  bool submitted = false, busy = false, interrupt_pending = false;
+  size_t priority = 0;
   std::map<std::string, Approval> approvals;
   std::map<std::string, std::string> requests;
   std::deque<Json> commands;
 };
 class Agent {
-  asio::io_context &io_;
+  // One serial executor owns runtime state, SQLite and project files. The relay
+  // executor never waits for disk; bounded handoffs preserve frame ordering.
+  asio::io_context io_;
+  asio::io_context &relay_io_;
+  asio::executor_work_guard<asio::io_context::executor_type> relay_work_;
+  std::thread worker_;
+  std::atomic<size_t> inbound_{0}, outbound_{0};
   Json config_;
   Store store_;
   WorkspaceFiles files_;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
   std::shared_ptr<Socket> socket_;
-  asio::steady_timer retry_, maintenance_;
+  asio::steady_timer retry_, maintenance_, heartbeat_;
   asio::signal_set signals_;
-  bool stopped_ = false, listing_threads_ = false;
+  std::atomic<bool> stopped_{false};
+  bool listing_threads_ = false;
   std::set<std::string> archive_loading_;
   int attempts_ = 0;
-  int64_t pong_ = now();
+  std::atomic<int64_t> pong_{now()};
 
 public:
   Agent(asio::io_context &io, Json c)
-      : io_(io), config_(std::move(c)), store_(config_["dataDir"]), retry_(io), maintenance_(io),
-        signals_(io, SIGINT, SIGTERM) {}
+      : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
+        store_(config_["dataDir"]), files_(&store_), retry_(io_), maintenance_(io_), heartbeat_(io),
+        signals_(io_, SIGINT, SIGTERM) {}
+  ~Agent() {
+    if (worker_.joinable()) {
+      asio::post(io_, [this] { close(); });
+      worker_.join();
+    }
+  }
   void start() {
-    signals_.async_wait([this](auto ec, int) {
-      if (!ec)
+    store_.on_failure([this] {
+      // Stop side effects after a journal fault; close outside the failed SQL stack.
+      asio::post(io_, [this] {
+        std::cerr << Json{{"event", "storage_fault"}, {"time", now()}}.dump() << '\n';
         close();
+      });
     });
-    connect();
-    maintain();
+    asio::post(io_, [this] {
+      signals_.async_wait([this](auto ec, int) {
+        if (!ec)
+          close();
+      });
+      connect();
+      maintain();
+    });
+    worker_ = std::thread([this] {
+      for (;;) {
+        try {
+          io_.run();
+          break;
+        } catch (const std::exception &error) {
+          std::cerr << Json{{"event", "executor_failure"}, {"error", error_data(error)}}.dump()
+                    << '\n';
+          close();
+        }
+      }
+      relay_work_.reset();
+    });
+    heartbeat();
+  }
+  void heartbeat() {
+    heartbeat_.expires_after(std::chrono::seconds(30));
+    heartbeat_.async_wait([this](auto ec) {
+      if (ec || stopped_)
+        return;
+      if (socket_) {
+        if (now() - pong_.load() > 90000)
+          socket_->close();
+        else
+          socket_->send({{"v", 1}, {"type", "ping"}});
+      }
+      heartbeat();
+    });
+  }
+  void disconnected(unsigned code) {
+    for (auto &[id, r] : runtimes_)
+      if (!r->detached)
+        r->detached = now();
+    if (code == 4001) {
+      std::cerr << "Device authorization revoked; stopping Agent\n";
+      close();
+      return;
+    }
+    if (stopped_)
+      return;
+    auto delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
+    unsigned char random = 0;
+    RAND_bytes(&random, 1);
+    delay = delay * (0.8 + random / 255.0 * 0.4);
+    retry_.expires_after(std::chrono::milliseconds(delay));
+    retry_.async_wait([this](auto ec) {
+      if (!ec)
+        connect();
+    });
   }
   void connect() {
     if (stopped_)
       return;
-    pong_ = now();
-    socket_ = connect_socket(
-        io_, relay_url(config_["relayUrl"]), config_["token"], [this](Json d) { receive(d); },
-        [this](unsigned code) {
-          for (auto &[id, r] : runtimes_)
-            if (!r->detached)
-              r->detached = now();
-          if (code == 4001) {
-            std::cerr << "Device authorization revoked; stopping Agent\n";
-            close();
-            return;
-          }
-          if (stopped_)
-            return;
-          auto delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
-          unsigned char random = 0;
-          RAND_bytes(&random, 1);
-          delay = delay * (0.8 + random / 255.0 * 0.4);
-          retry_.expires_after(std::chrono::milliseconds(delay));
-          retry_.async_wait([this](auto ec) {
-            if (!ec)
-              connect();
-          });
-        });
-    socket_->start();
+    asio::post(relay_io_, [this] {
+      if (stopped_)
+        return;
+      pong_ = now();
+      socket_ = connect_socket(
+          relay_io_, relay_url(config_["relayUrl"]), config_["token"],
+          [this](Json d) {
+            if (d.value("type", "") == "pong") {
+              pong_ = now();
+              return;
+            }
+            const auto bytes = d.dump().size();
+            if (inbound_.fetch_add(bytes) + bytes > max_queue) {
+              inbound_.fetch_sub(bytes);
+              socket_->close();
+              return;
+            }
+            asio::post(io_, [this, d = std::move(d), bytes] {
+              inbound_.fetch_sub(bytes);
+              if (stopped_)
+                return;
+              try {
+                receive(d);
+              } catch (const std::exception &error) {
+                std::cerr
+                    << Json{{"event", "relay_message_failure"}, {"error", error_data(error)}}.dump()
+                    << '\n';
+                asio::post(relay_io_, [this] {
+                  if (socket_)
+                    socket_->close();
+                });
+              }
+            });
+          },
+          [this](unsigned code) { asio::post(io_, [this, code] { disconnected(code); }); });
+      socket_->start();
+    });
   }
   void send(const Json &d) {
-    if (socket_)
-      socket_->send(d);
+    auto envelope = d;
+    envelope["v"] = 1;
+    const auto bytes = envelope.dump().size();
+    if (bytes > max_frame)
+      throw Error("MESSAGE_TOO_LARGE", "Outgoing frame exceeds transport budget");
+    if (outbound_.fetch_add(bytes) + bytes > max_queue) {
+      outbound_.fetch_sub(bytes);
+      asio::post(relay_io_, [this] {
+        if (socket_)
+          socket_->close();
+      });
+      return;
+    }
+    asio::post(relay_io_, [this, envelope = std::move(envelope), bytes] {
+      outbound_.fetch_sub(bytes);
+      if (socket_ && !stopped_)
+        socket_->send(envelope);
+    });
   }
   void notice(const std::string &id, const Json &p) {
     auto r = runtimes_.find(id);
@@ -103,8 +208,15 @@ public:
     throw Error("PROJECT_NOT_FOUND", "Project not registered");
   }
   void receive(const Json &d) {
+    if (d.value("v", 1) != 1)
+      throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
     if (type == "hello") {
+      if (d.value("minProtocol", 1) > 1) {
+        close();
+        return;
+      }
+      send({{"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}});
       attempts_ = 0;
       std::cout << "Agent connected\n" << std::flush;
       return;
@@ -117,29 +229,83 @@ public:
       auto request = d.at("requestId");
       try {
         control(d.at("action"), d.value("data", Json::object()),
-                [this, request](Json data, Json error) {
+                [this, request, started = now(), action = d.value("action", "")](Json data,
+                                                                                 Json error) {
+                  std::cerr << Json{{"event", "control_result"},
+                                    {"requestId", request},
+                                    {"action", action},
+                                    {"durationMs", now() - started},
+                                    {"errorCode",
+                                     error.is_null() ? Json() : error.value("code", Json())}}
+                                   .dump()
+                            << '\n';
                   Json result = {{"type", "result"}, {"requestId", request}};
                   if (error.is_null())
                     result["data"] = data;
                   else
                     result["error"] = error;
+                  if (result.dump().size() > max_frame)
+                    result = {{"type", "result"},
+                              {"requestId", request},
+                              {"error",
+                               {{"code", "MESSAGE_TOO_LARGE"},
+                                {"message", "Control result exceeds frame budget"}}}};
                   send(result);
                 });
       } catch (const std::exception &e) {
+        auto args = d.value("data", Json::object());
+        if (d.value("action", "") == "create" && args.contains("key")) {
+          auto error = error_data(e);
+          if (error["code"] != "RESULT_UNKNOWN" && error["code"] != "IDEMPOTENCY_CONFLICT")
+            store_.finish("create:" + args["key"].get<std::string>(), {{"requestError", error}});
+        }
         send({{"type", "result"}, {"requestId", request}, {"error", error_data(e)}});
       }
       return;
     }
     auto id = d.value("sessionId", "");
     auto it = runtimes_.find(id);
-    if (it == runtimes_.end() || it->second->epoch != d.value("epoch", int64_t(-1)))
+    if (it == runtimes_.end())
       return;
     auto rt = it->second;
+    const auto incoming_epoch = d.value("epoch", int64_t(-1));
+    if (rt->pending_epoch == incoming_epoch && rt->pending_expires > now() && type != "detach") {
+      rt->epoch = incoming_epoch;
+      rt->pending_epoch = 0;
+      rt->detached = 0;
+    }
+    if (rt->epoch != incoming_epoch)
+      return;
     if (type == "detach")
       rt->detached = now();
     else if (type == "rpc")
       cli(id, d.at("payload"));
     else if (type == "web") {
+      const auto payload = d.at("payload");
+      const auto action = payload.value("action", "");
+      if (action == "interrupt" || action == "approval") {
+        if (rt->priority >= 8) {
+          notice(id,
+                 {{"type", "error"},
+                  {"error",
+                   {{"code", "BACKPRESSURE"}, {"message", "Priority control budget exhausted"}}}});
+          return;
+        }
+        ++rt->priority;
+        const auto complete = [this, id, rt, payload](Json, Json error) {
+          --rt->priority;
+          if (!error.is_null())
+            notice(id, {{"type", "error"},
+                        {"requestId", payload.value("requestId", Json())},
+                        {"error", error}});
+        };
+        try {
+          web(id, payload, complete);
+        } catch (const std::exception &error) {
+          complete(nullptr, error_data(error));
+        }
+        return;
+      }
       if (rt->commands.size() >= 100) {
         notice(id, {{"type", "error"},
                     {"error", {{"code", "BACKPRESSURE"}, {"message", "Web command queue full"}}}});
@@ -192,7 +358,7 @@ public:
     }
     if (action == "threads") {
       auto p = project(d.at("projectId"));
-      if (listing_threads_)
+      if (listing_threads_ || archive_loading_.size() + runtimes_.size() >= 6)
         throw Error("BACKPRESSURE", "History query already in progress");
       auto process = std::make_shared<CodexProcess>(
           io_, config_, p["path"], [](Json) {}, [] {});
@@ -239,11 +405,24 @@ public:
       return;
     }
     if (action == "list") {
-      done(store_.sessions(), nullptr);
+      auto page = store_.session_page(d);
+      done(d.value("paged", false) ? page : page["data"], nullptr);
+      return;
+    }
+    if (action == "request") {
+      if (d.contains("sessionId") && store_.get(d.at("sessionId"))["mode"] != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong credential for session mode");
+      auto key = d.contains("sessionId") ? d.at("sessionId").get<std::string>() + ":" : "create:";
+      done(store_.request_status(key + d.at("requestId").get<std::string>()), nullptr);
       return;
     }
     if (action == "get") {
-      done(store_.get(d.at("sessionId")), nullptr);
+      auto info = store_.get(d.at("sessionId"));
+      auto it = runtimes_.find(info["id"]);
+      info["canReattach"] = info["mode"] != "cli" || it == runtimes_.end() ||
+                            (it->second->epoch == 0 && (it->second->pending_epoch == 0 ||
+                                                        it->second->pending_expires <= now()));
+      done(info, nullptr);
       return;
     }
     if (action == "stop") {
@@ -257,10 +436,15 @@ public:
       if (it == runtimes_.end() || s["state"] != "ready")
         throw Error("SESSION_CLOSED", "Session is not running");
       auto r = it->second;
-      if (s["mode"] == "cli" && r->epoch > 0)
+      if (d.value("expires", now() + 1) <= now())
+        throw Error("ATTACH_EXPIRED", "Attach deadline expired");
+      if (s["mode"] == "cli" &&
+          (r->epoch > 0 || (r->pending_epoch > 0 && r->pending_expires > now())))
         throw Error("CLI_REATTACH_UNSUPPORTED", "End this CLI session and create a new one");
-      r->epoch = d.at("epoch");
-      r->detached = 0;
+      // Reservation alone never invalidates the current controller. The first
+      // authenticated frame from the confirmed new lease activates its epoch.
+      r->pending_epoch = d.at("epoch");
+      r->pending_expires = d.value("expires", now() + 15000);
       done({{"ok", true}}, nullptr);
       return;
     }
@@ -271,6 +455,12 @@ public:
         "{\"projectId\":" + d.at("projectId").dump() + ",\"mode\":" + d.at("mode").dump();
     if (d.contains("threadId"))
       fingerprint += ",\"threadId\":" + d.at("threadId").dump();
+    auto original_done = done;
+    done = [this, key, original_done](Json result, Json error) {
+      if (!error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
+        store_.finish(key, {{"requestError", error}});
+      original_done(result, error);
+    };
     auto cached = store_.begin(key, fingerprint + "}");
     if (cached["cached"] == true) {
       done(cached["value"], nullptr);
@@ -283,7 +473,7 @@ public:
       if (d.at("mode") != "web" || !d.at("threadId").is_string() ||
           !valid_id(d.at("threadId").get<std::string>()))
         throw Error("INVALID_REQUEST", "Invalid history thread");
-      for (auto &o : store_.sessions())
+      for (auto &o : store_.sessions(true))
         if (o.value("threadId", Json()) == d.at("threadId") && o["state"] == "ready")
           throw Error("SESSION_BUSY", "Thread already has an active session");
     }
@@ -293,12 +483,13 @@ public:
               {"projectId", d.at("projectId")},
               {"mode", d.at("mode")},
               {"sandbox", config_["sandbox"]},
-              {"state", "ready"},
+              {"state", d.at("mode") == "cli" ? "ready" : "starting"},
               {"running", false},
               {"createdAt", now()}};
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
+    store_.submitted(key);
     store_.save(s);
     auto rt = std::make_shared<Runtime>();
     try {
@@ -355,10 +546,14 @@ public:
                                      return;
                                    }
                                    auto current = store_.get(id);
+                                   current["state"] = "ready";
+                                   store_.save(current);
                                    store_.finish(key, current);
                                    done(current, nullptr);
                                  });
                                } else {
+                                 current["state"] = "ready";
+                                 store_.save(current);
                                  store_.finish(key, current);
                                  done(current, nullptr);
                                }
@@ -439,12 +634,13 @@ public:
     auto s = store_.get(id);
     auto existing = runtimes_.find(id);
     // Closed sessions can still fetch uncached archive pages after Agent restart.
-    const bool temporary = existing == runtimes_.end() || s["state"] != "ready";
+    const bool temporary = existing == runtimes_.end();
     auto process = temporary
                        ? std::make_shared<CodexProcess>(
                              io_, config_, project(s["projectId"])["path"], [](Json) {}, [] {})
                        : existing->second->process;
-    if (archive_loading_.count(id))
+    if (archive_loading_.count(id) ||
+        (temporary && archive_loading_.size() + runtimes_.size() >= 6))
       throw Error("BACKPRESSURE", "Archive page is already loading");
     archive_loading_.insert(id);
     auto read = [this, id, process, temporary, done]() {
@@ -464,7 +660,7 @@ public:
       read();
   }
   void check_busy(const Json &s) {
-    for (auto &o : store_.sessions())
+    for (auto &o : store_.sessions(true))
       if (o["id"] != s["id"] && o["projectId"] == s["projectId"] && o["state"] == "ready" &&
           o["running"] == true)
         throw Error("PROJECT_BUSY", "Another session is executing in this project");
@@ -560,6 +756,15 @@ public:
       s["running"] = true;
       s["turnId"] = m.at("params").at("turn").at("id");
       store_.save(s);
+      if (rt->interrupt_pending) {
+        rt->interrupt_pending = false;
+        rt->process->request("turn/interrupt",
+                             {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
+                             [this, id](Json, Json error) {
+                               if (!error.is_null())
+                                 notice(id, {{"type", "error"}, {"error", error}});
+                             });
+      }
     }
     if (method == "turn/completed") {
       s["running"] = false;
@@ -653,6 +858,8 @@ public:
       return;
     }
     auto complete = [this, id, key, cmd, done](Json result, Json error) {
+      if (!error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
+        store_.finish(key, {{"requestError", error}});
       if (error.is_null()) {
         store_.finish(key, result);
         notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
@@ -660,12 +867,19 @@ public:
       done(result, error);
     };
     if (action == "prompt") {
-      if (s["running"] == true)
-        throw Error("TURN_BUSY", "A turn is already running");
-      check_busy(s);
+      try {
+        if (s["running"] == true)
+          throw Error("TURN_BUSY", "A turn is already running");
+        check_busy(s);
+      } catch (const std::exception &error) {
+        complete(nullptr, error_data(error));
+        return;
+      }
+      store_.submitted(key);
       s["running"] = true;
+      s.erase("turnId");
       store_.save(s);
-      emit(id, "user", {{"text", cmd["text"]}});
+      emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
       rt->process->request("turn/start",
                            {{"threadId", s.at("threadId")},
                             {"input", Json::array({{{"type", "text"},
@@ -694,8 +908,16 @@ public:
                            {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}}, complete);
       return;
     }
-    if (action == "approval")
-      answer(id, cmd["approvalId"], cmd["allow"]);
+    if (action == "interrupt" && s.value("running", false))
+      rt->interrupt_pending = true;
+    if (action == "approval") {
+      try {
+        answer(id, cmd["approvalId"], cmd["allow"]);
+      } catch (const std::exception &error) {
+        complete(nullptr, error_data(error));
+        return;
+      }
+    }
     complete({{"ok", true}}, nullptr);
   }
   void answer(const std::string &id, const std::string &key, bool allow) {
@@ -719,7 +941,9 @@ public:
     if (!runtimes_.count(id))
       return;
     auto s = store_.get(id);
-    if (s["state"] != "closed")
+    if (s["state"] == "closing")
+      s["state"] = "closed";
+    else if (s["state"] != "closed")
       s["state"] = "failed";
     s["running"] = false;
     store_.save(s);
@@ -728,10 +952,10 @@ public:
   }
   void stop(const std::string &id) {
     auto s = store_.get(id);
-    s["state"] = "closed";
+    auto it = runtimes_.find(id);
+    s["state"] = it == runtimes_.end() ? "closed" : "closing";
     s["running"] = false;
     store_.save(s);
-    auto it = runtimes_.find(id);
     if (it != runtimes_.end()) {
       auto p = it->second->process;
       if (s.contains("turnId"))
@@ -746,10 +970,6 @@ public:
       if (ec || stopped_)
         return;
       try {
-        if (now() - pong_ > 90000)
-          socket_->close();
-        else
-          send({{"type", "ping"}});
         for (auto &[id, r] : runtimes_) {
           std::vector<std::string> expired;
           for (auto &[key, a] : r->approvals)
@@ -760,11 +980,31 @@ public:
           if (r->detached && now() - r->detached > 1800000)
             stop(id);
         }
+        size_t approvals = 0, commands = 0;
+        for (const auto &[id, runtime] : runtimes_) {
+          approvals += runtime->approvals.size();
+          commands += runtime->commands.size();
+        }
+        std::cerr << Json{{"event", "agent_metrics"},
+                          {"time", now()},
+                          {"runtimes", runtimes_.size()},
+                          {"archiveReaders", archive_loading_.size()},
+                          {"approvals", approvals},
+                          {"queuedCommands", commands},
+                          {"storageIngressBytes", inbound_.load()},
+                          {"relayEgressBytes", outbound_.load()}}
+                         .dump()
+                  << '\n';
         store_.cleanup();
         files_.cleanup();
-      } catch (...) {
-        for (auto &[id, r] : runtimes_)
-          stop(id);
+      } catch (const std::exception &error) {
+        std::cerr << Json{{"event", "maintenance_failure"},
+                          {"error", error_data(error)},
+                          {"time", now()}}
+                         .dump()
+                  << '\n';
+        close();
+        return;
       }
       maintain();
     });
@@ -777,22 +1017,41 @@ public:
     retry_.cancel();
     maintenance_.cancel();
     signals_.cancel();
-    if (socket_)
-      socket_->close();
-    for (auto &[id, r] : runtimes_)
-      stop(id);
+    asio::post(relay_io_, [this] {
+      heartbeat_.cancel();
+      if (socket_)
+        socket_->close();
+    });
+    auto running = runtimes_;
+    for (auto &[id, runtime] : running) {
+      try {
+        stop(id);
+      } catch (const std::exception &error) {
+        std::cerr << Json{{"event", "shutdown_storage_failure"},
+                          {"sessionId", id},
+                          {"error", error_data(error)}}
+                         .dump()
+                  << '\n';
+        runtime->process->close();
+      }
+    }
   }
 };
 } // namespace coc
 int main(int argc, char **argv) {
   try {
     signal(SIGPIPE, SIG_IGN);
+    if (argc == 2 && std::string(argv[1]) == "--version") {
+      std::cout << COC_BUILD_JSON << '\n';
+      return 0;
+    }
     coc::Options options(argc, argv);
     auto command = options.args.empty() ? "help" : options.args[0];
     auto file = std::filesystem::path(options.get(
         "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
     if (command == "help") {
-      std::cout << "Usage: coc-agent <login|logout|status|run> [--config PATH] [--relay URL] "
+      std::cout << "Usage: coc-agent <login|logout|status|doctor|run|--version> [--config PATH] "
+                   "[--relay URL] "
                    "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
                    "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
                    "displayed request in the management website. logout only "
@@ -801,6 +1060,9 @@ int main(int argc, char **argv) {
     }
     if (options.api_key && command != "login")
       throw coc::Error("USAGE", "--api-key is only valid for login");
+    std::unique_ptr<coc::PrivateLock> config_lock;
+    if (command == "login" || command == "logout")
+      config_lock = std::make_unique<coc::PrivateLock>(file);
     if (command == "login") {
       if (options.args.size() != 1)
         throw coc::Error("USAGE", "Unexpected login argument");
@@ -840,6 +1102,11 @@ int main(int argc, char **argv) {
       std::cout << "Local credential removed; stop any running Agent separately. Relay "
                    "authorization is unchanged.\n";
       return 0;
+    }
+    if (command == "doctor") {
+      auto result = coc::doctor(coc::read_json(file), true);
+      std::cout << result.dump(2) << '\n';
+      return result["ok"] == true ? 0 : 1;
     }
     if (command == "status") {
       auto config = coc::read_json(file);

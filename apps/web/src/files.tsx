@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from './api.ts';
+import type { HistoryCache } from './history.ts';
+import { api, ApiError } from './api.ts';
 
 type Entry = { name: string; directory: boolean; size: number };
 const chunkSize = 64 * 1024;
@@ -13,14 +14,22 @@ function sizeLabel(size: number) {
 export function WorkspaceFiles({
   host,
   project,
+  target,
+  onBusy,
+  cache,
 }: {
   host: string;
   project: string;
+  target?: string;
+  onBusy?: (busy: boolean) => void;
+  cache?: HistoryCache | null;
 }) {
   const [path, setPath] = useState('');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [next, setNext] = useState<string | null>(null);
-  const [writable, setWritable] = useState(false);
+  const [writable, setWritable] = useState<boolean | undefined>();
+  const [fraction, setFraction] = useState(0);
+  const [unknownUpload, setUnknownUpload] = useState<string>();
   const [limit, setLimit] = useState(20 * 1024 * 1024);
   const [loading, setLoading] = useState(false);
   const [file, setFile] = useState<File>();
@@ -42,6 +51,7 @@ export function WorkspaceFiles({
   async function load(append = false) {
     const request = ++listing.current;
     setLoading(true);
+    setWritable(undefined);
     setError('');
     try {
       const result = await call({
@@ -71,6 +81,12 @@ export function WorkspaceFiles({
     }
   }
   useEffect(() => {
+    void cache
+      ?.record(`upload:${project}`)
+      .then((id) => {
+        if (mounted.current && id) setUnknownUpload(id);
+      })
+      .catch(() => {});
     setEntries([]);
     setNext(null);
     void load();
@@ -89,6 +105,8 @@ export function WorkspaceFiles({
     const controller = new AbortController();
     transfer.current = controller;
     setBusy(true);
+    onBusy?.(true);
+    setFraction(0);
     setError('');
     return controller;
   }
@@ -105,6 +123,7 @@ export function WorkspaceFiles({
       setProgress('');
     }
     setBusy(false);
+    onBusy?.(false);
     transfer.current = null;
   }
   async function upload() {
@@ -115,12 +134,15 @@ export function WorkspaceFiles({
     }
     if (
       overwrite &&
-      !confirm(`确认覆盖远程项目文件“${path ? path + '/' : ''}${name}”？`)
+      !confirm(
+        `确认覆盖 ${target || project} 的远程项目文件“${path ? path + '/' : ''}${name}”？`,
+      )
     )
       return;
     const controller = start();
     const uploadId = crypto.randomUUID();
     let committed = false;
+    let publishing = false;
     try {
       setProgress('正在准备上传…');
       await call(
@@ -144,13 +166,20 @@ export function WorkspaceFiles({
           { operation: 'chunk', uploadId, offset, data: btoa(binary) },
           controller.signal,
         );
-        if (mounted.current)
+        if (mounted.current) {
+          setFraction(Math.min(offset + chunkSize, file.size) / file.size);
           setProgress(
-            `正在上传 ${Math.round((Math.min(offset + chunkSize, file.size) / file.size) * 100)}%`,
+            `${name} · ${sizeLabel(Math.min(offset + chunkSize, file.size))} / ${sizeLabel(file.size)} · 正在上传 ${Math.round((Math.min(offset + chunkSize, file.size) / file.size) * 100)}%`,
           );
+        }
       }
+      if (!cache) throw new Error('本机存储尚未就绪，暂不能提交文件');
+      await cache.record(`upload:${project}`, uploadId);
+      publishing = true;
+      setProgress('正在确认文件提交…');
       await call({ operation: 'finish', uploadId }, controller.signal);
       committed = true;
+      await cache.record(`upload:${project}`, null);
       if (mounted.current) {
         setProgress(`已上传 ${name} · ${sizeLabel(file.size)}`);
         setFile(undefined);
@@ -161,9 +190,16 @@ export function WorkspaceFiles({
       }
       finish(controller);
     } catch (e) {
-      finish(controller, e);
+      if (
+        publishing &&
+        (!(e instanceof ApiError) || e.code === 'RESULT_UNKNOWN')
+      ) {
+        setUnknownUpload(uploadId);
+        setProgress('文件提交结果待确认，请查询状态后核对远程文件。');
+        finish(controller);
+      } else finish(controller, e);
     } finally {
-      if (!committed)
+      if (!committed && !publishing)
         void call({ operation: 'cancel', uploadId }).catch(() => {});
     }
   }
@@ -192,6 +228,7 @@ export function WorkspaceFiles({
         if (result.offset <= offset && result.offset < result.size)
           throw new Error('下载未能继续，请重试。');
         offset = result.offset;
+        setFraction(result.size ? offset / result.size : 1);
         version = result.version;
         if (offset >= result.size) break;
       }
@@ -206,7 +243,7 @@ export function WorkspaceFiles({
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setProgress(`已下载 ${entry.name} · ${sizeLabel(offset)}`);
+      setProgress(`已交给浏览器下载 ${entry.name} · ${sizeLabel(offset)}`);
       finish(controller);
     } catch (e) {
       finish(controller, e);
@@ -215,10 +252,27 @@ export function WorkspaceFiles({
   return (
     <section className="workspace-files" aria-label="工作区文件">
       <p className="file-context">
-        远程项目：{project} · 单文件上限 {sizeLabel(limit)}
+        远程项目：{target || project} · 单文件上限 {sizeLabel(limit)}
       </p>
       <div className="file-toolbar">
-        <strong className="file-path">/{path}</strong>
+        <div className="file-path">
+          <button disabled={busy} onClick={() => setPath('')}>
+            项目根目录
+          </button>
+          {path
+            .split('/')
+            .filter(Boolean)
+            .map((part, index, parts) => (
+              <button
+                key={index}
+                disabled={busy}
+                onClick={() => setPath(parts.slice(0, index + 1).join('/'))}
+              >
+                {' '}
+                / {part}
+              </button>
+            ))}
+        </div>
         <button
           disabled={!path || busy || loading}
           onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
@@ -251,7 +305,10 @@ export function WorkspaceFiles({
               <>
                 <span className="file-name">
                   {entry.name}
-                  <small>{sizeLabel(entry.size)}</small>
+                  <small>
+                    {sizeLabel(entry.size)}
+                    {entry.size > limit ? ' · 超过单文件传输上限' : ''}
+                  </small>
                 </span>
                 <button
                   disabled={busy || entry.size > limit}
@@ -265,7 +322,7 @@ export function WorkspaceFiles({
           </div>
         ))}
         {loading && <p role="status">正在读取目录…</p>}
-        {!loading && !entries.length && (
+        {!loading && !error && !entries.length && (
           <p className="empty-hint">当前目录没有可传输的文件。</p>
         )}
       </div>
@@ -326,10 +383,30 @@ export function WorkspaceFiles({
         >
           上传文件
         </button>
-        {!loading && !writable && (
+        {!loading && writable === false && (
           <p>Agent 当前为只读模式，允许下载，禁止上传。</p>
         )}
       </form>
+      {unknownUpload && (
+        <button
+          onClick={() =>
+            void call({ operation: 'status', uploadId: unknownUpload })
+              .then((result) => {
+                if (result.state === 'completed') {
+                  setProgress(`文件已提交 · SHA-256 ${result.sha256}`);
+                  setUnknownUpload(undefined);
+                  void cache?.record(`upload:${project}`, null);
+                  void load();
+                } else
+                  setProgress('结果仍待核对；请检查远程文件，勿直接覆盖重传。');
+              })
+              .catch((error: Error) => setError(error.message))
+          }
+        >
+          查询提交结果
+        </button>
+      )}
+      {busy && <progress aria-label="文件传输进度" value={fraction} max={1} />}
       {progress && (
         <p role="status" className="transfer-progress">
           {progress}

@@ -9,10 +9,10 @@
 - `tests/`：Vitest 协议边界、真实 Wrangler/Chromium 集成；`tests/support/` 仅为原生进程和断网注入工具。
 - `scripts/`、`examples/`、`docs/`：初始化、TUI smoke、配置、systemd 和文档。
 
-Linux 编译依赖：C++17、CMake ≥ 3.16、Boost.System ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。Ubuntu / Debian：
+Linux 编译依赖：C++17、CMake ≥ 3.16、Python 3（构建来源生成）、Git、Boost.System ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。Ubuntu / Debian：
 
 ```bash
-sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+sudo apt-get install build-essential cmake python3 git libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 2
 cmake -E chdir build ctest --output-on-failure
@@ -85,10 +85,10 @@ C++ 使用 2 空格、snake_case 函数、PascalCase 类及 `.clang-format`，�
 - `.local/agent.json`：设备令牌与项目配置；Agent 登录写入权限 `0600`。
 - CC `COC_HISTORY_DIR/<身份摘要>/agent.db`：本机 SQLite 缓存；CW `coc-history` IndexedDB：分页、消息版本、内容块和目录缓存。两者均不替代 Agent 权威历史。
 - `.wrangler/`：DO 开发状态；删除会丢失设备登记与登录会话。
-- Agent `dataDir/agent.db`：SQLite 会话、去重、完整事件及消息投影；WAL，历史不按时间或总量自动清理，幂等记录保留 7 天。SQLite 须提供 JSON 函数。首次升级在 SQLite 内建立投影索引，迁移耗时和磁盘开销取决于既有日志规模。
+- Agent `dataDir/agent.db`：SQLite 会话、去重、完整事件及消息投影；WAL，历史不按时间或总量自动清理，请求身份及确定结果长期保留，防止迟到重试重复执行。SQLite 须提供 JSON 函数。首次升级在 SQLite 内建立投影索引，迁移耗时和磁盘开销取决于既有日志规模。
 - `~/.config/coc-client/credentials.json`：CLI 凭据；可用 `COC_CREDENTIALS` 指定路径。
 
-停止旧 TypeScript Agent 后，直接用 C++ Agent 读取原配置和 dataDir。表结构不变；启动后旧活动会话标记失败，不恢复旧进程。每个 dataDir 只运行一个 Agent；C++ 使用文件锁拒绝第二个实例。不要直接复制活跃 WAL 数据库的单个 `.db` 文件；停机备份或使用 SQLite 备份机制。
+停止旧 TypeScript Agent 后，直接用 C++ Agent 读取原配置和 dataDir。升级增加 request_states、bodies/chunks 及表达式索引，旧投影按需迁移；启动后旧活动会话标记失败，不恢复旧进程。每个 dataDir 只运行一个 Agent；C++ 使用文件锁拒绝第二个实例。不要直接复制活跃 WAL 数据库的单个 `.db` 文件；停机备份或使用 SQLite 备份机制。
 
 `codexArgs` 只允许管理员配置受信任的包装器；不能接受客户端输入。CLI / Agent 均使用参数数组启动程序，不使用 shell 拼接。systemd 示例直接执行 `/usr/local/bin/coc-agent`。
 
@@ -108,11 +108,11 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## CW 网页开发
 
-网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、自动收起菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
+网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、点击外部/Escape 关闭的菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
 
 `tests/e2e.ts` 的确定性协议夹具包含本地历史及异项目线程，验证历史列表过滤、恢复历史与继续对话、分页 / 搜索、Markdown / 安全链接、折叠工具、移动端宽度和功能菜单。截图输出 `.local/cw-chat-desktop.png`、`.local/cw-chat-mobile.png`；测试不调用模型。历史功能需要与 Worker 一起更新原生 Agent。
 
-专注聊天布局的浏览器回归还检查：聊天区超过窗口高度的 90%、空闲消息区超过 65%，输入区保持在窗口内且页面没有横纵溢出；主机 / 项目、会话列表 / 详情默认不占聊天空间。测试通过菜单访问历史与详情，检查选中后自动关闭、Escape 退出，以及执行中的停止和审批仍可操作。
+专注聊天布局的浏览器回归还检查：含常驻上下文头的聊天区超过窗口高度的 85%、空闲消息区超过 65%，输入区保持在窗口内且页面没有横纵溢出；主机 / 项目、会话列表 / 详情默认不占聊天空间。测试通过菜单访问历史与详情，检查选中后自动关闭、Escape 退出，以及执行中的停止和审批仍可操作。
 
 工作区文件 UI 在 `files.tsx`，通用请求在 `api.ts`；`native/src/files.cpp` 负责文件访问、分段与临时上传，Agent 生命周期负责清理。新增操作须同步更新协议 Zod、Worker 路由与原生校验。CTest 覆盖越界路径、符号链接、所有者 / 项目隔离、只读策略、二进制内容、重试、取消和覆盖冲突；浏览器回归上传 / 下载超过两个分段的二进制文件并逐字节比较、拒绝默认覆盖及确认替换，截图 `.local/cw-workspace-files.png`。不调用模型。
 
@@ -121,3 +121,26 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 `/ws/v1/history/:sessionId` 是经过角色 / 主机 / 会话校验的只读 WebSocket，不取得或更新控制租约。请求为带 `requestId` 的 `page`（`before` 或 `after` 二选一）/ `content`；Agent 同时可主动发送 `event`。使用 `npm run test:e2e` 覆盖真实 Wrangler、原生程序及 Chromium IndexedDB；测试把 `COC_HISTORY_DIR` 指向临时目录。无需模型调用。
 
 消息以稳定 `seq` 排序，以递增 `revision` 同步更新；`snapshotSeq` 是首次快照同步位置，后续按响应的 `cursor` 推进，不能使用交错到达的实时消息推进补发游标。历史分页按 `seq`，补发按 `revision`，负 `seq` 表示惰性导入的既有 Codex 历史。大内容分块通过 `revision` 检测读取期间的变化。
+
+## 稳定化回归与构建来源
+
+`npm run test:ui` 在本次 dist 上执行合成 API/WS 的 Chromium 交互压力测试，覆盖票据 503 重试、默认折叠、草稿、0/1/3/10 审批和短视口、离线入口及弹窗焦点。`npm run test:backup` 验证活跃 WAL 备份和带实例锁恢复。`COC_ARTIFACT_DIR` 可隔离截图输出目录，避免覆盖旧证据。
+
+原生测试增加 100000 关闭会话/4 个活动会话、有界目录、1 MiB 分块流、持久提交查询、配置锁和 HTTP/TLS 停滞回归。C++ 与 Zod 共读 `tests/protocol-fixtures.json`。CI 运行常规门禁、真实 Wrangler/Chromium 与 ASan/UBSan；不调用模型。可用 `-DCOC_SANITIZE=ON` 本地构建，Clang 下 `-DCOC_FUZZ=ON` 生成协议模糊测试入口。单次短跑不代替长期模糊测试。
+
+构建生成的 build.hpp 含提交与源码摘要；运行二进制 `--version` 可检查。Python/Git 仅为构建依赖，本机运行不需要 Node.js。旧容器没有 Git 时可显式设置 `COC_TEST_BUILD_METADATA` 指向本机生成的测试元数据；它强制 dirty=true/verified=false，禁止作为发行包来源。更新 Dockerfile.test 的镜像后无需此兼容选项。
+
+网页构建保留下载目录，防止重新构建意外删除已准备的原生包。发布仍须校验版本/摘要一致、干净源码及完整目标平台产物；CI 成功不自动发布。Observability 采样 10%，应用日志只包含元数据；不记录正文、令牌和 Key。实际日志的访问与保留期限由自托管者配置。
+
+### 流式存储基准
+
+```bash
+# DELTA 为每个事件的字符数，BYTES 为每会话目标字符数，最后参数为最长秒数。
+./build/coc-tests --benchmark 1 1048576 120
+./build/coc-tests --benchmark 10 1048576 120
+./build/coc-tests --benchmark 100 4194304 120
+```
+
+四个会话交错追加，输出 JSON 包括实际完成量、耗时/CPU、每 16 个事件采样的 P95、进程 RSS、数据库和 WAL 峰值，并验证尾部正文一致。`completed=false` 表示达到时间上限，只是部分负载，不能当成完整吞吐测量。它只测 Store，不包含网络心跳和 Cloudflare；八小时全链路测试须另行安排。
+
+`npm run protocol:generate` 从 Zod 生成 `docs/protocol.generated.json`，`protocol:check` 检查是否过期。JSON Schema 无法表达的 refinement 仍由运行时验证器执行；这不是 C++ 实现代码生成或多版本兼容承诺。CI 使用固定 Node 版本和锁文件；Actions 工作流的首次远端运行仍需提交后观察。

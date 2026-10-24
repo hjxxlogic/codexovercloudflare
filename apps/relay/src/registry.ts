@@ -328,6 +328,7 @@ export class RegistryDO extends DurableObject<Env> {
           role: 'owner',
           version: 2,
           name: 'Administrator',
+          ownerVersion: await digest(this.env.OWNER_SECRET),
           created: Date.now(),
           expires,
         } satisfies Auth);
@@ -345,6 +346,15 @@ export class RegistryDO extends DurableObject<Env> {
             'Expired or invalid credentials',
             401,
           );
+        if (
+          a.role === 'owner' &&
+          a.ownerVersion !== (await digest(this.env.OWNER_SECRET))
+        )
+          throw new AppError(
+            'UNAUTHORIZED',
+            'Administrator secret rotated; log in again',
+            401,
+          );
         if (a.apiKeyId && !(await s.get('apiKey:' + a.apiKeyId)))
           throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
         if (a.hostId) {
@@ -353,6 +363,12 @@ export class RegistryDO extends DurableObject<Env> {
             throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
         }
         return json(a);
+      }
+      if (op === 'logoutOthers') {
+        for (const [key, auth] of await s.list<Auth>({ prefix: 'auth:' }))
+          if (auth.role === 'owner' && auth.hash !== d.hash)
+            await s.delete(key);
+        return json({ ok: true });
       }
       if (op === 'logout') {
         await s.delete('auth:' + d.hash);
