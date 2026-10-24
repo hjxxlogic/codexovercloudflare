@@ -4,7 +4,9 @@
 
 生产网页与 API：`https://r.xlogic.cc`。下载页：`https://r.xlogic.cc/downloads/`。
 
-当前发布为 0.2.0 开发预览版。Worker 与静态网页一起发布；本机 `coc` / `coc-agent` 不在 Cloudflare 执行，以 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包提供。下载页包含源码包、提交 ID 和 SHA256 校验和。
+当前发布为 0.2.1 开发预览版。Worker 与静态网页一起发布；本机 `coc` / `coc-agent` 不在 Cloudflare 执行，以 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包提供。下载页包含源码包、提交 ID 和 SHA256 校验和。
+
+0.2.1 将客户端登录改为管理员网页生成一次性验证码 / 浏览器链接。客户端须更新 `coc` 二进制；原有凭据在到期或退出前仍可使用。保留生产所有者密钥与设备配置，无需重新登记 Agent。
 
 ## 2. 构建和打包
 
@@ -33,7 +35,7 @@ python3 scripts/package-release.py --build-dir .local/build-container --platform
 ```bash
 node node_modules/wrangler/bin/wrangler.js deploy \
   --secrets-file .local/production/secrets.json \
-  --tag v0.2.0 --message 'Release 0.2.0 C++ preview'
+  --tag v0.2.1 --message 'Release 0.2.1 C++ preview'
 ```
 
 Wrangler 将密钥作为 secret 与版本一起上传，不把值放入命令行。已有生产环境必须保留原密钥；仅在明确需要轮换时更新。后续普通代码部署会保留云端 secrets，可省略 `--secrets-file`。不要在日志中打印密钥或登录令牌。
@@ -42,6 +44,8 @@ Wrangler 将密钥作为 secret 与版本一起上传，不把值放入命令行
 
 检查 `/api/v1/healthz`、网页资源、未登录访问 `/api/v1/hosts` 返回 401，以及跨域登录请求返回 403。使用独立 CLI 凭据文件验证 C++ 客户端登录、主机列表和退出；不覆盖日常登录文件。校验线上下载包与 `SHA256SUMS` 一致。检查在线手册的响应头包含 `charset=utf-8`，并用真实浏览器确认 `document.characterSet` 为 UTF-8、正文包含“用户手册”，不能仅凭文件字节校验判断浏览器显示正常。
 
-用 `wrangler deployments list` 记录实际部署版本，将结果更新至 `docs/TEST_REPORT.md`。成功后创建 Git 标签 `v0.2.0`。仓库未配置远程时，提交和标签仅存在本机；不能声称已推送到 GitHub。
+登录冒烟必须通过真实管理员网页生成授权，分别验证下载后的 CLI 兑换验证码、浏览器链接确认登录、重复使用拒绝，以及客户端生成授权返回 403。测试完成后退出临时会话，不登记或撤销真实设备，不调用模型。
+
+用 `wrangler deployments list` 记录实际部署版本，将结果更新至 `docs/TEST_REPORT.md`。成功后创建 Git 标签 `v0.2.1`。仓库未配置远程时，提交和标签仅存在本机；不能声称已推送到 GitHub。
 
 发布冒烟不等于会话生产验收；DO 休眠唤醒、跨网络会话、部署断线和长期负载仍需单独验证。

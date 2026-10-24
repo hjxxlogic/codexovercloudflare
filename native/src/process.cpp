@@ -216,7 +216,7 @@ void CodexProcess::request(const std::string &m, const Json &p, Completion done)
 void CodexProcess::initialize(Completion done) {
   auto self = shared_from_this();
   request("initialize",
-          {{"clientInfo", {{"name", "coc-web"}, {"version", "0.2.0"}}},
+          {{"clientInfo", {{"name", "coc-web"}, {"version", "0.2.1"}}},
            {"capabilities", {{"experimentalApi", false}}}},
           [self, done](Json r, Json e) {
             if (e.is_null())

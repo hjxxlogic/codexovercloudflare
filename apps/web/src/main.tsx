@@ -18,6 +18,15 @@ async function api(path: string, data?: unknown): Promise<any> {
 }
 function App() {
   const [logged, setLogged] = useState(false),
+    [admin, setAdmin] = useState(false),
+    [loginCode, setLoginCode] = useState(''),
+    [adminLogin, setAdminLogin] = useState(false),
+    [grant, setGrant] = useState<{
+      code: string;
+      url: string;
+      expires: number;
+    }>(),
+    [generating, setGenerating] = useState(false),
     [secret, setSecret] = useState(''),
     [hosts, setHosts] = useState<any[]>([]),
     [host, setHost] = useState(''),
@@ -41,12 +50,18 @@ function App() {
   async function refresh() {
     try {
       setHosts(await api('/hosts'));
+      setAdmin((await api('/auth/me')).role === 'owner');
       setLogged(true);
     } catch {
       setLogged(false);
     }
   }
   useEffect(() => {
+    const code = new URLSearchParams(location.hash.slice(1)).get('login');
+    if (code) {
+      setLoginCode(code);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
     void refresh();
   }, []);
   useEffect(() => {
@@ -187,11 +202,28 @@ function App() {
     e.preventDefault();
     setError('');
     try {
-      await api('/auth/login', { secret });
+      await api(
+        adminLogin ? '/auth/login' : '/auth/redeem',
+        adminLogin ? { secret } : { code: loginCode, kind: 'web' },
+      );
       setSecret('');
+      setLoginCode('');
       await refresh();
     } catch (e) {
       report(e);
+    }
+  }
+  async function generateLogin() {
+    setGenerating(true);
+    setError('');
+    setGrant(undefined);
+    try {
+      const result = await api('/auth/codes', {});
+      setGrant({ ...result, url: new URL(result.url, location.origin).href });
+    } catch (e) {
+      report(e);
+    } finally {
+      setGenerating(false);
     }
   }
   async function create() {
@@ -223,6 +255,8 @@ function App() {
                   socket.current?.close();
                   setSelected(undefined);
                   setLogged(false);
+                  setAdmin(false);
+                  setGrant(undefined);
                 })
                 .catch(report)
             }
@@ -241,21 +275,71 @@ function App() {
         <form onSubmit={login} className="card">
           <h2>登录中转</h2>
           <label>
-            所有者密钥
+            {adminLogin ? '所有者密钥' : '一次性验证码'}
             <input
-              aria-label="所有者密钥"
+              aria-label={adminLogin ? '所有者密钥' : '一次性验证码'}
               type="password"
               required
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              autoComplete="current-password"
+              value={adminLogin ? secret : loginCode}
+              onChange={(e) =>
+                adminLogin
+                  ? setSecret(e.target.value)
+                  : setLoginCode(e.target.value)
+              }
+              autoComplete={adminLogin ? 'current-password' : 'one-time-code'}
             />
           </label>
           <button type="submit">登录</button>
+          <button
+            type="button"
+            onClick={() => {
+              setAdminLogin((v) => !v);
+              setSecret('');
+            }}
+          >
+            {adminLogin ? '使用验证码登录' : '管理员登录'}
+          </button>
+          <p>一次性链接或验证码由管理员提供，5 分钟内有效；点击登录后使用。</p>
           <p>模型账号与代码保留在远程服务器。</p>
         </form>
       ) : (
         <>
+          {admin && (
+            <section className="card">
+              <h2>客户端登录授权</h2>
+              <button
+                disabled={generating}
+                onClick={() => void generateLogin()}
+              >
+                生成一次性登录授权
+              </button>
+              <p>
+                验证码供 coc login
+                使用，链接供浏览器使用。两者共用一次授权，任选一种；登录后可操作所有已登记主机和项目，仅分享给可信用户。
+              </p>
+              {grant && (
+                <div>
+                  <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
+                  <label>
+                    coc 一次性验证码
+                    <input
+                      aria-label="coc 一次性验证码"
+                      readOnly
+                      value={grant.code}
+                    />
+                  </label>
+                  <label>
+                    浏览器登录链接
+                    <input
+                      aria-label="浏览器登录链接"
+                      readOnly
+                      value={grant.url}
+                    />
+                  </label>
+                </div>
+              )}
+            </section>
+          )}
           <section className="card">
             <h2>选择远程项目</h2>
             <div className="row">

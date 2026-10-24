@@ -165,7 +165,9 @@ public:
     auto id = args_.size() > 1 ? args_[1] : "";
     if (command == "login") {
       auto relay = relay_url(option("relay", "https://r.xlogic.cc")).origin;
-      auto r = api("/auth/login", {{"secret", secret("Owner secret: ")}, {"kind", "cli"}}, true);
+      std::cout << "Ask the administrator to generate a CLI login code at " << relay << '\n';
+      auto r =
+          api("/auth/redeem", {{"code", secret("One-time login code: ")}, {"kind", "cli"}}, true);
       r["relay"] = relay;
       save_private(credentials_, r);
       std::cout << "Logged in to " << relay << '\n';

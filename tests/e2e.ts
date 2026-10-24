@@ -197,7 +197,52 @@ try {
     403,
   );
   pass('login, unauthorized access and cross-origin rejection');
-  await cliCommand(['login', '--relay', origin], secret + '\n');
+  assert.equal(
+    (await request('/auth/codes', {}, { anonymous: true })).r.status,
+    401,
+  );
+  const cliGrant = await api('/auth/codes', {});
+  assert.ok(
+    cliGrant.expires > Date.now() && cliGrant.expires <= Date.now() + 300000,
+  );
+  assert.equal(cliGrant.url, '/#login=' + cliGrant.code);
+  await cliCommand(['login', '--relay', origin], cliGrant.code + '\n');
+  assert.equal(
+    (
+      await request(
+        '/auth/redeem',
+        { code: cliGrant.code, kind: 'cli' },
+        { anonymous: true },
+      )
+    ).r.status,
+    401,
+  );
+  const clientCredentials = JSON.parse(
+    readFileSync(join(dir, 'credentials.json'), 'utf8'),
+  );
+  const forbidden = await fetch(origin + '/api/v1/auth/codes', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + clientCredentials.token,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+  assert.equal(forbidden.status, 403);
+  const raceGrant = await api('/auth/codes', {});
+  const race = await Promise.all(
+    ['cli', 'web'].map((kind) =>
+      request(
+        '/auth/redeem',
+        { code: raceGrant.code, kind },
+        { anonymous: true },
+      ),
+    ),
+  );
+  assert.deepEqual(race.map(({ r }) => r.status).sort(), [200, 401]);
+  pass(
+    'one-time login, atomic CLI/browser redemption and administrator-only generation',
+  );
   assert.equal(statSync(join(dir, 'credentials.json')).mode & 0o777, 0o600);
   const e = JSON.parse(await cliCommand(['enroll', 'local-test']));
   const configFile = join(dir, 'enrolled.json');
@@ -418,8 +463,51 @@ try {
   });
   const page = await browser.newPage();
   await page.goto(origin);
+  await page.getByRole('button', { name: '管理员登录', exact: true }).click();
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
+  await page
+    .getByRole('button', { name: '生成一次性登录授权', exact: true })
+    .click();
+  await wait(
+    async () => !!(await page.getByLabel('浏览器登录链接').inputValue()),
+    'browser login link',
+  );
+  const loginLink = await page.getByLabel('浏览器登录链接').inputValue();
+  const webGrantCode = await page.getByLabel('coc 一次性验证码').inputValue();
+  const visitor = await browser.newContext();
+  const visitorPage = await visitor.newPage();
+  await visitorPage.goto(loginLink);
+  await visitorPage.getByLabel('一次性验证码').waitFor();
+  assert.equal(
+    await visitorPage.getByLabel('一次性验证码').inputValue(),
+    webGrantCode,
+  );
+  assert.equal(visitorPage.url(), origin + '/');
+  await visitorPage.getByRole('button', { name: '登录', exact: true }).click();
+  await visitorPage.getByLabel('主机').waitFor();
+  assert.equal(
+    await visitorPage.getByRole('heading', { name: '客户端登录授权' }).count(),
+    0,
+  );
+  assert.equal(
+    (
+      await request(
+        '/auth/redeem',
+        { code: webGrantCode, kind: 'cli' },
+        { anonymous: true },
+      )
+    ).r.status,
+    401,
+  );
+  await visitorPage.screenshot({
+    path: process.env.COC_LOGIN_SCREENSHOT_PATH || join(dir, 'login-link.png'),
+    fullPage: true,
+  });
+  await visitor.close();
+  pass(
+    'administrator generates link, browser confirms login, fragment removed and code cannot be reused',
+  );
   await page.getByLabel('主机').selectOption(enrolled.hostId);
   await page.getByRole('button', { name: '创建网页会话' }).click();
   await page.getByText(/已连接 · 空闲/).waitFor();

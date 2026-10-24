@@ -135,6 +135,8 @@ Agent 重启后将旧 runtime 标记为中断，检查线程历史后允许用�
 | 方法与路径 | 用途 |
 | --- | --- |
 | `POST /auth/login`、`POST /auth/logout` | 交换所有者凭据、结束网页登录会话 |
+| `POST /auth/codes` | 仅管理员可创建 5 分钟有效的一次性登录验证码及浏览器链接 |
+| `POST /auth/redeem`、`GET /auth/me` | 原子兑换验证码，返回 CLI 令牌或网页 HttpOnly cookie；查询当前角色和有效期 |
 | `GET /hosts`、`GET /hosts/:id/projects` | 获取设备及经 Agent 同步的项目描述 |
 | `POST /hosts/enrollments` | 生成短期、一次性的设备登记凭据 |
 | `POST /hosts/:id/revoke` | 禁用主机及存量链路 |
@@ -210,7 +212,9 @@ DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记�
 
 ## 9. 身份、访问与撤销
 
-首版采用单所有者访问模型：部署时初始化高熵所有者密钥，登录通过 TLS 换取短期网页会话或 CLI 访问凭据。云端只保存摘要，登录接口限流；支持额外配置 Cloudflare Access，但不把它作为应用层鉴权的替代。
+首版采用单所有者访问模型：部署时初始化高熵所有者密钥，管理员网页登录后生成一次性登录授权。授权使用随机 UUID 去连字符后的验证码，云端仅保存 SHA-256 摘要及 5 分钟到期时间。CLI 和网页共用一次兑换机会，RegistryDO 在同一事务中消费验证码并创建 8 小时客户端凭据，防止并发重复登录。登录和兑换共享每 IP 每分钟 10 次的限流。
+
+浏览器登录链接为 `/#login=<code>`；fragment 不发送给静态资源服务，网页读取后立即清除地址栏，用户点击“登录”才兑换。网页使用 HttpOnly / SameSite=Strict cookie，HTTPS 下启用 Secure；CLI 将令牌保存为 0600 文件。`client` 角色可使用现有主机 / 会话接口，但不能调用 `/auth/codes`；管理员密钥不需分发给客户端。仍为共享所有者资源模型，不提供用户间主机或项目隔离。支持额外配置 Cloudflare Access，但不把它作为应用层鉴权的替代。
 
 - 浏览器 cookie 使用 `Secure`、`HttpOnly`、`SameSite=Strict`；状态变更接口校验 Origin/CSRF，WebSocket 也校验 Origin。
 - Agent 通过短期一次性登记码换取独立设备凭据，绑定 hostId；CLI 用户凭据不能用于冒充设备。

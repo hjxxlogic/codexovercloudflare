@@ -11,7 +11,7 @@ export interface Env {
 }
 export type Auth = {
   hash: string;
-  role: 'owner' | 'agent';
+  role: 'owner' | 'client' | 'agent';
   hostId?: string;
   expires: number;
 };

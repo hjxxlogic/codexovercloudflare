@@ -16,7 +16,7 @@ Json exchange(Stream &s, const Url &u, const std::string &path, const Json &body
   req.set(http::field::host, u.authority);
   req.set(http::field::content_type, "application/json");
   req.set(http::field::origin, u.origin);
-  req.set(http::field::user_agent, "coc/0.2.0");
+  req.set(http::field::user_agent, "coc/0.2.1");
   if (!token.empty())
     req.set(http::field::authorization, "Bearer " + token);
   if (!body.is_null()) {

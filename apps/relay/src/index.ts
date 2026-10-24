@@ -37,7 +37,7 @@ async function owner(req: Request, env: Env) {
   const value = bearer(req) || cookie(req);
   if (!value) throw new AppError('UNAUTHORIZED', 'Login required', 401);
   const a: Auth = await registryCall(env, 'auth', { token: value });
-  if (a.role !== 'owner')
+  if (a.role !== 'owner' && a.role !== 'client')
     throw new AppError('FORBIDDEN', 'Owner access required', 403);
   return a;
 }
@@ -93,12 +93,22 @@ export default {
           'WebSocket upgrade required',
           426,
         );
-      if (p === '/api/v1/auth/login' && req.method === 'POST') {
+      if (
+        (p === '/api/v1/auth/login' || p === '/api/v1/auth/redeem') &&
+        req.method === 'POST'
+      ) {
         const d = await body(req);
-        const result = await registryCall(env, 'login', {
-          secret: d.secret,
-          ip: req.headers.get('cf-connecting-ip') || 'local',
-        });
+        if (p.endsWith('/redeem')) z.enum(['cli', 'web']).parse(d.kind);
+        const result = await registryCall(
+          env,
+          p.endsWith('/redeem') ? 'loginCodeRedeem' : 'login',
+          {
+            secret: d.secret,
+            code: d.code,
+            kind: d.kind,
+            ip: req.headers.get('cf-connecting-ip') || 'local',
+          },
+        );
         const secure = u.protocol === 'https:' ? '; Secure' : '';
         return json(
           d.kind === 'cli' ? result : { expires: result.expires },
@@ -136,6 +146,18 @@ export default {
         );
       }
       const auth = await owner(req, env);
+      if (p === '/api/v1/auth/me' && req.method === 'GET')
+        return json({ role: auth.role, expires: auth.expires });
+      if (p === '/api/v1/auth/codes' && req.method === 'POST') {
+        if (auth.role !== 'owner')
+          throw new AppError('FORBIDDEN', 'Administrator access required', 403);
+        const grant = await registryCall(
+          env,
+          'loginCodeCreate',
+          await body(req),
+        );
+        return json({ ...grant, url: '/#login=' + grant.code });
+      }
       if (p === '/api/v1/auth/logout' && req.method === 'POST') {
         await registryCall(env, 'logout', { hash: auth.hash });
         return json({ ok: true }, 200, {

@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.2.0 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.2.1 开发预览版，完整目标和已验证范围见文档。
 
 ## 本机快速开始
 
@@ -14,7 +14,7 @@ npm run setup:local
 npm run dev
 ```
 
-打开 `http://127.0.0.1:8787`。本地所有者密钥保存在 `.local/owner-secret`；开发秘密与状态目录已被 Git 忽略。
+打开 `http://127.0.0.1:8787`，点击“管理员登录”，使用 `.local/owner-secret` 中的本地所有者密钥。登录后生成一次性登录授权：验证码供 `coc login` 输入，链接供浏览器登录；5 分钟内二选一使用。开发秘密与状态目录已被 Git 忽略。
 
 在另一个终端登录并生成服务器登记码：
 

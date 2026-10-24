@@ -18,7 +18,7 @@ export class RegistryDO extends DurableObject<Env> {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
         s = this.ctx.storage;
-      if (op === 'login') {
+      if (op === 'login' || op === 'loginCodeRedeem') {
         if (!this.env.OWNER_SECRET || this.env.OWNER_SECRET.length < 32)
           throw new AppError(
             'NOT_CONFIGURED',
@@ -37,6 +37,44 @@ export class RegistryDO extends DurableObject<Env> {
           throw new AppError('RATE_LIMITED', 'Try again in one minute', 429);
         await s.put(key, attempts);
         await this.schedule();
+      }
+      if (op === 'loginCodeCreate') {
+        const code = crypto.randomUUID().replaceAll('-', '').toUpperCase(),
+          expires = Date.now() + 5 * 60000;
+        await s.put('loginCode:' + (await digest(code)), { expires });
+        await this.schedule();
+        return json({ code, expires });
+      }
+      if (op === 'loginCodeRedeem') {
+        const code = z
+            .string()
+            .min(1)
+            .max(100)
+            .parse(d.code)
+            .trim()
+            .toUpperCase(),
+          key = 'loginCode:' + (await digest(code)),
+          value = token(),
+          hash = await digest(value),
+          expires = Date.now() + 8 * 3600000;
+        await s.transaction(async (tx) => {
+          const grant = await tx.get<{ expires: number }>(key);
+          if (!grant || grant.expires <= Date.now())
+            throw new AppError(
+              'UNAUTHORIZED',
+              'Invalid or expired login code',
+              401,
+            );
+          await tx.delete(key);
+          await tx.put('auth:' + hash, {
+            hash,
+            role: 'client',
+            expires,
+          } satisfies Auth);
+        });
+        return json({ token: value, expires });
+      }
+      if (op === 'login') {
         if (
           typeof d.secret !== 'string' ||
           (await digest(d.secret)) !== (await digest(this.env.OWNER_SECRET))
@@ -144,12 +182,13 @@ export class RegistryDO extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now() + 60000);
   }
   async alarm() {
-    for (const prefix of ['auth:', 'enroll:', 'limit:']) {
+    let remaining = false;
+    for (const prefix of ['auth:', 'enroll:', 'loginCode:', 'limit:']) {
       for (const [k, v] of await this.ctx.storage.list<any>({ prefix }))
         if ((v.expires ?? v.until) < Date.now())
           await this.ctx.storage.delete(k);
+        else remaining = true;
     }
-    if ((await this.ctx.storage.list({ prefix: 'auth:', limit: 1 })).size)
-      await this.ctx.storage.setAlarm(Date.now() + 60000);
+    if (remaining) await this.ctx.storage.setAlarm(Date.now() + 60000);
   }
 }
