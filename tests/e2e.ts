@@ -879,8 +879,10 @@ try {
   const page = await browser.newPage();
   await page.goto(origin);
   await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /登录与授权 连接服务器/ }).click();
-  await page.getByRole('button', { name: '管理员登录', exact: true }).click();
+  await page
+    .getByRole('button', { name: '切换到管理员模式', exact: true })
+    .click();
+  await page.keyboard.press('Escape');
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('heading', { name: '设备授权管理' }).waitFor();

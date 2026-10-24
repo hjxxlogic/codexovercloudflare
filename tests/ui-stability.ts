@@ -19,6 +19,7 @@ const session = {
 };
 let online = true,
   logged = true,
+  admin = false,
   attachFailures = 0,
   attachCalls = 0;
 let approvals: unknown[] = [];
@@ -65,10 +66,14 @@ const server = createServer((req, res) => {
     const path = url.pathname.slice(7);
     res.setHeader('Content-Type', 'application/json');
     let body: unknown = {};
-    if (path === '/auth/me' || (!logged && path === '/hosts')) {
+    if ((path === '/auth/me' && !admin) || (!logged && path === '/hosts')) {
       res.statusCode = 401;
       body = { error: { code: 'UNAUTHORIZED', message: 'Login required' } };
-    } else if (path === '/hosts')
+    } else if (path === '/auth/login') admin = true;
+    else if (path === '/auth/logout') admin = false;
+    else if (path === '/admin/devices') body = { pending: [], credentials: [] };
+    else if (path === '/admin/api-keys' || path === '/admin/hosts') body = [];
+    else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
     else if (path === '/client/identity')
       body = { identity: 'synthetic-ui-identity' };
@@ -264,6 +269,102 @@ try {
   await page.getByText('第一段第二段', { exact: true }).waitFor();
   assert.equal(contentCalls, 2, 'content chunks accumulate once per offset');
   await page.getByLabel('任务内容').fill('切换后仍应保留的草稿');
+  const callsBeforeModeSwitch = attachCalls;
+  await openMenu(page);
+  const menu = page.getByRole('navigation', { name: '功能菜单' });
+  const cwFeatures = [
+    /^会话记录/,
+    /^新建对话/,
+    /^工作区文件/,
+    /^会话详情/,
+    /^CW 对话/,
+  ];
+  const adminFeatures = [/^设备授权/, /^API Key/, /^退出管理/];
+  for (const name of cwFeatures)
+    await expect(menu.getByRole('button', { name })).toBeVisible();
+  for (const name of adminFeatures)
+    await expect(menu.getByRole('button', { name })).toHaveCount(0);
+  await menu
+    .getByRole('button', { name: '切换到管理员模式', exact: true })
+    .press('Enter');
+  await expect(
+    menu.getByRole('button', { name: '切换到CW模式', exact: true }),
+  ).toBeFocused();
+  for (const name of cwFeatures)
+    await expect(menu.getByRole('button', { name })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  await expect(page.getByLabel('服务器标识')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '设备授权管理' })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press('Escape');
+  await page.getByLabel('所有者密钥').fill('synthetic-owner-secret');
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: '设备授权管理' }),
+  ).toBeVisible();
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 480 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openMenu(page);
+    for (const name of adminFeatures)
+      await expect(menu.getByRole('button', { name })).toBeVisible();
+    for (const name of cwFeatures)
+      await expect(menu.getByRole('button', { name })).toHaveCount(0);
+    const switchButton = menu.getByRole('button', {
+      name: '切换到CW模式',
+      exact: true,
+    });
+    assert(
+      (await switchButton.boundingBox())!.y >
+        (await menu.locator('.menu-items').boundingBox())!.y,
+    );
+    await page.screenshot({
+      path: join(artifacts, `menu-admin-${viewport.width}.png`),
+    });
+    await switchButton.click();
+    for (const name of cwFeatures)
+      await expect(menu.getByRole('button', { name })).toBeVisible();
+    for (const name of adminFeatures)
+      await expect(menu.getByRole('button', { name })).toHaveCount(0);
+    const bounds = (await menu
+      .getByRole('button', { name: '切换到管理员模式', exact: true })
+      .boundingBox())!;
+    assert(
+      bounds.y + bounds.height <= viewport.height,
+      'mode switch stays visible in short viewport',
+    );
+    await page.screenshot({
+      path: join(artifacts, `menu-cw-${viewport.width}.png`),
+    });
+    await menu
+      .getByRole('button', { name: '切换到管理员模式', exact: true })
+      .click();
+    await page.keyboard.press('Escape');
+  }
+  await openMenu(page);
+  await menu.getByRole('button', { name: /^API Key/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'API Key 管理' }),
+  ).toBeVisible();
+  await openMenu(page);
+  await menu.getByRole('button', { name: /^退出管理/ }).click();
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'API Key 管理' })).toHaveCount(
+    0,
+  );
+  await openMenu(page);
+  await menu.getByRole('button', { name: '切换到CW模式', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel('任务内容')).toHaveValue('切换后仍应保留的草稿');
+  assert.equal(
+    attachCalls,
+    callsBeforeModeSwitch,
+    'mode switches and admin logout preserve the CW connection',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
@@ -560,9 +661,25 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('heading', { name: '连接远程服务器' }).waitFor();
   assert((await page.locator('.login-card').boundingBox())!.width <= 520);
+  await openMenu(page);
+  await expect(menu.getByRole('button', { name: /^登录与授权/ })).toBeVisible();
+  await expect(menu.getByRole('button', { name: /^设备授权/ })).toHaveCount(0);
+  await menu
+    .getByRole('button', { name: '切换到管理员模式', exact: true })
+    .click();
+  await expect(menu.getByRole('button', { name: /^登录与授权/ })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  await page.goto('about:blank');
+  await page.goto(origin + '/#authorize=synthetic-request');
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  await openMenu(page);
+  await expect(menu.getByRole('button', { name: /^设备授权/ })).toBeVisible();
+  await expect(menu.getByRole('button', { name: /^CW 对话/ })).toHaveCount(0);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, stable menu, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

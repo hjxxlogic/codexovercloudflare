@@ -47,8 +47,13 @@ function CodexMark() {
   );
 }
 type View = 'chat' | 'connection' | 'devices' | 'keys';
+type Mode = 'cw' | 'admin';
 function App() {
   const [view, setView] = useState<View>('chat');
+  const [mode, setMode] = useState<Mode>('cw');
+  const adminLogin = mode === 'admin';
+  const currentMode = useRef(mode);
+  currentMode.current = mode;
   const [menuOpen, setMenuOpen] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -121,7 +126,6 @@ function App() {
     [keyHost, setKeyHost] = useState(''),
     [newKey, setNewKey] = useState(''),
     [managing, setManaging] = useState(''),
-    [adminLogin, setAdminLogin] = useState(false),
     [grant, setGrant] = useState<{
       id: string;
       code: string;
@@ -220,7 +224,7 @@ function App() {
     );
     if (request) {
       setView('devices');
-      setAdminLogin(true);
+      setMode('admin');
       setManaging(request);
       history.replaceState(null, '', location.pathname + location.search);
     }
@@ -265,8 +269,10 @@ function App() {
         if (result.state === 'approved') {
           setGrant(undefined);
           setAdding(false);
-          setPanel(null);
-          setView('chat');
+          if (currentMode.current === 'cw') {
+            setPanel(null);
+            setView('chat');
+          }
           setHost(result.hostId);
           await refresh();
         } else if (result.state === 'rejected') {
@@ -1076,8 +1082,10 @@ function App() {
         await api('/auth/login', { secret });
         setSecret('');
         await refresh();
-        setPanel(null);
-        setView('devices');
+        if (currentMode.current === 'admin') {
+          setPanel(null);
+          setView('devices');
+        }
       } else {
         const result = await api('/auth/device/start', {
           role: 'web',
@@ -1193,44 +1201,19 @@ function App() {
     setPanel('sessions');
     setMenuOpen(false);
   };
-  const connectionControls = (
+  const switchMode = () => {
+    const next = mode === 'cw' ? 'admin' : 'cw';
+    setMode(next);
+    setView(next === 'admin' ? 'devices' : 'chat');
+    setPanel(null);
+    setSecret('');
+    setNewKey('');
+    setError('');
+  };
+  const connectionControls = logged && (
     <section className="card">
-      <h2>登录与授权</h2>{' '}
-      <div className="row">
-        <button
-          onClick={() => {
-            setAdminLogin((v) => !v);
-            setSecret('');
-          }}
-        >
-          {adminLogin ? '连接 A' : '管理员登录'}
-        </button>
-        {logged && (
-          <button
-            onClick={() => {
-              setAdding((v) => !v);
-              setAdminLogin(false);
-            }}
-          >
-            添加 A 授权
-          </button>
-        )}
-        {admin && (
-          <button
-            onClick={() =>
-              void api('/auth/logout', {})
-                .then(() => {
-                  setAdmin(false);
-                  setNewKey('');
-                  setAdminLogin(false);
-                })
-                .catch(report)
-            }
-          >
-            退出管理
-          </button>
-        )}
-      </div>
+      <h2>登录与授权</h2>
+      <button onClick={() => setAdding((v) => !v)}>添加 A 授权</button>
     </section>
   );
   const loginForm = !checking && (adminLogin ? !admin : !logged || adding) && (
@@ -1277,7 +1260,7 @@ function App() {
       <button type="submit" disabled={generating || (!adminLogin && !!grant)}>
         {adminLogin ? '登录' : '申请登录'}
       </button>
-      {grant && (
+      {!adminLogin && grant && (
         <div role="status">
           <p>
             等待管理员批准，配对码：<strong>{grant.code}</strong>
@@ -1292,10 +1275,12 @@ function App() {
           <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
         </div>
       )}
-      <p>
-        填写服务器 → 提交申请 →
-        管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
-      </p>
+      {!adminLogin && (
+        <p>
+          填写服务器 → 提交申请 →
+          管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
+        </p>
+      )}
     </form>
   );
   const projectPicker = (
@@ -1377,7 +1362,8 @@ function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setView('chat');
+            setView(mode === 'admin' ? 'devices' : 'chat');
+            setMenuOpen(false);
           }}
         >
           {view === 'chat' && logged ? (
@@ -1388,7 +1374,7 @@ function App() {
           ) : (
             <>
               <CodexMark /> <span>远程 Codex</span>
-              <small>CW 工作台</small>
+              <small>{mode === 'admin' ? '管理员模式' : 'CW 工作台'}</small>
             </>
           )}
         </a>
@@ -1413,87 +1399,122 @@ function App() {
         </button>
         {menuOpen && (
           <nav id="feature-menu" aria-label="功能菜单">
-            {logged && (
-              <>
-                <button
-                  onClick={() => {
-                    setView('chat');
-                    setPanel('sessions');
-                    setMenuOpen(false);
-                  }}
-                >
-                  <strong>会话记录</strong>
-                  <small>恢复与搜索历史对话</small>
-                </button>
-                <button
-                  disabled={creating || !online}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setPanel(null);
-                    if (host && project) {
+            <div className="menu-heading">
+              <strong>{mode === 'cw' ? 'CW 模式' : '管理员模式'}</strong>
+              <small>
+                {mode === 'cw'
+                  ? '对话与远程工作区'
+                  : admin
+                    ? '已登录管理'
+                    : '需要管理员登录'}
+              </small>
+            </div>
+            <div className="menu-items">
+              {mode === 'cw' && logged && (
+                <>
+                  <button
+                    onClick={() => {
                       setView('chat');
-                      void create();
-                    } else openSessions();
-                  }}
-                >
-                  <strong>新建对话</strong>
-                  <small>在当前项目开始新对话</small>
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    if (host && project) {
-                      setView('chat');
-                      setPanel('files');
-                    } else {
+                      setPanel('sessions');
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <strong>会话记录</strong>
+                    <small>恢复与搜索历史对话</small>
+                  </button>
+                  <button
+                    disabled={creating || !online}
+                    onClick={() => {
+                      setMenuOpen(false);
                       setPanel(null);
-                      openSessions();
-                    }
-                  }}
-                >
-                  <strong>工作区文件</strong>
-                  <small>上传、下载远程项目文件</small>
-                </button>
+                      if (host && project) {
+                        setView('chat');
+                        void create();
+                      } else openSessions();
+                    }}
+                  >
+                    <strong>新建对话</strong>
+                    <small>在当前项目开始新对话</small>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (host && project) {
+                        setView('chat');
+                        setPanel('files');
+                      } else {
+                        setPanel(null);
+                        openSessions();
+                      }
+                    }}
+                  >
+                    <strong>工作区文件</strong>
+                    <small>上传、下载远程项目文件</small>
+                  </button>
+                  <button
+                    disabled={!selected}
+                    onClick={() => {
+                      setView('chat');
+                      setPanel('details');
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <strong>会话详情</strong>
+                    <small>连接状态、远程项目与会话操作</small>
+                  </button>
+                </>
+              )}
+              {(mode === 'cw'
+                ? ([
+                    ['chat', 'CW 对话', '会话与远程任务'],
+                    ...(!logged
+                      ? ([
+                          ['connection', '登录与授权', '连接远程服务器'],
+                        ] as const)
+                      : []),
+                  ] as const)
+                : ([
+                    ['devices', '设备授权', '审批与管理设备'],
+                    ['keys', 'API Key', '管理访问凭证'],
+                  ] as const)
+              ).map(([id, label, description]) => (
                 <button
-                  disabled={!selected}
+                  key={id}
+                  aria-current={view === id ? 'page' : undefined}
                   onClick={() => {
-                    setView('chat');
-                    setPanel('details');
+                    setView(id);
+                    setPanel(null);
                     setMenuOpen(false);
                   }}
                 >
-                  <strong>会话详情</strong>
-                  <small>连接状态、远程项目与会话操作</small>
+                  <strong>{label}</strong>
+                  <small>{description}</small>
                 </button>
-              </>
-            )}
-            {(
-              [
-                ['chat', 'CW 对话', '会话与远程任务'],
-                ...(!logged
-                  ? ([
-                      ['connection', '登录与授权', '连接服务器与管理登录'],
-                    ] as const)
-                  : []),
-                ['devices', '设备授权', '审批与管理设备'],
-                ['keys', 'API Key', '管理访问凭证'],
-              ] as const
-            ).map(([id, label, description]) => (
-              <button
-                key={id}
-                aria-current={view === id ? 'page' : undefined}
-                onClick={() => {
-                  setView(id);
-                  setPanel(null);
-                  setMenuOpen(false);
-                  if ((id === 'devices' || id === 'keys') && !admin)
-                    setAdminLogin(true);
-                }}
-              >
-                <strong>{label}</strong>
-                <small>{description}</small>
+              ))}
+              {mode === 'admin' && admin && (
+                <button
+                  onClick={() =>
+                    void api('/auth/logout', {})
+                      .then(() => {
+                        setAdmin(false);
+                        setNewKey('');
+                        setSecret('');
+                        setMenuOpen(false);
+                      })
+                      .catch(report)
+                  }
+                >
+                  <strong>退出管理</strong>
+                  <small>结束当前管理员登录</small>
+                </button>
+              )}
+            </div>
+            <div className="menu-footer">
+              <button className="mode-switch" onClick={switchMode}>
+                <span aria-hidden="true">⇄</span>
+                切换到{mode === 'cw' ? '管理员' : 'CW'}模式
               </button>
-            ))}
+            </div>
           </nav>
         )}
       </header>
@@ -1546,7 +1567,10 @@ function App() {
             }
           </span>
           <small>
-            {hosts.find((h) => h.id === host)?.name || '选择远程主机开始工作'}
+            {mode === 'admin'
+              ? '管理员模式'
+              : hosts.find((h) => h.id === host)?.name ||
+                '选择远程主机开始工作'}
           </small>
         </div>
       )}
@@ -1556,7 +1580,6 @@ function App() {
           <button onClick={() => setError('')}>关闭</button>
         </div>
       )}
-      {view === 'connection' && !logged && connectionControls}
       {checking && <p role="status">正在检查登录状态…</p>}
       {(view !== 'chat' || !logged) && loginForm}
       {admin && view === 'devices' && (
