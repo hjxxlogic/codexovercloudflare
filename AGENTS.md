@@ -2,32 +2,49 @@
 
 ## Project Structure & Module Organization
 
-This repository is currently in the design stage. `docs/IDEARS.md` records the requirements and proposed architecture in Chinese. No application source, tests, or asset directories exist yet.
+This is a working TypeScript prototype for remote Codex access through Cloudflare. One root `package.json` manages all dependencies; components are not independently published packages.
 
-The proposal includes a server-side Codex manager, a client offering CLI proxy and browser modes, and a Cloudflare Workers relay using Durable Objects. When implementing these components, give each a clearly named directory and document its responsibilities. Keep design documents under `docs/`.
+- `apps/relay/src/`: Worker, authentication, device registration, and Durable Objects.
+- `apps/agent/src/`: Codex processes, project policies, SQLite journal, and outbound WebSocket.
+- `apps/cli/src/`: login, enrollment, and native TUI launcher.
+- `apps/web/src/`: React interface; `packages/protocol/src/`: shared schemas and types.
+- `tests/`: Vitest tests, integration runner, and deterministic Codex fixture.
+- `scripts/` and `examples/`: setup, smoke checks, configuration, and systemd template.
+- `docs/`: requirements, architecture, user guide, and test evidence. Design documents describe targets; consult README for implemented limits.
 
 ## Build, Test, and Development Commands
 
-No build system, package manifest, development server, or test runner is configured. Commands such as `npm install`, `npm test`, and `npm run build` are not currently supported.
+Use Node.js ≥22.17, preferably 24, and Codex `0.164.0`.
 
-For documentation changes, inspect `docs/IDEARS.md` and preview the Markdown. When introducing executable code, add the necessary manifest and document exact installation, local development, build, and test commands alongside it.
+- `npm ci`: install locked dependencies.
+- `npm run setup:local`: generate ignored development secrets without overwriting configuration.
+- `npm run dev`: build the webpage and serve Wrangler at `127.0.0.1:8787`.
+- `npm run agent -- .local/agent.json`: start an enrolled Agent.
+- `npm run coc -- hosts`: use the CLI; its default relay is `https://r.xlogic.cc`.
+- `npm run typecheck`, `npm run lint`, `npm test`: static checks and unit tests.
+- `npm run build`: build assets and dry-run Worker deployment; does not publish.
+- `npm run format`: format configured source and documentation paths.
+
+Ubuntu 20.04 requires the Docker workerd workaround in `docs/DEVELOPMENT.md`.
 
 ## Coding Style & Naming Conventions
 
-Use descriptive Markdown headings, short paragraphs, and fenced code blocks with language identifiers. Preserve the meaning and language of existing design notes when editing them.
-
-No programming-language style or formatter has been established. When adding a component, choose consistent indentation and naming conventions, configure an appropriate formatter or linter, and document its invocation. Avoid unrelated formatting changes.
+Use strict TypeScript, ES modules, two-space indentation, single quotes, and trailing commas. Follow ESLint and Prettier. Keep protocol validation in `packages/protocol`; enforce execution policies in Agent code. Preserve existing Chinese documentation.
 
 ## Testing Guidelines
 
-No testing framework or coverage threshold exists. Future implementation changes should include tests for the behavior they introduce, particularly connection handling, relay failures, and session isolation. Document the selected test location, filename convention, and commands when adding the first suite.
+Name Vitest tests `*.test.ts`. `npm run test:e2e` uses real Wrangler and Chromium with simulated Codex; build web assets and install Playwright Chromium first. Cover authentication, approval routing, deduplication, isolation, and reconnect failures.
+
+`test:codex` and default `test:native` use real Codex without model requests. `test:task` and `test:native -- --relay --task` call the configured model; the latter requires the `coc-local-test` Docker image. Distinguish simulated, local-runtime, and production evidence. No coverage percentage is mandated.
 
 ## Commit & Pull Request Guidelines
 
-Git history is unavailable in this checkout, so no existing commit convention can be verified. Use concise, imperative messages, such as `docs: clarify relay architecture`.
+History uses imperative `docs:` and `feat:` subjects. Explain behavior, validation, limitations, and relevant issues in PRs; include screenshots for UI changes. Update `CHANGELOG.md` for user-visible changes.
 
-Pull requests should explain the change, reference relevant requirements or issues, and describe validation performed. Include screenshots for browser interface changes and note configuration changes.
+## Documentation Updates
+
+Every functional change must include corresponding updates to affected documents under `docs/` in the same change. Update `docs/USER_GUIDE.md` whenever user workflows, commands, configuration, or supported behavior change. Also update development instructions, requirements, architecture, and test records where affected. Keep documented behavior and limitations consistent with the implementation; updating `CHANGELOG.md` alone does not satisfy this requirement.
 
 ## Security & Configuration
 
-Never commit Codex credentials, Cloudflare API tokens, or real session secrets. When configuration is introduced, provide examples containing placeholders and document required settings.
+Never commit credentials, `.dev.vars`, `.local/`, SQLite state, or real tokens. Keep examples as placeholders. Preserve server-controlled sandbox policies, RPC allowlists, and explicit approvals. Do not infer production deployment from the configured domain.
