@@ -30,7 +30,11 @@ jobs:
           fi
       - run: npm run lint && npm run lint:cpp && npm run typecheck && npm run protocol:check
       - run: npm run build
-      - run: npm test && npm run test:tls && npm run test:backup && npm run test:release && npm run test:update
+      - run: npm test
+      - run: npm run test:tls
+      - run: npm run test:backup
+      - run: npm run test:release
+      - run: npm run test:update
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e && npm run test:ui
         env:

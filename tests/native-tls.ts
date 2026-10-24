@@ -127,6 +127,7 @@ try {
       COC_CREDENTIALS: join(dir, 'credentials.json'),
     };
     save('credentials.json', {
+      autoUpdate: false,
       version: 2,
       selected: origin + '~tls-host',
       entries: [
@@ -154,6 +155,7 @@ try {
       hostId: 'tls-host',
       token: 'local-device-token-placeholder',
       dataDir: join(dir, 'state-' + scenario.cert + scenario.trusted),
+      autoUpdate: false,
       codexPath: process.execPath,
       codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
       projects: [{ id: 'test', name: 'Test', path: dir }],

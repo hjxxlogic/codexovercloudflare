@@ -148,3 +148,5 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 ## 原生更新验证
 
 `npm run test:update` 使用回环 HTTP 发行目录与本机编译的最小 ELF，验证实际 Agent/CLI 的检查、SHA256、构建身份、协议、降级拒绝、目录穿越归档隔离、更新锁、关闭配置、原子替换及旧文件保留；不访问生产或调用模型。`python3 tests/native-update.py --automatic` 另验证干净 Release CLI 自动安装和空闲 Agent 释放数据库后 exec；该模式须先提交源码并重新构建，不对脏开发构建开启自动更新。增加 `--busy` 可验证候选已准备但现有 runtime 存活时不会切换，停止会话后下一次空闲检查才重启。Agent/CLI 路径可用 COC_AGENT_BINARY / COC_CLI_BINARY 指定。
+
+TLS 专用夹具显式配置 `autoUpdate: false`，确保带业务凭据的 TLS 请求计数不混入公开更新下载。自动更新的无凭据下载、超时及安装由 `test:update` 与干净构建扩展场景独立验证；CI 将各回归命令分步运行以明确失败来源。
