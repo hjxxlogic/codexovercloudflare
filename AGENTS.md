@@ -2,49 +2,43 @@
 
 ## Project Structure & Module Organization
 
-This is a working TypeScript prototype for remote Codex access through Cloudflare. One root `package.json` manages all dependencies; components are not independently published packages.
+This repository provides remote Codex access through Cloudflare. Local programs use C++17; the relay and browser use TypeScript.
 
-- `apps/relay/src/`: Worker, authentication, device registration, and Durable Objects.
-- `apps/agent/src/`: Codex processes, project policies, SQLite journal, and outbound WebSocket.
-- `apps/cli/src/`: login, enrollment, and native TUI launcher.
-- `apps/web/src/`: React interface; `packages/protocol/src/`: shared schemas and types.
-- `tests/`: Vitest tests, integration runner, and deterministic Codex fixture.
-- `scripts/` and `examples/`: setup, smoke checks, configuration, and systemd template.
-- `docs/`: requirements, architecture, user guide, and test evidence. Design documents describe targets; consult README for implemented limits.
+- `native/include/coc/`, `native/src/`: Agent, CLI, transport, subprocesses, policies, and SQLite.
+- `native/tests/`: CTest and real Codex protocol/task checks.
+- `apps/relay/src/`: Worker, RegistryDO, HostRelayDO, and authentication.
+- `apps/web/src/`: React interface; `packages/protocol/`: Zod schemas and types.
+- `tests/`: protocol and integration tests; `tests/support/`: native process harness and fault injection only.
+- `scripts/`, `examples/`, `docs/`: setup, smoke checks, configuration, and documentation.
 
 ## Build, Test, and Development Commands
 
-Use Node.js ≥22.17, preferably 24, and Codex `0.164.0`.
+Use C++17, CMake ≥3.16, Boost.System ≥1.71, OpenSSL, SQLite3, and nlohmann/json ≥3.7. Local binaries need no Node.js. Cloud/web tooling requires Node.js ≥22.17; Codex is pinned to `0.164.0`.
 
-- `npm ci`: install locked dependencies.
-- `npm run setup:local`: generate ignored development secrets without overwriting configuration.
-- `npm run dev`: build the webpage and serve Wrangler at `127.0.0.1:8787`.
-- `npm run agent -- .local/agent.json`: start an enrolled Agent.
-- `npm run coc -- hosts`: use the CLI; its default relay is `https://r.xlogic.cc`.
-- `npm run typecheck`, `npm run lint`, `npm test`: static checks and unit tests.
-- `npm run build`: build assets and dry-run Worker deployment; does not publish.
-- `npm run format`: format configured source and documentation paths.
+- `npm ci`: install cloud/web and test dependencies.
+- `npm run build:native`: compile `build/coc-agent`, `build/coc`, and native tests.
+- `./build/coc-agent .local/agent.json`, `./build/coc hosts`: run local programs.
+- `npm run setup:local`, `npm run dev`: initialize secrets and run local relay/web.
+- `npm test`: CTest and Vitest without model calls.
+- `npm run typecheck`, `npm run lint`, `npm run lint:cpp`: static checks.
+- `npm run build`: native/web builds and Worker dry-run; never publishes.
 
-Ubuntu 20.04 requires the Docker workerd workaround in `docs/DEVELOPMENT.md`.
+See `docs/DEVELOPMENT.md` for dependencies and the Ubuntu 20.04 Docker workaround.
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript, ES modules, two-space indentation, single quotes, and trailing commas. Follow ESLint and Prettier. Keep protocol validation in `packages/protocol`; enforce execution policies in Agent code. Preserve existing Chinese documentation.
+Use two-space indentation. C++ uses snake_case functions, PascalCase classes, RAII, parameter-array subprocess execution, and clang-format. TypeScript uses strict mode, ESLint, and Prettier. Keep C++ validation consistent with Zod; server policies remain authoritative.
 
 ## Testing Guidelines
 
-Name Vitest tests `*.test.ts`. `npm run test:e2e` uses real Wrangler and Chromium with simulated Codex; build web assets and install Playwright Chromium first. Cover authentication, approval routing, deduplication, isolation, and reconnect failures.
+Cover authentication, isolation, approvals, deduplication, process exit, and reconnects. CTest verifies native behavior; `*.test.ts` uses Vitest. `test:e2e` starts native binaries, Wrangler, simulated Codex, and Chromium. `test:codex` and `test:native` use real Codex without model calls; `test:task` and `test:native -- --task` call the model. TUI tests require the Docker image. No coverage percentage is mandated.
 
-`test:codex` and default `test:native` use real Codex without model requests. `test:task` and `test:native -- --relay --task` call the configured model; the latter requires the `coc-local-test` Docker image. Distinguish simulated, local-runtime, and production evidence. No coverage percentage is mandated.
+## Commit, PR & Documentation Requirements
 
-## Commit & Pull Request Guidelines
+Use concise imperative `feat:`, `fix:`, or `docs:` subjects. PRs describe behavior, validation, limitations, configuration changes, and screenshots for UI changes. Update `CHANGELOG.md` for user-visible changes.
 
-History uses imperative `docs:` and `feat:` subjects. Explain behavior, validation, limitations, and relevant issues in PRs; include screenshots for UI changes. Update `CHANGELOG.md` for user-visible changes.
-
-## Documentation Updates
-
-Every functional change must include corresponding updates to affected documents under `docs/` in the same change. Update `docs/USER_GUIDE.md` whenever user workflows, commands, configuration, or supported behavior change. Also update development instructions, requirements, architecture, and test records where affected. Keep documented behavior and limitations consistent with the implementation; updating `CHANGELOG.md` alone does not satisfy this requirement.
+Every functional change must update affected documents under `docs/` in the same change, including `docs/USER_GUIDE.md` for workflows, commands, configuration, or supported behavior. Update requirements, architecture, development instructions, and test evidence where affected. Updating `CHANGELOG.md` alone is insufficient.
 
 ## Security & Configuration
 
-Never commit credentials, `.dev.vars`, `.local/`, SQLite state, or real tokens. Keep examples as placeholders. Preserve server-controlled sandbox policies, RPC allowlists, and explicit approvals. Do not infer production deployment from the configured domain.
+Never commit secrets, `.local/`, `.dev.vars`, or SQLite state. Preserve RPC allowlists, sandbox policies, explicit approvals, and TLS verification. Do not infer production deployment from `r.xlogic.cc`.

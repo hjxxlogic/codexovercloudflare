@@ -1,7 +1,15 @@
 import js from '@eslint/js';
 import ts from 'typescript-eslint';
 export default ts.config(
-  { ignores: ['node_modules/**', 'dist/**', '.wrangler/**', '.local/**'] },
+  {
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'build/**',
+      '.wrangler/**',
+      '.local/**',
+    ],
+  },
   js.configs.recommended,
   {
     files: ['**/*.mjs'],

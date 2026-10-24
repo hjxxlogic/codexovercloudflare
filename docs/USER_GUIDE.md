@@ -15,13 +15,20 @@
 
 ## 2. 安装与准备
 
-在运行 Agent 的服务器和使用 CLI 的电脑上获取本仓库源码，在仓库目录执行：
+Agent 和 CLI 现为 C++ 原生程序。Linux 上从源码编译（Debian / Ubuntu 示例）：
 
 ```bash
-npm ci
+sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j 2
+./build/coc --help
+# 可选：安装到 /usr/local/bin
+sudo cmake --install build --prefix /usr/local
 ```
 
-需要 Node.js ≥ 22.17（建议 24）；CLI 和 Agent 使用 Codex `0.164.0`。尚无独立安装包，当前通过 `npm run coc -- ...` 调用客户端。
+编译要求 C++17、CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。生成 `build/coc-agent` 和 `build/coc`。安装后可直接使用 `coc-agent` / `coc`；仅需在运行平台安装相应动态库，**运行本机程序不需要 Node.js**。当前验证 Linux x86_64。
+
+CLI 和 Agent 使用 Codex `0.164.0`；CLI 仅在启动 TUI 时需要本机 Codex。网页用户不需要安装本地 Codex。中转 / 网页开发需另外执行 `npm ci`，要求 Node.js ≥ 22.17。
 
 服务器先使用与 Agent 相同的系统用户确认 Codex 正常：
 
@@ -37,6 +44,7 @@ codex
 ### 本机体验
 
 ```bash
+npm ci
 npm run setup:local
 npm run dev
 ```
@@ -44,6 +52,10 @@ npm run dev
 打开 `http://127.0.0.1:8787`。本地所有者密钥位于 `.local/owner-secret`。后文登录和登记命令中的 `https://r.xlogic.cc` 在本机体验时均替换为 `http://127.0.0.1:8787`。
 
 Ubuntu 20.04 无法直接运行新版 Wrangler 的 workerd，使用 [容器方案](DEVELOPMENT.md)。
+
+### 从 TypeScript 版本迁移
+
+停止旧 Agent 后，用 `coc-agent /原路径/agent.json` 启动，配置字段、默认中转、CLI 凭据路径和 SQLite 文件保持不变。请保留 `dataDir`；重启会把旧的活动会话标记失败，不会自动恢复进程。`npm run coc -- ...` 和 `npm run agent -- ...` 保留为二进制的开发快捷入口，须先完成 C++ 构建。systemd 改为直接执行安装后的 `/usr/local/bin/coc-agent`，无需 npm。
 
 ## 3. 登录与认证
 
@@ -60,11 +72,11 @@ Codex API Key 不用于中转登录，也不上传到中转配置中。登录密
 
 ### 4.1 登录并生成登记码
 
-在任意装有源码客户端的可信电脑上执行：
+在任意装有 C++ 客户端的可信电脑上执行：
 
 ```bash
-npm run coc -- login --relay https://r.xlogic.cc
-npm run coc -- enroll build-server
+./build/coc login --relay https://r.xlogic.cc
+./build/coc enroll build-server
 ```
 
 第一条命令提示输入所有者密钥。第二条返回 `code`、主机 ID 和有效期；把登记码用于目标服务器，使用后立即失效。
@@ -74,7 +86,7 @@ npm run coc -- enroll build-server
 在服务器的仓库目录执行，替换项目的真实绝对路径：
 
 ```bash
-npm run coc -- agent-enroll --relay https://r.xlogic.cc \
+./build/coc agent-enroll --relay https://r.xlogic.cc \
   --config .local/agent.json --project /srv/projects/my-project \
   --project-id my-project
 ```
@@ -86,14 +98,14 @@ npm run coc -- agent-enroll --relay https://r.xlogic.cc \
 ### 4.3 启动 Agent
 
 ```bash
-npm run agent -- .local/agent.json
+./build/coc-agent .local/agent.json
 ```
 
 出现 `Agent connected` 后，在已登录的客户端检查：
 
 ```bash
-npm run coc -- hosts
-npm run coc -- projects --host build-server
+./build/coc hosts
+./build/coc projects --host build-server
 ```
 
 确认主机在线且项目可见。首次前台验证成功后，可按 [systemd 模板](../examples/coc-agent.service) 调整运行用户、源码路径、Codex PATH 与配置路径，交由系统常驻运行。
@@ -105,10 +117,10 @@ npm run coc -- projects --host build-server
 ### 5.1 连接远程项目
 
 ```bash
-npm run coc -- login --relay https://r.xlogic.cc
-npm run coc -- hosts
-npm run coc -- projects --host build-server
-npm run coc -- connect --host build-server --project my-project
+./build/coc login --relay https://r.xlogic.cc
+./build/coc hosts
+./build/coc projects --host build-server
+./build/coc connect --host build-server --project my-project
 ```
 
 `connect` 创建 CLI 会话并显示会话 ID，然后启动本机原生 Codex TUI。核对远程主机和项目后输入任务；操作在服务器执行。
@@ -124,9 +136,9 @@ npm run coc -- connect --host build-server --project my-project
 ### 5.2 查询、停止与退出
 
 ```bash
-npm run coc -- sessions --host build-server
-npm run coc -- stop HOST_ID~SESSION_ID
-npm run coc -- logout
+./build/coc sessions --host build-server
+./build/coc stop HOST_ID~SESSION_ID
+./build/coc logout
 ```
 
 将 `HOST_ID~SESSION_ID` 替换为列表中的完整 ID。`stop` 结束会话，不回滚已修改文件。退出登录不等于停止任务，需要停止时先执行 `stop` 并确认结果。
@@ -166,7 +178,7 @@ CLI 凭据保存在 `~/.config/coc/credentials.json`，默认登录有效期为 
 ## 8. 停用主机与管理凭据
 
 ```bash
-npm run coc -- revoke --host build-server
+./build/coc revoke --host build-server
 ```
 
 撤销设备后，中转关闭该主机与客户端连接；Agent 收到撤销关闭码后停止本地会话并退出。撤销不会回滚已发生的修改，也不能保证所有外部进程退出，需要时在服务器检查。

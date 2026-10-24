@@ -4,10 +4,12 @@
 
 ## 本机快速开始
 
-需要 Node.js ≥ 22.17（建议 24）、npm，以及 Codex `0.164.0`。Agent 可运行在 Linux；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
+本机 Agent / CLI 使用 C++17，无 Node.js 运行依赖；需 CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。中转和网页开发需要 Node.js ≥ 22.17、npm；Codex 固定 `0.164.0`。当前本机程序验证 Linux x86_64；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
 
 ```bash
+sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
 npm ci
+npm run build:native
 npm run setup:local
 npm run dev
 ```
@@ -17,26 +19,26 @@ npm run dev
 在另一个终端登录并生成服务器登记码：
 
 ```bash
-npm run coc -- login --relay http://127.0.0.1:8787
-npm run coc -- enroll build-server
+./build/coc login --relay http://127.0.0.1:8787
+./build/coc enroll build-server
 ```
 
 使用登记码配置 Agent，`--project` 指向实际远程项目目录：
 
 ```bash
-npm run coc -- agent-enroll --relay http://127.0.0.1:8787 \
+./build/coc agent-enroll --relay http://127.0.0.1:8787 \
   --config .local/agent.json --project /absolute/path/to/project \
   --project-id my-project
-npm run agent -- .local/agent.json
+./build/coc-agent .local/agent.json
 ```
 
 Agent 在线后，在网页选择主机和项目、创建会话即可。CLI 入口：
 
 ```bash
-npm run coc -- projects --host build-server
-npm run coc -- connect --host build-server --project my-project
-npm run coc -- sessions --host build-server
-npm run coc -- stop HOST_ID~SESSION_ID
+./build/coc projects --host build-server
+./build/coc connect --host build-server --project my-project
+./build/coc sessions --host build-server
+./build/coc stop HOST_ID~SESSION_ID
 ```
 
 `login` 与设备登记交互式输入秘密，不通过命令参数传递。服务端必须先以 Agent 的运行用户完成 Codex 配置，并确认 `codex` 能正常使用。
@@ -44,17 +46,19 @@ npm run coc -- stop HOST_ID~SESSION_ID
 ## 验证
 
 ```bash
+npm run build:native
 npm run typecheck
 npm run lint
 npm test
 npm run build
 npx playwright install chromium
 npm run test:e2e
+npm run test:tls
 npm run test:codex
 npm run test:native
 ```
 
-端到端测试使用真实 Wrangler、SQLite 和 Chromium，以及不会执行命令的模拟 Codex。`test:codex` 与 `test:native` 使用真实本机 Codex，不提交模型任务。可用 `npm run test:task` 验证真实文件任务；构建测试容器后，运行 `npm run test:native -- --relay --task` 验证真实原生 TUI 经完整本机中继的对话。这两项会调用已配置的模型服务。具体证据与未验证事项见 [测试记录](docs/TEST_REPORT.md)。
+端到端测试使用真实 Wrangler、SQLite 和 Chromium，以及不会执行命令的模拟 Codex。`test:codex` 与 `test:native` 使用真实本机 Codex，不提交模型任务。`test:native` 现在始终经过完整中继，需要先构建测试容器。可用 `npm run test:task` 验证真实文件任务；构建测试容器后，运行 `npm run test:native -- --relay --task` 验证真实原生 TUI 经完整本机中继的对话。这两项会调用已配置的模型服务。具体证据与未验证事项见 [测试记录](docs/TEST_REPORT.md)。
 
 ## 当前边界
 

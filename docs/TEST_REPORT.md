@@ -1,44 +1,45 @@
 # 本机测试记录
 
-日期：2026-10-24。当前结果适用于开发版本，不代表全部需求验收完成。
+日期：2026-10-24。版本：C++ 迁移开发版 0.2.0。仅代表已测本机场景，不代表生产部署或全部需求验收。
 
 ## 环境
 
-- 宿主：Ubuntu 20.04、glibc 2.31、Node.js 22.17.0、Codex 0.164.0。
-- 中继/浏览器集成：本机 Docker，Debian Bookworm、Node.js 22、真实 Wrangler/workerd、Playwright Chromium。
-- 测试使用临时项目、随机测试凭据和隔离 DO 状态，没有部署或连接生产 `r.xlogic.cc`。
+- 宿主：Ubuntu 20.04、glibc 2.31、GCC 9.4、CMake 4.2.3、Boost 1.71、OpenSSL 1.1.1f、SQLite 3.31.1、nlohmann/json 3.7.3。
+- 工具：Node.js 22.17、Codex 0.164.0、clang-format 10。
+- 集成容器：Debian Bookworm、GCC 12、Boost 1.74、OpenSSL 3、SQLite 3.40、nlohmann/json 3.11、真实 Wrangler/workerd 与 Playwright Chromium。
+- 宿主与容器分别构建二进制，避免混用系统动态库。测试使用临时项目、凭据、端口和 DO 状态，没有连接生产 `r.xlogic.cc`。
 
-## 已通过
+## C++ 迁移验证
 
-| 检查            | 证据与边界                                                                                                                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| TypeScript      | `npm run typecheck` 通过。                                                                                                                                                                       |
-| 单元测试        | `npm test`：协议边界、权限拦截、凭据脱敏、SQLite 幂等与恢复、双向审批协议。                                                                                                                      |
-| 构建            | `npm run build`：网页构建、类型检查、Worker dry-run 成功，没有发布。                                                                                                                             |
-| 中继端到端      | `npm run test:e2e`：真实 Wrangler + Agent + 确定性模拟 Codex，覆盖认证、一次性登记、项目限制、流式输出、重复 prompt 去重、审批拒绝、控制权接管、票据重复使用拒绝、历史回放、CLI RPC 及权限拒绝。 |
-| 网页            | 同一端到端测试使用真实 Chromium，完成 Cookie 登录、主机/项目选择、创建会话、任务提交和流式答复。                                                                                                 |
-| 故障恢复        | 模拟 Agent 网络中断，保留 runtime 并恢复网页历史；撤销设备时关闭客户端连接。                                                                                                                     |
-| 真实 Codex 协议 | `npm run test:codex`：真实 app-server 初始化和只读临时线程创建，无模型调用。                                                                                                                     |
-| 真实模型任务    | `npm run test:task`：真实模型在临时 workspace 中创建 `proof.txt`，内容精确校验后清理。此测试会使用配置的模型服务。                                                                               |
-| 原生终端初始化  | `npm run test:native`：真实 Codex TUI 经 PTY 和受限 WS/stdio bridge 初始化并创建线程；通用 `command/exec` 启动探测被明确拒绝。                                                                   |
+| 检查            | 证据与边界                                                                                                                                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 原生构建        | CMake 构建 `coc-agent`、`coc`、`coc-tests`，支持宿主及 Bookworm 工具链。                                                                                                                        |
+| CTest           | URL / 命令校验、RPC 白名单与线程隔离、服务器权限、凭据脱敏、SQLite 去重 / 回放 / 重启、旧请求指纹顺序、私有文件权限、独占 dataDir、真实子进程双向 RPC 与审批拒绝。测试断言在 Release 下仍有效。 |
+| Vitest          | 两项保留的 TypeScript 协议边界测试：TLS / 回环 URL、帧大小和未知网页命令。                                                                                                                      |
+| 原生 CLI        | 端到端直接启动 `coc`，验证登录、登记码、Agent 配置、文件权限、主机 / 项目 / 会话查询、结束会话、撤销和退出登录。TUI 启动夹具验证参数与环境变量票据传递。                                        |
+| 中继与网页      | C++ Agent + 真实 Wrangler + 模拟 Codex + Chromium：认证、Origin 拒绝、单次登记、项目限制、流式输出、重复 prompt 去重、审批拒绝、接管、票据复用拒绝和历史回放。                                  |
+| 故障恢复        | 测试代理断开 C++ Agent 连接，保留 Codex runtime 并恢复网页历史；设备撤销关闭活动连接并停止 Agent。                                                                                              |
+| HTTPS / WSS     | 临时 CA 和服务器证书：可信证书连接成功；未知 CA、错误 SAN 主机名均被拒绝；验证 owner / device Bearer 认证头。                                                                                   |
+| 真实 Codex 协议 | `npm run test:codex` 使用 C++ 进程层初始化 app-server 并创建只读临时线程，不提交模型任务。                                                                                                      |
+| 真实文件任务    | `npm run test:task` 使用 C++ 进程层，在临时项目创建 `proof.txt`，精确校验内容为 `coc-smoke-ok\n` 并清理；调用已配置模型。                                                                       |
+| 真实原生 TUI    | `npm run test:native -- --task`：Codex TUI → 本机 Worker → DO → 宿主 C++ Agent → Codex，完成一轮只读模型对话。通用 `command/exec` 和提交后新建线程探测仍被明确拒绝。                            |
 
-另外已通过 `npm run test:native -- --relay --task`：真实原生 TUI → 本机 Worker → Durable Object → 宿主 Agent → 真实 Codex，完成一轮只读模型对话。中继运行在本机容器内，生产 Cloudflare 网络未参与。
+`test:e2e` 的模拟 Codex 不执行命令、不调用模型；其中 TUI 启动夹具只记录参数，不验证终端 UI。真实 TUI 和真实文件任务由独立 smoke 证明，不能相互替代。
 
-`test:e2e` 的模拟 Codex 不运行 shell，也不调用模型。真实模型任务和完整原生链路是独立测试；当前只证明已测场景，尚未覆盖所有终端功能和历史分页行为。原生 CLI 的通用 `command/exec`、已有线程后新建线程等请求会被明确拒绝。
+## 发现与修复
 
-## 环境问题与解决方式
+TLS 回归测试发现 Boost 旧 RFC2818 回调在 SAN 不匹配时仍可能回退到 CN。实现改用 OpenSSL 主机名 / IP 验证参数，HTTPS 与 WSS 使用相同约束。测试证书特意使用匹配 CN、错误 SAN，防止该问题回归。
 
-宿主无法直接运行新版 workerd，报缺少 GLIBC 2.32–2.35；新版 Playwright 也不再为 Ubuntu 20.04 提供默认浏览器包。因此在本机 `Dockerfile.test` 容器中验证真实中继和浏览器，宿主库没有修改。真实 Codex smoke 在宿主运行。
+原 TypeScript 的 JSON 指纹使用字段插入顺序，nlohmann/json 默认按键排序。C++ 显式保留旧请求字段顺序，避免已有 SQLite 去重记录在迁移后发生错误冲突。数据库表结构保留，重启会将旧活动会话标记失败。
 
-Wrangler 的间接依赖 undici 通过 override 升至已修复版本；当前 lockfile 的 `npm audit` 无已知漏洞。升级依赖后需重新运行检查。
+宿主无法直接运行新版 workerd，仍使用 `Dockerfile.test` 容器；未替换宿主 glibc。原 TypeScript Agent / CLI 已删除，集成工具通过子进程调用 C++ 二进制。Node.js 仅用于云端、网页和开发测试工具。
 
 ## 尚未完成的验收
 
-- Cloudflare 真实部署的休眠唤醒、跨网络连接、发布断线及区域延迟。
-- 4 会话持续 8 小时、P95 延迟目标和 1 GiB 日志配额的长时间负载测试。
-- CLI 再次附着与线程恢复；Agent 重启后的显式线程恢复。
-- 超大事件分片、完整慢客户端压力及所有审批类型。
-- Windows/macOS CLI 和移动端浏览器兼容性。
-- 组织账户、强租户隔离、端到端加密；这些也不在首版实现范围。
+- Cloudflare 生产部署、DO 休眠唤醒、跨网络连接和发布断线。
+- 4 会话持续 8 小时、P95 延迟、1 GiB 配额与慢客户端长期压力。
+- CLI 再附着、Agent 重启后的旧线程恢复、超大事件分片。
+- 全部审批类型、全部原生 TUI 功能、macOS / Windows 和移动浏览器兼容性。
+- 组织账户、强租户隔离、端到端加密；这些不在首版本机实现范围。
 
-复现方法见 [开发说明](DEVELOPMENT.md)。完整需求中的 A-01 至 A-09 仍需按未覆盖部分继续验收，不能将本记录作为全部发布准入通过证明。
+复现命令见 [开发说明](DEVELOPMENT.md)。不要将本记录视为 A-01 至 A-09 全部验收完成。

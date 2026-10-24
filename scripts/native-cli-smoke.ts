@@ -6,12 +6,9 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CodexProcess, guardCli, redact } from '../apps/agent/src/codex.ts';
 import type { Rpc } from '../packages/protocol/src/index.ts';
 const dir = mkdtempSync(join(tmpdir(), 'coc-native-'));
-const relay = process.argv.includes('--relay')
-  ? await localRelay(dir)
-  : undefined;
+const relay = await localRelay(dir);
 const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
 await new Promise<void>((r) => wss.once('listening', r));
 const runTask = process.argv.includes('--task');
@@ -19,7 +16,6 @@ let turnCompleted = false;
 const methods = new Set<string>(),
   rejected = new Set<string>(),
   responses = new Set<string>();
-let codex: CodexProcess | undefined, threadId: string | undefined;
 const requests = new Map<string, string>();
 wss.on('connection', (ws, req) => {
   if (req.headers.authorization !== 'Bearer local-smoke-only') {
@@ -64,69 +60,6 @@ wss.on('connection', (ws, req) => {
     ws.on('close', () => upstream.close());
     return;
   }
-  codex = new CodexProcess(
-    'codex',
-    [],
-    dir,
-    'read-only',
-    (m: Rpc) => {
-      if (
-        m.method === 'turn/completed' &&
-        m.params?.turn?.status === 'completed'
-      ) {
-        turnCompleted = true;
-        writeFileSync(join(dir, 'turn-completed'), 'ok');
-      }
-      if (!m.method && m.id !== undefined) {
-        const method = requests.get(String(m.id));
-        if (method && !m.error) responses.add(method);
-        if (method === 'thread/start') threadId = m.result?.thread?.id;
-      }
-      ws.send(JSON.stringify(redact(m)));
-    },
-    () => ws.close(),
-  );
-  ws.on('message', (raw) => {
-    const m: Rpc = JSON.parse(raw.toString());
-    if (m.method) methods.add(m.method);
-    if (['thread/list', 'thread/loaded/list'].includes(m.method || '')) {
-      responses.add(m.method!);
-      ws.send(
-        JSON.stringify({
-          id: m.id,
-          result:
-            m.method === 'thread/list'
-              ? { data: [], nextCursor: null }
-              : { data: threadId ? [threadId] : [] },
-        }),
-      );
-      return;
-    }
-    try {
-      const guarded = guardCli(m, dir, 'read-only', threadId);
-      if (m.id !== undefined && m.method) requests.set(String(m.id), m.method);
-      codex!.send(guarded);
-    } catch (e) {
-      console.log(
-        'Bridge rejection:',
-        m.method,
-        (e as Error).message,
-        'fields:',
-        Object.keys(m.params || {}).join(','),
-        'config keys:',
-        Object.keys(m.params?.config || {}).join(','),
-      );
-      if (m.method) rejected.add(m.method);
-      if (m.id !== undefined)
-        ws.send(
-          JSON.stringify({
-            id: m.id,
-            error: { code: -32001, message: 'Unsupported remote action' },
-          }),
-        );
-    }
-  });
-  ws.on('close', () => codex?.close());
 });
 const port = (wss.address() as any).port;
 const py = spawn(
@@ -192,7 +125,6 @@ try {
       : 'PASS: real native Codex TUI initialized through guarded WebSocket/stdio bridge. No prompt submitted.',
   );
 } finally {
-  codex?.close();
   if (relay) await relay.close();
   for (const ws of wss.clients) ws.terminate();
   wss.close();

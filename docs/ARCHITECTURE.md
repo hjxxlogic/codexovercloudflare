@@ -2,7 +2,7 @@
 
 > 实现进展：本文件保留初始目标基线；当前开发版本的实际能力与测试结果见 [README](../README.md) 和 [测试记录](TEST_REPORT.md)。
 
-> 状态：建议方案，尚未实现。版本：0.1。日期：2026-10-24。
+> 状态：C++ 本机实现与后续目标。版本：0.2。日期：2026-10-24。
 > 对应 [项目需求](REQUIREMENTS.md)，保留 [原始构想](IDEARS.md) 作为背景记录。
 
 ## 1. 架构结论
@@ -31,7 +31,7 @@ codex app-server generate-json-schema --out /tmp/coc-codex-schema
 - 导出的协议包含 `initialize`、`thread/start`、`thread/resume`、`thread/read`、`turn/start`、`turn/interrupt`，以及流式事件和服务端发起的审批请求。
 - 协议同时含有文件、命令、配置和账号操作，不能直接把全部 RPC 无条件暴露给网页。
 
-这些结果证明可用接口存在，**尚未证明原生 TUI 穿过本项目中继后的完整兼容性**。M0 必须确认握手、传输分帧、必要方法、服务端请求及断线恢复行为，并据此生成版本化兼容清单。不能把 `--remote` 可用等同于已实现完整远程体验。
+当前已用原生 TUI 经本机 Worker、Durable Object 和 C++ Agent 完成初始化及一轮模型对话；这只覆盖已测方法，不表示全部 TUI 功能兼容。CLI 再附着和 Agent 重启后的旧线程恢复仍未实现，具体证据见测试记录。
 
 ### 2.2 Cloudflare
 
@@ -70,20 +70,24 @@ flowchart LR
 
 ## 4. 技术栈选择
 
-以下是计划依赖，创建工程时需锁定实际版本；仓库目前只有文档。
-
-Node.js 24 当前属于 LTS 分支，选择依据见 [官方发布状态](https://nodejs.org/en/about/previous-releases)。
+本机程序采用 **C++17 + CMake**，生成独立的 `coc-agent` 和 `coc`；运行时不依赖 Node.js。Codex 仍为独立程序，不嵌入或重写其模型执行能力。Cloudflare 中转和网页保留 TypeScript，通过 JSON 消息与 C++ 互通。
 
 | 层次 | 选择 | 理由与代价 |
 | --- | --- | --- |
-| 工程组织 | TypeScript strict、npm workspaces | 协议类型复用，避免首版引入多语言工具链。 |
-| 远程 Agent / coc | Node.js 24 LTS、`ws`、`child_process.spawn` | 支持子进程、信号、WebSocket；依赖 Node 运行环境。 |
-| 中继 | Workers TypeScript、原生路由、SQLite-backed Durable Objects | 连接协调与主机分片直接匹配需求，降低框架依赖。 |
-| 前端 | React、Vite、轻量 CSS | 以结构化对话为主，不实现第二套终端模拟器。 |
-| 协议校验 | Zod + 版本化类型定义 | 校验外层信封和网页 DTO；Codex 类型由固定二进制生成。 |
-| 本地存储 | SQLite，通过 Node SQLite API 封装 | 事务、幂等记录和有序事件日志；验证目标 Node 版本行为。 |
-| 测试 | Vitest、Cloudflare Workers 测试池、Playwright | 覆盖协议单测、真实 DO 行为及浏览器端到端。 |
-| 工具 | ESLint、Prettier、Wrangler、systemd | 统一格式、云端开发部署与 Linux 进程托管。 |
+| 本机语言 / 构建 | C++17、CMake ≥ 3.16 | 可直接使用 Linux 进程、信号和文件权限；增加编译与跨平台适配成本。 |
+| 网络 | Boost.Asio / Beast ≥ 1.71、OpenSSL | 同时支持 HTTPS、WSS 和异步队列；TLS 校验证书、主机名/IP 并设置 SNI；使用 OpenSSL 验证参数，不使用旧 RFC2818 回调。 |
+| 子进程 | POSIX fork/exec、管道、waitpid、进程组 | 参数数组执行，无 shell 拼接；异步 stdin/stdout，退出时 TERM，3 秒后 KILL。 |
+| 本地存储 | SQLite3 C API | 沿用 sessions/events/requests、WAL 及请求去重记录，兼容现有数据库。 |
+| JSON / 校验 | nlohmann/json ≥ 3.7、显式字段和策略校验 | 与云端 Zod 独立实现相同协议，避免本机运行时依赖 JavaScript。 |
+| 中继 | Workers TypeScript、RegistryDO、HostRelayDO | 保留设备认证、路由、票据和控制租约。 |
+| 网页 | React、Vite、CSS | 保留结构化对话和审批交互。 |
+| 测试 / 格式 | CTest、clang-format；Vitest、Playwright、ESLint、Prettier | C++ 测策略、SQLite 和进程协议；跨语言端到端启动真实 C++ 可执行文件。 |
+
+TLS 身份校验使用 [OpenSSL SSL_set1_host](https://docs.openssl.org/1.1.1/man3/SSL_set1_host/) 和 IP 验证参数，SAN 不匹配时拒绝连接；本地 CA 测试覆盖信任链和主机名错误。
+
+C++ Agent 使用一个 Asio 事件循环串行管理会话、SQLite 和网络；每个连接分别串行化发送，每个子进程独立维护 RPC 超时。WebSocket 限制单帧 256 KiB、待发队列 8 MiB，超限断开；Codex 超大输出终止对应 runtime。网页命令按会话排队，CLI 消息按白名单转发，不在网络回调里等待 Codex 响应。Beast 的并发约束见 [官方说明](https://www.boost.org/doc/libs/latest/libs/beast/doc/html/beast/using_websocket/notes.html)。
+
+本机当前验证平台为 Linux x86_64。二进制依赖系统 Boost.System、OpenSSL、SQLite、libstdc++ 等动态库，不宣称静态单文件分发；必须在目标兼容发行版构建。macOS / Windows 尚待进程与平台层适配。只有构建中转、网页和测试工具时需要 Node.js ≥ 22.17。
 
 不引入 D1、KV、R2、Redis 和消息队列：首版设备目录规模小，正文留在远程主机。后续跨主机查询或附件服务出现实际需求时再增加存储。
 
@@ -95,7 +99,7 @@ Node.js 24 当前属于 LTS 分支，选择依据见 [官方发布状态](https:
 | 网页集成 | app-server 结构化协议 | `codex exec --json` 更适合批处理，不能直接替代完整多轮审批生命周期。 |
 | 中继拓扑 | 每主机一个 HostRelayDO | 每会话一个 DO 隔离更细，但需额外调度与 Agent 多连接；首版单主机 4 会话无此必要。 |
 | 网络接入 | 自建应用级 WSS 中继 | SSH/VPN/Cloudflare Tunnel 可做个人远控，但不直接提供会话管理及统一网页产品。 |
-| 运行时 | TypeScript/Node | Go/Rust 的单文件分发有优势，首版优先协议复用；性能数据不足时不提前重写。 |
+| 本机实现 | C++17 | 按本次架构要求替换 TypeScript Agent/CLI；保持云端 API 和配置，承担两种语言的协议一致性测试成本。 |
 
 ## 5. Codex 集成与会话模型
 
@@ -219,25 +223,23 @@ Cloudflare 可见传输内容；TLS 保护传输但不提供中继不可见性�
 
 ## 10. 工程布局与开发约定
 
-计划布局：
+实际布局：
 
 ```text
-apps/
-  relay/             # Worker、RegistryDO、HostRelayDO
-  agent/             # Linux 常驻进程、Codex bridge、SQLite
-  cli/               # coc 与原生 TUI 启动器
-  web/               # React 会话界面
-packages/
-  protocol/          # 信封、网页 DTO、错误码与运行时校验
-  codex-adapter/     # 固定版本 schema、RPC 适配和兼容清单
-  test-utils/        # 假 Agent/Codex 与故障注入工具
-tests/               # 跨组件端到端测试
-docs/                # 需求、架构、兼容性、运维与决策记录
+native/include/coc/  # JSON、策略、网络、进程和 SQLite 接口
+native/src/          # C++ Agent / CLI 及共用实现
+native/tests/        # CTest 策略、存储、进程及真实 Codex smoke
+apps/relay/          # TypeScript Worker 与 Durable Objects
+apps/web/            # React 页面
+packages/protocol/   # 云端与网页的 Zod 类型和协议约束
+tests/               # 协议、跨组件、浏览器及 C++ 进程测试工具
+scripts/             # 本机初始化与完整 TUI smoke
+docs/                # 需求、架构、用户手册和测试证据
 ```
 
-采用 2 空格缩进、严格 TypeScript、ESLint 与 Prettier；测试命名 `*.test.ts`，浏览器测试 `*.spec.ts`。
+C++ 使用 2 空格、clang-format 和 snake_case；类名 PascalCase。TypeScript 保持 strict、ESLint、Prettier。C++ 和 TypeScript 协议校验都必须覆盖权限、超大帧和会话隔离；不能依赖共享编译类型保障跨语言安全。
 
-预计根目录脚本：`npm run dev`、`npm run build`、`npm run lint`、`npm run typecheck`、`npm test`、`npm run test:e2e`。这些命令须在工程初始化时实现，目前不能直接执行。CI 顺序为静态检查、单测、构建、集成测试；真实 Codex smoke 单独使用受控凭据和专用临时项目，不在普通 PR 中运行不可信代码。
+构建顺序：`npm run build:native`、`npm test`、静态检查、网页/Worker 构建、端到端。独立安装执行 `cmake --install build --prefix /usr/local`。真实 Codex smoke 使用临时项目，不在普通 PR 中自动调用模型。详细命令见 [开发说明](DEVELOPMENT.md)。
 
 ## 11. 验证、部署与运营
 
@@ -270,5 +272,5 @@ docs/                # 需求、架构、兼容性、运维与决策记录
 | CLI 断线附着能力 | 验证 app-server 重初始化行为；无法保留临时状态时明确恢复线程而非原进程状态。 |
 | 大输出与资源占用 | 验证 256 KiB 分片、8 MiB 上限、4 会话及 8 小时负载，必要时调整默认值。 |
 | 单所有者身份实现 | 首版自托管密钥；需要组织账户时另评估 OIDC/RBAC，不复用个人密钥。 |
-| 本地 SQLite API | 初始化工程时验证 Node 24 固定版本的 API、迁移和备份，必要时更换驱动。 |
+| 本地 SQLite API | C++ 使用 SQLite3 C API；保留旧表结构，验证已有数据、去重记录和重启行为。 |
 | 发布准入 | 固定 Codex 版本兼容报告、需求验收记录、故障恢复演练与安装/回滚文档齐备。 |

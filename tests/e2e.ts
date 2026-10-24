@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  statSync,
+  mkdirSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { chromium } from '@playwright/test';
-import { Agent } from '../apps/agent/src/agent.ts';
+import { Agent } from './support/native-agent.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
 const secret = randomBytes(32).toString('hex');
@@ -110,6 +117,37 @@ async function web(id: string) {
   return p;
 }
 const pass = (message: string) => console.log('PASS: ' + message);
+async function cliCommand(
+  args: string[],
+  input = '',
+  env: NodeJS.ProcessEnv = {},
+) {
+  const child = spawn(
+    resolve(process.env.COC_CLI_BINARY || 'build/coc'),
+    args,
+    {
+      env: {
+        ...process.env,
+        COC_CREDENTIALS: join(dir, 'credentials.json'),
+        ...env,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  );
+  let stdout = '',
+    stderr = '';
+  child.stdout.on('data', (d) => (stdout += d));
+  child.stderr.on('data', (d) => (stderr += d));
+  child.stdin.end(input);
+  await new Promise<void>((r, j) => {
+    child.on('error', j);
+    child.on('exit', (code) =>
+      code === 0 ? r() : j(new Error('C++ CLI failed: ' + stderr)),
+    );
+  });
+  return stdout;
+}
+
 try {
   await wait(
     async () => {
@@ -159,12 +197,29 @@ try {
     403,
   );
   pass('login, unauthorized access and cross-origin rejection');
-  const e = await api('/hosts/enrollments', { name: 'local-test' });
-  const enrolled = await api(
-    '/agent/enroll',
-    { code: e.code },
-    { anonymous: true },
+  await cliCommand(['login', '--relay', origin], secret + '\n');
+  assert.equal(statSync(join(dir, 'credentials.json')).mode & 0o777, 0o600);
+  const e = JSON.parse(await cliCommand(['enroll', 'local-test']));
+  const configFile = join(dir, 'enrolled.json');
+  await cliCommand(
+    [
+      'agent-enroll',
+      '--relay',
+      origin,
+      '--config',
+      configFile,
+      '--project',
+      dir,
+      '--project-id',
+      'test-project',
+    ],
+    e.code + '\n',
   );
+  const config = JSON.parse(readFileSync(configFile, 'utf8'));
+  const enrolled = { hostId: config.hostId, token: config.token };
+  assert.equal(statSync(configFile).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(await cliCommand(['hosts']))[0].id, enrolled.hostId);
+  pass('C++ CLI login, enrollment, private configuration and host query');
   assert.equal(
     (await request('/agent/enroll', { code: e.code }, { anonymous: true })).r
       .status,
@@ -184,7 +239,7 @@ try {
   agent.start();
   await wait(async () => (await api('/hosts'))[0].online, 'Agent online');
   assert.equal(
-    (await api(`/hosts/${enrolled.hostId}/projects`))[0].id,
+    JSON.parse(await cliCommand(['projects', '--host', 'local-test']))[0].id,
     'test-project',
   );
   assert.equal(
@@ -211,6 +266,10 @@ try {
         { key },
       )
     ).id,
+    s.id,
+  );
+  assert.equal(
+    JSON.parse(await cliCommand(['sessions', '--host', 'local-test']))[0].id,
     s.id,
   );
   pass('Agent online, project allowlist and idempotent session creation');
@@ -322,7 +381,34 @@ try {
   );
   assert(!cp.messages.some((m) => m.id === 3 && m.result));
   pass('CLI raw protocol routing and unsafe RPC rejection');
-  await api(`/sessions/${cli.id}/stop`, {});
+  await cliCommand(['stop', cli.id]);
+  const binDir = join(dir, 'bin');
+  mkdirSync(binDir);
+  symlinkSync(resolve('tests/fixtures/fake-tui.mjs'), join(binDir, 'codex'));
+  const capture = join(dir, 'tui-launch.json');
+  const output = await cliCommand(
+    ['connect', '--host', 'local-test', '--project', 'test-project'],
+    '',
+    {
+      PATH: binDir + ':' + process.env.PATH,
+      COC_TUI_CAPTURE: capture,
+    },
+  );
+  const launched = JSON.parse(readFileSync(capture, 'utf8'));
+  assert.equal(launched.args[0], '--remote');
+  assert(
+    launched.args[1].startsWith(origin.replace('http', 'ws') + '/ws/v1/cli/'),
+  );
+  assert.equal(launched.args[2], '--remote-auth-token-env');
+  assert.equal(launched.args[3], 'COC_REMOTE_TICKET');
+  assert(launched.ticket.length > 20);
+  assert(!launched.args.includes(launched.ticket));
+  assert(launched.args.includes('workspace-write'));
+  const launchId = output.match(/Remote session: ([a-zA-Z0-9_~-]+)/)![1];
+  await cliCommand(['stop', launchId]);
+  pass(
+    'C++ CLI connects and launches TUI with policy and ticket via environment',
+  );
   // Real browser uses the same cookie/Origin path as users; no bearer bypass.
   browser = await chromium.launch({
     headless: true,
@@ -372,13 +458,14 @@ try {
     'restored web session',
   );
   pass('Agent network reconnect preserves runtime and web history');
-  await api(`/hosts/${enrolled.hostId}/revoke`, {});
+  await cliCommand(['revoke', '--host', 'local-test']);
   await wait(
     () => restored.ws.readyState === WebSocket.CLOSED,
     'revoked client closes',
   );
   assert.equal((await api('/hosts'))[0].online, false);
-  pass('device revocation closes active connections');
+  pass('C++ CLI revocation closes active connections');
+  await cliCommand(['logout']);
   console.log(
     'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
   );

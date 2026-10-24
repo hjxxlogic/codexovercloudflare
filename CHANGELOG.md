@@ -1,8 +1,16 @@
 # 更新日志
 
-记录面向使用者的功能、修复和兼容性变化。当前版本尚未正式发布；`package.json` 中的 `0.1.0` 为开发版本号。
+记录面向使用者的功能、修复和兼容性变化。当前版本尚未正式发布；`package.json` 中的 `0.2.0` 为开发版本号。
 
 ## 未发布
+
+### 架构变更
+
+- 本机 Agent 与 CLI 从 TypeScript 改为 C++17，使用 CMake、Boost.Asio/Beast、OpenSSL、SQLite3 和 nlohmann/json；中转与网页保留 TypeScript。
+- 新增 `coc-agent` / `coc` 二进制、CTest 和 clang-format 约定；运行本机程序不依赖 Node.js。
+- 保留现有配置、设备认证、会话协议、SQLite 表结构与数据目录；停止旧 Agent 后再启动 C++ 版本。
+- 增加 dataDir 文件锁和 HTTPS/WSS 本地 CA 测试，严格拒绝未知 CA 与主机名不匹配的证书。
+- systemd 直接启动原生 Agent；更新用户手册、开发指南和架构说明。原生 TUI smoke 统一经过完整本机中继。
 
 ### 新增
 
@@ -17,14 +25,14 @@
 
 ### 验证
 
-- 已通过类型检查、ESLint、Prettier、7 项单元测试及网页/Worker 构建。
+- 已通过 CMake 原生构建、CTest、Vitest、HTTPS/WSS 证书回归、类型检查、ESLint、Prettier、clang-format 及网页/Worker 构建。
 - 已通过真实 Wrangler 与 Chromium 的本机端到端测试，包括认证、审批拒绝、重复提交去重、接管、回放、重连和撤销；使用模拟 Codex。
 - 已通过真实 Codex 临时项目文件任务，以及原生 TUI 经完整本机中继的一轮模型对话。
 - 详细环境和证据见 [本机测试记录](docs/TEST_REPORT.md)；以上不代表生产部署或全部需求验收完成。
 
 ### 当前限制
 
-- Codex 兼容版本固定为 `0.164.0`；Node.js 最低为 `22.17.0`。
+- Codex 兼容版本固定为 `0.164.0`；仅中转、网页开发和 TypeScript 测试工具需要 Node.js ≥ `22.17.0`。
 - CLI 暂不支持再次附着已有 runtime；Agent 重启后尚无旧线程恢复入口。
 - 单帧上限 256 KiB，尚无超大消息分片；网页补充问答和 MCP elicitation 暂不支持。
 - 首版面向个人可信操作者，不提供文件同步、强租户隔离或端到端加密。

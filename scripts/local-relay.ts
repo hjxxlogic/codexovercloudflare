@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { Agent } from '../apps/agent/src/agent.ts';
+import { Agent } from '../tests/support/native-agent.ts';
 
 // Full relay smoke uses a local Bookworm container only for workerd. Agent and
 // Codex run on the host with the same configuration as normal usage.
