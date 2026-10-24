@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -36,7 +37,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         REQUESTS.append(self.path)
-        assert not self.headers.get('Authorization'), 'Release download leaked credentials'
+        if self.path.startswith('/downloads/'):
+            assert not self.headers.get('Authorization'), 'Release download leaked credentials'
         if MODE == 'wait' and self.path == '/downloads/index.json':
             ENTERED.set()
             UNBLOCK.wait(10)
@@ -180,17 +182,67 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                     'projects': [{'id': 'project', 'name': 'project', 'path': str(project)}],
                     'autoUpdate': {'platform': PLATFORM}}
             config.write_text(json.dumps(data))
+            log = (workspace / 'agent.log').open('w+')
             agent = subprocess.Popen([str(binary), 'run', '--config', str(config)],
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                     stdout=subprocess.DEVNULL, stderr=log)
             try:
                 agent.wait(timeout=45)
                 assert agent.returncode == 0 and marker.read_text() == 'restarted'
                 assert json.loads(run([binary, '--version']).stdout) == RELEASE
+            except Exception:
+                log.flush()
+                log.seek(0)
+                print(log.read(), file=sys.stderr)
+                print('Agent download paths:', REQUESTS, file=sys.stderr)
+                raise
             finally:
                 if agent.poll() is None:
                     agent.terminate()
                     agent.wait(timeout=10)
+                log.close()
             print('PASS: idle Agent prepares update in background, closes stores and reexecutes new release')
+
+            if '--busy' in sys.argv:
+                helper = subprocess.Popen([shutil.which('node'), str(ROOT / 'tests/fixtures/update-relay.mjs'), relay],
+                                          stdout=subprocess.PIPE, text=True)
+                active_agent = None
+                try:
+                    active_relay = f"http://127.0.0.1:{json.loads(helper.stdout.readline())['port']}"
+                    binary, config = installation('busy-agent', agent=True)
+                    data['relayUrl'] = active_relay
+                    data['dataDir'] = str(workspace / 'busy-agent-state')
+                    config.write_text(json.dumps(data))
+                    marker.unlink(missing_ok=True)
+                    log = (workspace / 'busy-agent.log').open('w+')
+                    active_agent = subprocess.Popen([str(binary), 'run', '--config', str(config)],
+                                                    stdout=subprocess.DEVNULL, stderr=log)
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        with urllib.request.urlopen(active_relay + '/state', timeout=2) as response:
+                            state = json.load(response)
+                        if state.get('created'):
+                            break
+                        time.sleep(0.1)
+                    assert state.get('created'), state
+                    # Pass the first 30s install opportunity with a live Codex runtime.
+                    time.sleep(31)
+                    assert active_agent.poll() is None, 'Active Agent was interrupted by update'
+                    assert json.loads(run([binary, '--version']).stdout) == json.loads(run([AGENT, '--version']).stdout)
+                    assert list(binary.parent.glob('.coc-update-*/candidate')), 'Update was not prepared'
+                    assert not pathlib.Path(str(binary) + '.previous').exists()
+                    urllib.request.urlopen(urllib.request.Request(active_relay + '/stop', data=b'{}'), timeout=2).close()
+                    active_agent.wait(timeout=40)
+                    assert active_agent.returncode == 0 and marker.read_text() == 'restarted'
+                    assert json.loads(run([binary, '--version']).stdout) == RELEASE
+                    print('PASS: prepared Agent update waits for running session to end before atomic install and restart')
+                finally:
+                    if active_agent is not None and active_agent.poll() is None:
+                        active_agent.terminate()
+                        active_agent.wait(timeout=10)
+                    helper.terminate()
+                    helper.wait(timeout=10)
+                    if active_agent is not None:
+                        log.close()
     finally:
         server.shutdown()
         server.server_close()

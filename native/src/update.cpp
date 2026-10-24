@@ -322,6 +322,11 @@ bool AgentUpdater::poll(const Json &config, const std::string &relay, bool idle)
   if (pending_.valid() && pending_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
     try {
       ready_ = pending_.get();
+      if (ready_)
+        std::cerr << Json{{"event", "auto_update_ready"},
+                          {"version", ready_->release.at("version")}}
+                         .dump()
+                  << '\n';
     } catch (const std::exception &error) {
       log_error(error);
     }

@@ -13,6 +13,16 @@ export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),
   hostId: idSchema,
   token: z.string().min(20),
+  autoUpdate: z
+    .union([
+      z.boolean(),
+      z.object({
+        enabled: z.boolean().optional(),
+        intervalHours: z.number().int().min(1).max(168).optional(),
+        platform: z.enum(['', 'ubuntu20.04', 'debian12']).optional(),
+      }),
+    ])
+    .optional(),
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
   dataDir: z.string().min(1),

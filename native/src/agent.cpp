@@ -36,7 +36,7 @@ class Agent {
   Json config_;
   std::filesystem::path config_file_;
   AgentUpdater &updater_;
-  bool update_restart_ = false;
+  std::atomic<bool> update_restart_{false};
   Store store_;
   WorkspaceFiles files_;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
@@ -90,6 +90,8 @@ public:
           close();
         }
       }
+      if (update_restart_)
+        asio::post(relay_io_, [this] { relay_io_.stop(); });
       relay_work_.reset();
     });
     heartbeat();
@@ -641,7 +643,8 @@ public:
     auto s = store_.get(id);
     auto existing = runtimes_.find(id);
     // Closed sessions can still fetch uncached archive pages after Agent restart.
-    const bool temporary = existing == runtimes_.end();
+    const bool temporary = existing == runtimes_.end() || s.value("state", "") == "closing" ||
+                           s.value("state", "") == "closed" || s.value("state", "") == "failed";
     auto process = temporary
                        ? std::make_shared<CodexProcess>(
                              io_, config_, project(s["projectId"])["path"], [](Json) {}, [] {})
@@ -977,6 +980,7 @@ public:
       config_["autoUpdate"] = read_json(config_file_).value("autoUpdate", Json(true));
       if (updater_.poll(config_, config_.at("relayUrl"),
                         runtimes_.empty() && archive_loading_.empty() && !listing_threads_)) {
+        std::cerr << Json{{"event", "auto_update_restarting"}, {"time", now()}}.dump() << '\n';
         update_restart_ = true;
         close();
       }

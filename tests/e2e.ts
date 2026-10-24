@@ -570,7 +570,9 @@ try {
       () => hp.messages.some((m) => m.requestId === requestId),
       'history response',
     );
-    return hp.messages.find((m) => m.requestId === requestId);
+    const result = hp.messages.find((m) => m.requestId === requestId);
+    assert(!result.error, JSON.stringify(result.error));
+    return result;
   };
   const latestHistory = await historyRead({ operation: 'page', before: 0 });
   assert(latestHistory.events.length <= 200 && latestHistory.more);

@@ -53,7 +53,7 @@ npm run dev
 { "autoUpdate": false }
 ```
 
-也可设置 `{"autoUpdate":{"enabled":true,"intervalHours":24}}`；间隔为 1–168 小时，默认 1 小时，失败也按间隔退避。Agent 每 30 秒重读这一设置，CLI 下次命令读取。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+也可设置 `{"autoUpdate":{"enabled":true,"intervalHours":24}}`；间隔为 1–168 小时，默认 1 小时，失败也按间隔退避。Agent 每 30 秒重读这一设置，CLI 下次命令读取。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
 
 自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
 
@@ -290,3 +290,5 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 ```
 
 备份使用 SQLite 在线备份 API，包含 WAL 中已提交数据，输出权限为 0600，拒绝覆盖既有备份。恢复使用与 Agent 相同的实例锁；Agent 运行时拒绝恢复。恢复历史不会恢复 Codex 进程或回滚项目文件。秘密配置、Codex home 和工作区需要独立备份；不要只复制活动数据库的 `.db` 文件。
+
+0.5.2 同时修复会话刚停止时读取尚未缓存的旧历史页：使用独立只读 Codex 进程，不向正在退出的运行进程发送历史请求。
