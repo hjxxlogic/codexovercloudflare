@@ -110,3 +110,7 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、自动收起菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
 
 `tests/e2e.ts` 的确定性协议夹具包含本地历史及异项目线程，验证历史列表过滤、恢复历史与继续对话、分页 / 搜索、Markdown / 安全链接、折叠工具、移动端宽度和功能菜单。截图输出 `.local/cw-chat-desktop.png`、`.local/cw-chat-mobile.png`；测试不调用模型。历史功能需要与 Worker 一起更新原生 Agent。
+
+专注聊天布局的浏览器回归还检查：聊天区超过窗口高度的 90%、空闲消息区超过 65%，输入区保持在窗口内且页面没有横纵溢出；主机 / 项目、会话列表 / 详情默认不占聊天空间。测试通过菜单访问历史与详情，检查选中后自动关闭、Escape 退出，以及执行中的停止和审批仍可操作。
+
+工作区文件 UI 在 `files.tsx`，通用请求在 `api.ts`；`native/src/files.cpp` 负责文件访问、分段与临时上传，Agent 生命周期负责清理。新增操作须同步更新协议 Zod、Worker 路由与原生校验。CTest 覆盖越界路径、符号链接、所有者 / 项目隔离、只读策略、二进制内容、重试、取消和覆盖冲突；浏览器回归上传 / 下载超过两个分段的二进制文件并逐字节比较、拒绝默认覆盖及确认替换，截图 `.local/cw-workspace-files.png`。不调用模型。

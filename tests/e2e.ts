@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
-import { chromium } from '@playwright/test';
+import { chromium, type Page } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
@@ -143,6 +143,66 @@ async function web(id: string) {
   return p;
 }
 const pass = (message: string) => console.log('PASS: ' + message);
+async function feature(page: Page, name: RegExp) {
+  await page.getByRole('button', { name: '功能菜单' }).click();
+  await page
+    .getByRole('navigation', { name: '功能菜单' })
+    .getByRole('button', { name })
+    .click();
+}
+async function idle(page: Page) {
+  await wait(
+    async () =>
+      (await page.locator('.composer').count()) === 1 &&
+      (await page.locator('.composer [role="status"], .thinking').count()) ===
+        0,
+    'chat ready',
+  );
+}
+async function sessionId(page: Page) {
+  await feature(page, /^会话详情/);
+  const id = await page.getByRole('dialog').locator('.id').innerText();
+  await page.getByRole('button', { name: '关闭面板' }).click();
+  return id;
+}
+async function focusedChat(page: Page) {
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(await page.getByLabel('主机').count(), 0);
+  assert.equal(
+    await page
+      .locator(
+        '.page-heading, footer, .conversation .id, .conversation .status, .session-sidebar',
+      )
+      .count(),
+    0,
+  );
+  const geometry = await page.evaluate(() => {
+    const chat = document
+      .querySelector('.conversation')!
+      .getBoundingClientRect();
+    const messages = document
+      .querySelector('.messages')!
+      .getBoundingClientRect();
+    const composer = document
+      .querySelector('.composer')!
+      .getBoundingClientRect();
+    return {
+      height: innerHeight,
+      width: innerWidth,
+      chatHeight: chat.height,
+      messageHeight: messages.height,
+      composerBottom: composer.bottom,
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+    };
+  });
+  assert(geometry.chatHeight > geometry.height * 0.9);
+  assert(geometry.messageHeight > geometry.height * 0.65);
+  assert(geometry.composerBottom <= geometry.height);
+  assert(geometry.scrollWidth <= geometry.width);
+  assert(geometry.scrollHeight <= geometry.height);
+}
+
 async function cliCommand(
   args: string[],
   input = '',
@@ -366,6 +426,71 @@ try {
       })
     ).r.status,
     409,
+  );
+  const fileEndpoint = `/hosts/${enrolled.hostId}/files`;
+  assert.equal(
+    (
+      await request(
+        fileEndpoint,
+        { operation: 'list', projectId: 'test-project' },
+        { anonymous: true },
+      )
+    ).r.status,
+    401,
+  );
+  token = clientCredentials.token;
+  assert.equal(
+    (
+      await request(fileEndpoint, {
+        operation: 'list',
+        projectId: 'test-project',
+      })
+    ).r.status,
+    403,
+  );
+  token = '';
+  assert.equal(
+    (
+      await request(`/hosts/${other.hostId}/files`, {
+        operation: 'list',
+        projectId: 'other-project',
+      })
+    ).r.status,
+    401,
+  );
+  assert.equal(
+    (
+      await request(fileEndpoint, {
+        operation: 'list',
+        projectId: 'not-allowed',
+      })
+    ).b.error.code,
+    'PROJECT_NOT_FOUND',
+  );
+  assert.equal(
+    (
+      await request(fileEndpoint, {
+        operation: 'read',
+        projectId: 'test-project',
+        path: '../escape',
+      })
+    ).b.error.code,
+    'INVALID_PATH',
+  );
+  assert.equal(
+    (
+      await request(fileEndpoint, {
+        operation: 'begin',
+        projectId: 'test-project',
+        path: 'too-large',
+        uploadId: 'large',
+        size: 20 * 1024 * 1024 + 1,
+      })
+    ).r.status,
+    400,
+  );
+  pass(
+    'file endpoint authentication, web role, host/project scope, path validation and size limit',
   );
   const history = await api(
     `/hosts/${enrolled.hostId}/threads?projectId=test-project`,
@@ -737,6 +862,8 @@ try {
   await page
     .getByRole('button', { name: '批准 ' + pending, exact: true })
     .click();
+  await visitorPage.locator('.chat-workspace').waitFor();
+  await feature(visitorPage, /连接设置 主机/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByRole('heading', { name: '设备授权管理' }).count(),
@@ -767,6 +894,8 @@ try {
     'two browser credentials',
   );
   await visitorPage.reload();
+  await visitorPage.locator('.chat-workspace').waitFor();
+  await feature(visitorPage, /连接设置 主机/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByLabel('主机').locator('option').count(),
@@ -783,48 +912,47 @@ try {
   // Different tabs select their own host cookie; the selected identity is not global.
   const otherPage = await visitor.newPage();
   await otherPage.goto(origin);
+  await feature(otherPage, /连接设置 主机/);
   await otherPage.getByLabel('主机').selectOption(other.hostId);
   await wait(
     async () =>
       (await otherPage.getByLabel('项目').inputValue()) === 'other-project',
     'other A project selection',
   );
-  await otherPage.getByRole('button', { name: '创建网页会话' }).click();
-  await otherPage.getByText(/已连接 · 空闲/).waitFor();
+  await feature(otherPage, /^新建对话/);
+  await idle(otherPage);
   await otherPage.getByLabel('任务内容').fill('other host');
   await otherPage.getByRole('button', { name: '发送', exact: true }).click();
   await otherPage.getByText('echo: other host', { exact: true }).waitFor();
+  await feature(visitorPage, /连接设置 主机/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
-  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await idle(visitorPage);
   await visitorPage.getByLabel('任务内容').fill('browser hello');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
-  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await idle(visitorPage);
   await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
     .waitFor();
-  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
-  const browserSession = await visitorPage
-    .locator('.conversation .id')
-    .innerText();
+  await idle(visitorPage);
+  const browserSession = await sessionId(visitorPage);
   await visitorPage.reload();
+  await feature(visitorPage, /连接设置 主机/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: /进行中的对话/ })
     .first()
     .click();
-  assert.equal(
-    await visitorPage.locator('.conversation .id').innerText(),
-    browserSession,
-  );
+  assert.equal(await sessionId(visitorPage), browserSession);
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
     .waitFor();
-  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await idle(visitorPage);
   pass(
     'character-by-character English/Chinese streaming and ordered history after browser reload',
   );
@@ -835,7 +963,9 @@ try {
   pass(
     'browser cookie login, project selection, task submission and streaming',
   );
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage.getByRole('heading', { name: 'Restored reply' }).waitFor();
   assert.equal(await visitorPage.locator('.markdown table').count(), 1);
   assert.equal(
@@ -852,6 +982,7 @@ try {
   assert.equal(await tool.getAttribute('open'), null);
   await tool.locator('summary').click();
   assert.notEqual(await tool.getAttribute('open'), null);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: '加载更多', exact: true })
     .click();
@@ -872,6 +1003,8 @@ try {
     0,
   );
   await visitorPage.getByLabel('搜索会话').fill('');
+  await visitorPage.keyboard.press('Escape');
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage.locator('.messages').evaluate((el) => {
     el.scrollTop = 0;
   });
@@ -886,11 +1019,14 @@ try {
   await visitorPage
     .getByText('echo: continue restored conversation', { exact: true })
     .waitFor();
+  await idle(visitorPage);
+  await focusedChat(visitorPage);
   await visitorPage.screenshot({
     path: '.local/cw-chat-desktop.png',
     fullPage: true,
   });
   await visitorPage.setViewportSize({ width: 390, height: 844 });
+  await focusedChat(visitorPage);
   await visitorPage.screenshot({
     path: '.local/cw-chat-mobile.png',
     fullPage: true,
@@ -922,6 +1058,102 @@ try {
   pass(
     'local history restore, Markdown tables/code and safe links, collapsed tools, pagination/search, keyboard submit, mobile layout and functional navigation',
   );
+  await idle(visitorPage);
+  await feature(visitorPage, /^会话详情/);
+  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await visitorPage.keyboard.press('Escape');
+  await focusedChat(visitorPage);
+  await visitorPage.getByLabel('任务内容').fill('hold focused chat');
+  await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await visitorPage
+    .getByRole('button', { name: '停止本轮', exact: true })
+    .click();
+  await idle(visitorPage);
+  await visitorPage.getByLabel('任务内容').fill('approval focused chat');
+  await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await visitorPage.getByRole('heading', { name: '等待审批' }).waitFor();
+  await visitorPage.getByRole('button', { name: '拒绝', exact: true }).click();
+  await visitorPage.getByText('denied', { exact: true }).waitFor();
+  await idle(visitorPage);
+  pass(
+    'full viewport chat, menu-only metadata/history, dialog close and Escape, stop and explicit approvals remain accessible',
+  );
+
+  mkdirSync(join(dir, 'transfer-fixtures'));
+  symlinkSync('/etc', join(dir, 'transfer-fixtures', 'escape'));
+  const binary = Buffer.alloc(150003);
+  for (let i = 0; i < binary.length; i++) binary[i] = i % 256;
+  await feature(visitorPage, /^工作区文件/);
+  await visitorPage
+    .getByRole('button', { name: '目录 · transfer-fixtures', exact: true })
+    .click();
+  await visitorPage
+    .getByText('当前目录没有可传输的文件。', { exact: true })
+    .waitFor();
+  await visitorPage.getByLabel('选择上传文件').setInputFiles({
+    name: 'binary.bin',
+    mimeType: 'application/octet-stream',
+    buffer: binary,
+  });
+  await visitorPage
+    .getByRole('button', { name: '上传文件', exact: true })
+    .click();
+  await visitorPage.getByText(/已上传 binary.bin/).waitFor();
+  assert.deepEqual(
+    readFileSync(join(dir, 'transfer-fixtures', 'binary.bin')),
+    binary,
+  );
+  const downloaded = visitorPage.waitForEvent('download');
+  await visitorPage
+    .getByRole('button', { name: '下载 binary.bin', exact: true })
+    .click();
+  const download = await downloaded;
+  await download.saveAs(join(dir, 'downloaded.bin'));
+  assert.deepEqual(readFileSync(join(dir, 'downloaded.bin')), binary);
+  await visitorPage.getByLabel('选择上传文件').setInputFiles({
+    name: 'binary.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('replacement'),
+  });
+  await visitorPage
+    .getByRole('button', { name: '上传文件', exact: true })
+    .click();
+  await visitorPage.getByRole('dialog').getByRole('alert').waitFor();
+  assert.deepEqual(
+    readFileSync(join(dir, 'transfer-fixtures', 'binary.bin')),
+    binary,
+  );
+  await visitorPage.getByLabel('覆盖已有文件').check();
+  visitorPage.once('dialog', (dialog) => void dialog.accept());
+  await visitorPage
+    .getByRole('button', { name: '上传文件', exact: true })
+    .click();
+  await visitorPage.getByText(/已上传 binary.bin/).waitFor();
+  assert.equal(
+    readFileSync(join(dir, 'transfer-fixtures', 'binary.bin'), 'utf8'),
+    'replacement',
+  );
+  await visitorPage.screenshot({
+    path: '.local/cw-workspace-files.png',
+    fullPage: true,
+  });
+  await visitorPage.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await visitorPage.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await visitorPage.screenshot({
+    path: '.local/cw-workspace-files-mobile.png',
+    fullPage: true,
+  });
+  await visitorPage.keyboard.press('Escape');
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await focusedChat(visitorPage);
+  await visitorPage.setViewportSize({ width: 1280, height: 900 });
+  pass(
+    'workspace file menu: multi-chunk binary upload/download, symlink exclusion, explicit overwrite, and return to focused chat',
+  );
 
   // Revoke the active visitor CW grant while preserving its other A cookie.
   const visitorGrant = (
@@ -947,6 +1179,8 @@ try {
     'CW revocation closes live connection',
   );
   await visitorPage.reload();
+  await visitorPage.locator('.chat-workspace').waitFor();
+  await feature(visitorPage, /连接设置 主机/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByLabel('主机').locator('option').count(),
@@ -961,7 +1195,7 @@ try {
   pass(
     'administrator UI revokes active CW without removing another A authorization',
   );
-  await otherPage.getByText(/已连接 · 空闲/).waitFor();
+  await idle(otherPage);
   await otherPage.getByLabel('任务内容').fill('still authorized');
   await otherPage.getByRole('button', { name: '发送', exact: true }).click();
   await otherPage

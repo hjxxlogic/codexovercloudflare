@@ -50,6 +50,46 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     allow: z.boolean(),
   }),
 ]);
+export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('list'),
+    path: z.string().max(4096).default(''),
+    after: z.string().max(255).default(''),
+  }),
+  z.object({
+    operation: z.literal('read'),
+    path: z.string().min(1).max(4096),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(20 * 1024 * 1024)
+      .default(0),
+    version: z.string().max(300).optional(),
+  }),
+  z.object({
+    operation: z.literal('begin'),
+    path: z.string().min(1).max(4096),
+    uploadId: idSchema,
+    size: z
+      .number()
+      .int()
+      .min(0)
+      .max(20 * 1024 * 1024),
+    overwrite: z.boolean().default(false),
+  }),
+  z.object({
+    operation: z.literal('chunk'),
+    uploadId: idSchema,
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(20 * 1024 * 1024),
+    data: z.string().max(87384),
+  }),
+  z.object({ operation: z.enum(['finish', 'cancel']), uploadId: idSchema }),
+]);
 export type WebCommand = z.infer<typeof webCommandSchema>;
 export type Event = { seq: number; type: string; data: unknown; time: number };
 export type Rpc = {

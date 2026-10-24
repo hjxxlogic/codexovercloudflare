@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { AppError, idSchema } from '../../../packages/protocol/src/index.ts';
+import {
+  AppError,
+  idSchema,
+  workspaceFileCommandSchema,
+} from '../../../packages/protocol/src/index.ts';
 import {
   body,
   failure,
@@ -338,6 +342,22 @@ export default {
           internal(req, '/control', auth, projects[1], {
             action: 'projects',
             data: {},
+          }),
+        );
+      }
+      const files = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/files$/);
+      if (files && req.method === 'POST') {
+        const auth = await authenticate(req, env, files[1]);
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        const data = await body(req);
+        const projectId = idSchema.parse(data.projectId);
+        const command = workspaceFileCommandSchema.parse(data);
+        await registryCall(env, 'host', { id: files[1] });
+        return hostStub(env, files[1]).fetch(
+          internal(req, '/control', auth, files[1], {
+            action: 'files',
+            data: { ...command, projectId, owner: auth.hash },
           }),
         );
       }

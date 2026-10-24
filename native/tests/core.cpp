@@ -1,4 +1,5 @@
 #include "coc/common.hpp"
+#include "coc/files.hpp"
 #include "coc/process.hpp"
 #include "coc/store.hpp"
 #include <fstream>
@@ -122,6 +123,63 @@ void core() {
   std::cout << "PASS: URL validation, web schemas, RPC isolation, policy, redaction, SQLite "
                "replay/restart/deduplication, private configuration\n";
 }
+void files_test() {
+  Temp t, outside;
+  WorkspaceFiles files;
+  auto call = [&](Json data, std::string owner = "owner", std::string sandbox = "workspace-write") {
+    return files.request(t.path, sandbox, owner, data);
+  };
+  auto begin = [&](std::string id, bool overwrite = false) {
+    return call({{"operation", "begin"},
+                 {"uploadId", id},
+                 {"path", "proof.bin"},
+                 {"size", 3},
+                 {"overwrite", overwrite}});
+  };
+  for (auto path : {"../escape", "/etc", "a/../b", "a//b", "a/"})
+    rejects([&] { call({{"operation", "list"}, {"path", path}}); }, "INVALID_PATH");
+  std::filesystem::create_directory_symlink(outside.path, t.path + "/escape");
+  rejects([&] { call({{"operation", "list"}, {"path", "escape"}}); }, "FORBIDDEN");
+  check(call({{"operation", "list"}})["entries"].empty(), "Symlinks hidden from list");
+  rejects(
+      [&] {
+        call({{"operation", "begin"}, {"uploadId", "readonly"}, {"path", "x"}, {"size", 0}},
+             "owner", "read-only");
+      },
+      "FORBIDDEN");
+  begin("upload");
+  auto chunk =
+      Json{{"operation", "chunk"}, {"uploadId", "upload"}, {"offset", 0}, {"data", "AAH/"}};
+  rejects([&] { call(chunk, "other"); }, "UPLOAD_NOT_FOUND");
+  rejects([&] { files.request(outside.path, "workspace-write", "owner", chunk); },
+          "UPLOAD_NOT_FOUND");
+  rejects([&] { call({{"operation", "finish"}, {"uploadId", "upload"}}); }, "UPLOAD_INCOMPLETE");
+  check(call(chunk)["offset"] == 3 && call(chunk)["offset"] == 3, "Chunk retry is idempotent");
+  chunk["data"] = "YWJj";
+  rejects([&] { call(chunk); }, "UPLOAD_CONFLICT");
+  check(!std::filesystem::exists(t.path + "/proof.bin"), "Upload is not published early");
+  call({{"operation", "finish"}, {"uploadId", "upload"}});
+  auto first = call({{"operation", "read"}, {"path", "proof.bin"}}, "owner", "read-only");
+  check(first["data"] == "AAH/" && first["size"] == 3, "Binary download in read-only mode");
+  rejects([&] { begin("existing"); }, "FILE_EXISTS");
+  begin("replace", true);
+  call({{"operation", "cancel"}, {"uploadId", "replace"}});
+  check(call({{"operation", "read"}, {"path", "proof.bin"}})["data"] == "AAH/",
+        "Cancel preserves target");
+  begin("race", true);
+  std::ofstream(t.path + "/proof.bin") << "changed";
+  call({{"operation", "chunk"}, {"uploadId", "race"}, {"offset", 0}, {"data", "YWJj"}});
+  rejects([&] { call({{"operation", "finish"}, {"uploadId", "race"}}); }, "FILE_CHANGED");
+  rejects(
+      [&] {
+        call({{"operation", "read"}, {"path", "proof.bin"}, {"version", first["version"]}});
+      },
+      "FILE_CHANGED");
+  files.clear();
+  check(call({{"operation", "list"}})["entries"].size() == 1, "Staging files cleaned up");
+  std::cout << "PASS: workspace file isolation, binary transfer, retry, read-only, cancellation "
+               "and overwrite conflict\n";
+}
 void process_test(bool real, bool task) {
   Temp temp;
   asio::io_context io;
@@ -232,6 +290,7 @@ int main(int argc, char **argv) {
       process_test(true, mode == "--task");
     else {
       core();
+      files_test();
       process_test(false, false);
     }
     return 0;

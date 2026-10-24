@@ -5,20 +5,9 @@ import './style.css';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { visibleEvents } from './events.ts';
+import { api } from './api.ts';
+import { WorkspaceFiles } from './files.tsx';
 
-async function api(path: string, data?: unknown): Promise<any> {
-  const r = await fetch('/api/v1' + path, {
-    method: data === undefined ? 'GET' : 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  const b: any = await r.json();
-  if (!r.ok) throw new Error(b.error?.code + ': ' + b.error?.message);
-  return b;
-}
 function MenuIcon() {
   return (
     <svg
@@ -61,7 +50,15 @@ function App() {
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
-  const [showSessions, setShowSessions] = useState(true);
+  const [panel, setPanel] = useState<'sessions' | 'details' | 'files' | null>(
+    null,
+  );
+  const panelDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = panelDialog.current;
+    if (panel && dialog && !dialog.open) dialog.showModal();
+    else if (!panel && dialog?.open) dialog.close();
+  }, [panel]);
   const historyRequest = useRef(0);
   const messageList = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
@@ -322,6 +319,7 @@ function App() {
       const d = e.data as any;
       if (e.type === 'sessionClosed') {
         setReady(false);
+        setStatus('会话已结束');
         setSessions((v) =>
           v.map((s) =>
             s.id === selected.id ? { ...s, state: d.state, running: false } : s,
@@ -490,6 +488,7 @@ function App() {
       }
       setTakeover(false);
       setSelected(existing);
+      setPanel(null);
       return;
     }
     setCreating(true);
@@ -509,6 +508,7 @@ function App() {
       setSessions((v) => [s, ...v]);
       setTakeover(false);
       setSelected(s);
+      setPanel(null);
       void loadThreads();
     } catch (e) {
       report(e);
@@ -517,7 +517,7 @@ function App() {
     }
   }
   return (
-    <main>
+    <main className={view === 'chat' && logged ? 'chat-workspace' : undefined}>
       <header className="topbar" ref={menu}>
         <a
           className="brand"
@@ -527,8 +527,17 @@ function App() {
             setView('chat');
           }}
         >
-          <CodexMark /> <span>远程 Codex</span>
-          <small>CW 工作台</small>
+          {view === 'chat' && logged ? (
+            <span>
+              {threads.find((t) => t.id === selected?.threadId)?.name ||
+                'Codex 对话'}
+            </span>
+          ) : (
+            <>
+              <CodexMark /> <span>远程 Codex</span>
+              <small>CW 工作台</small>
+            </>
+          )}
         </a>
         <button
           className="menu-toggle"
@@ -544,6 +553,60 @@ function App() {
             aria-label="功能菜单"
             onMouseLeave={() => setMenuOpen(false)}
           >
+            {logged && (
+              <>
+                <button
+                  onClick={() => {
+                    setView('chat');
+                    setPanel('sessions');
+                    setMenuOpen(false);
+                  }}
+                >
+                  <strong>会话记录</strong>
+                  <small>恢复与搜索历史对话</small>
+                </button>
+                <button
+                  disabled={creating}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPanel(null);
+                    if (host && project) {
+                      setView('chat');
+                      void create();
+                    } else setView('connection');
+                  }}
+                >
+                  <strong>新建对话</strong>
+                  <small>在当前项目开始新对话</small>
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (host && project) {
+                      setView('chat');
+                      setPanel('files');
+                    } else {
+                      setPanel(null);
+                      setView('connection');
+                    }
+                  }}
+                >
+                  <strong>工作区文件</strong>
+                  <small>上传、下载远程项目文件</small>
+                </button>
+                <button
+                  disabled={!selected}
+                  onClick={() => {
+                    setView('chat');
+                    setPanel('details');
+                    setMenuOpen(false);
+                  }}
+                >
+                  <strong>会话详情</strong>
+                  <small>连接状态、远程项目与会话操作</small>
+                </button>
+              </>
+            )}
             {(
               [
                 ['chat', 'CW 对话', '会话与远程任务'],
@@ -557,6 +620,7 @@ function App() {
                 aria-current={view === id ? 'page' : undefined}
                 onClick={() => {
                   setView(id);
+                  setPanel(null);
                   setMenuOpen(false);
                   if ((id === 'devices' || id === 'keys') && !admin)
                     setAdminLogin(true);
@@ -569,21 +633,23 @@ function App() {
           </nav>
         )}
       </header>
-      <div className="page-heading">
-        <span>
-          {
+      {view !== 'chat' && (
+        <div className="page-heading">
+          <span>
             {
-              chat: 'CW 对话',
-              connection: '连接设置',
-              devices: '设备授权',
-              keys: 'API Key 管理',
-            }[view]
-          }
-        </span>
-        <small>
-          {hosts.find((h) => h.id === host)?.name || '选择远程主机开始工作'}
-        </small>
-      </div>
+              {
+                chat: 'CW 对话',
+                connection: '连接设置',
+                devices: '设备授权',
+                keys: 'API Key 管理',
+              }[view]
+            }
+          </span>
+          <small>
+            {hosts.find((h) => h.id === host)?.name || '选择远程主机开始工作'}
+          </small>
+        </div>
+      )}
       {error && (
         <div role="alert" className="error">
           {error}
@@ -865,192 +931,201 @@ function App() {
       )}
       {logged && (view === 'chat' || view === 'connection') && (
         <>
-          <section className="card project-picker">
-            <h2>选择远程项目</h2>
-            <div className="row">
-              <label>
-                主机
-                <select
-                  aria-label="主机"
-                  value={host}
-                  onChange={(e) => {
-                    setSelected(undefined);
-                    setHost(e.target.value);
-                  }}
-                >
-                  <option value="">请选择</option>
-                  {hosts.map((h) => (
-                    <option key={h.id} value={h.id} disabled={!h.online}>
-                      {h.name} · {h.online ? '在线' : '离线'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                项目
-                <select
-                  aria-label="项目"
-                  value={project}
-                  onChange={(e) => {
-                    setSelected(undefined);
-                    setProject(e.target.value);
-                  }}
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — {p.path}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button onClick={() => void refresh()}>刷新主机</button>
-              {view === 'connection' && (
-                <button
-                  disabled={!host}
-                  onClick={() => {
-                    if (
-                      confirm(
-                        '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+          {view === 'connection' && (
+            <section className="card project-picker">
+              <h2>选择远程项目</h2>
+              <div className="row">
+                <label>
+                  主机
+                  <select
+                    aria-label="主机"
+                    value={host}
+                    onChange={(e) => {
+                      setSelected(undefined);
+                      setHost(e.target.value);
+                    }}
+                  >
+                    <option value="">请选择</option>
+                    {hosts.map((h) => (
+                      <option key={h.id} value={h.id} disabled={!h.online}>
+                        {h.name} · {h.online ? '在线' : '离线'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  项目
+                  <select
+                    aria-label="项目"
+                    value={project}
+                    onChange={(e) => {
+                      setSelected(undefined);
+                      setProject(e.target.value);
+                    }}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — {p.path}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button onClick={() => void refresh()}>刷新主机</button>
+                {view === 'connection' && (
+                  <button
+                    disabled={!host}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                        )
                       )
-                    )
-                      void api('/auth/forget', { hostId: host })
-                        .then(() => {
-                          socket.current?.close();
-                          setSelected(undefined);
-                          return refresh();
-                        })
-                        .catch(report);
+                        void api('/auth/forget', { hostId: host })
+                          .then(() => {
+                            socket.current?.close();
+                            setSelected(undefined);
+                            return refresh();
+                          })
+                          .catch(report);
+                    }}
+                  >
+                    移除本地授权
+                  </button>
+                )}
+                <button
+                  disabled={!host || !project || creating}
+                  onClick={() => {
+                    setView('chat');
+                    void create();
                   }}
                 >
-                  移除本地授权
+                  创建网页会话
                 </button>
-              )}
-              <button
-                disabled={!host || !project || creating}
-                onClick={() => {
-                  setView('chat');
-                  void create();
+              </div>
+            </section>
+          )}
+          {view === 'chat' && (
+            <div className="chat-layout">
+              <dialog
+                className="chat-panel"
+                ref={panelDialog}
+                aria-labelledby="chat-panel-title"
+                onClose={() => setPanel(null)}
+                onCancel={() => setPanel(null)}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setPanel(null);
                 }}
               >
-                创建网页会话
-              </button>
-            </div>
-          </section>
-          {view === 'chat' && (
-            <div className={`layout ${showSessions ? '' : 'sidebar-hidden'}`}>
-              <aside className="card session-sidebar" hidden={!showSessions}>
-                <div className="row sidebar-title">
-                  <h2>会话记录</h2>
-                  <button
-                    aria-label="收起会话列表"
-                    onClick={() => setShowSessions(false)}
-                  >
-                    ‹
+                <div className="panel-heading">
+                  <h2 id="chat-panel-title">
+                    {panel === 'details'
+                      ? '会话详情'
+                      : panel === 'files'
+                        ? '工作区文件'
+                        : '会话记录'}
+                  </h2>
+                  <button aria-label="关闭面板" onClick={() => setPanel(null)}>
+                    关闭
                   </button>
                 </div>
-                <button
-                  className="new-chat"
-                  disabled={!host || !project || creating}
-                  onClick={() => void create()}
-                >
-                  ＋ 新建对话
-                </button>
-                <input
-                  className="session-search"
-                  aria-label="搜索会话"
-                  placeholder="搜索已加载的会话…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <button
-                  disabled={!host || loadingThreads}
-                  onClick={() => {
-                    void loadThreads();
-                    void api('/sessions?hostId=' + host)
-                      .then(setSessions)
-                      .catch(report);
-                  }}
-                >
-                  {loadingThreads ? '正在加载…' : '刷新会话'}
-                </button>
-                <p className="sidebar-caption">
-                  与远程 Codex 共用历史 · 当前项目
-                </p>
-                {sessions
-                  .filter(
-                    (s) =>
-                      s.projectId === project &&
-                      s.mode === 'web' &&
-                      s.state === 'ready' &&
-                      !threads.some((t) => t.id === s.threadId),
-                  )
-                  .filter((s) => s.id.includes(search))
-                  .map((s) => (
+                {panel === 'files' && (
+                  <WorkspaceFiles host={host} project={project} />
+                )}
+                {panel === 'sessions' && (
+                  <aside className="session-sidebar">
                     <button
-                      className={`session ${selected?.id === s.id ? 'active' : ''}`}
-                      key={s.id}
+                      className="new-chat"
+                      disabled={!host || !project || creating}
+                      onClick={() => void create()}
+                    >
+                      ＋ 新建对话
+                    </button>
+                    <input
+                      className="session-search"
+                      aria-label="搜索会话"
+                      placeholder="搜索已加载的会话…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <button
+                      disabled={!host || loadingThreads}
                       onClick={() => {
-                        setTakeover(false);
-                        setSelected(s);
+                        void loadThreads();
+                        void api('/sessions?hostId=' + host)
+                          .then(setSessions)
+                          .catch(report);
                       }}
                     >
-                      进行中的对话
-                      <small>{new Date(s.createdAt).toLocaleString()}</small>
+                      {loadingThreads ? '正在加载…' : '刷新会话'}
                     </button>
-                  ))}
-                {threads
-                  .filter((t) =>
-                    `${t.name || ''} ${t.preview} ${t.id}`
-                      .toLowerCase()
-                      .includes(search.toLowerCase()),
-                  )
-                  .map((t) => (
-                    <button
-                      className={`session ${selected?.threadId === t.id ? 'active' : ''}`}
-                      key={t.id}
-                      disabled={creating}
-                      onClick={() => void create(t.id)}
-                      title={t.preview || t.id}
-                    >
-                      <span>{t.name || t.preview || '未命名对话'}</span>
-                      <small>
-                        {new Date(t.updatedAt * 1000).toLocaleString()}
-                        {selected?.threadId === t.id ? ' · 当前对话' : ''}
-                      </small>
-                    </button>
-                  ))}
-                {!loadingThreads && !threads.length && (
-                  <p className="empty-hint">
-                    {host && project
-                      ? '暂无本地历史，创建新对话开始。'
-                      : '请先选择主机与项目。'}
-                  </p>
+                    <p className="sidebar-caption">
+                      与远程 Codex 共用历史 · 当前项目
+                    </p>
+                    {sessions
+                      .filter(
+                        (s) =>
+                          s.projectId === project &&
+                          s.mode === 'web' &&
+                          s.state === 'ready' &&
+                          !threads.some((t) => t.id === s.threadId),
+                      )
+                      .filter((s) => s.id.includes(search))
+                      .map((s) => (
+                        <button
+                          className={`session ${selected?.id === s.id ? 'active' : ''}`}
+                          key={s.id}
+                          onClick={() => {
+                            setTakeover(false);
+                            setSelected(s);
+                            setPanel(null);
+                          }}
+                        >
+                          进行中的对话
+                          <small>
+                            {new Date(s.createdAt).toLocaleString()}
+                          </small>
+                        </button>
+                      ))}
+                    {threads
+                      .filter((t) =>
+                        `${t.name || ''} ${t.preview} ${t.id}`
+                          .toLowerCase()
+                          .includes(search.toLowerCase()),
+                      )
+                      .map((t) => (
+                        <button
+                          className={`session ${selected?.threadId === t.id ? 'active' : ''}`}
+                          key={t.id}
+                          disabled={creating}
+                          onClick={() => void create(t.id)}
+                          title={t.preview || t.id}
+                        >
+                          <span>{t.name || t.preview || '未命名对话'}</span>
+                          <small>
+                            {new Date(t.updatedAt * 1000).toLocaleString()}
+                            {selected?.threadId === t.id ? ' · 当前对话' : ''}
+                          </small>
+                        </button>
+                      ))}
+                    {!loadingThreads && !threads.length && (
+                      <p className="empty-hint">
+                        {host && project
+                          ? '暂无本地历史，创建新对话开始。'
+                          : '请先选择主机与项目。'}
+                      </p>
+                    )}
+                    {cursor && (
+                      <button
+                        disabled={loadingThreads}
+                        onClick={() => void loadThreads(true)}
+                      >
+                        加载更多
+                      </button>
+                    )}
+                  </aside>
                 )}
-                {cursor && (
-                  <button
-                    disabled={loadingThreads}
-                    onClick={() => void loadThreads(true)}
-                  >
-                    加载更多
-                  </button>
-                )}
-              </aside>
-              <section className="card conversation">
-                <div className="conversation-heading">
-                  <button
-                    aria-label={showSessions ? '收起会话列表' : '展开会话列表'}
-                    onClick={() => setShowSessions((v) => !v)}
-                  >
-                    <MenuIcon />
-                  </button>
-                  <h2>
-                    {threads.find((t) => t.id === selected?.threadId)?.name ||
-                      'Codex 对话'}
-                  </h2>
-                  <small>{selected ? status : '准备就绪'}</small>
-                </div>
-                {selected ? (
-                  <>
+                {panel === 'details' && selected && (
+                  <section className="session-details">
                     <p className="status">
                       {status} · {busy ? '执行中' : '空闲'} · 远程项目{' '}
                       {selected.projectId}
@@ -1074,6 +1149,7 @@ function App() {
                                   ),
                                 );
                                 setSelected(undefined);
+                                setPanel(null);
                                 setStatus('会话已结束');
                               })
                               .catch(report);
@@ -1090,6 +1166,12 @@ function App() {
                         重新连接 / 接管
                       </button>
                     </div>
+                  </section>
+                )}
+              </dialog>
+              <section className="conversation" aria-label="Codex 对话">
+                {selected ? (
+                  <>
                     <div
                       className="messages"
                       ref={messageList}
@@ -1102,51 +1184,62 @@ function App() {
                           el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                       }}
                     >
-                      {visibleEvents(events).map((e) => {
-                        const isChat =
-                          e.type === 'user' ||
-                          e.type === 'item/agentMessage/delta';
-                        return isChat ? (
-                          <article
-                            className={`message ${e.type === 'user' ? 'user-message' : 'assistant-message'}`}
-                            key={e.seq}
-                          >
-                            <strong className="message-role">
-                              {eventTitle(e)}
-                            </strong>
-                            {e.type === 'user' ? (
-                              <div className="user-text">{eventText(e)}</div>
-                            ) : (
-                              <div className="markdown">
-                                <Markdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    a: ({ children, ...props }) => (
-                                      <a
-                                        {...props}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                      >
-                                        {children}
-                                      </a>
-                                    ),
-                                    img: ({ alt }) => (
-                                      <span>[图片：{alt}]</span>
-                                    ),
-                                  }}
-                                >
-                                  {eventText(e)}
-                                </Markdown>
-                              </div>
-                            )}
-                          </article>
-                        ) : (
-                          <details className="tool-output" key={e.seq}>
-                            <summary>{eventTitle(e)}</summary>
-                            <pre>{eventText(e)}</pre>
-                          </details>
-                        );
-                      })}
+                      {visibleEvents(events)
+                        .filter(
+                          (e) =>
+                            !['turn/started', 'approvalResolved'].includes(
+                              e.type,
+                            ) &&
+                            !(
+                              e.type === 'turn/completed' &&
+                              (e.data as any).turn?.status === 'completed'
+                            ),
+                        )
+                        .map((e) => {
+                          const isChat =
+                            e.type === 'user' ||
+                            e.type === 'item/agentMessage/delta';
+                          return isChat ? (
+                            <article
+                              className={`message ${e.type === 'user' ? 'user-message' : 'assistant-message'}`}
+                              key={e.seq}
+                            >
+                              <strong className="message-role">
+                                {eventTitle(e)}
+                              </strong>
+                              {e.type === 'user' ? (
+                                <div className="user-text">{eventText(e)}</div>
+                              ) : (
+                                <div className="markdown">
+                                  <Markdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                      a: ({ children, ...props }) => (
+                                        <a
+                                          {...props}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                        >
+                                          {children}
+                                        </a>
+                                      ),
+                                      img: ({ alt }) => (
+                                        <span>[图片：{alt}]</span>
+                                      ),
+                                    }}
+                                  >
+                                    {eventText(e)}
+                                  </Markdown>
+                                </div>
+                              )}
+                            </article>
+                          ) : (
+                            <details className="tool-output" key={e.seq}>
+                              <summary>{eventTitle(e)}</summary>
+                              <pre>{eventText(e)}</pre>
+                            </details>
+                          );
+                        })}
                       {busy && (
                         <p className="thinking" role="status">
                           ● Codex 正在处理…
@@ -1213,16 +1306,27 @@ function App() {
                           }}
                           onChange={(e) => setText(e.target.value)}
                           maxLength={64000}
-                          placeholder="描述要在远程项目中完成的任务"
+                          title="Enter 发送，Shift + Enter 换行"
+                          placeholder="发送消息给 Codex…"
                         />
                       </label>
-                      <button
-                        type="submit"
-                        disabled={!ready || pending || busy || !text.trim()}
-                      >
-                        发送
-                      </button>
-                      <small>Enter 发送 · Shift + Enter 换行</small>
+                      {busy ? (
+                        <button
+                          type="button"
+                          disabled={!ready || pending}
+                          onClick={() => send({ action: 'interrupt' })}
+                        >
+                          停止本轮
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          disabled={!ready || pending || !text.trim()}
+                        >
+                          发送
+                        </button>
+                      )}
+                      {!ready && <small role="status">{status}</small>}
                     </form>
                   </>
                 ) : (
@@ -1233,10 +1337,13 @@ function App() {
                     <h2>今天要一起完成什么？</h2>
                     <p>恢复 Codex 本地会话，或在远程项目中开始新对话。</p>
                     <button
-                      disabled={!host || !project || creating}
-                      onClick={() => void create()}
+                      disabled={creating}
+                      onClick={() => {
+                        if (host && project) void create();
+                        else setView('connection');
+                      }}
                     >
-                      ＋ 开始新对话
+                      {host && project ? '＋ 开始新对话' : '连接远程项目'}
                     </button>
                   </div>
                 )}
@@ -1245,7 +1352,9 @@ function App() {
           )}
         </>
       )}
-      <footer>文件和命令在远程服务器执行。关闭页面不会立即停止任务。</footer>
+      {view !== 'chat' && (
+        <footer>文件和命令在远程服务器执行。关闭页面不会立即停止任务。</footer>
+      )}
     </main>
   );
 }

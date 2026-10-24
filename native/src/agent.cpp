@@ -1,3 +1,4 @@
+#include "coc/files.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
 #include <csignal>
@@ -22,6 +23,7 @@ class Agent {
   asio::io_context &io_;
   Json config_;
   Store store_;
+  WorkspaceFiles files_;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
   std::shared_ptr<Socket> socket_;
   asio::steady_timer retry_, maintenance_;
@@ -147,6 +149,11 @@ public:
     }
   }
   void control(const std::string &action, const Json &d, Completion done) {
+    if (action == "files") {
+      auto p = project(d.at("projectId"));
+      done(files_.request(p["path"], config_["sandbox"], d.at("owner"), d), nullptr);
+      return;
+    }
     if (action == "projects") {
       done(config_["projects"], nullptr);
       return;
@@ -627,6 +634,7 @@ public:
             stop(id);
         }
         store_.cleanup();
+        files_.cleanup();
       } catch (...) {
         for (auto &[id, r] : runtimes_)
           stop(id);
@@ -638,6 +646,7 @@ public:
     if (stopped_)
       return;
     stopped_ = true;
+    files_.clear();
     retry_.cancel();
     maintenance_.cancel();
     signals_.cancel();
