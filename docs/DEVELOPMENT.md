@@ -143,4 +143,4 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 四个会话交错追加，输出 JSON 包括实际完成量、耗时/CPU、每 16 个事件采样的 P95、进程 RSS、数据库和 WAL 峰值，并验证尾部正文一致。`completed=false` 表示达到时间上限，只是部分负载，不能当成完整吞吐测量。它只测 Store，不包含网络心跳和 Cloudflare；八小时全链路测试须另行安排。
 
-`npm run protocol:generate` 从 Zod 生成 `docs/protocol.generated.json`，`protocol:check` 检查是否过期。JSON Schema 无法表达的 refinement 仍由运行时验证器执行；这不是 C++ 实现代码生成或多版本兼容承诺。CI 使用固定 Node 版本和锁文件；Actions 工作流的首次远端运行仍需提交后观察。
+`npm run protocol:generate` 从 Zod 生成 `docs/protocol.generated.json`，`protocol:check` 检查是否过期。JSON Schema 无法表达的 refinement 仍由运行时验证器执行；这不是 C++ 实现代码生成或多版本兼容承诺。CI 使用固定 Node 版本和锁文件；首次 Actions 的 npm ci 发现 @humanfs/node 0.16.8 声明的 retry ^0.5.0 尚不存在；overrides 固定已发布的 @humanwhocodes/retry 0.4.3，隔离目录干净安装已通过。远端结果仍须单独观察。

@@ -74,4 +74,4 @@ npm run test:native
 - [测试记录](docs/TEST_REPORT.md)
 - [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：完整目标，部分能力尚待实现。
 
-当前稳定化实现与验证边界见 [实施记录](docs/stabilization-2026-10-24.md)。0.5.1 发布候选包含这些整改；发布结果见测试记录。
+当前稳定化实现与验证边界见 [实施记录](docs/stabilization-2026-10-24.md)。0.5.1 已包含这些整改并发布；发布结果见 [测试记录](docs/TEST_REPORT.md)。
