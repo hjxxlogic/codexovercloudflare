@@ -127,13 +127,21 @@ try {
       COC_CREDENTIALS: join(dir, 'credentials.json'),
     };
     save('credentials.json', {
-      relay: origin,
-      token: 'local-test-owner',
-      expires: Date.now() + 60000,
+      version: 2,
+      selected: origin + '~tls-host',
+      entries: [
+        {
+          relay: origin,
+          hostId: 'tls-host',
+          name: 'tls',
+          role: 'cli',
+          token: 'local-test-owner',
+        },
+      ],
     });
     const cli = spawn(
-      resolve(process.env.COC_CLI_BINARY || 'build/coc'),
-      ['hosts'],
+      resolve(process.env.COC_CLI_BINARY || 'build/coc-client'),
+      ['status'],
       { env, stdio: 'ignore' },
     );
     assert.equal(
@@ -152,7 +160,7 @@ try {
     });
     const agent = spawn(
       resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
-      [join(dir, 'agent.json')],
+      ['run', '--config', join(dir, 'agent.json')],
       { env, stdio: 'ignore' },
     );
     try {

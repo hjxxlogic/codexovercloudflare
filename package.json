@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,7 +11,6 @@
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build": "npm run build:native && npm run build:web && tsc --noEmit && wrangler deploy --dry-run --outdir dist/worker",
     "agent": "./build/coc-agent",
-    "coc": "./build/coc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check apps packages tests scripts examples README.md docs/USER_GUIDE.md docs/DEVELOPMENT.md docs/TEST_REPORT.md package.json tsconfig.json wrangler.jsonc vitest.config.ts eslint.config.js .prettierrc.json",
     "format": "prettier --write apps packages tests scripts examples README.md docs/USER_GUIDE.md docs/DEVELOPMENT.md docs/TEST_REPORT.md package.json tsconfig.json wrangler.jsonc vitest.config.ts eslint.config.js .prettierrc.json",
@@ -25,7 +24,8 @@
     "test:cpp": "cmake -E chdir build ctest --output-on-failure",
     "format:cpp": "find native -type f \\( -name '*.cpp' -o -name '*.hpp' \\) -exec clang-format -i {} +",
     "lint:cpp": "python3 scripts/check-cpp-format.py",
-    "test:tls": "tsx tests/native-tls.ts"
+    "test:tls": "tsx tests/native-tls.ts",
+    "client": "./build/coc-client"
   },
   "dependencies": {
     "react": "^19.3.1",

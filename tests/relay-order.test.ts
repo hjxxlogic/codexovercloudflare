@@ -40,6 +40,7 @@ describe('relay stream ordering', () => {
     const client = {
       deserializeAttachment: () => ({
         role: 'web',
+        auth: { hash: 'client-hash' },
         authenticated: true,
         epoch: 1,
       }),

@@ -1,94 +1,51 @@
-#include "coc/network.hpp"
+#include "coc/login.hpp"
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
-#include <map>
 #include <sys/wait.h>
-#include <termios.h>
 #include <unistd.h>
 namespace coc {
-namespace {
-termios saved_terminal{};
-volatile sig_atomic_t restore_terminal = 0;
-void input_signal(int signum) {
-  if (restore_terminal)
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_terminal);
-  _exit(128 + signum);
-}
-struct HiddenInput {
-  bool active = false;
-  struct sigaction old_int {
-  }, old_term{};
-  HiddenInput() {
-    if (!isatty(STDIN_FILENO))
-      return;
-    if (tcgetattr(STDIN_FILENO, &saved_terminal) != 0)
-      throw Error("INPUT_ERROR", "Cannot read terminal settings");
-    auto hidden = saved_terminal;
-    hidden.c_lflag &= ~ECHO;
-    struct sigaction action {};
-    action.sa_handler = input_signal;
-    sigemptyset(&action.sa_mask);
-    sigaction(SIGINT, &action, &old_int);
-    sigaction(SIGTERM, &action, &old_term);
-    restore_terminal = 1;
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden) != 0) {
-      restore_terminal = 0;
-      sigaction(SIGINT, &old_int, nullptr);
-      sigaction(SIGTERM, &old_term, nullptr);
-      throw Error("INPUT_ERROR", "Cannot hide input");
-    }
-    active = true;
-  }
-  ~HiddenInput() {
-    if (active) {
-      tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_terminal);
-      restore_terminal = 0;
-      sigaction(SIGINT, &old_int, nullptr);
-      sigaction(SIGTERM, &old_term, nullptr);
-    }
-  }
-};
-} // namespace
-
-std::string secret(const char *prompt) {
-  std::cerr << prompt;
-  std::string s;
-  {
-    HiddenInput input;
-    std::getline(std::cin, s);
-  }
-  std::cerr << '\n';
-  if (!std::cin)
-    throw Error("INPUT_ERROR", "No input received");
-  auto a = s.find_first_not_of(" \r\n\t");
-  return a == std::string::npos ? "" : s.substr(a, s.find_last_not_of(" \r\n\t") - a + 1);
-}
 class Cli {
-  std::map<std::string, std::string> options_;
-  std::vector<std::string> args_;
+  Options options_;
   std::filesystem::path credentials_;
   bool takeover_ = false;
-  Json load() {
+  Json store() {
     if (!std::filesystem::exists(credentials_))
-      throw Error("LOGIN_REQUIRED", "Login first: coc login");
-    return read_json(credentials_);
+      return {{"version", 2}, {"entries", Json::array()}, {"selected", ""}};
+    auto data = read_json(credentials_);
+    if (data.value("version", 0) != 2)
+      throw Error("LOGIN_REQUIRED",
+                  "Old credentials unsupported; use a new credential file and coc-client login");
+    return data;
+  }
+  std::string key(const Json &entry) {
+    return entry.at("relay").get<std::string>() + "~" + entry.at("hostId").get<std::string>();
+  }
+  Json load() {
+    auto data = store();
+    Json matches = Json::array();
+    for (const auto &entry : data.at("entries")) {
+      if (!option("relay").empty() && entry.at("relay") != relay_url(option("relay")).origin)
+        continue;
+      if (!option("host").empty()) {
+        if (entry.at("hostId") == option("host") || entry.at("name") == option("host"))
+          matches.push_back(entry);
+      } else if (key(entry) == data.value("selected", ""))
+        matches.push_back(entry);
+    }
+    if (matches.size() != 1)
+      throw Error("HOST_REQUIRED",
+                  "Select one authorized host using --host (and --relay if ambiguous)");
+    return matches[0];
   }
   std::string option(const std::string &k, const std::string &fallback = "") {
-    auto i = options_.find(k);
-    return i == options_.end() ? fallback : i->second;
+    return options_.get(k, fallback);
   }
-  Json api(const std::string &p, const Json &body = nullptr, bool anonymous = false) {
-    auto c =
-        anonymous ? Json{{"relay", option("relay", "https://r.xlogic.cc")}, {"token", ""}} : load();
+  Json api(const std::string &p, const Json &body = nullptr) {
+    const auto c = load();
     return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"));
   }
-  Json host() {
-    for (auto &h : api("/hosts"))
-      if (h["id"] == option("host") || h["name"] == option("host"))
-        return h;
-    throw Error("HOST_REQUIRED", "Select a known host with --host");
-  }
+  Json host() { return api("/hosts").at(0); }
   void attach(const std::string &id) {
     if (id.empty())
       throw Error("USAGE", "attach <session-id>");
@@ -131,85 +88,73 @@ class Cli {
   }
 
 public:
-  Cli(int argc, char **argv) {
-    for (int i = 1; i < argc; ++i) {
-      std::string a = argv[i];
-      if (a == "--takeover")
-        takeover_ = true;
-      else if (a.rfind("--", 0) == 0) {
-        auto k = a.substr(2);
-        if (k == "help") {
-          args_ = {"help"};
-          break;
-        }
-        if (k != "relay" && k != "host" && k != "project" && k != "project-id" && k != "config")
-          throw Error("USAGE", "Unknown option: " + a);
-        if (++i >= argc)
-          throw Error("USAGE", "Missing option value: " + a);
-        options_[k] = argv[i];
-      } else
-        args_.push_back(a);
-    }
-    auto env = getenv("COC_CREDENTIALS");
-    if (env)
-      credentials_ = env;
-    else {
-      auto home = getenv("HOME");
-      if (!home)
-        throw Error("CONFIG_ERROR", "HOME or COC_CREDENTIALS must be set");
-      credentials_ = std::filesystem::path(home) / ".config/coc/credentials.json";
-    }
-  }
+  Cli(int argc, char **argv)
+      : options_(argc, argv),
+        credentials_(option(
+            "config", config_path("COC_CREDENTIALS", "coc-client/credentials.json").string())),
+        takeover_(options_.takeover) {}
   void run() {
-    auto command = args_.empty() ? "help" : args_[0];
-    auto id = args_.size() > 1 ? args_[1] : "";
+    auto command = options_.args.empty() ? "help" : options_.args[0];
+    auto id = options_.args.size() > 1 ? options_.args[1] : "";
     if (command == "login") {
-      auto relay = relay_url(option("relay", "https://r.xlogic.cc")).origin;
-      std::cout << "Ask the administrator to generate a CLI login code at " << relay << '\n';
-      auto r =
-          api("/auth/redeem", {{"code", secret("One-time login code: ")}, {"kind", "cli"}}, true);
-      r["relay"] = relay;
-      save_private(credentials_, r);
-      std::cout << "Logged in to " << relay << '\n';
+      if (!valid_id(option("host")))
+        throw Error("USAGE", "login requires --host <A-ID>");
+      store();
+      auto result = device_login(option("relay", "https://r.xlogic.cc"), "cli",
+                                 option("name", "CLI client"), option("host"));
+      auto hosts = credential_status(result);
+      result["name"] = hosts.at(0).at("name");
+      auto data = store();
+      auto &entries = data["entries"];
+      for (auto it = entries.begin(); it != entries.end();) {
+        if (key(*it) == key(result))
+          it = entries.erase(it);
+        else
+          ++it;
+      }
+      entries.push_back(result);
+      data["selected"] = key(result);
+      save_private(credentials_, data);
+      std::cout << "Logged in to host " << result.at("hostId") << '\n';
     } else if (command == "logout") {
-      api("/auth/logout", Json::object());
-      std::filesystem::remove(credentials_);
-      std::cout << "Logged out\n";
-    } else if (command == "agent-enroll") {
-      if (option("config").empty() || option("project").empty())
-        throw Error(
-            "USAGE",
-            "agent-enroll --config <path> --project <remote-directory> [--project-id name]");
-      auto file = std::filesystem::absolute(option("config"));
-      if (std::filesystem::exists(file))
-        throw Error("CONFIG_ERROR", "Config already exists; refusing to overwrite");
-      auto path = std::filesystem::canonical(option("project"));
-      if (!std::filesystem::is_directory(path))
-        throw Error("CONFIG_ERROR", "Project must be a directory");
-      auto project_id = option("project-id", "my-project");
-      if (!valid_id(project_id))
-        throw Error("CONFIG_ERROR", "Invalid project ID");
-      auto relay = relay_url(option("relay", "https://r.xlogic.cc")).origin;
-      auto d = api("/agent/enroll", {{"code", secret("Enrollment code: ")}}, true);
-      Json c = {
-          {"relayUrl", relay},
-          {"hostId", d.at("hostId")},
-          {"token", d.at("token")},
-          {"codexPath", "codex"},
-          {"codexArgs", Json::array()},
-          {"sandbox", "workspace-write"},
-          {"dataDir", (file.parent_path() / "data").string()},
-          {"projects",
-           Json::array({{{"id", project_id}, {"name", project_id}, {"path", path.string()}}})}};
-      save_private(file, c, true);
-      std::cout << "Agent config written to " << file.string() << '\n';
-    } else if (command == "enroll") {
-      if (id.empty())
-        throw Error("USAGE", "enroll <host-name>");
-      std::cout << api("/hosts/enrollments", {{"name", id}}).dump(2) << '\n';
-    } else if (command == "hosts")
-      std::cout << api("/hosts").dump(2) << '\n';
-    else if (command == "projects")
+      auto entry = load(), data = store();
+      auto &entries = data["entries"];
+      for (auto it = entries.begin(); it != entries.end();) {
+        if (key(*it) == key(entry))
+          it = entries.erase(it);
+        else
+          ++it;
+      }
+      if (data["selected"] == key(entry))
+        data["selected"] = entries.empty() ? "" : key(entries[0]);
+      save_private(credentials_, data);
+      std::cout << "Local credential removed; relay authorization is unchanged\n";
+    } else if (command == "use") {
+      if (option("host").empty())
+        throw Error("USAGE", "use --host <A-ID>");
+      auto entry = load(), data = store();
+      data["selected"] = key(entry);
+      save_private(credentials_, data);
+      std::cout << "Selected " << entry.at("hostId") << '\n';
+    } else if (command == "status")
+      std::cout << credential_status(load()).dump(2) << '\n';
+    else if (command == "hosts") {
+      Json hosts = Json::array();
+      const auto data = store();
+      for (const auto &entry : data.at("entries")) {
+        try {
+          for (const auto &host : credential_status(entry)) {
+            auto h = host;
+            h["relay"] = entry.at("relay");
+            hosts.push_back(h);
+          }
+        } catch (const std::exception &e) {
+          hosts.push_back(
+              {{"id", entry.at("hostId")}, {"relay", entry.at("relay")}, {"error", error_data(e)}});
+        }
+      }
+      std::cout << hosts.dump(2) << '\n';
+    } else if (command == "projects")
       std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/projects").dump(2)
                 << '\n';
     else if (command == "sessions")
@@ -227,15 +172,13 @@ public:
       if (id.empty())
         throw Error("USAGE", "stop <session-id>");
       std::cout << api("/sessions/" + id + "/stop", Json::object()).dump(2) << '\n';
-    } else if (command == "revoke")
+    } else {
       std::cout
-          << api("/hosts/" + host().at("id").get<std::string>() + "/revoke", Json::object()).dump(2)
-          << '\n';
-    else {
-      std::cout << "Usage: coc "
-                   "<login|logout|hosts|enroll|agent-enroll|projects|sessions|connect|attach|stop|"
-                   "revoke> [options]\nOptions: --relay URL --host ID --project ID --config PATH "
-                   "--project-id ID --takeover\nDefault relay: https://r.xlogic.cc\n";
+          << "Usage: coc-client "
+             "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop> [options]\n"
+             "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover\n"
+             "login: approve the displayed request in the management website. logout only removes "
+             "local credentials.\n";
       if (command != "help")
         throw Error("USAGE", "Unknown command");
     }

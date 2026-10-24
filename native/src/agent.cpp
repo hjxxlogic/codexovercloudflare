@@ -1,4 +1,4 @@
-#include "coc/network.hpp"
+#include "coc/login.hpp"
 #include "coc/store.hpp"
 #include <csignal>
 #include <iostream>
@@ -545,11 +545,67 @@ public:
 int main(int argc, char **argv) {
   try {
     signal(SIGPIPE, SIG_IGN);
-    if (argc != 2 || std::string(argv[1]) == "--help") {
-      std::cout << "Usage: coc-agent <config.json>\n";
-      return argc == 2 ? 0 : 1;
+    coc::Options options(argc, argv);
+    auto command = options.args.empty() ? "help" : options.args[0];
+    auto file = std::filesystem::path(options.get(
+        "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
+    if (command == "help") {
+      std::cout << "Usage: coc-agent <login|logout|status|run> [--config PATH] [--relay URL] "
+                   "[--name NAME] [--project PATH] [--project-id ID]\n"
+                   "login: approve the displayed request in the management website. logout only "
+                   "removes local credentials.\n";
+      return 0;
     }
-    auto config = coc::agent_config(coc::read_json(argv[1]));
+    if (command == "login") {
+      coc::Json config;
+      if (std::filesystem::exists(file)) {
+        config = coc::read_json(file);
+        if (!config.value("token", "").empty())
+          throw coc::Error("ALREADY_LOGGED_IN",
+                           "Local A credential exists; use status or logout first");
+      } else {
+        if (options.get("project").empty())
+          throw coc::Error("USAGE", "First login requires --project <directory>");
+        auto path = std::filesystem::canonical(options.get("project"));
+        auto id = options.get("project-id", "my-project");
+        if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
+          throw coc::Error("CONFIG_ERROR", "Invalid project");
+        config = {
+            {"codexPath", "codex"},
+            {"codexArgs", coc::Json::array()},
+            {"sandbox", "workspace-write"},
+            {"dataDir", (std::filesystem::absolute(file).parent_path() / "data").string()},
+            {"projects", coc::Json::array({{{"id", id}, {"name", id}, {"path", path.string()}}})}};
+      }
+      auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent",
+                                     options.get("name", "Codex agent"));
+      config["relayUrl"] = grant.at("relay");
+      config["hostId"] = grant.at("hostId");
+      config["token"] = grant.at("token");
+      coc::save_private(file, config);
+      std::cout << "Agent authorized: " << grant.at("hostId") << "\nConfig: " << file << '\n';
+      return 0;
+    }
+    if (command == "logout") {
+      auto config = coc::read_json(file);
+      config["token"] = "";
+      coc::save_private(file, config);
+      std::cout << "Local credential removed; stop any running Agent separately. Relay "
+                   "authorization is unchanged.\n";
+      return 0;
+    }
+    if (command == "status") {
+      auto config = coc::read_json(file);
+      std::cout << coc::credential_status({{"relay", config.at("relayUrl")},
+                                           {"role", "agent"},
+                                           {"token", config.at("token")}})
+                       .dump(2)
+                << '\n';
+      return 0;
+    }
+    if (command != "run")
+      throw coc::Error("USAGE", "Unknown command: " + command);
+    auto config = coc::agent_config(coc::read_json(file));
     coc::verify_codex(config);
     boost::asio::io_context io;
     coc::Agent agent(io, config);

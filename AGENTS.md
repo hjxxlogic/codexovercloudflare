@@ -16,8 +16,8 @@ This repository provides remote Codex access through Cloudflare. Local programs 
 Use C++17, CMake ≥3.16, Boost.System ≥1.71, OpenSSL, SQLite3, and nlohmann/json ≥3.7. Local binaries need no Node.js. Cloud/web tooling requires Node.js ≥22.17; Codex is pinned to `0.164.0`.
 
 - `npm ci`: install cloud/web and test dependencies.
-- `npm run build:native`: compile `build/coc-agent`, `build/coc`, and native tests.
-- `./build/coc-agent .local/agent.json`, `./build/coc hosts`: run local programs.
+- `npm run build:native`: compile `build/coc-agent`, `build/coc-client`, and native tests.
+- `./build/coc-agent run --config .local/agent.json`, `./build/coc-client hosts`: run local programs.
 - `npm run setup:local`, `npm run dev`: initialize secrets and run local relay/web.
 - `npm test`: CTest and Vitest without model calls.
 - `npm run typecheck`, `npm run lint`, `npm run lint:cpp`: static checks.

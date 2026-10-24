@@ -20,11 +20,19 @@ async function api(path: string, data?: unknown): Promise<any> {
 function App() {
   const [logged, setLogged] = useState(false),
     [admin, setAdmin] = useState(false),
-    [loginCode, setLoginCode] = useState(''),
+    [targetHost, setTargetHost] = useState(''),
+    [deviceName, setDeviceName] = useState('网页客户端'),
+    [adding, setAdding] = useState(false),
+    [checking, setChecking] = useState(true),
+    [devices, setDevices] = useState<{ pending: any[]; credentials: any[] }>({
+      pending: [],
+      credentials: [],
+    }),
+    [managing, setManaging] = useState(''),
     [adminLogin, setAdminLogin] = useState(false),
     [grant, setGrant] = useState<{
+      id: string;
       code: string;
-      url: string;
       expires: number;
     }>(),
     [generating, setGenerating] = useState(false),
@@ -49,37 +57,104 @@ function App() {
   const report = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
   async function refresh() {
-    try {
-      setHosts(await api('/hosts'));
-      setAdmin((await api('/auth/me')).role === 'owner');
+    const results = await Promise.allSettled([api('/hosts'), api('/auth/me')]);
+    if (results[0].status === 'fulfilled') {
+      const available = results[0].value;
+      setHosts(available);
       setLogged(true);
-    } catch {
+      setHost((current) =>
+        available.some((h: any) => h.id === current) ? current : '',
+      );
+    } else {
+      setHosts([]);
       setLogged(false);
+      setSelected(undefined);
+      setHost('');
     }
+    setAdmin(results[1].status === 'fulfilled');
+    setChecking(false);
   }
   useEffect(() => {
-    const code = new URLSearchParams(location.hash.slice(1)).get('login');
-    if (code) {
-      setLoginCode(code);
+    const request = new URLSearchParams(location.hash.slice(1)).get(
+      'authorize',
+    );
+    if (request) {
+      setAdminLogin(true);
+      setManaging(request);
       history.replaceState(null, '', location.pathname + location.search);
     }
     void refresh();
   }, []);
   useEffect(() => {
-    if (!host) return;
+    if (!admin) return;
+    let disposed = false;
+    const update = () =>
+      void api('/admin/devices')
+        .then((d) => {
+          if (!disposed) setDevices(d);
+        })
+        .catch(report);
+    update();
+    const timer = setInterval(update, 3000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [admin]);
+  useEffect(() => {
+    if (!grant) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        if (grant.expires <= Date.now())
+          throw new Error('登录请求已过期，请重新申请');
+        const result = await api('/auth/device/poll', { id: grant.id });
+        if (disposed) return;
+        if (result.state === 'approved') {
+          setGrant(undefined);
+          setAdding(false);
+          setHost(result.hostId);
+          await refresh();
+        } else if (result.state === 'rejected') {
+          setGrant(undefined);
+          setError('管理员已拒绝登录申请');
+        } else timer = setTimeout(() => void poll(), 2000);
+      } catch (e) {
+        if (!disposed) {
+          setGrant(undefined);
+          report(e);
+        }
+      }
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [grant]);
+  useEffect(() => {
+    let disposed = false;
     setProjects([]);
     setProject('');
     setSessions([]);
+    if (!host) return;
     void Promise.all([
       api(`/hosts/${host}/projects`),
       api('/sessions?hostId=' + host),
     ])
       .then(([p, s]) => {
+        if (disposed) return;
         setProjects(p);
         setProject(p[0]?.id || '');
         setSessions(s);
       })
-      .catch(report);
+      .catch((e) => {
+        if (!disposed) report(e);
+      });
+    return () => {
+      disposed = true;
+    };
   }, [host]);
   useEffect(() => {
     if (!selected) return;
@@ -131,6 +206,7 @@ function App() {
         ws.onopen = () =>
           ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
         ws.onmessage = (message) => {
+          if (disposed) return;
           try {
             const d = JSON.parse(message.data);
             if (d.type === 'attached') {
@@ -165,10 +241,10 @@ function App() {
           }
         };
         ws.onclose = (e) => {
+          if (disposed) return;
           setReady(false);
           setPending(false);
           setStatus('已断开');
-          if (disposed) return;
           if (e.code === 4009) {
             setError('控制权已被其他设备接管');
             return;
@@ -182,7 +258,9 @@ function App() {
             Math.min(15000, 1000 * 2 ** attempt++),
           );
         };
-        ws.onerror = () => setStatus('连接错误');
+        ws.onerror = () => {
+          if (!disposed) setStatus('连接错误');
+        };
       } catch (e) {
         if (!disposed) {
           report(e);
@@ -207,26 +285,39 @@ function App() {
   };
   async function login(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
-    try {
-      await api(
-        adminLogin ? '/auth/login' : '/auth/redeem',
-        adminLogin ? { secret } : { code: loginCode, kind: 'web' },
-      );
-      setSecret('');
-      setLoginCode('');
-      await refresh();
-    } catch (e) {
-      report(e);
-    }
-  }
-  async function generateLogin() {
     setGenerating(true);
     setError('');
-    setGrant(undefined);
     try {
-      const result = await api('/auth/codes', {});
-      setGrant({ ...result, url: new URL(result.url, location.origin).href });
+      if (adminLogin) {
+        await api('/auth/login', { secret });
+        setSecret('');
+        await refresh();
+      } else {
+        const result = await api('/auth/device/start', {
+          role: 'web',
+          name: deviceName,
+          hostId: targetHost,
+        });
+        setGrant(result);
+      }
+    } catch (e) {
+      report(e);
+    } finally {
+      setGenerating(false);
+    }
+  }
+  async function manage(action: 'approve' | 'reject' | 'revoke', id: string) {
+    if (
+      action === 'revoke' &&
+      !confirm('撤销此凭证？撤销 A 会使其所有客户端授权失效，并关闭相关连接。')
+    )
+      return;
+    setGenerating(true);
+    setError('');
+    try {
+      await api('/admin/' + action, { id });
+      setDevices(await api('/admin/devices'));
+      await refresh();
     } catch (e) {
       report(e);
     } finally {
@@ -254,23 +345,40 @@ function App() {
           <small>r.xlogic.cc</small>
           <h1>远程 Codex</h1>
         </div>
-        {logged && (
+        <div className="row">
           <button
-            onClick={() =>
-              void api('/auth/logout', {})
-                .then(() => {
-                  socket.current?.close();
-                  setSelected(undefined);
-                  setLogged(false);
-                  setAdmin(false);
-                  setGrant(undefined);
-                })
-                .catch(report)
-            }
+            onClick={() => {
+              setAdminLogin((v) => !v);
+              setSecret('');
+            }}
           >
-            退出登录
+            {adminLogin ? '连接 A' : '管理员登录'}
           </button>
-        )}
+          {logged && (
+            <button
+              onClick={() => {
+                setAdding((v) => !v);
+                setAdminLogin(false);
+              }}
+            >
+              添加 A 授权
+            </button>
+          )}
+          {admin && (
+            <button
+              onClick={() =>
+                void api('/auth/logout', {})
+                  .then(() => {
+                    setAdmin(false);
+                    setAdminLogin(false);
+                  })
+                  .catch(report)
+              }
+            >
+              退出管理
+            </button>
+          )}
+        </div>
       </header>
       {error && (
         <div role="alert" className="error">
@@ -278,75 +386,122 @@ function App() {
           <button onClick={() => setError('')}>关闭</button>
         </div>
       )}
-      {!logged ? (
+      {checking && <p role="status">正在检查登录状态…</p>}
+      {!checking && (adminLogin ? !admin : !logged || adding) && (
         <form onSubmit={login} className="card">
-          <h2>登录中转</h2>
-          <label>
-            {adminLogin ? '所有者密钥' : '一次性验证码'}
-            <input
-              aria-label={adminLogin ? '所有者密钥' : '一次性验证码'}
-              type="password"
-              required
-              value={adminLogin ? secret : loginCode}
-              onChange={(e) =>
-                adminLogin
-                  ? setSecret(e.target.value)
-                  : setLoginCode(e.target.value)
-              }
-              autoComplete={adminLogin ? 'current-password' : 'one-time-code'}
-            />
-          </label>
-          <button type="submit">登录</button>
+          <h2>{adminLogin ? '管理员登录' : '连接指定 A'}</h2>
+          {adminLogin ? (
+            <label>
+              所有者密钥
+              <input
+                aria-label="所有者密钥"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+              />
+            </label>
+          ) : (
+            <>
+              <label>
+                A 标识
+                <input
+                  aria-label="A 标识"
+                  required
+                  value={targetHost}
+                  onChange={(e) => setTargetHost(e.target.value)}
+                />
+              </label>
+              <label>
+                设备名称
+                <input
+                  aria-label="设备名称"
+                  required
+                  maxLength={100}
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
+                />
+              </label>
+            </>
+          )}
           <button
-            type="button"
-            onClick={() => {
-              setAdminLogin((v) => !v);
-              setSecret('');
-            }}
+            type="submit"
+            disabled={generating || (!adminLogin && !!grant)}
           >
-            {adminLogin ? '使用验证码登录' : '管理员登录'}
+            {adminLogin ? '登录' : '申请登录'}
           </button>
-          <p>一次性链接或验证码由管理员提供，5 分钟内有效；点击登录后使用。</p>
-          <p>模型账号与代码保留在远程服务器。</p>
+          {grant && (
+            <div role="status">
+              <p>
+                等待管理员批准，配对码：<strong>{grant.code}</strong>
+              </p>
+              <p>请求：{grant.id}</p>
+              <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
+            </div>
+          )}
+          <p>
+            每份网页凭证仅访问一个 A，可保留多个 A 的授权；批准后长期有效，直到
+            R 撤销。
+          </p>
         </form>
-      ) : (
-        <>
-          {admin && (
-            <section className="card">
-              <h2>客户端登录授权</h2>
+      )}
+      {admin && (
+        <section className="card">
+          <h2>设备授权管理</h2>
+          <p>
+            批准前请与申请方核对配对码、角色和目标 A。管理身份不能直接操作 Codex
+            会话。
+          </p>
+          {managing && <p>当前请求：{managing}</p>}
+          <h3>待授权请求</h3>
+          {!devices.pending.length && <p>暂无待授权请求</p>}
+          {devices.pending.map((d) => (
+            <div className="card" key={d.id}>
+              <p>
+                {d.name} ·{' '}
+                {d.role === 'agent' ? 'A' : d.role === 'cli' ? 'CC' : 'CW'} ·
+                配对码 {d.code}
+              </p>
+              <p>目标 A：{d.hostId}</p>
+              <p>
+                请求：{d.id} · 有效期至 {new Date(d.expires).toLocaleString()}
+              </p>
               <button
                 disabled={generating}
-                onClick={() => void generateLogin()}
+                onClick={() => void manage('approve', d.id)}
               >
-                生成一次性登录授权
+                批准 {d.code}
               </button>
+              <button
+                disabled={generating}
+                onClick={() => void manage('reject', d.id)}
+              >
+                拒绝 {d.code}
+              </button>
+            </div>
+          ))}
+          <h3>已授权设备</h3>
+          {devices.credentials.map((d) => (
+            <div className="card" key={d.id}>
               <p>
-                验证码供 coc login
-                使用，链接供浏览器使用。两者共用一次授权，任选一种；登录后可操作所有已登记主机和项目，仅分享给可信用户。
+                {d.name} ·{' '}
+                {d.role === 'agent' ? 'A' : d.role === 'cli' ? 'CC' : 'CW'} ·
+                A：{d.hostId}
               </p>
-              {grant && (
-                <div>
-                  <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
-                  <label>
-                    coc 一次性验证码
-                    <input
-                      aria-label="coc 一次性验证码"
-                      readOnly
-                      value={grant.code}
-                    />
-                  </label>
-                  <label>
-                    浏览器登录链接
-                    <input
-                      aria-label="浏览器登录链接"
-                      readOnly
-                      value={grant.url}
-                    />
-                  </label>
-                </div>
-              )}
-            </section>
-          )}
+              <p>授权时间：{new Date(d.created).toLocaleString()} · 长期有效</p>
+              <button
+                disabled={generating}
+                onClick={() => void manage('revoke', d.id)}
+              >
+                撤销 {d.name}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+      {logged && (
+        <>
           <section className="card">
             <h2>选择远程项目</h2>
             <div className="row">
@@ -383,6 +538,25 @@ function App() {
                 </select>
               </label>
               <button onClick={() => void refresh()}>刷新主机</button>
+              <button
+                disabled={!host}
+                onClick={() => {
+                  if (
+                    confirm(
+                      '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                    )
+                  )
+                    void api('/auth/forget', { hostId: host })
+                      .then(() => {
+                        socket.current?.close();
+                        setSelected(undefined);
+                        return refresh();
+                      })
+                      .catch(report);
+                }}
+              >
+                移除本地授权
+              </button>
               <button
                 disabled={!host || !project}
                 onClick={() => void create()}

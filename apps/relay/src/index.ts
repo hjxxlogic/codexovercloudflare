@@ -14,13 +14,46 @@ export { HostRelayDO } from './host.ts';
 
 const bearer = (r: Request) =>
   r.headers.get('authorization')?.match(/^Bearer (\S+)$/i)?.[1];
-function cookie(r: Request) {
-  return r.headers
-    .get('cookie')
-    ?.split(';')
-    .map((s) => s.trim())
-    .find((s) => s.startsWith('coc_session='))
-    ?.slice(12);
+function cookies(r: Request) {
+  return new Map(
+    (r.headers.get('cookie') || '').split(';').map((s) => {
+      const i = s.indexOf('=');
+      return [s.slice(0, i).trim(), s.slice(i + 1)] as [string, string];
+    }),
+  );
+}
+function cookieHeader(
+  req: Request,
+  name: string,
+  value: string,
+  maxAge: number,
+  path = '/',
+) {
+  return `${name}=${value}; Path=${path}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${new URL(req.url).protocol === 'https:' ? '; Secure' : ''}`;
+}
+async function authenticate(
+  req: Request,
+  env: Env,
+  hostId?: string,
+  admin = false,
+) {
+  const value =
+    bearer(req) || cookies(req).get(admin ? 'coc_admin' : 'coc_web_' + hostId);
+  if (!value) throw new AppError('UNAUTHORIZED', 'Login required', 401);
+  const auth: Auth = await registryCall(env, 'auth', { token: value });
+  if (
+    admin
+      ? auth.role !== 'owner'
+      : !['cli', 'web'].includes(auth.role) ||
+        auth.hostId !== hostId ||
+        (!bearer(req) && auth.role !== 'web')
+  )
+    throw new AppError(
+      'FORBIDDEN',
+      'Credential role or target host does not match',
+      403,
+    );
+  return auth;
 }
 function originCheck(r: Request) {
   const origin = r.headers.get('origin');
@@ -33,14 +66,6 @@ function originCheck(r: Request) {
       403,
     );
 }
-async function owner(req: Request, env: Env) {
-  const value = bearer(req) || cookie(req);
-  if (!value) throw new AppError('UNAUTHORIZED', 'Login required', 401);
-  const a: Auth = await registryCall(env, 'auth', { token: value });
-  if (a.role !== 'owner' && a.role !== 'client')
-    throw new AppError('FORBIDDEN', 'Owner access required', 403);
-  return a;
-}
 function internal(
   req: Request,
   path: string,
@@ -50,7 +75,7 @@ function internal(
   ticket?: string,
 ) {
   const headers = new Headers({
-    'x-auth': JSON.stringify(auth),
+    'x-auth': encodeURIComponent(JSON.stringify(auth)),
     'x-host': hostId,
   });
   if (req.headers.has('upgrade')) headers.set('upgrade', 'websocket');
@@ -93,33 +118,157 @@ export default {
           'WebSocket upgrade required',
           426,
         );
-      if (
-        (p === '/api/v1/auth/login' || p === '/api/v1/auth/redeem') &&
-        req.method === 'POST'
-      ) {
+      if (p === '/api/v1/auth/login' && req.method === 'POST') {
         const d = await body(req);
-        if (p.endsWith('/redeem')) z.enum(['cli', 'web']).parse(d.kind);
-        const result = await registryCall(
-          env,
-          p.endsWith('/redeem') ? 'loginCodeRedeem' : 'login',
-          {
-            secret: d.secret,
-            code: d.code,
-            kind: d.kind,
-            ip: req.headers.get('cf-connecting-ip') || 'local',
-          },
-        );
-        const secure = u.protocol === 'https:' ? '; Secure' : '';
+        const result = await registryCall(env, 'login', {
+          secret: d.secret,
+          ip: req.headers.get('cf-connecting-ip') || 'local',
+        });
         return json(
           d.kind === 'cli' ? result : { expires: result.expires },
           200,
-          {
-            'Set-Cookie': `coc_session=${result.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${secure}`,
-          },
+          { 'Set-Cookie': cookieHeader(req, 'coc_admin', result.token, 28800) },
         );
       }
-      if (p === '/api/v1/agent/enroll' && req.method === 'POST')
-        return json(await registryCall(env, 'redeem', await body(req)));
+      if (p === '/api/v1/auth/device/start' && req.method === 'POST') {
+        const d = await body(req);
+        const result = await registryCall(env, 'deviceStart', {
+          ...d,
+          ip: req.headers.get('cf-connecting-ip') || 'local',
+        });
+        if (d.role !== 'web') return json(result);
+        const { pollSecret, ...visible } = result;
+        return json(visible, 200, {
+          'Set-Cookie': cookieHeader(
+            req,
+            'coc_pending_' + result.id,
+            pollSecret,
+            300,
+            '/api/v1/auth/device',
+          ),
+        });
+      }
+      if (p === '/api/v1/auth/device/poll' && req.method === 'POST') {
+        const d = await body(req),
+          id = idSchema.parse(d.id);
+        const pending = cookies(req).get('coc_pending_' + id);
+        const result = await registryCall(env, 'devicePoll', {
+          id,
+          pollSecret: pending || d.pollSecret,
+          web: !!pending,
+        });
+        if (pending && result.state === 'approved') {
+          const { token, ...visible } = result;
+          return json(visible, 200, {
+            'Set-Cookie': cookieHeader(
+              req,
+              'coc_web_' + result.hostId,
+              token,
+              34560000,
+            ),
+          });
+        }
+        return json(result);
+      }
+      if (p === '/api/v1/auth/me' && req.method === 'GET') {
+        const auth = await authenticate(req, env, undefined, true);
+        return json({ role: auth.role, expires: auth.expires });
+      }
+      if (p === '/api/v1/auth/logout' && req.method === 'POST') {
+        await authenticate(req, env, undefined, true);
+        return json({ ok: true }, 200, {
+          'Set-Cookie': cookieHeader(req, 'coc_admin', '', 0),
+        });
+      }
+      if (p === '/api/v1/auth/forget' && req.method === 'POST') {
+        const hostId = idSchema.parse((await body(req)).hostId);
+        return json({ ok: true }, 200, {
+          'Set-Cookie': cookieHeader(req, 'coc_web_' + hostId, '', 0),
+        });
+      }
+      if (p.startsWith('/api/v1/admin/')) {
+        await authenticate(req, env, undefined, true);
+        if (p === '/api/v1/admin/devices' && req.method === 'GET')
+          return json(await registryCall(env, 'devices'));
+        if (p === '/api/v1/admin/hosts' && req.method === 'GET')
+          return json(await registryCall(env, 'hosts'));
+        const action = p.match(/^\/api\/v1\/admin\/(approve|reject|revoke)$/);
+        if (action && req.method === 'POST') {
+          const d = await body(req);
+          if (action[1] === 'revoke') {
+            const auth: Auth = await registryCall(env, 'credentialRevoke', d);
+            await hostStub(env, auth.hostId!).fetch(
+              'https://internal/revoke-auth',
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  hash: auth.hash,
+                  agent: auth.role === 'agent',
+                }),
+              },
+            );
+          } else
+            await registryCall(
+              env,
+              action[1] === 'approve' ? 'deviceApprove' : 'deviceReject',
+              d,
+            );
+          return json({ ok: true });
+        }
+        throw new AppError('NOT_FOUND', 'Unknown management route', 404);
+      }
+      if (p === '/api/v1/hosts' && req.method === 'GET') {
+        const auths: Auth[] = [];
+        if (bearer(req)) {
+          const a: Auth = await registryCall(env, 'auth', {
+            token: bearer(req),
+          });
+          if (a.role !== 'cli')
+            throw new AppError('FORBIDDEN', 'CLI credential required', 403);
+          auths.push(a);
+        } else {
+          for (const [name, value] of cookies(req)) {
+            if (!/^coc_web_[\w-]+$/.test(name)) continue;
+            try {
+              const a: Auth = await registryCall(env, 'auth', { token: value });
+              if (a.role === 'web' && name === 'coc_web_' + a.hostId)
+                auths.push(a);
+            } catch {
+              /* Revoked browser grants do not hide other hosts. */
+            }
+          }
+          if (!auths.length)
+            throw new AppError('UNAUTHORIZED', 'Login required', 401);
+        }
+        const response = json(
+          await Promise.all(
+            auths.map(async (a) => {
+              const h = await registryCall(env, 'host', { id: a.hostId });
+              const status: any = await (
+                await hostStub(env, h.id).fetch('https://internal/status')
+              ).json();
+              return { ...h, online: status.online };
+            }),
+          ),
+        );
+        if (!bearer(req))
+          for (const auth of auths) {
+            const name = 'coc_web_' + auth.hostId;
+            response.headers.append(
+              'Set-Cookie',
+              cookieHeader(req, name, cookies(req).get(name)!, 34560000),
+            );
+          }
+        return response;
+      }
+      if (p === '/api/v1/agent/status' && req.method === 'GET') {
+        const auth: Auth = await registryCall(env, 'auth', {
+          token: bearer(req) || '',
+        });
+        if (auth.role !== 'agent')
+          throw new AppError('FORBIDDEN', 'Agent credential required', 403);
+        return json(await registryCall(env, 'host', { id: auth.hostId }));
+      }
       if (p === '/ws/v1/agent') {
         const auth: Auth = await registryCall(env, 'auth', {
           token: bearer(req) || '',
@@ -145,48 +294,9 @@ export default {
           ),
         );
       }
-      const auth = await owner(req, env);
-      if (p === '/api/v1/auth/me' && req.method === 'GET')
-        return json({ role: auth.role, expires: auth.expires });
-      if (p === '/api/v1/auth/codes' && req.method === 'POST') {
-        if (auth.role !== 'owner')
-          throw new AppError('FORBIDDEN', 'Administrator access required', 403);
-        const grant = await registryCall(
-          env,
-          'loginCodeCreate',
-          await body(req),
-        );
-        return json({ ...grant, url: '/#login=' + grant.code });
-      }
-      if (p === '/api/v1/auth/logout' && req.method === 'POST') {
-        await registryCall(env, 'logout', { hash: auth.hash });
-        return json({ ok: true }, 200, {
-          'Set-Cookie':
-            'coc_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0',
-        });
-      }
-      if (p === '/api/v1/hosts/enrollments' && req.method === 'POST')
-        return json(await registryCall(env, 'enroll', await body(req)));
-      if (p === '/api/v1/hosts' && req.method === 'GET') {
-        const hosts: any[] = await registryCall(env, 'hosts');
-        return json(
-          await Promise.all(
-            hosts.map(async (h) => {
-              const status: any = await (
-                await hostStub(env, h.id).fetch('https://internal/status')
-              ).json();
-              return { ...h, online: !h.disabled && status.online };
-            }),
-          ),
-        );
-      }
-      const revoke = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/revoke$/);
-      if (revoke && req.method === 'POST') {
-        await registryCall(env, 'revoke', { id: revoke[1] });
-        return hostStub(env, revoke[1]).fetch('https://internal/revoke');
-      }
       const projects = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/projects$/);
       if (projects && req.method === 'GET') {
+        const auth = await authenticate(req, env, projects[1]);
         await registryCall(env, 'host', { id: projects[1] });
         return hostStub(env, projects[1]).fetch(
           internal(req, '/control', auth, projects[1], {
@@ -201,12 +311,19 @@ export default {
             ? await body(req)
             : { hostId: u.searchParams.get('hostId') };
         const hostId = idSchema.parse(d.hostId);
+        const auth = await authenticate(req, env, hostId);
         await registryCall(env, 'host', { id: hostId });
         if (!['GET', 'POST'].includes(req.method))
           throw new AppError('NOT_FOUND', 'Unknown route', 404);
         if (req.method === 'POST') {
           idSchema.parse(d.projectId);
           z.enum(['web', 'cli']).parse(d.mode);
+          if (d.mode !== auth.role)
+            throw new AppError(
+              'FORBIDDEN',
+              'Session mode must match credential role',
+              403,
+            );
           d.key = z
             .string()
             .min(1)
@@ -225,6 +342,7 @@ export default {
       );
       if (session && req.method === 'POST') {
         const hostId = idSchema.parse(session[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
         await registryCall(env, 'host', { id: hostId });
         return hostStub(env, hostId).fetch(
           internal(
@@ -241,6 +359,9 @@ export default {
       const web = p.match(/^\/ws\/v1\/web\/([\w~-]+)$/);
       if (web && req.method === 'GET') {
         const hostId = idSchema.parse(web[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
         await registryCall(env, 'host', { id: hostId });
         return hostStub(env, hostId).fetch(
           internal(req, '/web?sessionId=' + web[1], auth, hostId),

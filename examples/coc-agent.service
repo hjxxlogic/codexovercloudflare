@@ -9,7 +9,7 @@ User=coc
 WorkingDirectory=/opt/codexovercloudflare
 Environment=HOME=/home/coc
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/coc-agent /home/coc/.config/coc/agent.json
+ExecStart=/usr/local/bin/coc-agent run --config /home/coc/.config/coc-agent/agent.json
 Restart=on-failure
 RestartSec=5
 UMask=0077

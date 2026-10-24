@@ -89,10 +89,21 @@ export async function localRelay(dir: string) {
       return b;
     };
     token = (await api('/auth/login', { secret, kind: 'cli' })).token;
-    const enrollment = await api('/hosts/enrollments', {
+    const authorize = async (role: string, hostId?: string) => {
+      const request = await api('/auth/device/start', {
+        role,
         name: 'native-smoke',
-      }),
-      device = await api('/agent/enroll', { code: enrollment.code });
+        hostId,
+      });
+      await api('/admin/approve', { id: request.id });
+      return api('/auth/device/poll', {
+        id: request.id,
+        pollSecret: request.pollSecret,
+      });
+    };
+    const device = await authorize('agent');
+    const client = await authorize('cli', device.hostId);
+    token = client.token;
     agent = new Agent({
       relayUrl: origin,
       hostId: device.hostId,

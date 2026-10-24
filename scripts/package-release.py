@@ -22,7 +22,7 @@ name = f'coc-{version}-linux-x86_64-{args.platform}'
 with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
     root = pathlib.Path(temporary) / name
     root.mkdir()
-    for executable in ('coc', 'coc-agent'):
+    for executable in ('coc-client', 'coc-agent'):
         shutil.copy2(pathlib.Path(args.build_dir) / executable, root / executable)
     shutil.copy2('examples/agent.example.json', root / 'agent.example.json')
     shutil.copy2('examples/coc-agent.service', root / 'coc-agent.service')
@@ -31,9 +31,9 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
         'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, '
         'libstdc++ and CA certificates. Check dependencies with ldd. Codex 0.164.0 is required '
         'for the Agent and native TUI. No Node.js runtime is required.\n'
-        'Install: sudo install -m 0755 coc coc-agent /usr/local/bin/\n'
-        'Configure Codex under the Agent user before enrollment.\n'
-        'Login: coc login --relay https://r.xlogic.cc\n'
+        'Install: sudo install -m 0755 coc-client coc-agent /usr/local/bin/\n'
+        'Configure Codex under the Agent user before agent login.\n'
+        'Login: coc-client login --relay https://r.xlogic.cc --host <A-ID>\n'
         'Manual: https://r.xlogic.cc/downloads/USER_GUIDE.md\n'
         'Source and checksums: https://r.xlogic.cc/downloads/\n', encoding='utf-8')
     with tarfile.open(output / (name + '.tar.gz'), 'w:gz') as archive:

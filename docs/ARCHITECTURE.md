@@ -45,7 +45,7 @@ Durable Objects 支持 WebSocket Hibernation：空闲时可保留连接、重新
 
 ```mermaid
 flowchart LR
-  CLI[本地 coc + 原生 Codex TUI] -->|HTTPS / WSS| W[Worker: 鉴权与路由]
+  CLI[本地 coc-client + 原生 Codex TUI] -->|HTTPS / WSS| W[Worker: 鉴权与路由]
   WEB[浏览器] -->|HTTPS / WSS| W
   W --> REG[RegistryDO: 设备与授权元数据]
   W --> HOST[HostRelayDO: 每主机一个]
@@ -57,31 +57,45 @@ flowchart LR
   AG --> DB[(本地 SQLite: 索引与网页事件)]
 ```
 
-| 组件 | 职责 | 不承担的职责 |
-| --- | --- | --- |
-| Worker | 静态页面、REST、鉴权入口、WS 升级与 DO 路由 | Codex 执行和输出存档 |
-| RegistryDO | 所有者凭据摘要、设备登记、授权版本和撤销记录 | 高频流量中转 |
+| 组件        | 职责                                                 | 不承担的职责           |
+| ----------- | ---------------------------------------------------- | ---------------------- |
+| Worker      | 静态页面、REST、鉴权入口、WS 升级与 DO 路由          | Codex 执行和输出存档   |
+| RegistryDO  | 所有者凭据摘要、设备登记、授权版本和撤销记录         | 高频流量中转           |
 | HostRelayDO | Agent 连接、会话通道、连接票据消费、控制租约、帧转发 | 模型调用和完整事件回放 |
-| Agent | 项目白名单、进程管理、协议适配、幂等、审批、事件日志 | 公网监听 |
-| coc | 登录、选择主机/项目、创建会话、启动及管理 TUI | 自行执行远程项目命令 |
-| Web UI | 对话、工具状态、差异、审批和重连 | 任意原始 RPC 控制台 |
+| Agent       | 项目白名单、进程管理、协议适配、幂等、审批、事件日志 | 公网监听               |
+| coc-client  | 登录、选择主机/项目、创建会话、启动及管理 TUI        | 自行执行远程项目命令   |
+| Web UI      | 对话、工具状态、差异、审批和重连                     | 任意原始 RPC 控制台    |
 
 连接由 Worker 转交到对应 DO；DO 不能回连内网。Agent 的单条上行连接承载多个隔离通道，每个通道映射到独立 runtime。
 
+### 3.1 0.3.0 设备授权模型
+
+R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。
+
+A / CC / CW 共用 deviceStart → 管理员 approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
+
+Auth version 2 使用 agent / cli / web 三种独立角色，hostId 固定绑定，设备凭证 expires 使用安全整数最大值表示无固定到期。管理身份 owner 独立，仍为 8 小时。旧认证记录拒绝使用，不自动提升为新授权。CC / CW 的 HTTP、会话票据、WebSocket 都按角色和目标 A 校验，不能调用管理接口。CC 仅控制 cli 模式，CW 仅控制 web 模式。管理员身份不能直接操作会话。
+
+CC 按 R / A 保存多份私有文件凭证；CW 按 A 保存独立 HttpOnly / SameSite=Strict Cookie，HTTPS 加 Secure，使用时续写浏览器有效期。请求路径决定选择哪个 A 的 Cookie，多标签页不依赖全局选中身份。页面脚本不读令牌。
+
+撤销单个客户端凭证后，Registry 删除其摘要并通知对应 HostRelayDO 关闭匹配连接。撤销 A 禁用主机、删除其所有客户端授权并关闭相关连接。帧处理和转发前重新校验，DO alarm 另作兜底；本地 logout 只删除本地凭证，不停止任务或删除 R 授权。永久凭证不依赖轮询 alarm 保活。
+
+本地共用 login.hpp / login.cpp 的命令选项、登录协议、路径与状态接口；网络、TLS、进程和 SQLite 继续由 coc_core 共用。
+
 ## 4. 技术栈选择
 
-本机程序采用 **C++17 + CMake**，生成独立的 `coc-agent` 和 `coc`；运行时不依赖 Node.js。Codex 仍为独立程序，不嵌入或重写其模型执行能力。Cloudflare 中转和网页保留 TypeScript，通过 JSON 消息与 C++ 互通。
+本机程序采用 **C++17 + CMake**，生成独立的 `coc-agent` 和 `coc-client`；运行时不依赖 Node.js。Codex 仍为独立程序，不嵌入或重写其模型执行能力。Cloudflare 中转和网页保留 TypeScript，通过 JSON 消息与 C++ 互通。
 
-| 层次 | 选择 | 理由与代价 |
-| --- | --- | --- |
-| 本机语言 / 构建 | C++17、CMake ≥ 3.16 | 可直接使用 Linux 进程、信号和文件权限；增加编译与跨平台适配成本。 |
-| 网络 | Boost.Asio / Beast ≥ 1.71、OpenSSL | 同时支持 HTTPS、WSS 和异步队列；TLS 校验证书、主机名/IP 并设置 SNI；使用 OpenSSL 验证参数，不使用旧 RFC2818 回调。 |
-| 子进程 | POSIX fork/exec、管道、waitpid、进程组 | 参数数组执行，无 shell 拼接；异步 stdin/stdout，退出时 TERM，3 秒后 KILL。 |
-| 本地存储 | SQLite3 C API | 沿用 sessions/events/requests、WAL 及请求去重记录，兼容现有数据库。 |
-| JSON / 校验 | nlohmann/json ≥ 3.7、显式字段和策略校验 | 与云端 Zod 独立实现相同协议，避免本机运行时依赖 JavaScript。 |
-| 中继 | Workers TypeScript、RegistryDO、HostRelayDO | 保留设备认证、路由、票据和控制租约。 |
-| 网页 | React、Vite、CSS | 保留结构化对话和审批交互。 |
-| 测试 / 格式 | CTest、clang-format；Vitest、Playwright、ESLint、Prettier | C++ 测策略、SQLite 和进程协议；跨语言端到端启动真实 C++ 可执行文件。 |
+| 层次            | 选择                                                      | 理由与代价                                                                                                         |
+| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 本机语言 / 构建 | C++17、CMake ≥ 3.16                                       | 可直接使用 Linux 进程、信号和文件权限；增加编译与跨平台适配成本。                                                  |
+| 网络            | Boost.Asio / Beast ≥ 1.71、OpenSSL                        | 同时支持 HTTPS、WSS 和异步队列；TLS 校验证书、主机名/IP 并设置 SNI；使用 OpenSSL 验证参数，不使用旧 RFC2818 回调。 |
+| 子进程          | POSIX fork/exec、管道、waitpid、进程组                    | 参数数组执行，无 shell 拼接；异步 stdin/stdout，退出时 TERM，3 秒后 KILL。                                         |
+| 本地存储        | SQLite3 C API                                             | 沿用 sessions/events/requests、WAL 及请求去重记录，兼容现有数据库。                                                |
+| JSON / 校验     | nlohmann/json ≥ 3.7、显式字段和策略校验                   | 与云端 Zod 独立实现相同协议，避免本机运行时依赖 JavaScript。                                                       |
+| 中继            | Workers TypeScript、RegistryDO、HostRelayDO               | 保留设备认证、路由、票据和控制租约。                                                                               |
+| 网页            | React、Vite、CSS                                          | 保留结构化对话和审批交互。                                                                                         |
+| 测试 / 格式     | CTest、clang-format；Vitest、Playwright、ESLint、Prettier | C++ 测策略、SQLite 和进程协议；跨语言端到端启动真实 C++ 可执行文件。                                               |
 
 TLS 身份校验使用 [OpenSSL SSL_set1_host](https://docs.openssl.org/1.1.1/man3/SSL_set1_host/) 和 IP 验证参数，SAN 不匹配时拒绝连接；本地 CA 测试覆盖信任链和主机名错误。
 
@@ -93,13 +107,13 @@ C++ Agent 使用一个 Asio 事件循环串行管理会话、SQLite 和网络；
 
 ### 4.1 关键替代方案
 
-| 决策 | 采用方案 | 替代方案与取舍 |
-| --- | --- | --- |
-| CLI 交互 | 原生 TUI + app-server 远程协议 | PTY 转发接近完整终端，但有终端转义、resize、重连和平台适配成本；仅在 M0 失败后单独评估。 |
-| 网页集成 | app-server 结构化协议 | `codex exec --json` 更适合批处理，不能直接替代完整多轮审批生命周期。 |
-| 中继拓扑 | 每主机一个 HostRelayDO | 每会话一个 DO 隔离更细，但需额外调度与 Agent 多连接；首版单主机 4 会话无此必要。 |
-| 网络接入 | 自建应用级 WSS 中继 | SSH/VPN/Cloudflare Tunnel 可做个人远控，但不直接提供会话管理及统一网页产品。 |
-| 本机实现 | C++17 | 按本次架构要求替换 TypeScript Agent/CLI；保持云端 API 和配置，承担两种语言的协议一致性测试成本。 |
+| 决策     | 采用方案                       | 替代方案与取舍                                                                                   |
+| -------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| CLI 交互 | 原生 TUI + app-server 远程协议 | PTY 转发接近完整终端，但有终端转义、resize、重连和平台适配成本；仅在 M0 失败后单独评估。         |
+| 网页集成 | app-server 结构化协议          | `codex exec --json` 更适合批处理，不能直接替代完整多轮审批生命周期。                             |
+| 中继拓扑 | 每主机一个 HostRelayDO         | 每会话一个 DO 隔离更细，但需额外调度与 Agent 多连接；首版单主机 4 会话无此必要。                 |
+| 网络接入 | 自建应用级 WSS 中继            | SSH/VPN/Cloudflare Tunnel 可做个人远控，但不直接提供会话管理及统一网页产品。                     |
+| 本机实现 | C++17                          | 按本次架构要求替换 TypeScript Agent/CLI；保持云端 API 和配置，承担两种语言的协议一致性测试成本。 |
 
 ## 5. Codex 集成与会话模型
 
@@ -132,19 +146,19 @@ Agent 重启后将旧 runtime 标记为中断，检查线程历史后允许用�
 
 统一使用 `/api/v1`；所有带 ID 的接口都验证所有者关联。会改变状态的 POST 接受 `Idempotency-Key`。
 
-| 方法与路径 | 用途 |
-| --- | --- |
-| `POST /auth/login`、`POST /auth/logout` | 交换所有者凭据、结束网页登录会话 |
-| `POST /auth/codes` | 仅管理员可创建 5 分钟有效的一次性登录验证码及浏览器链接 |
-| `POST /auth/redeem`、`GET /auth/me` | 原子兑换验证码，返回 CLI 令牌或网页 HttpOnly cookie；查询当前角色和有效期 |
-| `GET /hosts`、`GET /hosts/:id/projects` | 获取设备及经 Agent 同步的项目描述 |
-| `POST /hosts/enrollments` | 生成短期、一次性的设备登记凭据 |
-| `POST /hosts/:id/revoke` | 禁用主机及存量链路 |
-| `GET /sessions?hostId=...`、`POST /sessions` | 查询会话、请求创建会话 |
-| `POST /sessions/:id/attach` | 申请控制权与短期连接票据 |
-| `POST /sessions/:id/takeover` | 显式接管并增加控制权版本 |
-| `POST /sessions/:id/stop` | 中断并结束会话 |
-| `GET /healthz` | 中继存活检查，不泄露主机和用户信息 |
+| 方法与路径                                                                              | 用途                                       |
+| --------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `POST /auth/login`、`POST /auth/logout`                                                 | 管理身份登录 / 清除本地管理 Cookie         |
+| `GET /auth/me`                                                                          | 查询独立管理身份                           |
+| `POST /auth/forget`                                                                     | 清除指定 A 的本地 CW Cookie，不撤销 R 授权 |
+| `GET /hosts`、`GET /hosts/:id/projects`                                                 | 获取设备及经 Agent 同步的项目描述          |
+| `POST /auth/device/start`、`POST /auth/device/poll`                                     | 统一申请 / 领取角色和 A 专用授权           |
+| `GET /admin/devices`、`POST /admin/approve`、`POST /admin/reject`、`POST /admin/revoke` | 查看、批准、拒绝、撤销设备授权             |
+| `GET /sessions?hostId=...`、`POST /sessions`                                            | 查询会话、请求创建会话                     |
+| `POST /sessions/:id/attach`                                                             | 申请控制权与短期连接票据                   |
+| `POST /sessions/:id/takeover`                                                           | 显式接管并增加控制权版本                   |
+| `POST /sessions/:id/stop`                                                               | 中断并结束会话                             |
+| `GET /healthz`                                                                          | 中继存活检查，不泄露主机和用户信息         |
 
 主机离线时不排队等待执行创建/停止等命令；返回 `HOST_OFFLINE`，用户恢复连接后重试。设备列表可返回最后已知状态，但必须标记过期。会话列表以 Agent 为准，离线时标记不可确认。
 
@@ -198,13 +212,13 @@ CLI 断线后不重放已经发送的请求和响应。M0 验证同一 app-serve
 
 ## 8. 存储与 DO 休眠
 
-| 位置 | 数据 | 生命周期 |
-| --- | --- | --- |
-| RegistryDO SQLite | 所有者/设备凭据摘要、设备归属、撤销版本 | 持久，撤销保留必要审计记录 |
-| HostRelayDO SQLite | 当前连接版本、租约、短期票据消费状态 | 持久控制元数据；票据与结束租约定期清理 |
-| WebSocket attachment | 连接角色、主机/会话 ID、版本、过期时间 | 仅连接存续期；不存正文和原始凭据 |
-| Agent SQLite | 会话索引、幂等记录、未决审批、网页事件 | 默认 7 天/1 GiB；会话索引可长期保留 |
-| 服务器 Codex home | Codex 原生配置、认证和线程历史 | 遵循 Codex 自身配置与人工管理 |
+| 位置                 | 数据                                    | 生命周期                               |
+| -------------------- | --------------------------------------- | -------------------------------------- |
+| RegistryDO SQLite    | 所有者/设备凭据摘要、设备归属、撤销版本 | 持久，撤销保留必要审计记录             |
+| HostRelayDO SQLite   | 当前连接版本、租约、短期票据消费状态    | 持久控制元数据；票据与结束租约定期清理 |
+| WebSocket attachment | 连接角色、主机/会话 ID、版本、过期时间  | 仅连接存续期；不存正文和原始凭据       |
+| Agent SQLite         | 会话索引、幂等记录、未决审批、网页事件  | 默认 7 天/1 GiB；会话索引可长期保留    |
+| 服务器 Codex home    | Codex 原生配置、认证和线程历史          | 遵循 Codex 自身配置与人工管理          |
 
 DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。心跳由 Agent 发起，不在 DO 中设置永久 interval。心跳与日志仍会消耗请求资源，休眠不代表系统零成本。
 
@@ -214,16 +228,13 @@ HostRelayDO 对每条 WebSocket 连接串行执行消息鉴权与转发，防止
 
 ## 9. 身份、访问与撤销
 
-首版采用单所有者访问模型：部署时初始化高熵所有者密钥，管理员网页登录后生成一次性登录授权。授权使用随机 UUID 去连字符后的验证码，云端仅保存 SHA-256 摘要及 5 分钟到期时间。CLI 和网页共用一次兑换机会，RegistryDO 在同一事务中消费验证码并创建 8 小时客户端凭据，防止并发重复登录。登录和兑换共享每 IP 每分钟 10 次的限流。
+0.3.0 使用第 3.1 节的角色 / 目标 A 专用授权，所有者密钥仅供管理身份登录。登录申请和管理登录共用每 IP 每分钟 10 次限流。公开配对信息不能兑换凭证，领取需要独立轮询秘密；审批与领取分别使用 RegistryDO 事务，拒绝并发重复处理。
 
-浏览器登录链接为 `/#login=<code>`；fragment 不发送给静态资源服务，网页读取后立即清除地址栏，用户点击“登录”才兑换。网页使用 HttpOnly / SameSite=Strict cookie，HTTPS 下启用 Secure；CLI 将令牌保存为 0600 文件。`client` 角色可使用现有主机 / 会话接口，但不能调用 `/auth/codes`；管理员密钥不需分发给客户端。仍为共享所有者资源模型，不提供用户间主机或项目隔离。支持额外配置 Cloudflare Access，但不把它作为应用层鉴权的替代。
-
-- 浏览器 cookie 使用 `Secure`、`HttpOnly`、`SameSite=Strict`；状态变更接口校验 Origin/CSRF，WebSocket 也校验 Origin。
-- Agent 通过短期一次性登记码换取独立设备凭据，绑定 hostId；CLI 用户凭据不能用于冒充设备。
-- 连接票据绑定 ownerId、hostId、sessionId、角色、授权版本与过期时间，由所属 HostRelayDO 原子消费。
-- 握手查询 RegistryDO 最新授权；存量连接在每次业务帧检查本地有效期，最长每 30 秒重新确认授权状态。失去确认能力则暂停转发，超过 60 秒关闭；空闲连接同样由到期检查/Alarm 关闭。
-- 撤销操作增加授权版本并通知相关 HostRelayDO；Agent 和客户端均拒绝旧版本。60 秒内终止存量访问是验收要求，不能只撤销新登录。
-- 项目路径在 Agent 用 realpath 校验，处理符号链接和目录逃逸；运行用户、沙箱和项目权限共同决定最终执行范围。
+- 浏览器 Cookie 使用 HttpOnly、SameSite=Strict，HTTPS 加 Secure；状态变更接口和 WebSocket 校验 Origin。
+- A / CC / CW 凭证互相隔离，CC / CW 按 A 绑定；管理身份只管理授权，不能操作会话。
+- 会话票据绑定凭证摘要、会话、模式、接管标记及期限，60 秒内单次原子消费；消费时重新检查长期授权。
+- 握手、业务帧和向客户端转发前校验最新授权；管理撤销主动通知对应 DO 关闭连接，空闲连接由 alarm 定期复核。
+- 项目路径在 Agent 用 realpath 校验，运行用户、沙箱和项目权限共同决定最终执行范围；主机级授权不替代系统级隔离。
 
 Cloudflare 可见传输内容；TLS 保护传输但不提供中继不可见性。若将来要求端到端加密，需另设计客户端/Agent 密钥配对与加密信封，并重新评估云端校验能力。
 
@@ -272,11 +283,11 @@ C++ 使用 2 空格、clang-format 和 snake_case；类名 PascalCase。TypeScri
 
 ## 12. 实施关卡与未决问题
 
-| 事项 | 初始决策 / 完成条件 |
-| --- | --- |
-| 原生 CLI 最小 RPC 集 | M0 实测确定；不通过则记录缺口并重新评估 PTY 或简化 CLI，不能静默降级。 |
-| CLI 断线附着能力 | 验证 app-server 重初始化行为；无法保留临时状态时明确恢复线程而非原进程状态。 |
-| 大输出与资源占用 | 验证 256 KiB 分片、8 MiB 上限、4 会话及 8 小时负载，必要时调整默认值。 |
-| 单所有者身份实现 | 首版自托管密钥；需要组织账户时另评估 OIDC/RBAC，不复用个人密钥。 |
-| 本地 SQLite API | C++ 使用 SQLite3 C API；保留旧表结构，验证已有数据、去重记录和重启行为。 |
-| 发布准入 | 固定 Codex 版本兼容报告、需求验收记录、故障恢复演练与安装/回滚文档齐备。 |
+| 事项                 | 初始决策 / 完成条件                                                          |
+| -------------------- | ---------------------------------------------------------------------------- |
+| 原生 CLI 最小 RPC 集 | M0 实测确定；不通过则记录缺口并重新评估 PTY 或简化 CLI，不能静默降级。       |
+| CLI 断线附着能力     | 验证 app-server 重初始化行为；无法保留临时状态时明确恢复线程而非原进程状态。 |
+| 大输出与资源占用     | 验证 256 KiB 分片、8 MiB 上限、4 会话及 8 小时负载，必要时调整默认值。       |
+| 单所有者身份实现     | 首版自托管密钥；需要组织账户时另评估 OIDC/RBAC，不复用个人密钥。             |
+| 本地 SQLite API      | C++ 使用 SQLite3 C API；保留旧表结构，验证已有数据、去重记录和重启行为。     |
+| 发布准入             | 固定 Codex 版本兼容报告、需求验收记录、故障恢复演练与安装/回滚文档齐备。     |

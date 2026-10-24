@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.2.1 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.3.0 开发预览版，完整目标和已验证范围见文档。
 
 ## 本机快速开始
 
@@ -14,34 +14,29 @@ npm run setup:local
 npm run dev
 ```
 
-打开 `http://127.0.0.1:8787`，点击“管理员登录”，使用 `.local/owner-secret` 中的本地所有者密钥。登录后生成一次性登录授权：验证码供 `coc login` 输入，链接供浏览器登录；5 分钟内二选一使用。开发秘密与状态目录已被 Git 忽略。
+打开 `http://127.0.0.1:8787`，点击“管理员登录”，输入 `.local/owner-secret`。以下登录命令显示配对码与授权地址；管理员在网页核对设备角色、名称、目标 A 后批准，程序自动领取长期有效、可撤销的专用凭证。
 
-在另一个终端登录并生成服务器登记码：
-
-```bash
-./build/coc login --relay http://127.0.0.1:8787
-./build/coc enroll build-server
-```
-
-使用登记码配置 Agent，`--project` 指向实际远程项目目录：
+A 自己完成登录与运行，无需安装客户端：
 
 ```bash
-./build/coc agent-enroll --relay http://127.0.0.1:8787 \
-  --config .local/agent.json --project /absolute/path/to/project \
-  --project-id my-project
-./build/coc-agent .local/agent.json
+./build/coc-agent login --relay http://127.0.0.1:8787 --name build-server \
+  --config .local/agent.json --project /absolute/path/to/project --project-id my-project
+./build/coc-agent run --config .local/agent.json
 ```
 
-Agent 在线后，在网页选择主机和项目、创建会话即可。CLI 入口：
+取得 A 标识后，CC 单独申请访问这个 A：
 
 ```bash
-./build/coc projects --host build-server
-./build/coc connect --host build-server --project my-project
-./build/coc sessions --host build-server
-./build/coc stop HOST_ID~SESSION_ID
+./build/coc-client login --relay http://127.0.0.1:8787 --host A_ID
+./build/coc-client projects
+./build/coc-client connect --project my-project
+./build/coc-client sessions
+./build/coc-client stop A_ID~SESSION_ID
 ```
 
-`login` 与设备登记交互式输入秘密，不通过命令参数传递。服务端必须先以 Agent 的运行用户完成 Codex 配置，并确认 `codex` 能正常使用。
+网页 CW 在“连接指定 A”填写 A 标识、申请并等待管理员批准。CC / CW 均可保存多份 A 授权并切换，凭证按角色和 A 隔离。管理身份单独认证，不直接控制 Codex 会话。设备凭证没有固定到期时间，直到 R 撤销；本地删除凭证不等于撤销。
+
+仅提供 `coc-agent` / `coc-client` 两个程序，移除旧 `coc`。0.2.x 凭证不再接受，升级需重新授权；配置、systemd 与操作步骤见 [用户手册](docs/USER_GUIDE.md)。服务器必须先以 Agent 用户完成 Codex 配置。
 
 ## 验证
 

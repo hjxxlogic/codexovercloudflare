@@ -70,7 +70,7 @@ export class Agent {
     );
     this.child = spawn(
       resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
-      [file],
+      ['run', '--config', file],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     this.child.stdout?.resume();

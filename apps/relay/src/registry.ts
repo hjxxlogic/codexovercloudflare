@@ -11,14 +11,14 @@ import {
   type Env,
 } from './common.ts';
 
-type Host = { id: string; name: string; disabled: boolean };
+type Host = { id: string; name: string; disabled: boolean; version: 2 };
 export class RegistryDO extends DurableObject<Env> {
   async fetch(req: Request) {
     try {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
         s = this.ctx.storage;
-      if (op === 'login' || op === 'loginCodeRedeem') {
+      if (op === 'login' || op === 'deviceStart') {
         if (!this.env.OWNER_SECRET || this.env.OWNER_SECRET.length < 32)
           throw new AppError(
             'NOT_CONFIGURED',
@@ -38,41 +38,179 @@ export class RegistryDO extends DurableObject<Env> {
         await s.put(key, attempts);
         await this.schedule();
       }
-      if (op === 'loginCodeCreate') {
-        const code = crypto.randomUUID().replaceAll('-', '').toUpperCase(),
-          expires = Date.now() + 5 * 60000;
-        await s.put('loginCode:' + (await digest(code)), { expires });
-        await this.schedule();
-        return json({ code, expires });
-      }
-      if (op === 'loginCodeRedeem') {
-        const code = z
-            .string()
-            .min(1)
-            .max(100)
-            .parse(d.code)
-            .trim()
-            .toUpperCase(),
-          key = 'loginCode:' + (await digest(code)),
-          value = token(),
-          hash = await digest(value),
-          expires = Date.now() + 8 * 3600000;
-        await s.transaction(async (tx) => {
-          const grant = await tx.get<{ expires: number }>(key);
-          if (!grant || grant.expires <= Date.now())
+      if (op === 'deviceStart') {
+        const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
+        const name = z.string().trim().min(1).max(100).parse(d.name);
+        const hostId =
+          role === 'agent' ? crypto.randomUUID() : idSchema.parse(d.hostId);
+        if (role !== 'agent') {
+          const host = await s.get<Host>('host:' + hostId);
+          if (!host || host.version !== 2 || host.disabled)
             throw new AppError(
-              'UNAUTHORIZED',
-              'Invalid or expired login code',
-              401,
+              'HOST_NOT_FOUND',
+              'Unknown or disabled host',
+              404,
             );
-          await tx.delete(key);
-          await tx.put('auth:' + hash, {
-            hash,
-            role: 'client',
-            expires,
-          } satisfies Auth);
+        }
+        if ((await s.list({ prefix: 'device:' })).size >= 200)
+          throw new AppError('CAPACITY', 'Too many pending requests', 429);
+        const id = crypto.randomUUID(),
+          pollSecret = token();
+        const request = {
+          id,
+          role,
+          name,
+          hostId,
+          code: id.slice(0, 8).toUpperCase(),
+          pollHash: await digest(pollSecret),
+          expires: Date.now() + 5 * 60000,
+          state: 'pending',
+        };
+        await s.put('device:' + id, request);
+        await this.schedule();
+        return json({
+          id,
+          pollSecret,
+          code: request.code,
+          expires: request.expires,
+          hostId,
+          url: '/#authorize=' + id,
         });
-        return json({ token: value, expires });
+      }
+      if (op === 'devices') {
+        const pending = Array.from(
+          (await s.list<any>({ prefix: 'device:' })).values(),
+        )
+          .filter((v) => v.expires > Date.now() && v.state === 'pending')
+          .map(({ id, role, name, hostId, code, expires }) => ({
+            id,
+            role,
+            name,
+            hostId,
+            code,
+            expires,
+          }));
+        const credentials = Array.from(
+          (await s.list<Auth>({ prefix: 'auth:' })).values(),
+        )
+          .filter((v) => v.version === 2 && v.role !== 'owner')
+          .map(({ hash, role, name, hostId, created }) => ({
+            id: hash,
+            role,
+            name,
+            hostId,
+            created,
+          }));
+        return json({ pending, credentials });
+      }
+      if (op === 'deviceApprove' || op === 'deviceReject') {
+        const key = 'device:' + idSchema.parse(d.id);
+        await s.transaction(async (tx) => {
+          const request = await tx.get<any>(key);
+          if (
+            !request ||
+            request.expires <= Date.now() ||
+            request.state !== 'pending'
+          )
+            throw new AppError(
+              'INVALID_REQUEST',
+              'Request expired or already handled',
+              409,
+            );
+          if (op === 'deviceReject') request.state = 'rejected';
+          else {
+            if (request.role === 'agent') {
+              if (
+                Array.from(
+                  (await tx.list<Host>({ prefix: 'host:' })).values(),
+                ).filter((h) => h.version === 2 && !h.disabled).length >= 5
+              )
+                throw new AppError(
+                  'CAPACITY',
+                  'At most five registered hosts',
+                  409,
+                );
+              await tx.put('host:' + request.hostId, {
+                id: request.hostId,
+                name: request.name,
+                disabled: false,
+                version: 2,
+              });
+            } else {
+              const host = await tx.get<Host>('host:' + request.hostId);
+              if (!host || host.version !== 2 || host.disabled)
+                throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+            }
+            const value = token(),
+              hash = await digest(value);
+            await tx.put('auth:' + hash, {
+              hash,
+              version: 2,
+              role: request.role,
+              name: request.name,
+              hostId: request.hostId,
+              created: Date.now(),
+              expires: Number.MAX_SAFE_INTEGER,
+            } satisfies Auth);
+            request.state = 'approved';
+            request.result = {
+              token: value,
+              hostId: request.hostId,
+              name: request.name,
+              role: request.role,
+            };
+          }
+          await tx.put(key, request);
+        });
+        return json({ ok: true });
+      }
+      if (op === 'devicePoll') {
+        const key = 'device:' + idSchema.parse(d.id);
+        const hash = await digest(z.string().max(500).parse(d.pollSecret));
+        return json(
+          await s.transaction(async (tx) => {
+            const request = await tx.get<any>(key);
+            if (
+              !request ||
+              request.expires <= Date.now() ||
+              request.pollHash !== hash
+            )
+              throw new AppError(
+                'UNAUTHORIZED',
+                'Invalid or expired login request',
+                401,
+              );
+            if (d.web !== (request.role === 'web'))
+              throw new AppError('FORBIDDEN', 'Wrong login transport', 403);
+            if (request.state === 'pending') return { state: 'pending' };
+            await tx.delete(key);
+            if (request.state === 'rejected') return { state: 'rejected' };
+            const auth = await tx.get<Auth>(
+              'auth:' + (await digest(request.result.token)),
+            );
+            const host = await tx.get<Host>('host:' + request.hostId);
+            if (!auth || !host || host.version !== 2 || host.disabled)
+              throw new AppError('UNAUTHORIZED', 'Authorization revoked', 401);
+            return { state: 'approved', ...request.result };
+          }),
+        );
+      }
+      if (op === 'credentialRevoke') {
+        const hash = z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .parse(d.id);
+        const auth = await s.get<Auth>('auth:' + hash);
+        if (!auth || auth.role === 'owner')
+          throw new AppError('NOT_FOUND', 'Unknown device credential', 404);
+        await s.delete('auth:' + hash);
+        if (auth.role === 'agent') {
+          const host = await s.get<Host>('host:' + auth.hostId);
+          if (host) await s.put('host:' + host.id, { ...host, disabled: true });
+          for (const [key, value] of await s.list<Auth>({ prefix: 'auth:' }))
+            if (value.hostId === auth.hostId) await s.delete(key);
+        }
+        return json(auth);
       }
       if (op === 'login') {
         if (
@@ -86,6 +224,9 @@ export class RegistryDO extends DurableObject<Env> {
         await s.put('auth:' + hash, {
           hash,
           role: 'owner',
+          version: 2,
+          name: 'Administrator',
+          created: Date.now(),
           expires,
         } satisfies Auth);
         return json({ token: value, expires });
@@ -96,7 +237,7 @@ export class RegistryDO extends DurableObject<Env> {
             ? await digest(z.string().max(500).parse(d.token))
             : z.string().parse(d.hash);
         const a = await s.get<Auth>('auth:' + hash);
-        if (!a || a.expires <= Date.now())
+        if (!a || a.version !== 2 || a.expires <= Date.now())
           throw new AppError(
             'UNAUTHORIZED',
             'Expired or invalid credentials',
@@ -104,7 +245,7 @@ export class RegistryDO extends DurableObject<Env> {
           );
         if (a.hostId) {
           const h = await s.get<Host>('host:' + a.hostId);
-          if (!h || h.disabled)
+          if (!h || h.version !== 2 || h.disabled)
             throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
         }
         return json(a);
@@ -113,64 +254,15 @@ export class RegistryDO extends DurableObject<Env> {
         await s.delete('auth:' + d.hash);
         return json({ ok: true });
       }
-      if (op === 'enroll') {
-        const name = z.string().min(1).max(100).parse(d.name),
-          code = token(),
-          id = crypto.randomUUID();
-        if ((await s.list({ prefix: 'host:' })).size >= 5)
-          throw new AppError('CAPACITY', 'At most five registered hosts', 409);
-        await s.put('enroll:' + (await digest(code)), {
-          id,
-          name,
-          expires: Date.now() + 5 * 60000,
-        });
-        await this.schedule();
-        return json({ code, hostId: id, expiresIn: 300 });
-      }
-      if (op === 'redeem') {
-        const key =
-          'enroll:' + (await digest(z.string().max(500).parse(d.code)));
-        // Transaction makes enrollment one-use even when two requests interleave.
-        const e: any = await s.transaction(async (tx) => {
-          const value: any = await tx.get(key);
-          if (!value || value.expires < Date.now())
-            throw new AppError('UNAUTHORIZED', 'Invalid enrollment code', 401);
-          if ((await tx.list({ prefix: 'host:' })).size >= 5)
-            throw new AppError('CAPACITY', 'Host capacity reached', 409);
-          await tx.delete(key);
-          await tx.put('host:' + value.id, {
-            id: value.id,
-            name: value.name,
-            disabled: false,
-          });
-          return value;
-        });
-        const value = token(),
-          hash = await digest(value);
-        await s.put('auth:' + hash, {
-          hash,
-          role: 'agent',
-          hostId: e.id,
-          expires: Date.now() + 365 * 86400000,
-        } satisfies Auth);
-        return json({ token: value, hostId: e.id, name: e.name });
-      }
       if (op === 'hosts')
         return json(
           Array.from((await s.list<Host>({ prefix: 'host:' })).values()),
         );
       if (op === 'host') {
         const h = await s.get<Host>('host:' + idSchema.parse(d.id));
-        if (!h || h.disabled)
+        if (!h || h.version !== 2 || h.disabled)
           throw new AppError('HOST_NOT_FOUND', 'Unknown or disabled host', 404);
         return json(h);
-      }
-      if (op === 'revoke') {
-        const key = 'host:' + idSchema.parse(d.id),
-          h = await s.get<Host>(key);
-        if (!h) throw new AppError('HOST_NOT_FOUND', 'Unknown host', 404);
-        await s.put(key, { ...h, disabled: true });
-        return json({ ok: true });
       }
       throw new AppError('NOT_FOUND', 'Unknown operation', 404);
     } catch (e) {
@@ -183,11 +275,29 @@ export class RegistryDO extends DurableObject<Env> {
   }
   async alarm() {
     let remaining = false;
-    for (const prefix of ['auth:', 'enroll:', 'loginCode:', 'limit:']) {
-      for (const [k, v] of await this.ctx.storage.list<any>({ prefix }))
-        if ((v.expires ?? v.until) < Date.now())
-          await this.ctx.storage.delete(k);
-        else remaining = true;
+    for (const prefix of ['device:', 'limit:', 'auth:']) {
+      for (const key of (await this.ctx.storage.list<any>({ prefix })).keys()) {
+        await this.ctx.storage.transaction(async (tx) => {
+          const value = await tx.get<any>(key);
+          if (!value) return;
+          if ((value.expires ?? value.until) <= Date.now()) {
+            if (value.result) {
+              await tx.delete('auth:' + (await digest(value.result.token)));
+              if (value.role === 'agent') {
+                const host = await tx.get<Host>('host:' + value.hostId);
+                if (host)
+                  await tx.put('host:' + host.id, { ...host, disabled: true });
+                for (const [authKey, auth] of await tx.list<Auth>({
+                  prefix: 'auth:',
+                }))
+                  if (auth.hostId === value.hostId) await tx.delete(authKey);
+              }
+            }
+            await tx.delete(key);
+          } else if (prefix !== 'auth:' || value.role === 'owner')
+            remaining = true;
+        });
+      }
     }
     if (remaining) await this.ctx.storage.setAlarm(Date.now() + 60000);
   }

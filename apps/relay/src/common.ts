@@ -11,9 +11,12 @@ export interface Env {
 }
 export type Auth = {
   hash: string;
-  role: 'owner' | 'client' | 'agent';
+  role: 'owner' | 'cli' | 'web' | 'agent';
   hostId?: string;
   expires: number;
+  version: 2;
+  name: string;
+  created: number;
 };
 export const json = (
   data: unknown,

@@ -50,9 +50,11 @@ worker.stdout.on('data', (d) => {
 worker.stderr.on('data', (d) => {
   logs += d;
 });
-let token = '',
+let adminToken = '',
+  token = '',
   cookie = '',
   agent: Agent | undefined,
+  otherAgent: Agent | undefined,
   browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const sockets: WebSocket[] = [];
 async function wait(
@@ -70,13 +72,24 @@ async function wait(
 async function request(
   path: string,
   data?: unknown,
-  options: { anonymous?: boolean; key?: string; origin?: string } = {},
+  options: {
+    anonymous?: boolean;
+    key?: string;
+    origin?: string;
+    admin?: boolean;
+    cookie?: string;
+  } = {},
 ) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Origin: options.origin || origin,
   };
-  if (!options.anonymous) headers.Authorization = 'Bearer ' + token;
+  if (options.admin) headers.Authorization = 'Bearer ' + adminToken;
+  else if (!options.anonymous) {
+    if (token) headers.Authorization = 'Bearer ' + token;
+    else if (cookie) headers.Cookie = cookie;
+  }
+  if (options.cookie) headers.Cookie = options.cookie;
   if (data !== undefined)
     headers['Idempotency-Key'] = options.key || randomUUID();
   const r = await fetch(origin + '/api/v1' + path, {
@@ -121,22 +134,30 @@ async function cliCommand(
   args: string[],
   input = '',
   env: NodeJS.ProcessEnv = {},
+  binary = process.env.COC_CLI_BINARY || 'build/coc-client',
 ) {
-  const child = spawn(
-    resolve(process.env.COC_CLI_BINARY || 'build/coc'),
-    args,
-    {
-      env: {
-        ...process.env,
-        COC_CREDENTIALS: join(dir, 'credentials.json'),
-        ...env,
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
+  const child = spawn(resolve(binary), args, {
+    env: {
+      ...process.env,
+      COC_CREDENTIALS: join(dir, 'credentials.json'),
+      ...env,
     },
-  );
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   let stdout = '',
     stderr = '';
-  child.stdout.on('data', (d) => (stdout += d));
+  let approving = false;
+  child.stdout.on('data', (d) => {
+    stdout += d;
+    const id = stdout.match(/#authorize=([\w-]+)/)?.[1];
+    if (id && !approving) {
+      approving = true;
+      void api('/admin/approve', { id }, { admin: true }).catch((e) => {
+        stderr += String(e);
+        child.kill();
+      });
+    }
+  });
   child.stderr.on('data', (d) => (stderr += d));
   child.stdin.end(input);
   await new Promise<void>((r, j) => {
@@ -184,93 +205,112 @@ try {
     { anonymous: true },
   );
   assert.equal(login.r.status, 200);
-  token = login.b.token;
-  cookie = login.r.headers.get('set-cookie')!.split(';')[0];
+  adminToken = login.b.token;
+  assert.equal((await request('/admin/devices')).r.status, 401);
   assert.equal(
     (
       await request(
-        '/hosts/enrollments',
-        { name: 'bad' },
-        { origin: 'https://evil.example' },
+        '/admin/approve',
+        { id: 'invalid' },
+        { admin: true, origin: 'https://evil.example' },
       )
     ).r.status,
     403,
   );
-  pass('login, unauthorized access and cross-origin rejection');
   assert.equal(
-    (await request('/auth/codes', {}, { anonymous: true })).r.status,
-    401,
+    (await request('/hosts', undefined, { admin: true })).r.status,
+    403,
   );
-  const cliGrant = await api('/auth/codes', {});
-  assert.ok(
-    cliGrant.expires > Date.now() && cliGrant.expires <= Date.now() + 300000,
-  );
-  assert.equal(cliGrant.url, '/#login=' + cliGrant.code);
-  await cliCommand(['login', '--relay', origin], cliGrant.code + '\n');
-  assert.equal(
-    (
-      await request(
-        '/auth/redeem',
-        { code: cliGrant.code, kind: 'cli' },
-        { anonymous: true },
-      )
-    ).r.status,
-    401,
-  );
-  const clientCredentials = JSON.parse(
-    readFileSync(join(dir, 'credentials.json'), 'utf8'),
-  );
-  const forbidden = await fetch(origin + '/api/v1/auth/codes', {
-    method: 'POST',
-    headers: {
-      Authorization: 'Bearer ' + clientCredentials.token,
-      'Content-Type': 'application/json',
-    },
-    body: '{}',
-  });
-  assert.equal(forbidden.status, 403);
-  const raceGrant = await api('/auth/codes', {});
-  const race = await Promise.all(
-    ['cli', 'web'].map((kind) =>
-      request(
-        '/auth/redeem',
-        { code: raceGrant.code, kind },
-        { anonymous: true },
-      ),
-    ),
-  );
-  assert.deepEqual(race.map(({ r }) => r.status).sort(), [200, 401]);
-  pass(
-    'one-time login, atomic CLI/browser redemption and administrator-only generation',
-  );
-  assert.equal(statSync(join(dir, 'credentials.json')).mode & 0o777, 0o600);
-  const e = JSON.parse(await cliCommand(['enroll', 'local-test']));
   const configFile = join(dir, 'enrolled.json');
   await cliCommand(
     [
-      'agent-enroll',
+      'login',
       '--relay',
       origin,
       '--config',
       configFile,
+      '--name',
+      'local-test',
       '--project',
       dir,
       '--project-id',
       'test-project',
     ],
-    e.code + '\n',
+    '',
+    {},
+    process.env.COC_AGENT_BINARY || 'build/coc-agent',
   );
   const config = JSON.parse(readFileSync(configFile, 'utf8'));
   const enrolled = { hostId: config.hostId, token: config.token };
   assert.equal(statSync(configFile).mode & 0o777, 0o600);
+  await cliCommand(['login', '--relay', origin, '--host', enrolled.hostId]);
+  const clientCredentials = JSON.parse(
+    readFileSync(join(dir, 'credentials.json'), 'utf8'),
+  ).entries[0];
+  assert.equal(statSync(join(dir, 'credentials.json')).mode & 0o777, 0o600);
+  token = clientCredentials.token;
+  assert.equal((await request('/admin/devices')).r.status, 403);
+  assert.equal((await request('/agent/status')).r.status, 403);
+  assert.equal((await request('/auth/codes', {})).r.status, 404);
+  assert.equal((await request('/agent/enroll', { code: 'old' })).r.status, 404);
   assert.equal(JSON.parse(await cliCommand(['hosts']))[0].id, enrolled.hostId);
-  pass('C++ CLI login, enrollment, private configuration and host query');
+  const otherStart = await api(
+    '/auth/device/start',
+    { role: 'agent', name: 'other-agent' },
+    { anonymous: true },
+  );
+  await api('/admin/approve', { id: otherStart.id }, { admin: true });
+  const other = await api(
+    '/auth/device/poll',
+    { id: otherStart.id, pollSecret: otherStart.pollSecret },
+    { anonymous: true },
+  );
   assert.equal(
-    (await request('/agent/enroll', { code: e.code }, { anonymous: true })).r
-      .status,
+    (await request('/hosts/' + other.hostId + '/projects')).r.status,
+    403,
+  );
+  assert.equal(
+    (await request('/sessions?hostId=' + other.hostId)).r.status,
+    403,
+  );
+  await cliCommand(['login', '--relay', origin, '--host', other.hostId]);
+  assert.equal(
+    JSON.parse(readFileSync(join(dir, 'credentials.json'), 'utf8')).entries
+      .length,
+    2,
+  );
+  await cliCommand(['use', '--host', enrolled.hostId]);
+  const webStart = await request(
+    '/auth/device/start',
+    { role: 'web', name: 'API web', hostId: enrolled.hostId },
+    { anonymous: true },
+  );
+  assert.equal(webStart.b.pollSecret, undefined);
+  const pendingCookie = webStart.r.headers.get('set-cookie')!.split(';')[0];
+  await api('/admin/approve', { id: webStart.b.id }, { admin: true });
+  const redeemed = await request(
+    '/auth/device/poll',
+    { id: webStart.b.id },
+    { anonymous: true, cookie: pendingCookie },
+  );
+  assert.equal(redeemed.r.status, 200);
+  assert.equal(redeemed.b.token, undefined);
+  cookie = redeemed.r.headers.get('set-cookie')!.split(';')[0];
+  assert(redeemed.r.headers.get('set-cookie')!.includes('HttpOnly'));
+  assert.equal(
+    (
+      await request(
+        '/auth/device/poll',
+        { id: webStart.b.id },
+        { anonymous: true, cookie: pendingCookie },
+      )
+    ).r.status,
     401,
   );
-  pass('one-use device enrollment');
+  token = '';
+  pass(
+    'native A/CC unified login, scoped credentials, administrator isolation, multi-A store and one-use CW delivery',
+  );
   agent = new Agent({
     relayUrl: origin,
     hostId: enrolled.hostId,
@@ -283,6 +323,23 @@ try {
   });
   agent.start();
   await wait(async () => (await api('/hosts'))[0].online, 'Agent online');
+  otherAgent = new Agent({
+    relayUrl: origin,
+    hostId: other.hostId,
+    token: other.token,
+    codexPath: process.execPath,
+    codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
+    sandbox: 'workspace-write',
+    dataDir: join(dir, 'other-agent'),
+    projects: [{ id: 'other-project', name: 'Other project', path: dir }],
+  });
+  otherAgent.start();
+  await wait(
+    async () =>
+      JSON.parse(await cliCommand(['status', '--host', other.hostId]))[0]
+        .online,
+    'other Agent online',
+  );
   assert.equal(
     JSON.parse(await cliCommand(['projects', '--host', 'local-test']))[0].id,
     'test-project',
@@ -407,6 +464,7 @@ try {
   );
   pass('connection ticket cannot be reused');
   await api(`/sessions/${s.id}/stop`, {});
+  token = clientCredentials.token;
   const cli = await api('/sessions', {
     hostId: enrolled.hostId,
     projectId: 'test-project',
@@ -480,84 +538,169 @@ try {
   await page.getByRole('button', { name: '管理员登录', exact: true }).click();
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
-  await page
-    .getByRole('button', { name: '生成一次性登录授权', exact: true })
-    .click();
-  await wait(
-    async () => !!(await page.getByLabel('浏览器登录链接').inputValue()),
-    'browser login link',
-  );
-  const loginLink = await page.getByLabel('浏览器登录链接').inputValue();
-  const webGrantCode = await page.getByLabel('coc 一次性验证码').inputValue();
+  await page.getByRole('heading', { name: '设备授权管理' }).waitFor();
   const visitor = await browser.newContext();
   const visitorPage = await visitor.newPage();
-  await visitorPage.goto(loginLink);
-  await visitorPage.getByLabel('一次性验证码').waitFor();
-  assert.equal(
-    await visitorPage.getByLabel('一次性验证码').inputValue(),
-    webGrantCode,
-  );
-  assert.equal(visitorPage.url(), origin + '/');
-  await visitorPage.getByRole('button', { name: '登录', exact: true }).click();
+  await visitorPage.goto(origin);
+  await visitorPage.getByLabel('A 标识').fill(enrolled.hostId);
+  await visitorPage
+    .getByRole('button', { name: '申请登录', exact: true })
+    .click();
+  const pending = await visitorPage.locator('strong').innerText();
+  await page
+    .getByRole('button', { name: '批准 ' + pending, exact: true })
+    .click();
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
-    await visitorPage.getByRole('heading', { name: '客户端登录授权' }).count(),
+    await visitorPage.getByRole('heading', { name: '设备授权管理' }).count(),
     0,
   );
+  const browserCookies = await visitor.cookies();
+  const webCookie = browserCookies.find(
+    (c) => c.name === 'coc_web_' + enrolled.hostId,
+  )!;
+  assert(webCookie.httpOnly);
+  assert(webCookie.expires * 1000 > Date.now() + 300 * 86400000);
+  // Save another A credential in the same browser, then switch back to the online A.
+  await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
+  await visitorPage.getByLabel('A 标识').fill(other.hostId);
+  await visitorPage
+    .getByRole('button', { name: '申请登录', exact: true })
+    .click();
+  const secondCode = await visitorPage.locator('strong').innerText();
+  await page
+    .getByRole('button', { name: '批准 ' + secondCode, exact: true })
+    .click();
+  await wait(
+    async () =>
+      (await visitor.cookies()).filter((c) => c.name.startsWith('coc_web_'))
+        .length === 2,
+    'two browser credentials',
+  );
+  await visitorPage.reload();
+  await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
-    (
-      await request(
-        '/auth/redeem',
-        { code: webGrantCode, kind: 'cli' },
-        { anonymous: true },
-      )
-    ).r.status,
-    401,
+    await visitorPage.getByLabel('主机').locator('option').count(),
+    3,
   );
   await visitorPage.screenshot({
     path: process.env.COC_LOGIN_SCREENSHOT_PATH || join(dir, 'login-link.png'),
     fullPage: true,
   });
-  await visitor.close();
+
   pass(
-    'administrator generates link, browser confirms login, fragment removed and code cannot be reused',
+    'administrator approves browser requests; two scoped persistent cookies survive reload',
   );
-  await page.getByLabel('主机').selectOption(enrolled.hostId);
-  await page.getByRole('button', { name: '创建网页会话' }).click();
-  await page.getByText(/已连接 · 空闲/).waitFor();
-  await page.getByLabel('任务内容').fill('browser hello');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
-  await page.getByText('echo: browser hello', { exact: true }).waitFor();
-  await page.getByText(/已连接 · 空闲/).waitFor();
-  await page.getByLabel('任务内容').fill('hello 你好，世界！');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
-  await page.getByText('echo: hello 你好，世界！', { exact: true }).waitFor();
-  await page.getByText(/已连接 · 空闲/).waitFor();
-  const browserSession = await page.locator('.conversation .id').innerText();
-  await page.reload();
-  await page.getByLabel('主机').selectOption(enrolled.hostId);
-  await page
+  // Different tabs select their own host cookie; the selected identity is not global.
+  const otherPage = await visitor.newPage();
+  await otherPage.goto(origin);
+  await otherPage.getByLabel('主机').selectOption(other.hostId);
+  await wait(
+    async () =>
+      (await otherPage.getByLabel('项目').inputValue()) === 'other-project',
+    'other A project selection',
+  );
+  await otherPage.getByRole('button', { name: '创建网页会话' }).click();
+  await otherPage.getByText(/已连接 · 空闲/).waitFor();
+  await otherPage.getByLabel('任务内容').fill('other host');
+  await otherPage.getByRole('button', { name: '发送', exact: true }).click();
+  await otherPage.getByText('echo: other host', { exact: true }).waitFor();
+  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
+  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await visitorPage.getByLabel('任务内容').fill('browser hello');
+  await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
+  await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await visitorPage
+    .getByText('echo: hello 你好，世界！', { exact: true })
+    .waitFor();
+  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
+  const browserSession = await visitorPage
+    .locator('.conversation .id')
+    .innerText();
+  await visitorPage.reload();
+  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await visitorPage
     .getByRole('button', {
       name: browserSession.split('~')[1].slice(0, 8) + ' · web · ready',
       exact: true,
     })
     .click();
-  await page.getByText('echo: browser hello', { exact: true }).waitFor();
-  await page.getByText('echo: hello 你好，世界！', { exact: true }).waitFor();
-  await page.getByText(/已连接 · 空闲/).waitFor();
+  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage
+    .getByText('echo: hello 你好，世界！', { exact: true })
+    .waitFor();
+  await visitorPage.getByText(/已连接 · 空闲/).waitFor();
   pass(
     'character-by-character English/Chinese streaming and ordered history after browser reload',
   );
-  await page.screenshot({
+  await visitorPage.screenshot({
     path: process.env.COC_SCREENSHOT_PATH || join(dir, 'browser.png'),
     fullPage: true,
   });
   pass(
     'browser cookie login, project selection, task submission and streaming',
   );
+  // Revoke the active visitor CW grant while preserving its other A cookie.
+  const visitorGrant = (
+    await api('/admin/devices', undefined, { admin: true })
+  ).credentials.find(
+    (c: any) =>
+      c.role === 'web' &&
+      c.name === '网页客户端' &&
+      c.hostId === enrolled.hostId,
+  );
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page
+    .locator('.card')
+    .filter({
+      has: page.getByRole('button', { name: '撤销 网页客户端', exact: true }),
+    })
+    .filter({ hasText: enrolled.hostId })
+    .last()
+    .getByRole('button', { name: '撤销 网页客户端', exact: true })
+    .click();
+  await wait(
+    async () => (await visitorPage.getByText(/登录已过期或被撤销/).count()) > 0,
+    'CW revocation closes live connection',
+  );
+  await visitorPage.reload();
+  await visitorPage.getByLabel('主机').waitFor();
+  assert.equal(
+    await visitorPage.getByLabel('主机').locator('option').count(),
+    2,
+  );
+  assert.equal(
+    (await api('/admin/devices', undefined, { admin: true })).credentials.some(
+      (c: any) => c.id === visitorGrant.id,
+    ),
+    false,
+  );
+  pass(
+    'administrator UI revokes active CW without removing another A authorization',
+  );
+  await otherPage.getByText(/已连接 · 空闲/).waitFor();
+  await otherPage.getByLabel('任务内容').fill('still authorized');
+  await otherPage.getByRole('button', { name: '发送', exact: true }).click();
+  await otherPage
+    .getByText('echo: still authorized', { exact: true })
+    .waitFor();
+  assert.equal(
+    await visitorPage
+      .getByText('echo: still authorized', { exact: true })
+      .count(),
+    0,
+  );
+  pass(
+    'two tabs independently control two A servers and retain the other authorization after revocation',
+  );
   await browser.close();
   browser = undefined;
   // Detach and reconnect Agent transport, without restarting its runtimes.
+  token = '';
   const reconnectSession = (
     await api('/sessions?hostId=' + enrolled.hostId)
   ).find((x: any) => x.mode === 'web' && x.state === 'ready');
@@ -580,13 +723,45 @@ try {
     'restored web session',
   );
   pass('Agent network reconnect preserves runtime and web history');
-  await cliCommand(['revoke', '--host', 'local-test']);
+  const credentials = (await api('/admin/devices', undefined, { admin: true }))
+    .credentials;
+  const cc = credentials.find(
+    (c: any) => c.id && c.role === 'cli' && c.hostId === enrolled.hostId,
+  );
+  token = clientCredentials.token;
+  const activeCli = await api('/sessions', {
+    hostId: enrolled.hostId,
+    projectId: 'test-project',
+    mode: 'cli',
+  });
+  const activeTicket = await api(`/sessions/${activeCli.id}/attach`, {});
+  const activePeer = peer('/ws/v1/cli/' + activeCli.id, activeTicket.ticket);
+  await new Promise<void>((resolve, reject) => {
+    activePeer.ws.once('open', resolve);
+    activePeer.ws.once('error', reject);
+  });
+  await api('/admin/revoke', { id: cc.id }, { admin: true });
+  await wait(
+    () => activePeer.ws.readyState === WebSocket.CLOSED,
+    'CC revocation closes live connection',
+  );
+  assert.equal(restored.ws.readyState, WebSocket.OPEN);
+
+  token = clientCredentials.token;
+  assert.equal((await request('/hosts')).r.status, 401);
+  token = '';
+  const a = credentials.find(
+    (c: any) => c.role === 'agent' && c.hostId === enrolled.hostId,
+  );
+  await api('/admin/revoke', { id: a.id }, { admin: true });
   await wait(
     () => restored.ws.readyState === WebSocket.CLOSED,
     'revoked client closes',
   );
-  assert.equal((await api('/hosts'))[0].online, false);
-  pass('C++ CLI revocation closes active connections');
+  assert.equal((await request('/hosts')).r.status, 401);
+  pass(
+    'R revocation rejects CC credentials and A revocation closes active connections',
+  );
   await cliCommand(['logout']);
   console.log(
     'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
@@ -598,6 +773,7 @@ try {
   for (const s of sockets) s.terminate();
   if (browser) await browser.close();
   if (agent && !agent.stopped) await agent.close();
+  if (otherAgent && !otherAgent.stopped) await otherAgent.close();
   try {
     process.kill(-worker.pid!, 'SIGTERM');
   } catch {

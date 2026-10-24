@@ -86,12 +86,19 @@ export class HostRelayDO extends DurableObject<Env> {
       const u = new URL(req.url),
         s = this.ctx.storage;
       if (u.pathname === '/status') return json({ online: !!this.agent() });
-      if (u.pathname === '/revoke') {
+      if (u.pathname === '/revoke-auth') {
+        const d = await body(req);
         for (const ws of this.ctx.getWebSockets())
-          ws.close(4001, 'Device revoked');
+          if (
+            d.agent ||
+            (ws.deserializeAttachment() as Attachment).auth.hash === d.hash
+          )
+            ws.close(4001, 'Device revoked');
         return json({ ok: true });
       }
-      const auth: Auth = JSON.parse(req.headers.get('x-auth') || '{}');
+      const auth: Auth = JSON.parse(
+        decodeURIComponent(req.headers.get('x-auth') || '%7B%7D'),
+      );
       const hostId = req.headers.get('x-host')!;
       if (u.pathname === '/agent')
         return await this.upgrade(req, {
@@ -106,6 +113,12 @@ export class HostRelayDO extends DurableObject<Env> {
         const d = await body(req),
           sessionId = z.string().parse(d.sessionId);
         const info = await this.command('get', { sessionId });
+        if (info.mode !== auth.role)
+          throw new AppError(
+            'FORBIDDEN',
+            'Wrong credential for session mode',
+            403,
+          );
         if (info.state !== 'ready')
           throw new AppError('SESSION_CLOSED', 'Session is not active', 409);
         const active = this.ctx
@@ -142,6 +155,8 @@ export class HostRelayDO extends DurableObject<Env> {
         const a: Auth = await registryCall(this.env, 'authHash', {
           hash: t.hash,
         });
+        if (a.role !== 'cli' || a.hostId !== hostId)
+          throw new AppError('FORBIDDEN', 'Wrong CLI credential', 403);
         const epoch = await this.acquire(sessionId, t.takeover);
         return await this.upgrade(req, {
           role: 'cli',
@@ -165,6 +180,17 @@ export class HostRelayDO extends DurableObject<Env> {
         });
       if (u.pathname === '/control') {
         const d = await body(req);
+        if (d.action === 'stop') {
+          const info = await this.command('get', {
+            sessionId: d.data.sessionId,
+          });
+          if (info.mode !== auth.role)
+            throw new AppError(
+              'FORBIDDEN',
+              'Wrong credential for session mode',
+              403,
+            );
+        }
         const result = await this.command(d.action, d.data);
         return json(result);
       }
@@ -299,6 +325,12 @@ export class HostRelayDO extends DurableObject<Env> {
           )) {
             const ca = client.deserializeAttachment() as Attachment;
             if (!ca.authenticated || ca.epoch !== d.epoch) continue;
+            try {
+              await registryCall(this.env, 'authHash', { hash: ca.auth.hash });
+            } catch {
+              client.close(4001, 'Authorization revoked');
+              continue;
+            }
             if (d.type === 'rpc' && ca.role === 'cli')
               this.send(client, d.payload);
             if (d.type !== 'rpc' && ca.role === 'web')
