@@ -8,6 +8,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import sys
+
+sys.dont_write_bytecode = True
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', default='build')

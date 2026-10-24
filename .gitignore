@@ -12,3 +12,4 @@ test-results/
 
 build/
 build-*/
+__pycache__/
