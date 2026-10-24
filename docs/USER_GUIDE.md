@@ -13,6 +13,8 @@
 
 项目文件和执行命令都在**远程服务器**。本机目录不会自动上传，远程变更不会自动下载。服务器仅需出站 HTTPS/WSS，无需公网 IP 或入站端口。
 
+在线 Markdown 用户手册以 UTF-8 纯文本提供，可直接在浏览器阅读；也可下载后用支持 UTF-8 的编辑器打开。
+
 ## 2. 安装与准备
 
 Agent 和 CLI 为 C++ 原生程序。发布包下载入口：[https://r.xlogic.cc/downloads/](https://r.xlogic.cc/downloads/)。目前提供 Ubuntu 20.04 和 Debian 12 的 Linux x86_64 包，以及源码包；按发行版选择，并用 `sha256sum -c SHA256SUMS --ignore-missing` 校验。

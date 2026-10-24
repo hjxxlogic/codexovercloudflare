@@ -20,6 +20,8 @@ docker run --rm --init -v "$PWD:/workspace" coc-local-test sh -c \
 python3 scripts/package-release.py --build-dir .local/build-container --platform debian12
 ```
 
+`apps/web/public/_headers` 会随 Vite 构建复制到静态资源目录；其中 `/downloads/*.md` 必须返回 `Content-Type: text/plain; charset=utf-8`，避免浏览器按错误字符集解码中文。
+
 发布文件写入被忽略的 `dist/web/downloads/`。源码包来自当前 `HEAD`，不会打包 `.local/`、凭据或构建缓存。**重新执行 `build:web` 会清空下载文件，必须随后重新打包**。下载包的系统动态库依赖用 `ldd` 检查；用户需安装对应 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书。
 
 ## 3. 生产配置与发布
@@ -38,7 +40,7 @@ Wrangler 将密钥作为 secret 与版本一起上传，不把值放入命令行
 
 ## 4. 发布后验证与版本记录
 
-检查 `/api/v1/healthz`、网页资源、未登录访问 `/api/v1/hosts` 返回 401，以及跨域登录请求返回 403。使用独立 CLI 凭据文件验证 C++ 客户端登录、主机列表和退出；不覆盖日常登录文件。校验线上下载包与 `SHA256SUMS` 一致。
+检查 `/api/v1/healthz`、网页资源、未登录访问 `/api/v1/hosts` 返回 401，以及跨域登录请求返回 403。使用独立 CLI 凭据文件验证 C++ 客户端登录、主机列表和退出；不覆盖日常登录文件。校验线上下载包与 `SHA256SUMS` 一致。检查在线手册的响应头包含 `charset=utf-8`，并用真实浏览器确认 `document.characterSet` 为 UTF-8、正文包含“用户手册”，不能仅凭文件字节校验判断浏览器显示正常。
 
 用 `wrangler deployments list` 记录实际部署版本，将结果更新至 `docs/TEST_REPORT.md`。成功后创建 Git 标签 `v0.2.0`。仓库未配置远程时，提交和标签仅存在本机；不能声称已推送到 GitHub。
 
