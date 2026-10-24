@@ -152,6 +152,8 @@ async function web(id: string) {
 }
 const pass = (message: string) => console.log('PASS: ' + message);
 async function feature(page: Page, name: RegExp) {
+  if (await page.getByRole('dialog').isVisible())
+    await page.getByRole('button', { name: '关闭面板' }).click();
   await page.getByRole('button', { name: '功能菜单' }).click();
   await page
     .getByRole('navigation', { name: '功能菜单' })
@@ -877,7 +879,7 @@ try {
   const page = await browser.newPage();
   await page.goto(origin);
   await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /连接设置 主机/ }).click();
+  await page.getByRole('button', { name: /登录与授权 连接服务器/ }).click();
   await page.getByRole('button', { name: '管理员登录', exact: true }).click();
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -1024,7 +1026,7 @@ try {
     .getByRole('button', { name: '批准 ' + pending, exact: true })
     .click();
   await visitorPage.locator('.chat-workspace').waitFor();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByRole('heading', { name: '设备授权管理' }).count(),
@@ -1037,8 +1039,7 @@ try {
   assert(webCookie.httpOnly);
   assert(webCookie.expires * 1000 > Date.now() + 300 * 86400000);
   // Save another A credential in the same browser, then switch back to the online A.
-  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
-  await visitorPage.getByRole('button', { name: /连接设置 主机/ }).click();
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
   await visitorPage.getByLabel('服务器标识').fill(other.hostId);
   await visitorPage
@@ -1056,7 +1057,7 @@ try {
   );
   await visitorPage.reload();
   await visitorPage.locator('.chat-workspace').waitFor();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByLabel('主机').locator('option').count(),
@@ -1073,7 +1074,7 @@ try {
   // Different tabs select their own host cookie; the selected identity is not global.
   const otherPage = await visitor.newPage();
   await otherPage.goto(origin);
-  await feature(otherPage, /连接设置 主机/);
+  await feature(otherPage, /^会话记录/);
   await otherPage.getByLabel('主机').selectOption(other.hostId);
   await wait(
     async () =>
@@ -1085,7 +1086,7 @@ try {
   await otherPage.getByLabel('任务内容').fill('other host');
   await otherPage.getByRole('button', { name: '发送', exact: true }).click();
   await otherPage.getByText('echo: other host', { exact: true }).waitFor();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
   await idle(visitorPage);
@@ -1101,7 +1102,7 @@ try {
   await idle(visitorPage);
   const browserSession = await sessionId(visitorPage);
   await visitorPage.reload();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
@@ -1148,7 +1149,7 @@ try {
     }),
   );
   await visitorPage.reload();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
@@ -1251,8 +1252,19 @@ try {
   );
   await visitorPage.setViewportSize({ width: 1280, height: 900 });
   await visitorPage.getByRole('button', { name: '功能菜单' }).click();
-  await visitorPage.getByRole('button', { name: /连接设置 主机/ }).click();
-  assert.equal(await visitorPage.locator('.conversation').count(), 0);
+  await visitorPage.getByRole('button', { name: /^会话记录/ }).click();
+  assert.equal(await visitorPage.locator('.conversation').count(), 1);
+  assert(
+    await visitorPage
+      .getByRole('dialog')
+      .getByRole('region', { name: '连接设置' })
+      .isVisible(),
+  );
+  await visitorPage.screenshot({
+    path: join(artifacts, 'cw-session-connections-desktop.png'),
+  });
+  await visitorPage.keyboard.press('Escape');
+  await focusedChat(visitorPage);
   await visitorPage.getByRole('button', { name: '功能菜单' }).click();
   await visitorPage.keyboard.press('Escape');
   assert.equal(
@@ -1389,7 +1401,7 @@ try {
   );
   await visitorPage.reload();
   await visitorPage.locator('.chat-workspace').waitFor();
-  await feature(visitorPage, /连接设置 主机/);
+  await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
     await visitorPage.getByLabel('主机').locator('option').count(),

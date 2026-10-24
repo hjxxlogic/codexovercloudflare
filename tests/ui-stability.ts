@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect, type Page } from '@playwright/test';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
@@ -28,6 +28,7 @@ let pagedHistory:
   | { seq: number; type: string; data: { text: string }; time: number }[]
   | undefined;
 let olderPageCalls = 0;
+let failOlderPageOnce = false;
 const events = [
   { seq: 1, type: 'user', data: { text: '示例任务' }, time: 1 },
   ...[2, 3, 4].map((seq) => ({
@@ -172,16 +173,33 @@ wss.on('connection', (ws, request) => {
               .filter((event) => !data.before || event.seq < data.before)
               .slice(-150)
           : [];
-      ws.send(
-        JSON.stringify({
-          type: 'history',
-          requestId: data.requestId,
-          events: page,
-          more: (page[0]?.seq ?? 1) > 1,
-          cursor: page[0]?.seq ?? 600,
-          snapshotSeq: 600,
-          direction: data.after === undefined ? 'before' : 'after',
-        }),
+      const fail = !!data.before && failOlderPageOnce;
+      if (fail) failOlderPageOnce = false;
+      const response = JSON.stringify(
+        fail
+          ? {
+              type: 'error',
+              requestId: data.requestId,
+              error: {
+                code: 'HISTORY_UNAVAILABLE',
+                message: '模拟历史读取失败',
+              },
+            }
+          : {
+              type: 'history',
+              requestId: data.requestId,
+              events: page,
+              more: (page[0]?.seq ?? 1) > 1,
+              cursor: page[0]?.seq ?? 600,
+              snapshotSeq: 600,
+              direction: data.after === undefined ? 'before' : 'after',
+            },
+      );
+      setTimeout(
+        () => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(response);
+        },
+        data.before ? 300 : 0,
       );
     } else if (history)
       ws.send(
@@ -204,15 +222,30 @@ wss.on('connection', (ws, request) => {
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 const browser = await chromium.launch({ headless: true });
+async function openMenu(page: Page) {
+  if (await page.getByRole('dialog').isVisible())
+    await page.getByRole('button', { name: '关闭面板' }).click();
+  await page.getByRole('button', { name: '功能菜单' }).click();
+}
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /连接设置 主机/ }).click();
+  await openMenu(page);
+  await page.getByRole('button', { name: /^会话记录/ }).click();
+  const settings = page.getByRole('region', { name: '连接设置' });
+  await expect(settings).toBeVisible();
+  assert(
+    (await settings.boundingBox())!.y <
+      (await page.getByRole('heading', { name: '会话列表' }).boundingBox())!.y,
+    'connection settings precede the session list',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'cw-session-connections.png'),
+  });
   await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   attachFailures = 2;
   await page.getByRole('button', { name: /进行中的对话/ }).click();
@@ -232,10 +265,10 @@ try {
   assert.equal(contentCalls, 2, 'content chunks accumulate once per offset');
   await page.getByLabel('任务内容').fill('切换后仍应保留的草稿');
   await page.reload();
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /连接设置 主机/ }).click();
+  await openMenu(page);
+  await page.getByRole('button', { name: /^会话记录/ }).click();
   await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   await page.getByRole('button', { name: /进行中的对话/ }).click();
   await page.waitForFunction(
@@ -249,10 +282,10 @@ try {
     () => document.querySelector('textarea')?.value === '',
   );
   await page.reload();
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /连接设置 主机/ }).click();
+  await openMenu(page);
+  await page.getByRole('button', { name: /^会话记录/ }).click();
   await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   await page.getByRole('button', { name: /进行中的对话/ }).click();
   await page.getByText('任务提交结果待确认', { exact: true }).waitFor();
@@ -355,7 +388,7 @@ try {
   approvals = [];
   for (const ws of controls) sync(ws);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openMenu(page);
   await page.waitForTimeout(4500);
   assert(await page.getByRole('navigation').isVisible());
   await page.getByRole('button', { name: /^工作区文件/ }).click();
@@ -367,8 +400,8 @@ try {
   await expect(page.getByRole('button', { name: '功能菜单' })).toBeFocused();
   online = false;
   await page.reload();
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /连接设置 主机/ }).click();
+  await openMenu(page);
+  await page.getByRole('button', { name: /^会话记录/ }).click();
   assert.equal(
     await page
       .getByLabel('主机', { exact: true })
@@ -377,7 +410,7 @@ try {
     false,
   );
   await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   await page.getByRole('button', { name: /进行中的对话/ }).click();
   await page.getByText('任务已完成。', { exact: true }).waitFor();
@@ -399,35 +432,80 @@ try {
     const historyPage = await browser.newPage();
     historyPage.on('pageerror', (error) => failures.push(error.message));
     await historyPage.goto(origin);
-    await historyPage.getByRole('button', { name: '功能菜单' }).click();
-    await historyPage.getByRole('button', { name: /连接设置 主机/ }).click();
+    await openMenu(historyPage);
+    await historyPage.getByRole('button', { name: /^会话记录/ }).click();
     await historyPage
       .getByLabel('主机', { exact: true })
       .selectOption('sample');
-    await historyPage.getByRole('button', { name: '功能菜单' }).click();
+    await openMenu(historyPage);
     await historyPage.getByRole('button', { name: /^会话记录/ }).click();
     await historyPage.getByRole('button', { name: /进行中的对话/ }).click();
     const messages = historyPage.locator('[data-event-seq]');
     await expect(messages).toHaveCount(150);
     const loadOlder = historyPage.getByRole('button', { name: '加载更早内容' });
+    if (size) {
+      failOlderPageOnce = true;
+      await loadOlder.evaluate((button) =>
+        (button as HTMLButtonElement).click(),
+      );
+      await historyPage
+        .getByRole('alert')
+        .filter({ hasText: '模拟历史读取失败' })
+        .waitFor({ timeout: 5000 });
+      await expect(loadOlder).toBeEnabled();
+      await expect(messages).toHaveCount(150);
+      await historyPage
+        .locator('.error')
+        .getByRole('button', { name: '关闭', exact: true })
+        .click();
+    }
+    const callsBefore = olderPageCalls;
     for (const count of [300, 450, 600]) {
-      await loadOlder.scrollIntoViewIfNeeded();
+      if (size) {
+        await historyPage.locator('.messages').evaluate((el) => {
+          el.scrollTop = 240;
+        });
+        await expect
+          .poll(() =>
+            historyPage.locator('.messages').evaluate((el) => el.scrollTop),
+          )
+          .toBe(240);
+      }
       const anchor = messages.first();
       const seq = await anchor.getAttribute('data-event-seq');
-      const top = (await anchor.boundingBox())!.y;
-      await loadOlder.click();
+      const top = size
+        ? await historyPage.locator('.messages').evaluate((el) => {
+            el.scrollTop = 80;
+            const top = el
+              .querySelector('[data-event-seq]')!
+              .getBoundingClientRect().top;
+            for (let index = 0; index < 5; index++)
+              el.dispatchEvent(new Event('scroll'));
+            return top;
+          })
+        : (await anchor.boundingBox())!.y;
+      if (!size)
+        await loadOlder.evaluate((button) =>
+          (button as HTMLButtonElement).click(),
+        );
       await expect(messages).toHaveCount(count);
-      // The first click also inserts the older-history status above the messages.
-      if (count > 300)
-        await expect
-          .poll(async () => {
+      await expect
+        .poll(
+          async () => {
             const box = await historyPage
               .locator(`[data-event-seq="${seq}"]`)
               .boundingBox();
             return Math.abs(box!.y - top);
-          })
-          .toBeLessThan(2);
+          },
+          { message: `reading anchor for size ${size}, count ${count}` },
+        )
+        .toBeLessThan(2);
     }
+    assert.equal(
+      olderPageCalls - callsBefore,
+      3,
+      'scroll bursts do not duplicate page requests',
+    );
     assert.deepEqual(
       await messages.evaluateAll((nodes) =>
         nodes.map((node) => Number((node as HTMLElement).dataset.eventSeq)),
@@ -436,6 +514,16 @@ try {
       'all fetched history remains visible in sequence without duplicates',
     );
     await expect(loadOlder).toHaveCount(0);
+    const callsAtStart = olderPageCalls;
+    await historyPage.locator('.messages').evaluate((el) => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
+    assert.equal(
+      olderPageCalls,
+      callsAtStart,
+      'no automatic requests after history is exhausted',
+    );
     const returnLatest = historyPage.getByRole('button', {
       name: '返回最新内容',
     });
@@ -449,7 +537,9 @@ try {
     const calls = olderPageCalls;
     for (let index = 0; index < 3; index++) {
       await expect(loadOlder).toBeEnabled();
-      await loadOlder.click();
+      await loadOlder.evaluate((button) =>
+        (button as HTMLButtonElement).click(),
+      );
     }
     await expect(loadOlder).toHaveCount(0);
     await expect(messages).toHaveCount(600);
@@ -472,7 +562,7 @@ try {
   assert((await page.locator('.login-card').boundingBox())!.width <= 520);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, stable menu, dialog padding/focus, offline catalog, complete paged history with cached reload and first visit',
+    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, stable menu, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

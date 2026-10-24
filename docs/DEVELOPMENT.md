@@ -108,7 +108,7 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## CW 网页开发
 
-网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、点击外部/Escape 关闭的菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
+网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、会话记录顶部的连接 / 授权操作、点击外部/Escape 关闭的菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
 
 `tests/e2e.ts` 的确定性协议夹具包含本地历史及异项目线程，验证历史列表过滤、恢复历史与继续对话、分页 / 搜索、Markdown / 安全链接、折叠工具、移动端宽度和功能菜单。截图输出 `.local/cw-chat-desktop.png`、`.local/cw-chat-mobile.png`；测试不调用模型。历史功能需要与 Worker 一起更新原生 Agent。
 
@@ -124,7 +124,7 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## 稳定化回归与构建来源
 
-`npm run test:ui` 在本次 dist 上执行合成 API/WS 的 Chromium 交互压力测试，覆盖票据 503 重试、默认折叠、草稿、0/1/3/10 审批和短视口、离线入口及弹窗焦点。历史回归使用短消息和较大消息两组 600 条记录，验证连续加载越过 400 条 / 192 KiB 后仍完整有序、保留阅读锚点，返回最新恢复有界窗口，重新加载命中 IndexedDB 页。截图 `.local/ui-stability/cw-loaded-history.png`。`npm run test:backup` 验证活跃 WAL 备份和带实例锁恢复。`COC_ARTIFACT_DIR` 可隔离截图输出目录，避免覆盖旧证据。
+`npm run test:ui` 在本次 dist 上执行合成 API/WS 的 Chromium 交互压力测试，覆盖票据 503 重试、默认折叠、草稿、0/1/3/10 审批和短视口、离线入口及弹窗焦点。历史回归使用短消息和较大消息两组 600 条记录，分别验证手动加载及向上滚动自动分页，延迟响应与连续滚动事件不重复发请求，越过 400 条 / 192 KiB 后仍完整有序、保留阅读锚点，返回最新恢复有界窗口，重新加载命中 IndexedDB 页。连接设置回归验证其位于会话列表上方，选择主机 / 项目、新建会话及多主机授权使用同一面板。截图 `.local/ui-stability/cw-loaded-history.png`。`npm run test:backup` 验证活跃 WAL 备份和带实例锁恢复。`COC_ARTIFACT_DIR` 可隔离截图输出目录，避免覆盖旧证据。
 
 原生测试增加 100000 关闭会话/4 个活动会话、有界目录、1 MiB 分块流、持久提交查询、配置锁和 HTTP/TLS 停滞回归。C++ 与 Zod 共读 `tests/protocol-fixtures.json`。CI 运行常规门禁、真实 Wrangler/Chromium 与 ASan/UBSan；不调用模型。可用 `-DCOC_SANITIZE=ON` 本地构建，Clang 下 `-DCOC_FUZZ=ON` 生成协议模糊测试入口。单次短跑不代替长期模糊测试。
 

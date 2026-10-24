@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Event, Session } from '../../../packages/protocol/src/index.ts';
 import './style.css';
@@ -77,6 +77,7 @@ function App() {
   const [olderCursor, setOlderCursor] = useState(0);
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyNotice, setHistoryNotice] = useState('');
   const [contentChunks, setContentChunks] = useState<
     Record<number, ContentChunk>
   >({});
@@ -84,6 +85,8 @@ function App() {
     {},
   );
   const messageList = useRef<HTMLDivElement>(null);
+  const messageScrollTop = useRef(0);
+  const historyAnchor = useRef<{ seq: string; top: number } | null>(null);
   const followMessages = useRef(true);
   const menu = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -179,6 +182,16 @@ function App() {
     after = useRef(0);
   const report = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
+  const captureHistoryAnchor = () => {
+    const anchor =
+      messageList.current?.querySelector<HTMLElement>('[data-event-seq]');
+    historyAnchor.current = anchor?.dataset.eventSeq
+      ? {
+          seq: anchor.dataset.eventSeq,
+          top: anchor.getBoundingClientRect().top,
+        }
+      : null;
+  };
   async function refresh() {
     const results = await Promise.allSettled([api('/hosts'), api('/auth/me')]);
     if (results[0].status === 'fulfilled') {
@@ -252,6 +265,7 @@ function App() {
         if (result.state === 'approved') {
           setGrant(undefined);
           setAdding(false);
+          setPanel(null);
           setView('chat');
           setHost(result.hostId);
           await refresh();
@@ -439,6 +453,19 @@ function App() {
     if (followMessages.current && messageList.current)
       messageList.current.scrollTop = messageList.current.scrollHeight;
   }, [events, view]);
+  useLayoutEffect(() => {
+    const anchor = historyAnchor.current;
+    historyAnchor.current = null;
+    const list = messageList.current;
+    if (!anchor || !list) return;
+    const restored = list?.querySelector<HTMLElement>(
+      `[data-event-seq="${anchor.seq}"]`,
+    );
+    if (restored) {
+      list.scrollTop += restored.getBoundingClientRect().top - anchor.top;
+      messageScrollTop.current = list.scrollTop;
+    }
+  }, [events, loadingHistory]);
   useEffect(() => {
     const visible = new Set(events.map((event) => String(event.seq)));
     setContentChunks((chunks) =>
@@ -453,6 +480,10 @@ function App() {
     setReady(false);
     setEvents([]);
     setHasOlder(false);
+    setLoadingHistory(false);
+    setHistoryNotice('');
+    messageScrollTop.current = 0;
+    historyAnchor.current = null;
     setContentChunks({});
     setReadingContent({});
     olderView.current = false;
@@ -688,6 +719,14 @@ function App() {
     let cache: HistoryCache | undefined;
     let checkpoint: number | undefined;
     const requests = new Map<string, number | 'sync'>();
+    let pageLoading = false;
+    let pageTimer: ReturnType<typeof setTimeout>;
+    let pageGeneration = 0;
+    const finishPage = () => {
+      pageLoading = false;
+      clearTimeout(pageTimer);
+      if (!disposed) setLoadingHistory(false);
+    };
     const contentReads = new Map<
       number,
       { requestId: string; timer: ReturnType<typeof setTimeout> }
@@ -701,34 +740,35 @@ function App() {
       if (!disposed) setError('本地历史缓存不可用；仍可从 Agent 读取历史。');
     };
     const showPage = (page: HistoryPage) => {
-      const list = messageList.current;
-      const anchor = list?.querySelector<HTMLElement>('[data-event-seq]');
-      const anchorSeq = anchor?.dataset.eventSeq;
-      const anchorTop = anchor?.getBoundingClientRect().top;
+      if (olderView.current) captureHistoryAnchor();
       setEvents((previous) => {
         const merged = mergeEvents([...page.events, ...previous]);
         return olderView.current ? merged : eventWindow(merged);
       });
       setOlderCursor(page.events[0]?.seq ?? 0);
       setHasOlder(page.more);
-      setLoadingHistory(false);
-      if (anchorSeq && anchorTop !== undefined && olderView.current)
-        requestAnimationFrame(() => {
-          const restored = list?.querySelector<HTMLElement>(
-            `[data-event-seq="${anchorSeq}"]`,
-          );
-          if (restored && list)
-            list.scrollTop += restored.getBoundingClientRect().top - anchorTop;
-        });
+      finishPage();
     };
     const requestPage = (before = 0) => {
+      if (pageLoading || disposed) return;
+      pageLoading = true;
+      const generation = ++pageGeneration;
+      if (before) captureHistoryAnchor();
       olderView.current = before !== 0;
       followMessages.current = before === 0;
       setLoadingHistory(true);
+      setHistoryNotice('');
+      pageTimer = setTimeout(() => {
+        pageGeneration++;
+        for (const [id, request] of requests)
+          if (typeof request === 'number') requests.delete(id);
+        finishPage();
+        if (!disposed) setError('历史读取超时，可重试加载更早内容。');
+      }, 15000);
       void (async () => {
         if (before && cache) {
           const stored = await cache.page(before).catch(() => undefined);
-          if (disposed) return;
+          if (disposed || generation !== pageGeneration) return;
           if (stored) {
             showPage(stored);
             return;
@@ -736,7 +776,8 @@ function App() {
         }
         const hs = historySocket.current;
         if (hs?.readyState !== WebSocket.OPEN) {
-          setLoadingHistory(false);
+          finishPage();
+          setHistoryNotice('较早内容尚未缓存，连接恢复后可重试。');
           return;
         }
         const requestId = crypto.randomUUID();
@@ -865,7 +906,13 @@ function App() {
               return;
             }
             if (d.type === 'error') {
-              setLoadingHistory(false);
+              if (
+                !d.requestId ||
+                typeof requests.get(d.requestId) === 'number'
+              ) {
+                requests.delete(d.requestId);
+                finishPage();
+              }
               for (const [seq, read] of contentReads) {
                 if (!d.requestId || read.requestId === d.requestId) {
                   finishRead(seq);
@@ -934,7 +981,8 @@ function App() {
         hs.onclose = () => {
           for (const seq of contentReads.keys()) finishRead(seq);
           requests.clear();
-          if (!disposed) setLoadingHistory(false);
+          pageGeneration++;
+          finishPage();
           if (!disposed)
             historyTimer = setTimeout(() => void connectHistory(), 3000);
         };
@@ -957,6 +1005,7 @@ function App() {
         .catch(() => {})
         .finally(() => cache?.close());
       clearTimeout(historyTimer);
+      clearTimeout(pageTimer);
       historySocket.current?.close();
       historySocket.current = null;
       localHistory.current = null;
@@ -1027,6 +1076,7 @@ function App() {
         await api('/auth/login', { secret });
         setSecret('');
         await refresh();
+        setPanel(null);
         setView('devices');
       } else {
         const result = await api('/auth/device/start', {
@@ -1138,6 +1188,187 @@ function App() {
       setCreating(false);
     }
   }
+  const openSessions = () => {
+    setView('chat');
+    setPanel('sessions');
+    setMenuOpen(false);
+  };
+  const connectionControls = (
+    <section className="card">
+      <h2>登录与授权</h2>{' '}
+      <div className="row">
+        <button
+          onClick={() => {
+            setAdminLogin((v) => !v);
+            setSecret('');
+          }}
+        >
+          {adminLogin ? '连接 A' : '管理员登录'}
+        </button>
+        {logged && (
+          <button
+            onClick={() => {
+              setAdding((v) => !v);
+              setAdminLogin(false);
+            }}
+          >
+            添加 A 授权
+          </button>
+        )}
+        {admin && (
+          <button
+            onClick={() =>
+              void api('/auth/logout', {})
+                .then(() => {
+                  setAdmin(false);
+                  setNewKey('');
+                  setAdminLogin(false);
+                })
+                .catch(report)
+            }
+          >
+            退出管理
+          </button>
+        )}
+      </div>
+    </section>
+  );
+  const loginForm = !checking && (adminLogin ? !admin : !logged || adding) && (
+    <form onSubmit={login} className="card login-card">
+      <h2>{adminLogin ? '管理员登录' : '连接远程服务器'}</h2>
+      {adminLogin ? (
+        <label>
+          所有者密钥
+          <input
+            aria-label="所有者密钥"
+            type="password"
+            required
+            autoComplete="current-password"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+          />
+        </label>
+      ) : (
+        <>
+          <label>
+            服务器标识
+            <input
+              aria-label="服务器标识"
+              required
+              value={targetHost}
+              onChange={(e) => setTargetHost(e.target.value)}
+            />
+          </label>
+          <small>
+            服务器标识可从服务器登录结果或管理员处获取。设备名称供管理员识别这台浏览器。
+          </small>
+          <label>
+            设备名称
+            <input
+              aria-label="设备名称"
+              required
+              maxLength={100}
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+            />
+          </label>
+        </>
+      )}
+      <button type="submit" disabled={generating || (!adminLogin && !!grant)}>
+        {adminLogin ? '登录' : '申请登录'}
+      </button>
+      {grant && (
+        <div role="status">
+          <p>
+            等待管理员批准，配对码：<strong>{grant.code}</strong>
+          </p>
+          <p>
+            服务器：{targetHost} · 设备：{deviceName}
+          </p>
+          <details>
+            <summary>请求标识</summary>
+            <p>{grant.id}</p>
+          </details>
+          <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
+        </div>
+      )}
+      <p>
+        填写服务器 → 提交申请 →
+        管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
+      </p>
+    </form>
+  );
+  const projectPicker = (
+    <section className="card project-picker">
+      <h2>选择远程项目</h2>
+      <div className="row">
+        <label>
+          主机
+          <select
+            aria-label="主机"
+            value={host}
+            onChange={(e) => {
+              setSelected(undefined);
+              setHost(e.target.value);
+            }}
+          >
+            <option value="">请选择</option>
+            {hosts.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name} · {h.online ? '在线' : '离线'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          项目
+          <select
+            aria-label="项目"
+            value={project}
+            onChange={(e) => {
+              setSelected(undefined);
+              setProject(e.target.value);
+            }}
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} — {p.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button onClick={() => void refresh()}>刷新主机</button>
+        <button
+          disabled={!host}
+          onClick={() => {
+            if (
+              confirm(
+                '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+              )
+            )
+              void api('/auth/forget', { hostId: host })
+                .then(() => {
+                  socket.current?.close();
+                  setSelected(undefined);
+                  return refresh();
+                })
+                .catch(report);
+          }}
+        >
+          移除本地授权
+        </button>
+        <button
+          disabled={!online || !host || !project || creating}
+          onClick={() => {
+            setView('chat');
+            void create();
+          }}
+        >
+          创建网页会话
+        </button>
+      </div>
+    </section>
+  );
   return (
     <main className={view === 'chat' && logged ? 'chat-workspace' : undefined}>
       <header className="topbar" ref={menu}>
@@ -1202,7 +1433,7 @@ function App() {
                     if (host && project) {
                       setView('chat');
                       void create();
-                    } else setView('connection');
+                    } else openSessions();
                   }}
                 >
                   <strong>新建对话</strong>
@@ -1216,7 +1447,7 @@ function App() {
                       setPanel('files');
                     } else {
                       setPanel(null);
-                      setView('connection');
+                      openSessions();
                     }
                   }}
                 >
@@ -1239,7 +1470,11 @@ function App() {
             {(
               [
                 ['chat', 'CW 对话', '会话与远程任务'],
-                ['connection', '连接设置', '主机、项目与登录'],
+                ...(!logged
+                  ? ([
+                      ['connection', '登录与授权', '连接服务器与管理登录'],
+                    ] as const)
+                  : []),
                 ['devices', '设备授权', '审批与管理设备'],
                 ['keys', 'API Key', '管理访问凭证'],
               ] as const
@@ -1275,7 +1510,7 @@ function App() {
           }
           onDetails={() => {
             if (selected) setPanel('details');
-            else setView('connection');
+            else openSessions();
           }}
         />
       )}
@@ -1304,7 +1539,7 @@ function App() {
             {
               {
                 chat: 'CW 对话',
-                connection: '连接设置',
+                connection: '登录与授权',
                 devices: '设备授权',
                 keys: 'API Key 管理',
               }[view]
@@ -1321,117 +1556,9 @@ function App() {
           <button onClick={() => setError('')}>关闭</button>
         </div>
       )}
-      {view === 'connection' && (
-        <section className="card">
-          <h2>登录与授权</h2>{' '}
-          <div className="row">
-            <button
-              onClick={() => {
-                setAdminLogin((v) => !v);
-                setSecret('');
-              }}
-            >
-              {adminLogin ? '连接 A' : '管理员登录'}
-            </button>
-            {logged && (
-              <button
-                onClick={() => {
-                  setAdding((v) => !v);
-                  setAdminLogin(false);
-                }}
-              >
-                添加 A 授权
-              </button>
-            )}
-            {admin && (
-              <button
-                onClick={() =>
-                  void api('/auth/logout', {})
-                    .then(() => {
-                      setAdmin(false);
-                      setNewKey('');
-                      setAdminLogin(false);
-                    })
-                    .catch(report)
-                }
-              >
-                退出管理
-              </button>
-            )}
-          </div>
-        </section>
-      )}
+      {view === 'connection' && !logged && connectionControls}
       {checking && <p role="status">正在检查登录状态…</p>}
-      {!checking &&
-        (view !== 'chat' || !logged) &&
-        (adminLogin ? !admin : !logged || adding) && (
-          <form onSubmit={login} className="card login-card">
-            <h2>{adminLogin ? '管理员登录' : '连接远程服务器'}</h2>
-            {adminLogin ? (
-              <label>
-                所有者密钥
-                <input
-                  aria-label="所有者密钥"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={secret}
-                  onChange={(e) => setSecret(e.target.value)}
-                />
-              </label>
-            ) : (
-              <>
-                <label>
-                  服务器标识
-                  <input
-                    aria-label="服务器标识"
-                    required
-                    value={targetHost}
-                    onChange={(e) => setTargetHost(e.target.value)}
-                  />
-                </label>
-                <small>
-                  服务器标识可从服务器登录结果或管理员处获取。设备名称供管理员识别这台浏览器。
-                </small>
-                <label>
-                  设备名称
-                  <input
-                    aria-label="设备名称"
-                    required
-                    maxLength={100}
-                    value={deviceName}
-                    onChange={(e) => setDeviceName(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-            <button
-              type="submit"
-              disabled={generating || (!adminLogin && !!grant)}
-            >
-              {adminLogin ? '登录' : '申请登录'}
-            </button>
-            {grant && (
-              <div role="status">
-                <p>
-                  等待管理员批准，配对码：<strong>{grant.code}</strong>
-                </p>
-                <p>
-                  服务器：{targetHost} · 设备：{deviceName}
-                </p>
-                <details>
-                  <summary>请求标识</summary>
-                  <p>{grant.id}</p>
-                </details>
-                <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
-              </div>
-            )}
-            <p>
-              填写服务器 → 提交申请 →
-              管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
-            </p>
-          </form>
-        )}
+      {(view !== 'chat' || !logged) && loginForm}
       {admin && view === 'devices' && (
         <section className="card">
           <h2>设备授权管理</h2>
@@ -1649,81 +1776,8 @@ function App() {
           ))}
         </section>
       )}
-      {logged && (view === 'chat' || view === 'connection') && (
+      {logged && view === 'chat' && (
         <>
-          {view === 'connection' && (
-            <section className="card project-picker">
-              <h2>选择远程项目</h2>
-              <div className="row">
-                <label>
-                  主机
-                  <select
-                    aria-label="主机"
-                    value={host}
-                    onChange={(e) => {
-                      setSelected(undefined);
-                      setHost(e.target.value);
-                    }}
-                  >
-                    <option value="">请选择</option>
-                    {hosts.map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {h.name} · {h.online ? '在线' : '离线'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  项目
-                  <select
-                    aria-label="项目"
-                    value={project}
-                    onChange={(e) => {
-                      setSelected(undefined);
-                      setProject(e.target.value);
-                    }}
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} — {p.path}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button onClick={() => void refresh()}>刷新主机</button>
-                {view === 'connection' && (
-                  <button
-                    disabled={!host}
-                    onClick={() => {
-                      if (
-                        confirm(
-                          '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
-                        )
-                      )
-                        void api('/auth/forget', { hostId: host })
-                          .then(() => {
-                            socket.current?.close();
-                            setSelected(undefined);
-                            return refresh();
-                          })
-                          .catch(report);
-                    }}
-                  >
-                    移除本地授权
-                  </button>
-                )}
-                <button
-                  disabled={!online || !host || !project || creating}
-                  onClick={() => {
-                    setView('chat');
-                    void create();
-                  }}
-                >
-                  创建网页会话
-                </button>
-              </div>
-            </section>
-          )}
           {view === 'chat' && (
             <div className="chat-layout">
               <dialog
@@ -1775,6 +1829,21 @@ function App() {
                 )}
                 {panel === 'sessions' && (
                   <aside className="session-sidebar">
+                    <section
+                      className="connection-settings"
+                      aria-label="连接设置"
+                    >
+                      <h3>连接设置</h3>
+                      {error && (
+                        <p className="error" role="alert">
+                          {error}
+                        </p>
+                      )}
+                      {projectPicker}
+                      {connectionControls}
+                      {loginForm}
+                    </section>
+                    <h3>会话列表</h3>
                     <button
                       className="new-chat"
                       disabled={!online || !host || !project || creating}
@@ -1964,9 +2033,20 @@ function App() {
                       aria-live="off"
                       onScroll={(e) => {
                         const el = e.currentTarget;
+                        const scrolledUp =
+                          el.scrollTop < messageScrollTop.current;
+                        messageScrollTop.current = el.scrollTop;
                         followMessages.current =
+                          !olderView.current &&
                           el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                         setAway(!followMessages.current);
+                        if (
+                          scrolledUp &&
+                          el.scrollTop < 160 &&
+                          hasOlder &&
+                          !loadingHistory
+                        )
+                          loadHistory.current(olderCursor);
                       }}
                     >
                       {olderView.current && (
@@ -1977,10 +2057,13 @@ function App() {
                       <div className="row">
                         {hasOlder && (
                           <button
+                            aria-label="加载更早内容"
                             disabled={loadingHistory}
                             onClick={() => loadHistory.current(olderCursor)}
                           >
-                            加载更早内容
+                            {loadingHistory
+                              ? '正在加载更早内容…'
+                              : '加载更早内容'}
                           </button>
                         )}
                         {(away || olderView.current) && (
@@ -1996,6 +2079,7 @@ function App() {
                           </button>
                         )}
                       </div>
+                      {historyNotice && <p role="status">{historyNotice}</p>}
                       <ConversationView
                         events={events}
                         chunks={contentChunks}
@@ -2139,10 +2223,10 @@ function App() {
                     <h2>今天要一起完成什么？</h2>
                     <p>恢复 Codex 本地会话，或在远程项目中开始新对话。</p>
                     <button
-                      disabled={creating || !online}
+                      disabled={creating || (!!host && !online)}
                       onClick={() => {
                         if (host && project) void create();
-                        else setView('connection');
+                        else openSessions();
                       }}
                     >
                       {host && project ? '＋ 开始新对话' : '连接远程项目'}

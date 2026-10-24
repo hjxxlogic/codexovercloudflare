@@ -2,6 +2,15 @@
 
 日期：2026-10-24。0.5.2 已发布，源码标签 `v0.5.2` 指向 `e3a4e051ed825bdcb4dcd106fb133a40c04e0b7e`。当前结果见下表和 [逐项实施记录](stabilization-2026-10-24.md)。后文保留各版本历史证据；旧的“未完成”不能作为当前结论。此次未调用模型。
 
+## 2026-10-25 · 会话记录连接设置与滚动分页
+
+- 连接设置移至会话记录面板顶部，覆盖主机 / 项目、创建会话、登录与授权；手机布局将选择框与操作按钮分行展示，聊天区继续保留在弹窗后方。
+- Chromium UI 回归通过：两组各 600 条消息分别验证手动加载和向上滚动自动异步加载，延迟响应期间滚动事件不重复发请求，读取失败可重试，首次及后续分页均保持阅读位置，完整保留超过 400 条 / 192 KiB 的内容，已读旧页命中 IndexedDB，读至开头后不再自动请求。截图 `.local/cw-scroll-history/ui/cw-session-connections.png`、`cw-loaded-history.png`。
+- 网页构建、Worker dry-run、typecheck、lint 与 Vitest 6 文件 43 项通过。自动分页未命中离线缓存时，提示放在消息区内，避免常驻全局提示挤压聊天区域。未调用模型。
+- Bookworm 隔离容器中的完整 e2e 与 UI 压力最终全部通过：真实 Wrangler / DO、已发布 0.5.2 原生程序及 Chromium，覆盖调整后的登录、多 A 授权 / 切换、创建与恢复会话、桌面 / 手机布局、审批、文件、重连及撤销；日志 `.local/cw-scroll-history/e2e.log`。截图位于 `.local/cw-scroll-history/container-screenshots/`。部署结果另行记录。
+
+![手机会话记录顶部的连接设置](assets/cw-history-2026-10-25/session-connections-mobile.png)
+
 ## 2026-10-25 · CW 完整显示已加载历史
 
 - 新增 Chromium 回归在修复前复现：累计取得 450 条消息，DOM 只显示 400 条。

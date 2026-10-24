@@ -272,6 +272,37 @@ form:not(.composer) {
 .session-sidebar {
   padding: 0;
 }
+.connection-settings {
+  margin-bottom: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #414856;
+}
+.connection-settings .card {
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.connection-settings h2 {
+  font-size: 14px;
+}
+.connection-settings .project-picker label {
+  grid-column: 1 / -1;
+  min-width: 0;
+  width: 100%;
+}
+.connection-settings .project-picker .row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.connection-settings .project-picker button {
+  white-space: nowrap;
+}
+.connection-settings .project-picker button:last-child {
+  grid-column: 1 / -1;
+}
+.connection-settings .project-picker select {
+  flex: 1;
+  max-width: 100%;
+}
 .new-chat,
 .session-search {
   width: 100%;
