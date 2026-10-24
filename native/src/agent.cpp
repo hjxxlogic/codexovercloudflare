@@ -26,7 +26,7 @@ class Agent {
   std::shared_ptr<Socket> socket_;
   asio::steady_timer retry_, maintenance_;
   asio::signal_set signals_;
-  bool stopped_ = false;
+  bool stopped_ = false, listing_threads_ = false;
   int attempts_ = 0;
   int64_t pong_ = now();
 
@@ -151,6 +151,54 @@ public:
       done(config_["projects"], nullptr);
       return;
     }
+    if (action == "threads") {
+      auto p = project(d.at("projectId"));
+      if (listing_threads_)
+        throw Error("BACKPRESSURE", "History query already in progress");
+      auto process = std::make_shared<CodexProcess>(
+          io_, config_, p["path"], [](Json) {}, [] {});
+      listing_threads_ = true;
+      process->start();
+      process->initialize([this, process, p, d, done](Json, Json error) {
+        if (!error.is_null()) {
+          listing_threads_ = false;
+          process->close();
+          done(nullptr, error);
+          return;
+        }
+        process->request(
+            "thread/list",
+            {{"cwd", p["path"]},
+             {"limit", 50},
+             {"sortKey", "updated_at"},
+             {"cursor", d.value("cursor", Json())}},
+            [this, process, p, done](Json result, Json error) {
+              listing_threads_ = false;
+              process->close();
+              if (!error.is_null()) {
+                done(nullptr, error);
+                return;
+              }
+              Json data = Json::array();
+              for (auto &t : result.value("data", Json::array()))
+                if (t.value("cwd", "") == p["path"]) {
+                  auto preview = t.value("preview", "");
+                  if (preview.size() > 500) {
+                    size_t end = 500;
+                    while (end && (static_cast<unsigned char>(preview[end]) & 0xc0) == 0x80)
+                      --end;
+                    preview.resize(end);
+                  }
+                  data.push_back({{"id", t.at("id")},
+                                  {"preview", preview},
+                                  {"name", t.value("name", Json())},
+                                  {"updatedAt", t.value("updatedAt", int64_t(0))}});
+                }
+              done({{"data", data}, {"nextCursor", result.value("nextCursor", Json())}}, nullptr);
+            });
+      });
+      return;
+    }
     if (action == "list") {
       done(store_.sessions(), nullptr);
       return;
@@ -180,8 +228,11 @@ public:
     if (action != "create")
       throw Error("UNSUPPORTED_ACTION", "Unknown control action");
     auto key = "create:" + d.at("key").get<std::string>();
-    auto cached = store_.begin(key, "{\"projectId\":" + d.at("projectId").dump() +
-                                        ",\"mode\":" + d.at("mode").dump() + "}");
+    auto fingerprint =
+        "{\"projectId\":" + d.at("projectId").dump() + ",\"mode\":" + d.at("mode").dump();
+    if (d.contains("threadId"))
+      fingerprint += ",\"threadId\":" + d.at("threadId").dump();
+    auto cached = store_.begin(key, fingerprint + "}");
     if (cached["cached"] == true) {
       done(cached["value"], nullptr);
       return;
@@ -189,6 +240,14 @@ public:
     auto p = project(d.at("projectId"));
     if (d.at("mode") != "cli" && d.at("mode") != "web")
       throw Error("INVALID_REQUEST", "Invalid session mode");
+    if (d.contains("threadId")) {
+      if (d.at("mode") != "web" || !d.at("threadId").is_string() ||
+          !valid_id(d.at("threadId").get<std::string>()))
+        throw Error("INVALID_REQUEST", "Invalid history thread");
+      for (auto &o : store_.sessions())
+        if (o.value("threadId", Json()) == d.at("threadId") && o["state"] == "ready")
+          throw Error("SESSION_BUSY", "Thread already has an active session");
+    }
     if (runtimes_.size() >= 4)
       throw Error("CAPACITY", "At most four active sessions");
     Json s = {{"id", config_["hostId"].get<std::string>() + "~" + uuid()},
@@ -198,6 +257,8 @@ public:
               {"state", "ready"},
               {"running", false},
               {"createdAt", now()}};
+    if (d.contains("threadId"))
+      s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
     store_.save(s);
     auto rt = std::make_shared<Runtime>();
@@ -217,30 +278,75 @@ public:
       done(s, nullptr);
       return;
     }
-    rt->process->initialize([this, id, rt, key, done](Json, Json error) {
+    rt->process->initialize([this, id, rt, key, d, done](Json, Json error) {
       if (!error.is_null()) {
         stop(id);
         done(nullptr, error);
         return;
       }
       auto s = store_.get(id);
-      rt->process->request("thread/start",
-                           {{"cwd", project(s["projectId"])["path"]},
-                            {"sandbox", config_["sandbox"]},
-                            {"approvalPolicy", "on-request"}},
-                           [this, id, key, done](Json result, Json error) {
-                             if (!error.is_null()) {
-                               stop(id);
-                               done(nullptr, error);
-                               return;
-                             }
-                             auto current = store_.get(id);
-                             current["threadId"] = result.at("thread").at("id");
-                             store_.save(current);
-                             store_.finish(key, current);
-                             done(current, nullptr);
-                           });
+      auto launch = [this, id, rt, key, d, done]() {
+        auto s = store_.get(id);
+        Json params = {{"cwd", project(s["projectId"])["path"]},
+                       {"sandbox", config_["sandbox"]},
+                       {"approvalPolicy", "on-request"},
+                       {"approvalsReviewer", "user"}};
+        if (d.contains("threadId"))
+          params["threadId"] = d.at("threadId");
+        rt->process->request(d.contains("threadId") ? "thread/resume" : "thread/start", params,
+                             [this, id, key, d, done](Json result, Json error) {
+                               if (!error.is_null()) {
+                                 stop(id);
+                                 done(nullptr, error);
+                                 return;
+                               }
+                               auto current = store_.get(id);
+                               current["threadId"] = result.at("thread").at("id");
+                               store_.save(current);
+                               if (d.contains("threadId"))
+                                 restore_history(id, result.at("thread"));
+                               store_.finish(key, current);
+                               done(current, nullptr);
+                             });
+      };
+      if (!d.contains("threadId")) {
+        launch();
+        return;
+      }
+      rt->process->request(
+          "thread/read", {{"threadId", d.at("threadId")}, {"includeTurns", false}},
+          [this, id, s, launch, done](Json result, Json error) {
+            if (!error.is_null()) {
+              stop(id);
+              done(nullptr, error);
+              return;
+            }
+            if (result.at("thread").value("cwd", "") != project(s["projectId"])["path"]) {
+              stop(id);
+              done(nullptr,
+                   {{"code", "FORBIDDEN"}, {"message", "Thread belongs to another project"}});
+              return;
+            }
+            launch();
+          });
     });
+  }
+  void restore_history(const std::string &id, const Json &thread) {
+    for (auto &turn : thread.value("turns", Json::array()))
+      for (auto &item : turn.value("items", Json::array())) {
+        auto type = item.value("type", "");
+        if (type == "userMessage") {
+          std::string text;
+          for (auto &content : item.value("content", Json::array()))
+            if (content.value("type", "") == "text")
+              text += content.value("text", "");
+          emit(id, "user", {{"text", text}});
+        } else if (type == "agentMessage")
+          emit(id, "item/agentMessage/delta",
+               {{"itemId", item.value("id", "")}, {"delta", item.value("text", "")}});
+        else if (type == "commandExecution" || type == "fileChange" || type == "mcpToolCall")
+          emit(id, "item/completed", {{"item", item}});
+      }
   }
   void check_busy(const Json &s) {
     for (auto &o : store_.sessions())

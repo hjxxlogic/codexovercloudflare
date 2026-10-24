@@ -104,3 +104,9 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 `tests/device-auth.test.ts` 覆盖角色必填、目标固定、直接 Bearer、多年有效、并发绑定和级联撤销；`tests/e2e.ts` 通过管理网页生成两类 Key，实际运行两个原生程序并验证保存的 token 就是 Key、重复登录绑定一致和活动连接撤销。测试截图在忽略目录 `.local/api-key-management.png`。
 
 发布后必须验证 Registry 新接口实际可用，再完成登录验收。Worker 与 Durable Object 代码在全球最终一致传播，可能出现新网页已上线而 Registry 暂时仍返回旧版本的 `NOT_FOUND: Unknown operation`；不能仅依据 `wrangler deploy` 成功就宣告功能验收通过。参见 [Cloudflare 代码更新说明](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#code-updates)。等待传播后重试验证，不要清空生产 DO 状态或更改设备身份。
+
+## CW 网页开发
+
+网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理功能分页、自动收起菜单与会话生命周期；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
+
+`tests/e2e.ts` 的确定性协议夹具包含本地历史及异项目线程，验证历史列表过滤、恢复历史与继续对话、分页 / 搜索、Markdown / 安全链接、折叠工具、移动端宽度和功能菜单。截图输出 `.local/cw-chat-desktop.png`、`.local/cw-chat-mobile.png`；测试不调用模型。历史功能需要与 Worker 一起更新原生 Agent。

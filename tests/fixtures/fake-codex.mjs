@@ -31,8 +31,66 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.method === 'initialize') result = { userAgent: 'fake-codex' };
   if (m.method === 'thread/start')
     result = { thread: { id: 'thread-' + process.pid, turns: [] } };
+  if (m.method === 'thread/list')
+    result = {
+      data: [
+        {
+          id: 'local-history',
+          name: '本地历史对话',
+          preview: 'Previous local task ' + '你好'.repeat(180),
+          cwd: process.cwd(),
+          updatedAt: 1790000000,
+        },
+        {
+          id: 'foreign-history',
+          preview: 'Forbidden project',
+          cwd: '/not-allowed',
+          updatedAt: 1790000000,
+        },
+      ],
+      nextCursor: m.params.cursor ? null : 'history-page-2',
+    };
   if (m.method === 'thread/read')
-    result = { thread: { id: 'thread-' + process.pid, turns: [] } };
+    result = {
+      thread: {
+        id: m.params.threadId,
+        cwd:
+          m.params.threadId === 'foreign-history'
+            ? '/not-allowed'
+            : process.cwd(),
+        turns: [],
+      },
+    };
+  if (m.method === 'thread/resume')
+    result = {
+      thread: {
+        id: m.params.threadId,
+        cwd: process.cwd(),
+        turns: [
+          {
+            items: [
+              {
+                id: 'old-user',
+                type: 'userMessage',
+                content: [{ type: 'text', text: 'Previous local task' }],
+              },
+              {
+                id: 'old-reply',
+                type: 'agentMessage',
+                text: '## Restored reply\n\n**Markdown** works.\n\n| File | Status |\n| --- | --- |\n| app.ts | ready |\n\n```ts\nconst restored = true;\n```\n\n[unsafe](javascript:alert(1))',
+              },
+              {
+                id: 'old-command',
+                type: 'commandExecution',
+                command: 'echo restored',
+                aggregatedOutput: 'restored',
+                status: 'completed',
+              },
+            ],
+          },
+        ],
+      },
+    };
   if (m.method === 'turn/start') {
     turn++;
     result = { turn: { id: 'turn-' + turn, status: 'inProgress' } };

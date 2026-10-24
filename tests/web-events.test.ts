@@ -56,6 +56,49 @@ describe('web reply assembly', () => {
     ]);
   });
 
+  it('assembles interleaved response fragments and groups a tool lifecycle without mutating history', () => {
+    const events: Event[] = [
+      delta(1, 'Hello'),
+      {
+        seq: 2,
+        time: 2,
+        type: 'item/started',
+        data: {
+          item: { id: 'cmd', type: 'commandExecution', command: 'echo ok' },
+        },
+      },
+      delta(3, ' world'),
+      {
+        seq: 4,
+        time: 4,
+        type: 'item/commandExecution/outputDelta',
+        data: { itemId: 'cmd', delta: 'ok' },
+      },
+      {
+        seq: 5,
+        time: 5,
+        type: 'item/completed',
+        data: {
+          item: {
+            id: 'cmd',
+            type: 'commandExecution',
+            command: 'echo ok',
+            aggregatedOutput: 'ok',
+            exitCode: 0,
+          },
+        },
+      },
+    ];
+    const original = structuredClone(events);
+    const result = visibleEvents(events);
+    expect(result).toHaveLength(2);
+    expect(result[0].data).toMatchObject({ delta: 'Hello world' });
+    expect(result[1].data).toMatchObject({
+      item: { aggregatedOutput: 'ok', exitCode: 0 },
+    });
+    expect(events).toEqual(original);
+  });
+
   it('keeps distinct response items separate', () => {
     const result = visibleEvents([
       delta(2, 'Second', 'b'),

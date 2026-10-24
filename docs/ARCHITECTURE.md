@@ -31,7 +31,7 @@ codex app-server generate-json-schema --out /tmp/coc-codex-schema
 - 导出的协议包含 `initialize`、`thread/start`、`thread/resume`、`thread/read`、`turn/start`、`turn/interrupt`，以及流式事件和服务端发起的审批请求。
 - 协议同时含有文件、命令、配置和账号操作，不能直接把全部 RPC 无条件暴露给网页。
 
-当前已用原生 TUI 经本机 Worker、Durable Object 和 C++ Agent 完成初始化及一轮模型对话；这只覆盖已测方法，不表示全部 TUI 功能兼容。CLI 再附着和 Agent 重启后的旧线程恢复仍未实现，具体证据见测试记录。
+当前已用原生 TUI 经本机 Worker、Durable Object 和 C++ Agent 完成初始化及一轮模型对话；这只覆盖已测方法，不表示全部 TUI 功能兼容。CLI 再附着仍未实现；CW 支持通过同一 Codex home 恢复已持久化线程（不会恢复旧进程），具体证据见测试记录。
 
 ### 2.2 Cloudflare
 
@@ -295,3 +295,13 @@ C++ 使用 2 空格、clang-format 和 snake_case；类名 PascalCase。TypeScri
 | 单所有者身份实现     | 首版自托管密钥；需要组织账户时另评估 OIDC/RBAC，不复用个人密钥。             |
 | 本地 SQLite API      | C++ 使用 SQLite3 C API；保留旧表结构，验证已有数据、去重记录和重启行为。     |
 | 发布准入             | 固定 Codex 版本兼容报告、需求验收记录、故障恢复演练与安装/回滚文档齐备。     |
+
+## CW 工作台与本地历史恢复
+
+顶部功能菜单由 React 管理当前功能页，切换页面保留当前会话连接，只有选择其他会话或主机才断开。会话状态、输入可用性与审批仍由已有 Agent / WebSocket 协议控制。
+
+`GET /api/v1/hosts/:hostId/threads?projectId=...&cursor=...` 仅接受目标 A 的网页凭证。Agent 使用相同运行用户、Codex 配置和 home 启动短期 app-server，通过 `thread/list` 以注册项目 cwd 和更新时间查询非归档交互线程，每页 50 条；返回前再次校验 cwd，只转发摘要元数据与分页游标。Agent 同时只接受一个历史查询，独立于最多四个任务 runtime。
+
+`POST /api/v1/sessions` 新增可选 `threadId`（仅 web 模式）。Agent 先检查项目、线程 ID 和活动 runtime，初始化 app-server 后用 `thread/read` 的元数据核对原 cwd，然后以固定项目目录、服务器 sandbox、`on-request` 和 `approvalsReviewer=user` 调用 `thread/resume`。恢复的用户 / 助手消息和工具结果转成既有持久事件，因此重连继续使用序号排序与去重。恢复不自动执行新轮次；错误会关闭新 runtime。CLI RPC 白名单与原有线程隔离不放宽。
+
+聊天文本通过 react-markdown / remark-gfm 渲染，不启用原始 HTML；链接保留 URL 协议过滤并隔离新窗口，图片显示替代文字，避免历史内容自动请求远程图片。工具详情默认使用原生 details 折叠，审批单独显示且必须明确操作。既有 256 KiB 单帧限制和事件保留策略仍适用。

@@ -367,6 +367,46 @@ try {
     ).r.status,
     409,
   );
+  const history = await api(
+    `/hosts/${enrolled.hostId}/threads?projectId=test-project`,
+  );
+  assert.deepEqual(
+    history.data.map((t: any) => t.id),
+    ['local-history'],
+  );
+  assert(Buffer.byteLength(history.data[0].preview) <= 500);
+  assert(!history.data[0].preview.includes('�'));
+  assert(history.data[0].preview.includes('你好'));
+  assert.equal(
+    (await request(`/hosts/${other.hostId}/threads?projectId=other-project`)).r
+      .status,
+    401,
+  );
+  assert.equal(
+    (
+      await request('/sessions', {
+        hostId: enrolled.hostId,
+        projectId: 'test-project',
+        mode: 'web',
+        threadId: 'foreign-history',
+      })
+    ).r.status,
+    409,
+  );
+  assert.equal(
+    (
+      await request('/sessions', {
+        hostId: enrolled.hostId,
+        projectId: 'test-project',
+        mode: 'web',
+        threadId: '../escape',
+      })
+    ).r.status,
+    400,
+  );
+  pass(
+    'local thread listing filters project metadata and rejects cross-host/project resume',
+  );
   const key = randomUUID();
   const s = await api(
     '/sessions',
@@ -384,7 +424,9 @@ try {
     s.id,
   );
   assert.equal(
-    JSON.parse(await cliCommand(['sessions', '--host', 'local-test']))[0].id,
+    JSON.parse(await cliCommand(['sessions', '--host', 'local-test'])).find(
+      (session: any) => session.id === s.id,
+    )?.id,
     s.id,
   );
   pass('Agent online, project allowlist and idempotent session creation');
@@ -548,10 +590,14 @@ try {
   });
   const page = await browser.newPage();
   await page.goto(origin);
+  await page.getByRole('button', { name: '功能菜单' }).click();
+  await page.getByRole('button', { name: /连接设置 主机/ }).click();
   await page.getByRole('button', { name: '管理员登录', exact: true }).click();
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('heading', { name: '设备授权管理' }).waitFor();
+  await page.getByRole('button', { name: '功能菜单' }).click();
+  await page.getByRole('button', { name: /API Key 管理访问/ }).click();
   // API keys are credentials themselves; no browser pairing or token exchange.
   await page.getByLabel('Key 名称').fill('e2e-agent-key');
   await page.getByRole('button', { name: '生成 API_KEY', exact: true }).click();
@@ -678,6 +724,8 @@ try {
   pass(
     'web role/host scoped key generation, native A/CC direct-key login, immutable A binding and immediate live revocation',
   );
+  await page.getByRole('button', { name: '功能菜单' }).click();
+  await page.getByRole('button', { name: /设备授权 审批/ }).click();
   const visitor = await browser.newContext();
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
@@ -701,6 +749,8 @@ try {
   assert(webCookie.httpOnly);
   assert(webCookie.expires * 1000 > Date.now() + 300 * 86400000);
   // Save another A credential in the same browser, then switch back to the online A.
+  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage.getByRole('button', { name: /连接设置 主机/ }).click();
   await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
   await visitorPage.getByLabel('A 标识').fill(other.hostId);
   await visitorPage
@@ -763,11 +813,13 @@ try {
   await visitorPage.reload();
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await visitorPage
-    .getByRole('button', {
-      name: browserSession.split('~')[1].slice(0, 8) + ' · web · ready',
-      exact: true,
-    })
+    .getByRole('button', { name: /进行中的对话/ })
+    .first()
     .click();
+  assert.equal(
+    await visitorPage.locator('.conversation .id').innerText(),
+    browserSession,
+  );
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
@@ -783,6 +835,94 @@ try {
   pass(
     'browser cookie login, project selection, task submission and streaming',
   );
+  await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
+  await visitorPage.getByRole('heading', { name: 'Restored reply' }).waitFor();
+  assert.equal(await visitorPage.locator('.markdown table').count(), 1);
+  assert.equal(
+    await visitorPage.locator('.markdown pre code').innerText(),
+    'const restored = true;\n',
+  );
+  assert.equal(
+    await visitorPage.locator('.markdown a[href^="javascript:"]').count(),
+    0,
+  );
+  const tool = visitorPage
+    .locator('.tool-output')
+    .filter({ hasText: 'echo restored' });
+  assert.equal(await tool.getAttribute('open'), null);
+  await tool.locator('summary').click();
+  assert.notEqual(await tool.getAttribute('open'), null);
+  await visitorPage
+    .getByRole('button', { name: '加载更多', exact: true })
+    .click();
+  await wait(
+    async () =>
+      (await visitorPage
+        .getByRole('button', { name: '加载更多', exact: true })
+        .count()) === 0,
+    'history pagination',
+  );
+  assert.equal(
+    await visitorPage.getByRole('button', { name: /本地历史对话/ }).count(),
+    1,
+  );
+  await visitorPage.getByLabel('搜索会话').fill('no matching history');
+  assert.equal(
+    await visitorPage.getByRole('button', { name: /本地历史对话/ }).count(),
+    0,
+  );
+  await visitorPage.getByLabel('搜索会话').fill('');
+  await visitorPage.locator('.messages').evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await visitorPage.screenshot({
+    path: '.local/cw-chat-markdown.png',
+    fullPage: true,
+  });
+  await visitorPage
+    .getByLabel('任务内容')
+    .fill('continue restored conversation');
+  await visitorPage.getByLabel('任务内容').press('Enter');
+  await visitorPage
+    .getByText('echo: continue restored conversation', { exact: true })
+    .waitFor();
+  await visitorPage.screenshot({
+    path: '.local/cw-chat-desktop.png',
+    fullPage: true,
+  });
+  await visitorPage.setViewportSize({ width: 390, height: 844 });
+  await visitorPage.screenshot({
+    path: '.local/cw-chat-mobile.png',
+    fullPage: true,
+  });
+  assert(
+    await visitorPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  );
+  await visitorPage.setViewportSize({ width: 1280, height: 900 });
+  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage.getByRole('button', { name: /连接设置 主机/ }).click();
+  assert.equal(await visitorPage.locator('.conversation').count(), 0);
+  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage.keyboard.press('Escape');
+  assert.equal(
+    await visitorPage.getByRole('navigation', { name: '功能菜单' }).count(),
+    0,
+  );
+  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage
+    .getByRole('navigation', { name: '功能菜单' })
+    .waitFor({ state: 'hidden', timeout: 7000 });
+  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await visitorPage.getByRole('button', { name: /CW 对话 会话/ }).click();
+  await visitorPage
+    .getByText('echo: continue restored conversation', { exact: true })
+    .waitFor();
+  pass(
+    'local history restore, Markdown tables/code and safe links, collapsed tools, pagination/search, keyboard submit, mobile layout and functional navigation',
+  );
+
   // Revoke the active visitor CW grant while preserving its other A cookie.
   const visitorGrant = (
     await api('/admin/devices', undefined, { admin: true })

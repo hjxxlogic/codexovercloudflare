@@ -341,6 +341,26 @@ export default {
           }),
         );
       }
+      const threads = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/threads$/);
+      if (threads && req.method === 'GET') {
+        const auth = await authenticate(req, env, threads[1]);
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        await registryCall(env, 'host', { id: threads[1] });
+        return hostStub(env, threads[1]).fetch(
+          internal(req, '/control', auth, threads[1], {
+            action: 'threads',
+            data: {
+              projectId: idSchema.parse(u.searchParams.get('projectId')),
+              cursor: z
+                .string()
+                .max(4000)
+                .nullable()
+                .parse(u.searchParams.get('cursor')),
+            },
+          }),
+        );
+      }
       if (p === '/api/v1/sessions') {
         const d =
           req.method === 'POST'
@@ -354,6 +374,15 @@ export default {
         if (req.method === 'POST') {
           idSchema.parse(d.projectId);
           z.enum(['web', 'cli']).parse(d.mode);
+          if (d.threadId !== undefined) {
+            idSchema.parse(d.threadId);
+            if (d.mode !== 'web')
+              throw new AppError(
+                'FORBIDDEN',
+                'Only web sessions support history resume',
+                403,
+              );
+          }
           if (d.mode !== auth.role)
             throw new AppError(
               'FORBIDDEN',
