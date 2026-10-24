@@ -7,7 +7,9 @@
 - 默认 CW 模式，只展示对话、会话和工作区功能；管理员模式只展示设备授权、API Key 与管理登录 / 退出。底部按钮切换模式，功能列表独立滚动。
 - Chromium 合成 UI 回归通过：1280×900 桌面、390×480 手机短视口下检查入口互斥与底部按钮可见；键盘切换保留焦点，管理员登录 / 退出、未登录入口和授权深链接正确。切换后 CW 草稿保留，attach 计数不增加，原有授权、离线目录、分页和审批布局回归通过。日志 `.local/cw-menu-modes-ui.log`，截图 `.local/cw-menu-modes/ui/menu-{cw,admin}-{1280,390}.png`。
 - 网页构建、typecheck、lint、Vitest 6 文件 43 项及 Worker dry-run 通过。测试不调用模型。
-- Bookworm 隔离容器中的完整 e2e 与 UI 压力均通过：真实 Wrangler / DO、已发布 0.5.2 原生程序及 Chromium，覆盖新版管理员登录入口、设备审批、API Key、CW 多 A 授权 / 切换、会话与文件、重连及撤销；日志 `.local/cw-menu-modes/e2e.log`。部署结果另行记录。
+- Bookworm 隔离容器中的完整 e2e 与 UI 压力均通过：真实 Wrangler / DO、已发布 0.5.2 原生程序及 Chromium，覆盖新版管理员登录入口、设备审批、API Key、CW 多 A 授权 / 切换、会话与文件、重连及撤销；日志 `.local/cw-menu-modes/e2e.log`。
+- 2026-10-25 07:46（Asia/Shanghai）源码提交 `5ddc50d7dd06ceb8fbe82740f79819c20bfa8688` 已推送并部署到 `https://r.xlogic.cc`。Worker 版本 `11bfb5cd-f498-4bc4-8892-8abeb1a0bbc4`，部署 ID `d066c48c-14f2-40c1-96d2-d5bcb5f6a830`，部署列表确认 100% 流量。部署前重新构建网页并通过 Worker dry-run、文档格式及下载归档 SHA256 检查；在线手册同步更新，原生发行仍为 0.5.2。
+- 线上首页引用新 JS / CSS，字节与本地构建一致；健康 200、未登录业务 401、跨域登录 403、安全头、在线手册 UTF-8 / 文档字节、原生清单及三个归档 SHA256 全部通过。线上 Chromium 在 390×480 下验证未登录 CW / 管理员菜单入口互斥、双向切换、管理员登录表单隔离、底部按钮可见，在线手册实际字符集为 UTF-8，无页面脚本错误。证据 `.local/cw-menu-modes-deploy/online-verification.json`、`browser-verification.json`、`deploy.log`、`deployments-after.json`。线上检查使用未登录浏览器和 HTTP，授权后的交互由本地真实 Wrangler e2e 验证；本次未创建生产设备或操作既有会话，未调用模型。
 
 ![手机短视口 CW 模式与底部切换按钮](assets/cw-menu-modes-2026-10-25/cw-mobile.png)
 
