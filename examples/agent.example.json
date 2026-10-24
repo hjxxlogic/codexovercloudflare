@@ -12,5 +12,9 @@
       "name": "My project",
       "path": "/srv/projects/my-project"
     }
-  ]
+  ],
+  "autoUpdate": {
+    "enabled": true,
+    "intervalHours": 1
+  }
 }

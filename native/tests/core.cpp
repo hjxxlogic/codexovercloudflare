@@ -3,6 +3,7 @@
 #include "coc/network.hpp"
 #include "coc/process.hpp"
 #include "coc/store.hpp"
+#include "coc/update.hpp"
 #include <condition_variable>
 #include <ctime>
 #include <fstream>
@@ -39,6 +40,17 @@ struct Temp {
   ~Temp() { std::filesystem::remove_all(path); }
 };
 void core() {
+  check(update_settings(Json::object()).enabled, "Updates enabled by default");
+  check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
+  check(!update_settings({{"autoUpdate", {{"enabled", false}, {"intervalHours", 24}}}}).enabled,
+        "Object disables automatic update");
+  for (auto value : {Json("false"), Json(nullptr), Json{{"intervalHours", 0}},
+                     Json{{"enabled", "false"}}, Json{{"platform", "../other"}}})
+    rejects([&] { update_settings({{"autoUpdate", value}}); }, "CONFIG_ERROR");
+  check(newer_release("0.6.0", "0.5.99") && newer_release("0.5.10", "0.5.9") &&
+            !newer_release("0.5.1", "0.5.2") && !newer_release("0.5.2", "0.5.2"),
+        "Only numerically newer stable releases install");
+  rejects([] { newer_release("1.2.3/../../bad", "0.5.2"); }, "UPDATE_FAILED");
   for (auto &fixture :
        read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/protocol-fixtures.json")) {
     if (fixture.value("error", false))
@@ -55,7 +67,8 @@ void core() {
   rejects([] { web_command({{"action", "sync"}, {"after", -1}}); }, "INVALID_REQUEST");
   rejects(
       [] {
-        guard_cli({{"method", "account/login/start"}}, "/p", "workspace-write");
+        const auto command = Json{{"method", "account/login/start"}};
+        guard_cli(command, "/p", "workspace-write");
       },
       "UNSUPPORTED_METHOD");
   rejects(
@@ -491,7 +504,9 @@ void files_test() {
   rejects([&] { call({{"operation", "finish"}, {"uploadId", "race"}}); }, "FILE_CHANGED");
   rejects(
       [&] {
-        call({{"operation", "read"}, {"path", "proof.bin"}, {"version", first["version"]}});
+        const auto request =
+            Json{{"operation", "read"}, {"path", "proof.bin"}, {"version", first["version"]}};
+        call(request);
       },
       "FILE_CHANGED");
   files.clear();

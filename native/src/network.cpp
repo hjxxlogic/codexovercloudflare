@@ -94,9 +94,9 @@ public:
   }
 };
 template <class Stream>
-Json exchange(asio::io_context &io, Stream &stream, const Url &u, const std::string &path,
-              const Json &body, const std::string &token, const std::string &request_id,
-              std::chrono::milliseconds timeout) {
+std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const std::string &path,
+                     const Json &body, const std::string &token, const std::string &request_id,
+                     std::chrono::milliseconds timeout, size_t limit = max_queue) {
   DeadlineResolver resolver(io);
   asio::steady_timer deadline(io);
   http::request<http::string_body> req{body.is_null() ? http::verb::get : http::verb::post, path,
@@ -104,7 +104,7 @@ Json exchange(asio::io_context &io, Stream &stream, const Url &u, const std::str
   req.set(http::field::host, u.authority);
   req.set(http::field::content_type, "application/json");
   req.set(http::field::origin, u.origin);
-  req.set(http::field::user_agent, "coc/0.5.1");
+  req.set(http::field::user_agent, "coc/0.5.2");
   if (!token.empty())
     req.set(http::field::authorization, "Bearer " + token);
   if (!body.is_null()) {
@@ -114,7 +114,7 @@ Json exchange(asio::io_context &io, Stream &stream, const Url &u, const std::str
   }
   beast::flat_buffer buffer;
   http::response_parser<http::string_body> parser;
-  parser.body_limit(max_queue);
+  parser.body_limit(limit);
   boost::system::error_code failure;
   bool completed = false, timed_out = false;
   const auto finish = [&](boost::system::error_code ec) {
@@ -178,12 +178,14 @@ Json exchange(asio::io_context &io, Stream &stream, const Url &u, const std::str
   if (failure)
     throw Error("HTTP_NETWORK", "Relay transport failed: " + failure.message());
   auto response = parser.release();
-  auto data = Json::parse(response.body());
   if (response.result_int() < 200 || response.result_int() >= 300) {
+    auto data = Json::parse(response.body(), nullptr, false);
+    if (!data.is_object())
+      throw Error("HTTP_ERROR", "Download or relay request failed");
     auto error = data.value("error", Json::object());
     throw Error(error.value("code", "HTTP_ERROR"), error.value("message", "Relay request failed"));
   }
-  return data;
+  return response.body();
 }
 } // namespace
 Json http_json(const Url &u, const std::string &path, const Json &body, const std::string &token,
@@ -195,10 +197,24 @@ Json http_json(const Url &u, const std::string &path, const Json &body, const st
     beast::ssl_stream<beast::tcp_stream> stream(io, ctx);
     verify_tls_hostname(stream.native_handle(), u.host);
     stream.set_verify_mode(ssl::verify_peer);
-    return exchange(io, stream, u, path, body, token, request_id, timeout);
+    return Json::parse(exchange(io, stream, u, path, body, token, request_id, timeout));
   }
   beast::tcp_stream stream(io);
-  return exchange(io, stream, u, path, body, token, request_id, timeout);
+  return Json::parse(exchange(io, stream, u, path, body, token, request_id, timeout));
+}
+std::string http_download(const Url &u, const std::string &path, size_t limit,
+                          std::chrono::milliseconds timeout) {
+  asio::io_context io;
+  if (u.tls) {
+    ssl::context ctx(ssl::context::tls_client);
+    ctx.set_default_verify_paths();
+    beast::ssl_stream<beast::tcp_stream> stream(io, ctx);
+    verify_tls_hostname(stream.native_handle(), u.host);
+    stream.set_verify_mode(ssl::verify_peer);
+    return exchange(io, stream, u, path, nullptr, "", "", timeout, limit);
+  }
+  beast::tcp_stream stream(io);
+  return exchange(io, stream, u, path, nullptr, "", "", timeout, limit);
 }
 std::shared_ptr<Socket> connect_socket(asio::io_context &io, const Url &u, const std::string &t,
                                        SocketMessage m, SocketClosed c, const std::string &path) {

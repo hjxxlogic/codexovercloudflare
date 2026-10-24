@@ -1,6 +1,6 @@
 # 用户手册
 
-> 0.3.1 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
+> 0.5.2 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
 
 ## 1. 组件与权限
 
@@ -23,7 +23,9 @@ CC 在本地文件保存多份凭证；CW 为每个 A 保存独立的持久化 H
 当前原生发行包支持 Linux x86_64，分别提供 Ubuntu 20.04 和 Debian 12 动态链接包。选择匹配的发行版，下载并核对 `SHA256SUMS`，解压后安装：
 
 ```bash
-sudo install -m 0755 coc-agent coc-client /usr/local/bin/
+mkdir -p "$HOME/.local/bin"
+install -m 0755 coc-agent coc-client "$HOME/.local/bin/"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 只运行服务器时只需安装 `coc-agent`；用户电脑只需安装 `coc-client`。运行原生程序不需要 Node.js。系统需要对应版本的 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书；用 `ldd coc-agent` / `ldd coc-client` 检查动态库。
@@ -40,6 +42,33 @@ npm run dev
 ```
 
 开发需要 Node.js ≥22.17、C++17、CMake ≥3.16、Boost.System ≥1.71、OpenSSL、SQLite3、nlohmann/json ≥3.7。Ubuntu 20.04 的 workerd 容器方案见 [开发说明](DEVELOPMENT.md)。以下示例的 R 地址在本机体验时替换为 `http://127.0.0.1:8787`。
+
+### 原生程序自动更新
+
+从 0.5.2 起默认启用自动更新。Agent 运行期间每小时检查配置中 `relayUrl` 的 `/downloads/`；下载和候选检查在后台进行，等所有运行会话结束且没有历史读取后才关闭连接、释放数据库锁并原地重启，沿用原启动参数。空闲检查最多约 30 秒一次；保持附着但未执行任务的会话仍算运行会话，须结束会话后才切换。CLI 在成功的业务命令结束（TUI 退出）后检查，安装后下一次启动生效，不会在 TUI 运行中替换进程。help、version、doctor、logout 和离线历史读取不触发自动检查。
+
+在 Agent 的 `agent.json` 或 CLI 的 `credentials.json` 顶层加入以下配置即可禁止自动下载和安装，既有凭据字段保持原样：
+
+```json
+{ "autoUpdate": false }
+```
+
+也可设置 `{"autoUpdate":{"enabled":true,"intervalHours":24}}`；间隔为 1–168 小时，默认 1 小时，失败也按间隔退避。Agent 每 30 秒重读这一设置，CLI 下次命令读取。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+
+自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
+
+程序和安装目录必须归运行用户所有、目录可写且没有组/其他用户写权限；拒绝 set-ID 程序。建议安装到该用户的 `~/.local/bin`，并让 systemd 使用相同路径。root 所有的 `/usr/local/bin` 安装不会让普通用户自动提权更新，需管理员手动安装，或改为用户目录。更新依赖系统 `/bin/tar`；无需 Node.js，不更新 Codex、系统动态库、配置、凭据或数据库。
+
+每次安装验证归档 SHA256、候选程序 `--version` 的版本/提交/源码摘要/目标/协议及干净身份，保留权限并原子替换当前程序；旧文件保存为同目录 `<程序名>.previous`，仅保留上一版。校验失败、权限不足或网络失败会向 stderr 输出更新错误，自动检查不使当前业务命令失败。此校验依赖中继 HTTPS 和下载服务可信，不是独立发布签名。管理员仍须检查新发行版兼容性。
+
+可以显式执行以下命令立即检查（不受自动开关和间隔限制），无需重新登录：
+
+```bash
+coc-client update --config ~/.config/coc-client/credentials.json
+coc-agent update --config ~/.config/coc-agent/agent.json
+```
+
+运行中的 Agent 手动更新后须自行重启服务；自动更新会自行重启。需要回退时先停 Agent 或退出 CLI，将 `.previous` 文件替换回原程序后重新启动，并配置 `autoUpdate: false` 防止再次升级。程序回退不回退数据库或工作区；跨版本数据兼容性与备份要求见 [发布说明](RELEASE.md)。0.5.1 及更早程序没有自动更新功能，首次升级仍须手动安装 0.5.2。
 
 ## 3. 管理网页
 

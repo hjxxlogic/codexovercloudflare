@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.1 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.2 开发预览版，完整目标和已验证范围见文档。
 
 ## 本机快速开始
 
@@ -75,3 +75,5 @@ npm run test:native
 - [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：完整目标，部分能力尚待实现。
 
 当前稳定化实现与验证边界见 [实施记录](docs/stabilization-2026-10-24.md)。0.5.1 已包含这些整改并发布；发布结果见 [测试记录](docs/TEST_REPORT.md)。
+
+Agent / CLI 从 0.5.2 开始默认自动更新所连接中继的发行版本；配置 `"autoUpdate": false` 可关闭。安装权限、检查间隔及回退方式见 [用户手册](docs/USER_GUIDE.md#原生程序自动更新)。

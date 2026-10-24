@@ -2,6 +2,7 @@
 #include "coc/diagnostics.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
+#include "coc/update.hpp"
 #include <algorithm>
 #include <csignal>
 #include <cstdlib>
@@ -18,7 +19,7 @@ class Cli {
   bool takeover_ = false;
   Json store() {
     if (!std::filesystem::exists(credentials_))
-      return {{"version", 2}, {"entries", Json::array()}, {"selected", ""}};
+      return {{"version", 2}, {"entries", Json::array()}, {"selected", ""}, {"autoUpdate", true}};
     auto data = read_json(credentials_);
     if (data.value("version", 0) != 2)
       throw Error("LOGIN_REQUIRED",
@@ -314,9 +315,30 @@ public:
         takeover_(options_.takeover) {}
   void run() {
     auto command = options_.args.empty() ? "help" : options_.args[0];
-    auto id = options_.args.size() > 1 ? options_.args[1] : "";
     if (options_.api_key && command != "login")
       throw Error("USAGE", "--api-key is only valid for login");
+    auto settings = command != "help" && std::filesystem::exists(credentials_)
+                        ? read_json(credentials_)
+                        : Json::object();
+    update_settings(settings);
+    auto release_relay = [&] {
+      if (!option("relay").empty())
+        return option("relay");
+      for (const auto &entry : settings.value("entries", Json::array()))
+        if (key(entry) == settings.value("selected", ""))
+          return entry.at("relay").get<std::string>();
+      return std::string("https://r.xlogic.cc");
+    };
+    if (command == "update") {
+      auto update = prepare_update(settings, release_relay(), true);
+      if (update) {
+        update->install();
+        std::cout << update->release.dump(2) << '\n';
+      } else
+        std::cout << "Already up to date\n";
+      return;
+    }
+    auto id = options_.args.size() > 1 ? options_.args[1] : "";
     std::unique_ptr<PrivateLock> config_lock;
     if (command == "login" || command == "logout" || command == "use")
       config_lock = std::make_unique<PrivateLock>(credentials_);
@@ -430,7 +452,7 @@ public:
       std::cout
           << "Usage: coc-client "
              "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop|history|cache-"
-             "clear> [options]\n"
+             "clear|doctor|update> [options]\n"
              "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
              "--session ID --offline true --cache-dir PATH\n"
@@ -439,6 +461,17 @@ public:
              "local credentials.\n";
       if (command != "help")
         throw Error("USAGE", "Unknown command");
+    }
+    if (command != "help" && command != "logout" && command != "doctor" &&
+        option("offline") != "true") {
+      try {
+        if (std::filesystem::exists(credentials_))
+          settings = read_json(credentials_);
+        automatic_update(settings, release_relay());
+      } catch (const std::exception &error) {
+        std::cerr << Json{{"event", "auto_update_failed"}, {"error", error_data(error)}}.dump()
+                  << '\n';
+      }
     }
   }
 };

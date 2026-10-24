@@ -3,6 +3,7 @@
 #include "coc/files.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
+#include "coc/update.hpp"
 #include <atomic>
 #include <csignal>
 #include <iostream>
@@ -33,6 +34,9 @@ class Agent {
   std::thread worker_;
   std::atomic<size_t> inbound_{0}, outbound_{0};
   Json config_;
+  std::filesystem::path config_file_;
+  AgentUpdater &updater_;
+  bool update_restart_ = false;
   Store store_;
   WorkspaceFiles files_;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
@@ -46,10 +50,12 @@ class Agent {
   std::atomic<int64_t> pong_{now()};
 
 public:
-  Agent(asio::io_context &io, Json c)
+  Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
-        store_(config_["dataDir"]), files_(&store_), retry_(io_), maintenance_(io_), heartbeat_(io),
+        config_file_(std::move(config_file)), updater_(updater), store_(config_["dataDir"]),
+        files_(&store_), retry_(io_), maintenance_(io_), heartbeat_(io),
         signals_(io_, SIGINT, SIGTERM) {}
+  bool update_restart() const { return update_restart_; }
   ~Agent() {
     if (worker_.joinable()) {
       asio::post(io_, [this] { close(); });
@@ -70,6 +76,7 @@ public:
           close();
       });
       connect();
+      check_update();
       maintain();
     });
     worker_ = std::thread([this] {
@@ -360,8 +367,8 @@ public:
       auto p = project(d.at("projectId"));
       if (listing_threads_ || archive_loading_.size() + runtimes_.size() >= 6)
         throw Error("BACKPRESSURE", "History query already in progress");
-      auto process = std::make_shared<CodexProcess>(
-          io_, config_, p["path"], [](Json) {}, [] {});
+      auto ignore_message = [](Json) {};
+      auto process = std::make_shared<CodexProcess>(io_, config_, p["path"], ignore_message, [] {});
       listing_threads_ = true;
       process->start();
       process->initialize([this, process, p, d, done](Json, Json error) {
@@ -964,10 +971,27 @@ public:
       p->close();
     }
   }
+  void check_update() {
+    try {
+      // Only this setting is hot-reloaded; project/policy changes still need restart.
+      config_["autoUpdate"] = read_json(config_file_).value("autoUpdate", Json(true));
+      if (updater_.poll(config_, config_.at("relayUrl"),
+                        runtimes_.empty() && archive_loading_.empty() && !listing_threads_)) {
+        update_restart_ = true;
+        close();
+      }
+    } catch (const std::exception &error) {
+      std::cerr << Json{{"event", "auto_update_failed"}, {"error", error_data(error)}}.dump()
+                << '\n';
+    }
+  }
   void maintain() {
     maintenance_.expires_after(std::chrono::seconds(30));
     maintenance_.async_wait([this](auto ec) {
       if (ec || stopped_)
+        return;
+      check_update();
+      if (stopped_)
         return;
       try {
         for (auto &[id, r] : runtimes_) {
@@ -1050,16 +1074,28 @@ int main(int argc, char **argv) {
     auto file = std::filesystem::path(options.get(
         "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
     if (command == "help") {
-      std::cout << "Usage: coc-agent <login|logout|status|doctor|run|--version> [--config PATH] "
-                   "[--relay URL] "
-                   "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
-                   "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
-                   "displayed request in the management website. logout only "
-                   "removes local credentials.\n";
+      std::cout
+          << "Usage: coc-agent <login|logout|status|doctor|run|update|--version> [--config PATH] "
+             "[--relay URL] "
+             "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
+             "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
+             "displayed request in the management website. logout only "
+             "removes local credentials.\n";
       return 0;
     }
     if (options.api_key && command != "login")
       throw coc::Error("USAGE", "--api-key is only valid for login");
+    if (command == "update") {
+      auto config = std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
+      auto update = coc::prepare_update(
+          config, options.get("relay", config.value("relayUrl", "https://r.xlogic.cc")), true);
+      if (update) {
+        update->install();
+        std::cout << update->release.dump(2) << '\n';
+      } else
+        std::cout << "Already up to date\n";
+      return 0;
+    }
     std::unique_ptr<coc::PrivateLock> config_lock;
     if (command == "login" || command == "logout")
       config_lock = std::make_unique<coc::PrivateLock>(file);
@@ -1080,6 +1116,7 @@ int main(int argc, char **argv) {
         if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
           throw coc::Error("CONFIG_ERROR", "Invalid project");
         config = {
+            {"autoUpdate", true},
             {"codexPath", "codex"},
             {"codexArgs", coc::Json::array()},
             {"sandbox", "workspace-write"},
@@ -1120,11 +1157,19 @@ int main(int argc, char **argv) {
     if (command != "run")
       throw coc::Error("USAGE", "Unknown command: " + command);
     auto config = coc::agent_config(coc::read_json(file));
+    coc::update_settings(config);
     coc::verify_codex(config);
     boost::asio::io_context io;
-    coc::Agent agent(io, config);
-    agent.start();
-    io.run();
+    coc::AgentUpdater updater;
+    bool restart = false;
+    {
+      coc::Agent agent(io, config, file, updater);
+      agent.start();
+      io.run();
+      restart = agent.update_restart();
+    }
+    if (restart && updater.install())
+      coc::restart_updated(argc, argv);
     return 0;
   } catch (const std::exception &e) {
     std::cerr << coc::error_data(e).dump() << '\n';

@@ -4,7 +4,7 @@
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前发布 0.5.1 开发预览版。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
+当前发布 0.5.2 开发预览版。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
 
 从 0.3.x / 0.4.x 升级保留现有授权和配置；双向历史通道需要同时更新 Agent、CC、Worker 与网页。Agent 不再按历史总量或时间自动清理正文；升级前已删除的数据不能恢复。CW / CC 缓存位于各自设备，不是云端副本。从 0.2.x 升级属于不兼容的认证升级。旧 Agent / 客户端凭证和旧管理员 Cookie 不再接受，所有者密钥保留。原生程序需要更新，A 自行重新申请网页批准的登录，CC / CW 对目标 A 分别申请。systemd 改用 `coc-agent run --config ...`。迁移步骤见 [用户手册](USER_GUIDE.md)。项目配置与 SQLite 格式保留，不自动迁移宽权限令牌。
 
@@ -33,7 +33,7 @@ python3 scripts/package-release.py --build-dir .local/build-container --platform
 
 ```bash
 node node_modules/wrangler/bin/wrangler.js deploy \
-  --tag v0.5.1 --message 'Release 0.5.1 reliability and CW UI stabilization'
+  --tag v0.5.2 --message 'Release 0.5.2 native automatic updates'
 ```
 
 只有初始化或明确轮换密钥时才追加 `--secrets-file .local/production/secrets.json`。
@@ -44,7 +44,7 @@ node node_modules/wrangler/bin/wrangler.js deploy \
 
 生产授权冒烟只使用明确标记的临时设备和独立凭证文件：申请临时 A，在真实管理网页核对并批准，验证下载的 A 登录；再为该 A 授权 CC / CW，验证各自作用域及管理员接口拒绝。测试后只撤销本次创建的临时授权，不能操作用户真实设备。测试不调用模型；不宣称覆盖生产 Codex 会话与长期负载。
 
-记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.1` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
+记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.2` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
 
 DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
 
@@ -61,3 +61,7 @@ DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
 本次为稳定化开发预览发布，保留尚未完成的验收事项：八小时压力、真实平台休眠/升级/回滚、磁盘耗尽/掉电、Firefox/WebKit、手机键盘和屏幕阅读器。sanitizer 首次异常无可用堆栈，重建后通过，原因尚未定位；短时基准未完成目标负载，不能作为吞吐承诺。
 
 Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 protocol 1 构建/能力协商时，新中继返回 AGENT_NEGOTIATING 而不创建进程。既有项目重复或父子根目录需先合并配置。普通部署保留已有 OWNER_SECRET 和 DO 数据，不清空注册或撤销用户设备；本次不会代替用户升级已有服务器服务。
+
+### 0.5.2 原生自动更新发布要求
+
+两个平台包都必须重新生成，清单 version/commit/sourceDigest/protocol 必须与实际程序一致；SHA256SUMS 保持标准双空格文件名格式。更新器只接受比当前版本新的稳定三段版本及相同协议，不从旧版本自动引导到 0.5.2。发布前运行 `test:update`，干净构建另运行 `tests/native-update.py --automatic` 验证实际安装和 Agent 重启；发布后核对线上三个归档与手册。安装目录需运行用户可写，systemd 模板已改为 `/home/coc/.local/bin`。显式 `update` 可越过自动开关；普通自动失败不影响原业务结果。

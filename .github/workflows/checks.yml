@@ -14,10 +14,23 @@ jobs:
           node-version: 22.17.0
           cache: npm
       - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
-      - run: npm ci
+      - name: Install locked dependencies
+        run: |
+          if npm ci > /tmp/coc-npm-ci.log 2>&1; then
+            cat /tmp/coc-npm-ci.log
+          else
+            cat /tmp/coc-npm-ci.log
+            python3 - <<'PY'
+          import pathlib
+          for line in pathlib.Path('/tmp/coc-npm-ci.log').read_text().splitlines()[-20:]:
+              text = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Dependency installation::' + text)
+          PY
+            exit 1
+          fi
       - run: npm run lint && npm run lint:cpp && npm run typecheck && npm run protocol:check
       - run: npm run build
-      - run: npm test && npm run test:tls && npm run test:backup && npm run test:release
+      - run: npm test && npm run test:tls && npm run test:backup && npm run test:release && npm run test:update
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e && npm run test:ui
         env:

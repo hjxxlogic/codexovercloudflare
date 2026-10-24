@@ -8,8 +8,8 @@ Type=simple
 User=coc
 WorkingDirectory=/opt/codexovercloudflare
 Environment=HOME=/home/coc
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/coc-agent run --config /home/coc/.config/coc-agent/agent.json
+Environment=PATH=/home/coc/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/coc/.local/bin/coc-agent run --config /home/coc/.config/coc-agent/agent.json
 Restart=on-failure
 RestartSec=5
 UMask=0077

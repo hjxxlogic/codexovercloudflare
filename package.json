@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -30,7 +30,8 @@
     "test:backup": "python3 tests/state-backup.py",
     "test:release": "python3 tests/release-provenance.py",
     "protocol:generate": "tsx scripts/gen-protocol.ts",
-    "protocol:check": "tsx scripts/gen-protocol.ts --check"
+    "protocol:check": "tsx scripts/gen-protocol.ts --check",
+    "test:update": "python3 tests/native-update.py"
   },
   "dependencies": {
     "react": "^19.3.1",
