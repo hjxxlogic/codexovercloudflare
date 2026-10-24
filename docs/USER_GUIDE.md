@@ -15,7 +15,11 @@
 
 ## 2. 安装与准备
 
-Agent 和 CLI 现为 C++ 原生程序。Linux 上从源码编译（Debian / Ubuntu 示例）：
+Agent 和 CLI 为 C++ 原生程序。发布包下载入口：[https://r.xlogic.cc/downloads/](https://r.xlogic.cc/downloads/)。目前提供 Ubuntu 20.04 和 Debian 12 的 Linux x86_64 包，以及源码包；按发行版选择，并用 `sha256sum -c SHA256SUMS --ignore-missing` 校验。
+
+解压二进制包后执行 `sudo install -m 0755 coc coc-agent /usr/local/bin/`，后文 `./build/coc` / `./build/coc-agent` 可直接替换为 `coc` / `coc-agent`。包不包含系统动态库，先用 `ldd coc coc-agent` 检查依赖。
+
+也可从源码编译（Debian / Ubuntu 示例）：
 
 ```bash
 sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev

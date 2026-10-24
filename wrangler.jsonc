@@ -1,5 +1,9 @@
 {
   "name": "codex-over-cloudflare",
+  "account_id": "6081c65734701e00a8ef4554443e2688",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "r.xlogic.cc", "custom_domain": true }],
   "main": "apps/relay/src/index.ts",
   "compatibility_date": "2026-10-24",
   "assets": {

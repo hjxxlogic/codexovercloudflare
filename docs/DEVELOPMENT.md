@@ -89,6 +89,6 @@ C++ 使用 2 空格、snake_case 函数、PascalCase 类及 `.clang-format`，�
 
 ## 5. 部署准备
 
-当前未部署到 `r.xlogic.cc`。部署前在 `wrangler.jsonc` 设置账号与域名 route，使用 `npx wrangler secret put OWNER_SECRET` 写入独立生产密钥，并完成跨网络、DO 休眠唤醒和负载验证。Agent 使用非 root 用户，配置 Codex home、项目权限与持久 dataDir，参见 [systemd 示例](../examples/coc-agent.service)。
+`wrangler.jsonc` 已配置 `r.xlogic.cc` 自定义域名及账号，关闭 workers.dev 和预览 URL。生产发布必须携带网页和原生下载包，并使用独立生产密钥；具体步骤见 [发布操作](RELEASE.md)。发布后的 HTTP 冒烟测试不替代跨网络会话、DO 休眠唤醒和长期负载验证。Agent 使用非 root 用户，配置 Codex home、项目权限与持久 dataDir，参见 [systemd 示例](../examples/coc-agent.service)。
 
 TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户隔离。完整目标与验证边界见 README 和测试记录。
