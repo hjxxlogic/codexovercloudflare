@@ -102,3 +102,5 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 共用 login 接口支持 `login --api-key`，从 `COC_API_KEY` 或隐藏终端 / 标准输入读取，成功后将原 Key 存入现有 token 字段，沿用私有配置与业务接口。终端参数不接受 Key 值。Key 创建 / 绑定 / 撤销由 RegistryDO 负责，CC 目标在创建时校验，A 首次绑定使用事务，重复使用不创建第二个 A。创建响应之外不返回秘密，不增加兑换令牌。
 
 `tests/device-auth.test.ts` 覆盖角色必填、目标固定、直接 Bearer、多年有效、并发绑定和级联撤销；`tests/e2e.ts` 通过管理网页生成两类 Key，实际运行两个原生程序并验证保存的 token 就是 Key、重复登录绑定一致和活动连接撤销。测试截图在忽略目录 `.local/api-key-management.png`。
+
+发布后必须验证 Registry 新接口实际可用，再完成登录验收。Worker 与 Durable Object 代码在全球最终一致传播，可能出现新网页已上线而 Registry 暂时仍返回旧版本的 `NOT_FOUND: Unknown operation`；不能仅依据 `wrangler deploy` 成功就宣告功能验收通过。参见 [Cloudflare 代码更新说明](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#code-updates)。等待传播后重试验证，不要清空生产 DO 状态或更改设备身份。
