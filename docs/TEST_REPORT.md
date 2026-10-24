@@ -6,8 +6,9 @@
 
 - 新增 Chromium 回归在修复前复现：累计取得 450 条消息，DOM 只显示 400 条。
 - 修复后 `npm run build:web` 与 `npm run test:ui` 通过。短消息、较大消息两组各 600 条，按每页 150 条连续加载，均完整有序显示；越过 400 条 / 192 KiB 后不裁剪，后续加载保留阅读锚点。返回最新恢复有界窗口，重新加载三个旧页命中 IndexedDB，无额外历史页网络请求。
-- `npm run typecheck`、`npm run lint`、Vitest 6 文件 43 项通过。本次仅修改网页历史合并逻辑，浏览器使用合成 API / WebSocket；未调用模型。截图：`.local/cw-history-regression-after/cw-loaded-history.png`。部署结果另行记录。
+- `npm run typecheck`、`npm run lint`、Vitest 6 文件 43 项通过。本次仅修改网页历史合并逻辑，浏览器使用合成 API / WebSocket；未调用模型。截图：`.local/cw-history-regression-after/cw-loaded-history.png`。
 - 部署前再次通过网页构建、Worker dry-run、UI 压力及完整 e2e。宿主 Wrangler 启动不兼容，改用 Bookworm 隔离容器、已发布 0.5.2 Debian 原生包、真实 Wrangler / DO 与 Chromium，验证历史、权限、审批、文件和重连；测试工作区不包含生产凭据。日志 `.local/cw-history-deploy/e2e.log`。既有三个下载归档的 SHA256 全部通过，原生清单保持 0.5.2。
+- 2026-10-25 07:17（Asia/Shanghai）源码提交 `8d40f89f54e636793025a7c89ff57cae15874fe9` 已推送并部署到 `https://r.xlogic.cc`。Worker 版本 `5b3b63ef-c56b-459a-8adf-f89cd12bd148`，部署 ID `2680ece8-0c00-4ca0-b732-2794f3a6c5b8`，部署列表确认 100% 流量。线上首页引用新 JS，JS / CSS 字节与本地构建一致；健康 200、未登录业务 401、跨域登录 403、安全头、手册 UTF-8 与文档字节、三个归档 SHA256 及原生清单均通过。证据 `.local/cw-history-deploy/online-verification.json`、`deploy.log`、`deployments-after.json`。线上使用未登录 HTTP 检查，600 条历史交互由本地 Chromium 回归验证；本次未创建生产设备或操作既有会话。
 
 ## 0.5.2 自动更新与生产发布验证
 
