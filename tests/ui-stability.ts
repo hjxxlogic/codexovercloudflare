@@ -24,6 +24,10 @@ let online = true,
 let approvals: unknown[] = [];
 const submitted = new Set<string>();
 let contentCalls = 0;
+let pagedHistory:
+  | { seq: number; type: string; data: { text: string }; time: number }[]
+  | undefined;
+let olderPageCalls = 0;
 const events = [
   { seq: 1, type: 'user', data: { text: '示例任务' }, time: 1 },
   ...[2, 3, 4].map((seq) => ({
@@ -160,6 +164,25 @@ wss.on('connection', (ws, request) => {
             }),
           );
       }, 200);
+    } else if (history && pagedHistory) {
+      if (data.before) olderPageCalls++;
+      const page =
+        data.after === undefined
+          ? pagedHistory
+              .filter((event) => !data.before || event.seq < data.before)
+              .slice(-150)
+          : [];
+      ws.send(
+        JSON.stringify({
+          type: 'history',
+          requestId: data.requestId,
+          events: page,
+          more: (page[0]?.seq ?? 1) > 1,
+          cursor: page[0]?.seq ?? 600,
+          snapshotSeq: 600,
+          direction: data.after === undefined ? 'before' : 'after',
+        }),
+      );
     } else if (history)
       ws.send(
         JSON.stringify({
@@ -365,6 +388,83 @@ try {
     .locator('.workspace-context')
     .getByText('服务器离线 · 只读缓存')
     .waitFor();
+  online = true;
+  for (const size of [0, 400]) {
+    pagedHistory = Array.from({ length: 600 }, (_, index) => ({
+      seq: index + 1,
+      type: 'user',
+      data: { text: `历史消息 ${index + 1} ${'x'.repeat(size)}` },
+      time: index + 1,
+    }));
+    const historyPage = await browser.newPage();
+    historyPage.on('pageerror', (error) => failures.push(error.message));
+    await historyPage.goto(origin);
+    await historyPage.getByRole('button', { name: '功能菜单' }).click();
+    await historyPage.getByRole('button', { name: /连接设置 主机/ }).click();
+    await historyPage
+      .getByLabel('主机', { exact: true })
+      .selectOption('sample');
+    await historyPage.getByRole('button', { name: '功能菜单' }).click();
+    await historyPage.getByRole('button', { name: /^会话记录/ }).click();
+    await historyPage.getByRole('button', { name: /进行中的对话/ }).click();
+    const messages = historyPage.locator('[data-event-seq]');
+    await expect(messages).toHaveCount(150);
+    const loadOlder = historyPage.getByRole('button', { name: '加载更早内容' });
+    for (const count of [300, 450, 600]) {
+      await loadOlder.scrollIntoViewIfNeeded();
+      const anchor = messages.first();
+      const seq = await anchor.getAttribute('data-event-seq');
+      const top = (await anchor.boundingBox())!.y;
+      await loadOlder.click();
+      await expect(messages).toHaveCount(count);
+      // The first click also inserts the older-history status above the messages.
+      if (count > 300)
+        await expect
+          .poll(async () => {
+            const box = await historyPage
+              .locator(`[data-event-seq="${seq}"]`)
+              .boundingBox();
+            return Math.abs(box!.y - top);
+          })
+          .toBeLessThan(2);
+    }
+    assert.deepEqual(
+      await messages.evaluateAll((nodes) =>
+        nodes.map((node) => Number((node as HTMLElement).dataset.eventSeq)),
+      ),
+      pagedHistory.map((event) => event.seq),
+      'all fetched history remains visible in sequence without duplicates',
+    );
+    await expect(loadOlder).toHaveCount(0);
+    const returnLatest = historyPage.getByRole('button', {
+      name: '返回最新内容',
+    });
+    await returnLatest.click();
+    await expect(loadOlder).toBeEnabled();
+    assert(
+      (await messages.count()) <= 400,
+      'return latest restores a bounded window',
+    );
+    await expect(messages.last()).toHaveAttribute('data-event-seq', '600');
+    const calls = olderPageCalls;
+    for (let index = 0; index < 3; index++) {
+      await expect(loadOlder).toBeEnabled();
+      await loadOlder.click();
+    }
+    await expect(loadOlder).toHaveCount(0);
+    await expect(messages).toHaveCount(600);
+    assert.equal(
+      olderPageCalls,
+      calls,
+      'previously loaded pages use IndexedDB',
+    );
+    if (size)
+      await historyPage.screenshot({
+        path: join(artifacts, 'cw-loaded-history.png'),
+      });
+    await historyPage.close();
+  }
+  pagedHistory = undefined;
   logged = false;
   await page.goto(origin);
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -372,7 +472,7 @@ try {
   assert((await page.locator('.login-card').boundingBox())!.width <= 520);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, stable menu, dialog padding/focus, offline catalog and first visit',
+    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, stable menu, dialog padding/focus, offline catalog, complete paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

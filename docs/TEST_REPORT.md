@@ -2,6 +2,13 @@
 
 日期：2026-10-24。0.5.2 已发布，源码标签 `v0.5.2` 指向 `e3a4e051ed825bdcb4dcd106fb133a40c04e0b7e`。当前结果见下表和 [逐项实施记录](stabilization-2026-10-24.md)。后文保留各版本历史证据；旧的“未完成”不能作为当前结论。此次未调用模型。
 
+## 2026-10-25 · CW 完整显示已加载历史
+
+- 新增 Chromium 回归在修复前复现：累计取得 450 条消息，DOM 只显示 400 条。
+- 修复后 `npm run build:web` 与 `npm run test:ui` 通过。短消息、较大消息两组各 600 条，按每页 150 条连续加载，均完整有序显示；越过 400 条 / 192 KiB 后不裁剪，后续加载保留阅读锚点。返回最新恢复有界窗口，重新加载三个旧页命中 IndexedDB，无额外历史页网络请求。
+- `npm run typecheck`、`npm run lint`、Vitest 6 文件 43 项通过。本次仅修改网页历史合并逻辑，浏览器使用合成 API / WebSocket；未调用模型。截图：`.local/cw-history-regression-after/cw-loaded-history.png`。部署结果另行记录。
+- 部署前再次通过网页构建、Worker dry-run、UI 压力及完整 e2e。宿主 Wrangler 启动不兼容，改用 Bookworm 隔离容器、已发布 0.5.2 Debian 原生包、真实 Wrangler / DO 与 Chromium，验证历史、权限、审批、文件和重连；测试工作区不包含生产凭据。日志 `.local/cw-history-deploy/e2e.log`。既有三个下载归档的 SHA256 全部通过，原生清单保持 0.5.2。
+
 ## 0.5.2 自动更新与生产发布验证
 
 2026-10-24 23:52（Asia/Shanghai）发布至 `https://r.xlogic.cc`。Worker 版本 `e440d059-e38a-475e-ac45-0aa9261c337b`，部署 ID `b5269035-c324-4bf1-b495-db4b8bbc4242`，实际部署列表确认承接 100% 流量。提交与 `v0.5.2` 标签已推送；发行源码为 `e3a4e05`，源码摘要为 `0fee8019026de86763f2d5345da0a75dee4d681aafa3c8d480ff17485ab75329`。发布后的测试夹具/CI 与证据修正另行提交，不改写标签或线上运行产物。

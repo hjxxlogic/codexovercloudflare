@@ -707,13 +707,7 @@ function App() {
       const anchorTop = anchor?.getBoundingClientRect().top;
       setEvents((previous) => {
         const merged = mergeEvents([...page.events, ...previous]);
-        if (!olderView.current) return eventWindow(merged);
-        let bytes = 0;
-        const window = merged.filter((event, index) => {
-          bytes += new TextEncoder().encode(JSON.stringify(event)).length;
-          return index < 400 && bytes <= 192 * 1024;
-        });
-        return window;
+        return olderView.current ? merged : eventWindow(merged);
       });
       setOlderCursor(page.events[0]?.seq ?? 0);
       setHasOlder(page.more);
@@ -1977,7 +1971,7 @@ function App() {
                     >
                       {olderView.current && (
                         <p className="status">
-                          正在浏览较早内容 · 显示有界历史窗口，可返回最新。
+                          正在浏览较早内容 · 已加载的消息全部保留，可返回最新。
                         </p>
                       )}
                       <div className="row">
