@@ -11,6 +11,13 @@ import {
   type Env,
 } from './common.ts';
 
+type ApiKey = {
+  id: string;
+  name: string;
+  role: 'agent' | 'cli';
+  hostId?: string;
+  created: number;
+};
 type Host = { id: string; name: string; disabled: boolean; version: 2 };
 export class RegistryDO extends DurableObject<Env> {
   async fetch(req: Request) {
@@ -18,14 +25,17 @@ export class RegistryDO extends DurableObject<Env> {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
         s = this.ctx.storage;
-      if (op === 'login' || op === 'deviceStart') {
+      if (op === 'login' || op === 'deviceStart' || op === 'apiKeyLogin') {
         if (!this.env.OWNER_SECRET || this.env.OWNER_SECRET.length < 32)
           throw new AppError(
             'NOT_CONFIGURED',
             'Owner secret must have at least 32 characters',
             503,
           );
-        const key = 'limit:' + String(d.ip).slice(0, 100);
+        const key =
+          'limit:' +
+          (op === 'apiKeyLogin' ? 'api:' : '') +
+          String(d.ip).slice(0, 100);
         const attempts = (await s.get<{ count: number; until: number }>(
           key,
         )) || { count: 0, until: Date.now() + 60000 };
@@ -37,6 +47,116 @@ export class RegistryDO extends DurableObject<Env> {
           throw new AppError('RATE_LIMITED', 'Try again in one minute', 429);
         await s.put(key, attempts);
         await this.schedule();
+      }
+      if (op === 'apiKeyCreate') {
+        const role = z.enum(['agent', 'cli']).parse(d.role);
+        const name = z.string().trim().min(1).max(100).parse(d.name);
+        const value = 'coc_' + token(),
+          id = await digest(value);
+        const record: ApiKey = { id, role, name, created: Date.now() };
+        await s.transaction(async (tx) => {
+          if (role === 'cli') {
+            record.hostId = idSchema.parse(d.hostId);
+            const host = await tx.get<Host>('host:' + record.hostId);
+            if (!host || host.version !== 2 || host.disabled)
+              throw new AppError(
+                'HOST_NOT_FOUND',
+                'Unknown or disabled host',
+                404,
+              );
+          }
+          await tx.put('apiKey:' + id, record);
+          if (role === 'cli')
+            await tx.put('auth:' + id, {
+              hash: id,
+              version: 2,
+              role,
+              name,
+              hostId: record.hostId,
+              apiKeyId: id,
+              created: record.created,
+              expires: Number.MAX_SAFE_INTEGER,
+            } satisfies Auth);
+        });
+        return json({ ...record, apiKey: value });
+      }
+      if (op === 'apiKeys')
+        return json(
+          Array.from((await s.list<ApiKey>({ prefix: 'apiKey:' })).values()),
+        );
+      if (op === 'apiKeyLogin') {
+        const id = await digest(z.string().min(1).max(500).parse(d.apiKey));
+        const role = z.enum(['agent', 'cli']).parse(d.role);
+        const name = z.string().trim().min(1).max(100).parse(d.name);
+        return json(
+          await s.transaction(async (tx) => {
+            const key = await tx.get<ApiKey>('apiKey:' + id);
+            if (!key)
+              throw new AppError(
+                'UNAUTHORIZED',
+                'Invalid or revoked API key',
+                401,
+              );
+            if (role !== key.role)
+              throw new AppError(
+                'FORBIDDEN',
+                'API key is restricted to another program',
+                403,
+              );
+            let hostId: string;
+            if (role === 'agent')
+              hostId = key.hostId || (await this.createHost(tx, name));
+            else {
+              hostId = idSchema.parse(d.hostId);
+              if (hostId !== key.hostId)
+                throw new AppError(
+                  'FORBIDDEN',
+                  'API key is restricted to another host',
+                  403,
+                );
+              const host = await tx.get<Host>('host:' + hostId);
+              if (!host || host.version !== 2 || host.disabled)
+                throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+            }
+            const host = await tx.get<Host>('host:' + hostId);
+            if (!host || host.disabled)
+              throw new AppError('UNAUTHORIZED', 'Host unavailable', 401);
+            if (!key.hostId) {
+              key.hostId = hostId;
+              await tx.put('apiKey:' + id, key);
+              await tx.put('auth:' + id, {
+                hash: id,
+                version: 2,
+                role,
+                name,
+                hostId,
+                apiKeyId: id,
+                created: key.created,
+                expires: Number.MAX_SAFE_INTEGER,
+              } satisfies Auth);
+            }
+            return { hostId, role, name: host.name };
+          }),
+        );
+      }
+      if (op === 'apiKeyRevoke') {
+        const id = z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .parse(d.id);
+        return json(
+          await s.transaction(async (tx) => {
+            if (!(await tx.get('apiKey:' + id)))
+              throw new AppError('NOT_FOUND', 'Unknown API key', 404);
+            const issued = Array.from(
+              (await tx.list<Auth>({ prefix: 'auth:' })).values(),
+            ).filter((a) => a.apiKeyId === id);
+            for (const auth of issued)
+              await this.revokeCredential(tx, auth.hash);
+            await tx.delete('apiKey:' + id);
+            return issued;
+          }),
+        );
       }
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
@@ -120,22 +240,7 @@ export class RegistryDO extends DurableObject<Env> {
           if (op === 'deviceReject') request.state = 'rejected';
           else {
             if (request.role === 'agent') {
-              if (
-                Array.from(
-                  (await tx.list<Host>({ prefix: 'host:' })).values(),
-                ).filter((h) => h.version === 2 && !h.disabled).length >= 5
-              )
-                throw new AppError(
-                  'CAPACITY',
-                  'At most five registered hosts',
-                  409,
-                );
-              await tx.put('host:' + request.hostId, {
-                id: request.hostId,
-                name: request.name,
-                disabled: false,
-                version: 2,
-              });
+              await this.createHost(tx, request.name, request.hostId);
             } else {
               const host = await tx.get<Host>('host:' + request.hostId);
               if (!host || host.version !== 2 || host.disabled)
@@ -200,17 +305,14 @@ export class RegistryDO extends DurableObject<Env> {
           .string()
           .regex(/^[a-f0-9]{64}$/)
           .parse(d.id);
-        const auth = await s.get<Auth>('auth:' + hash);
-        if (!auth || auth.role === 'owner')
-          throw new AppError('NOT_FOUND', 'Unknown device credential', 404);
-        await s.delete('auth:' + hash);
-        if (auth.role === 'agent') {
-          const host = await s.get<Host>('host:' + auth.hostId);
-          if (host) await s.put('host:' + host.id, { ...host, disabled: true });
-          for (const [key, value] of await s.list<Auth>({ prefix: 'auth:' }))
-            if (value.hostId === auth.hostId) await s.delete(key);
-        }
-        return json(auth);
+        return json(
+          await s.transaction(async (tx) => {
+            const auth = await this.revokeCredential(tx, hash);
+            if (!auth)
+              throw new AppError('NOT_FOUND', 'Unknown device credential', 404);
+            return auth;
+          }),
+        );
       }
       if (op === 'login') {
         if (
@@ -243,6 +345,8 @@ export class RegistryDO extends DurableObject<Env> {
             'Expired or invalid credentials',
             401,
           );
+        if (a.apiKeyId && !(await s.get('apiKey:' + a.apiKeyId)))
+          throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
         if (a.hostId) {
           const h = await s.get<Host>('host:' + a.hostId);
           if (!h || h.version !== 2 || h.disabled)
@@ -268,6 +372,40 @@ export class RegistryDO extends DurableObject<Env> {
     } catch (e) {
       return failure(e);
     }
+  }
+  private async createHost(
+    tx: DurableObjectTransaction,
+    name: string,
+    id = crypto.randomUUID(),
+  ) {
+    const hosts = Array.from(
+      (await tx.list<Host>({ prefix: 'host:' })).values(),
+    );
+    if (hosts.filter((h) => h.version === 2 && !h.disabled).length >= 5)
+      throw new AppError('CAPACITY', 'At most five registered hosts', 409);
+    await tx.put('host:' + id, {
+      id,
+      name,
+      disabled: false,
+      version: 2,
+    } satisfies Host);
+    return id;
+  }
+  private async revokeCredential(tx: DurableObjectTransaction, hash: string) {
+    const auth = await tx.get<Auth>('auth:' + hash);
+    if (!auth || auth.role === 'owner') return undefined;
+    await tx.delete('auth:' + hash);
+    if (auth.apiKeyId) await tx.delete('apiKey:' + auth.apiKeyId);
+    if (auth.role === 'agent') {
+      const host = await tx.get<Host>('host:' + auth.hostId);
+      if (host) await tx.put('host:' + host.id, { ...host, disabled: true });
+      for (const [key, value] of await tx.list<Auth>({ prefix: 'auth:' }))
+        if (value.hostId === auth.hostId) await tx.delete(key);
+      // CC login keys cannot be reused after their target A is revoked.
+      for (const [key, value] of await tx.list<ApiKey>({ prefix: 'apiKey:' }))
+        if (value.hostId === auth.hostId) await tx.delete(key);
+    }
+    return auth;
   }
   async schedule() {
     if (!(await this.ctx.storage.getAlarm()))

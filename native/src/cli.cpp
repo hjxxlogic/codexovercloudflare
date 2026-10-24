@@ -96,12 +96,16 @@ public:
   void run() {
     auto command = options_.args.empty() ? "help" : options_.args[0];
     auto id = options_.args.size() > 1 ? options_.args[1] : "";
+    if (options_.api_key && command != "login")
+      throw Error("USAGE", "--api-key is only valid for login");
     if (command == "login") {
+      if (options_.args.size() != 1)
+        throw Error("USAGE", "Unexpected login argument");
       if (!valid_id(option("host")))
         throw Error("USAGE", "login requires --host <A-ID>");
       store();
       auto result = device_login(option("relay", "https://r.xlogic.cc"), "cli",
-                                 option("name", "CLI client"), option("host"));
+                                 option("name", "CLI client"), option("host"), options_.api_key);
       auto hosts = credential_status(result);
       result["name"] = hosts.at(0).at("name");
       auto data = store();
@@ -176,8 +180,10 @@ public:
       std::cout
           << "Usage: coc-client "
              "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop> [options]\n"
-             "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover\n"
-             "login: approve the displayed request in the management website. logout only removes "
+             "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover "
+             "--api-key\n"
+             "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
+             "displayed request in the management website. logout only removes "
              "local credentials.\n";
       if (command != "help")
         throw Error("USAGE", "Unknown command");

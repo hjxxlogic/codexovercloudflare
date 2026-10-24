@@ -17,6 +17,7 @@ export type Auth = {
   version: 2;
   name: string;
   created: number;
+  apiKeyId?: string;
 };
 export const json = (
   data: unknown,

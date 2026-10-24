@@ -28,6 +28,12 @@ function App() {
       pending: [],
       credentials: [],
     }),
+    [apiKeys, setApiKeys] = useState<any[]>([]),
+    [keyHosts, setKeyHosts] = useState<any[]>([]),
+    [keyRole, setKeyRole] = useState('agent'),
+    [keyName, setKeyName] = useState(''),
+    [keyHost, setKeyHost] = useState(''),
+    [newKey, setNewKey] = useState(''),
     [managing, setManaging] = useState(''),
     [adminLogin, setAdminLogin] = useState(false),
     [grant, setGrant] = useState<{
@@ -89,9 +95,17 @@ function App() {
     if (!admin) return;
     let disposed = false;
     const update = () =>
-      void api('/admin/devices')
-        .then((d) => {
-          if (!disposed) setDevices(d);
+      void Promise.all([
+        api('/admin/devices'),
+        api('/admin/api-keys'),
+        api('/admin/hosts'),
+      ])
+        .then(([d, keys, available]) => {
+          if (!disposed) {
+            setDevices(d);
+            setApiKeys(keys);
+            setKeyHosts(available.filter((h: any) => !h.disabled));
+          }
         })
         .catch(report);
     update();
@@ -370,6 +384,7 @@ function App() {
                 void api('/auth/logout', {})
                   .then(() => {
                     setAdmin(false);
+                    setNewKey('');
                     setAdminLogin(false);
                   })
                   .catch(report)
@@ -495,6 +510,123 @@ function App() {
                 onClick={() => void manage('revoke', d.id)}
               >
                 撤销 {d.name}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+      {admin && (
+        <section className="card">
+          <h2>API Key 管理</h2>
+          <p>
+            Key 本身就是长期访问凭证，直到从 R 撤销。角色与目标 A
+            不可修改；请妥善保管。
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setGenerating(true);
+              setNewKey('');
+              void api('/admin/api-keys', {
+                role: keyRole,
+                name: keyName,
+                hostId: keyHost,
+              })
+                .then(async (result) => {
+                  setNewKey(result.apiKey);
+                  setApiKeys(await api('/admin/api-keys'));
+                })
+                .catch(report)
+                .finally(() => setGenerating(false));
+            }}
+          >
+            <label>
+              Key 名称
+              <input
+                aria-label="Key 名称"
+                required
+                maxLength={100}
+                value={keyName}
+                onChange={(e) => setKeyName(e.target.value)}
+              />
+            </label>
+            <label>
+              使用程序
+              <select
+                aria-label="使用程序"
+                value={keyRole}
+                onChange={(e) => setKeyRole(e.target.value)}
+              >
+                <option value="agent">coc-agent</option>
+                <option value="cli">coc-client</option>
+              </select>
+            </label>
+            {keyRole === 'cli' ? (
+              <label>
+                目标 A
+                <select
+                  aria-label="Key 目标 A"
+                  required
+                  value={keyHost}
+                  onChange={(e) => setKeyHost(e.target.value)}
+                >
+                  <option value="">请选择 A</option>
+                  {keyHosts.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} · {h.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p>A Key 在首次登录时创建并永久绑定自己的 A。</p>
+            )}
+            <button disabled={generating}>生成 API_KEY</button>
+          </form>
+          {newKey && (
+            <div className="card">
+              <p>仅显示这一次，请保存：</p>
+              <input aria-label="新 API_KEY" readOnly value={newKey} />
+              <button
+                onClick={() =>
+                  void navigator.clipboard.writeText(newKey).catch(report)
+                }
+              >
+                复制 API_KEY
+              </button>
+              <button onClick={() => setNewKey('')}>隐藏 API_KEY</button>
+            </div>
+          )}
+          {apiKeys.map((k) => (
+            <div className="card" key={k.id}>
+              <p>
+                {k.name} · {k.role === 'agent' ? 'coc-agent' : 'coc-client'} ·
+                A：{k.hostId || '等待首次使用绑定'}
+              </p>
+              <p>创建于 {new Date(k.created).toLocaleString()} · 长期有效</p>
+              <button
+                disabled={generating}
+                onClick={() => {
+                  if (
+                    !confirm(
+                      k.role === 'agent' && k.hostId
+                        ? '撤销此 A Key 将停用 A，并撤销其全部客户端授权。继续？'
+                        : '撤销此 API Key？',
+                    )
+                  )
+                    return;
+                  setGenerating(true);
+                  void api('/admin/api-keys/revoke', { id: k.id })
+                    .then(async () => {
+                      setNewKey('');
+                      setApiKeys(await api('/admin/api-keys'));
+                      setDevices(await api('/admin/devices'));
+                    })
+                    .catch(report)
+                    .finally(() => setGenerating(false));
+                }}
+              >
+                撤销 Key {k.name}
               </button>
             </div>
           ))}

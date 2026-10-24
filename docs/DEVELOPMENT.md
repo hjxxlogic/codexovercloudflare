@@ -96,3 +96,9 @@ C++ 使用 2 空格、snake_case 函数、PascalCase 类及 `.clang-format`，�
 `wrangler.jsonc` 已配置 `r.xlogic.cc` 自定义域名及账号，关闭 workers.dev 和预览 URL。生产发布必须携带网页和原生下载包，并使用独立生产密钥；具体步骤见 [发布操作](RELEASE.md)。发布后的 HTTP 冒烟测试不替代跨网络会话、DO 休眠唤醒和长期负载验证。Agent 使用非 root 用户，配置 Codex home、项目权限与持久 dataDir，参见 [systemd 示例](../examples/coc-agent.service)。
 
 TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户隔离。完整目标与验证边界见 README 和测试记录。
+
+## 0.3.1 API Key
+
+共用 login 接口支持 `login --api-key`，从 `COC_API_KEY` 或隐藏终端 / 标准输入读取，成功后将原 Key 存入现有 token 字段，沿用私有配置与业务接口。终端参数不接受 Key 值。Key 创建 / 绑定 / 撤销由 RegistryDO 负责，CC 目标在创建时校验，A 首次绑定使用事务，重复使用不创建第二个 A。创建响应之外不返回秘密，不增加兑换令牌。
+
+`tests/device-auth.test.ts` 覆盖角色必填、目标固定、直接 Bearer、多年有效、并发绑定和级联撤销；`tests/e2e.ts` 通过管理网页生成两类 Key，实际运行两个原生程序并验证保存的 token 就是 Key、重复登录绑定一致和活动连接撤销。测试截图在忽略目录 `.local/api-key-management.png`。

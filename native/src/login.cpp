@@ -1,13 +1,19 @@
 #include "coc/login.hpp"
 #include <cstdlib>
 #include <iostream>
+#include <termios.h>
 #include <thread>
+#include <unistd.h>
 namespace coc {
 Options::Options(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--takeover")
       takeover = true;
+    else if (a == "--api-key")
+      api_key = true;
+    else if (a.rfind("--api-key=", 0) == 0)
+      throw Error("USAGE", "Use --api-key with COC_API_KEY or standard input");
     else if (a == "--help") {
       args = {"help"};
       break;
@@ -36,8 +42,44 @@ std::filesystem::path config_path(const char *env, const std::string &relative) 
   return std::filesystem::path(home) / ".config" / relative;
 }
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
-                  const std::string &host) {
+                  const std::string &host, bool api_key) {
   auto url = relay_url(relay);
+  if (api_key) {
+    std::string value;
+    if (const auto env = getenv("COC_API_KEY"))
+      value = env;
+    else {
+      struct HiddenInput {
+        termios saved{};
+        bool active = false;
+        HiddenInput() {
+          if (isatty(STDIN_FILENO)) {
+            if (tcgetattr(STDIN_FILENO, &saved) != 0)
+              throw Error("INPUT", "Cannot secure terminal input");
+            auto hidden = saved;
+            hidden.c_lflag &= ~ECHO;
+            if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden) != 0)
+              throw Error("INPUT", "Cannot secure terminal input");
+            active = true;
+          }
+        }
+        ~HiddenInput() {
+          if (active)
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved);
+        }
+      } hidden;
+      std::cerr << "API_KEY: " << std::flush;
+      std::getline(std::cin, value);
+      std::cerr << '\n';
+    }
+    if (value.empty() || value.size() > 500)
+      throw Error("INPUT", "Invalid API key input");
+    auto result = http_json(url, "/api/v1/auth/api-key",
+                            {{"apiKey", value}, {"role", role}, {"name", name}, {"hostId", host}});
+    result["token"] = value;
+    result["relay"] = url.origin;
+    return result;
+  }
   auto request = http_json(url, "/api/v1/auth/device/start",
                            {{"role", role}, {"name", name}, {"hostId", host}});
   std::cout << "Authorize in browser: " << url.origin << request.at("url").get<std::string>()

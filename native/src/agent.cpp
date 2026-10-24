@@ -551,12 +551,17 @@ int main(int argc, char **argv) {
         "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
     if (command == "help") {
       std::cout << "Usage: coc-agent <login|logout|status|run> [--config PATH] [--relay URL] "
-                   "[--name NAME] [--project PATH] [--project-id ID]\n"
-                   "login: approve the displayed request in the management website. logout only "
+                   "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
+                   "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
+                   "displayed request in the management website. logout only "
                    "removes local credentials.\n";
       return 0;
     }
+    if (options.api_key && command != "login")
+      throw coc::Error("USAGE", "--api-key is only valid for login");
     if (command == "login") {
+      if (options.args.size() != 1)
+        throw coc::Error("USAGE", "Unexpected login argument");
       coc::Json config;
       if (std::filesystem::exists(file)) {
         config = coc::read_json(file);
@@ -578,7 +583,7 @@ int main(int argc, char **argv) {
             {"projects", coc::Json::array({{{"id", id}, {"name", id}, {"path", path.string()}}})}};
       }
       auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent",
-                                     options.get("name", "Codex agent"));
+                                     options.get("name", "Codex agent"), "", options.api_key);
       config["relayUrl"] = grant.at("relay");
       config["hostId"] = grant.at("hostId");
       config["token"] = grant.at("token");

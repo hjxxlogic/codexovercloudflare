@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { chromium } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
@@ -106,17 +106,30 @@ async function api(path: string, data?: unknown, opts: any = {}) {
   return b;
 }
 function peer(path: string, auth?: string) {
-  const ws = new WebSocket(origin.replace('http', 'ws') + path, {
+  // Local workerd may leave TCP half-closed after a valid close frame.
+  const options = {
+    closeTimeout: 1000,
     headers: {
       Origin: origin,
       ...(auth ? { Authorization: 'Bearer ' + auth } : { Cookie: cookie }),
     },
+  };
+  const ws = new WebSocket(origin.replace('http', 'ws') + path, options);
+  let closeCode: number | undefined;
+  ws.on('close', (code) => {
+    closeCode = code;
   });
   const messages: any[] = [];
   ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
   ws.on('error', () => {});
   sockets.push(ws);
-  return { ws, messages };
+  return {
+    ws,
+    messages,
+    get closeCode() {
+      return closeCode;
+    },
+  };
 }
 async function web(id: string) {
   const t = await api(`/sessions/${id}/attach`, {});
@@ -539,6 +552,132 @@ try {
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('heading', { name: '设备授权管理' }).waitFor();
+  // API keys are credentials themselves; no browser pairing or token exchange.
+  await page.getByLabel('Key 名称').fill('e2e-agent-key');
+  await page.getByRole('button', { name: '生成 API_KEY', exact: true }).click();
+  await page.getByLabel('新 API_KEY').waitFor();
+  const agentKey = await page.getByLabel('新 API_KEY').inputValue();
+  const keyAgentFile = join(dir, 'key-agent.json');
+  const agentOutput = await cliCommand(
+    [
+      'login',
+      '--relay',
+      origin,
+      '--api-key',
+      '--config',
+      keyAgentFile,
+      '--project',
+      dir,
+    ],
+    '',
+    { COC_API_KEY: agentKey },
+    process.env.COC_AGENT_BINARY || 'build/coc-agent',
+  );
+  assert(!agentOutput.includes('#authorize='));
+  assert(!agentOutput.includes(agentKey));
+  const keyAgentConfig = JSON.parse(readFileSync(keyAgentFile, 'utf8'));
+  assert.equal(keyAgentConfig.token, agentKey);
+  const keyAgentFile2 = join(dir, 'key-agent-2.json');
+  await cliCommand(
+    [
+      'login',
+      '--relay',
+      origin,
+      '--api-key',
+      '--config',
+      keyAgentFile2,
+      '--project',
+      dir,
+    ],
+    agentKey + '\n',
+    {},
+    process.env.COC_AGENT_BINARY || 'build/coc-agent',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(keyAgentFile2, 'utf8')).hostId,
+    keyAgentConfig.hostId,
+  );
+  await cliCommand(
+    ['status', '--config', keyAgentFile],
+    '',
+    {},
+    process.env.COC_AGENT_BINARY || 'build/coc-agent',
+  );
+  await page.getByRole('button', { name: '隐藏 API_KEY', exact: true }).click();
+  await page.getByLabel('Key 名称').fill('e2e-client-key');
+  await page.getByLabel('使用程序').selectOption('cli');
+  await page.getByLabel('Key 目标 A').selectOption(enrolled.hostId);
+  await page.getByRole('button', { name: '生成 API_KEY', exact: true }).click();
+  await page.getByLabel('新 API_KEY').waitFor();
+  const clientKey = await page.getByLabel('新 API_KEY').inputValue();
+  const keyClientFile = join(dir, 'key-client.json');
+  const clientOutput = await cliCommand(
+    [
+      'login',
+      '--api-key',
+      '--relay',
+      origin,
+      '--host',
+      enrolled.hostId,
+      '--config',
+      keyClientFile,
+    ],
+    clientKey + '\n',
+  );
+  assert(!clientOutput.includes('#authorize='));
+  assert(!clientOutput.includes(clientKey));
+  assert.equal(
+    JSON.parse(readFileSync(keyClientFile, 'utf8')).entries[0].token,
+    clientKey,
+  );
+  await cliCommand(['projects', '--config', keyClientFile]);
+  assert.equal(statSync(keyClientFile).mode & 0o777, 0o600);
+  const priorToken = token;
+  token = clientKey;
+  const keySession = await api('/sessions', {
+    hostId: enrolled.hostId,
+    projectId: 'test-project',
+    mode: 'cli',
+  });
+  const keyTicket = await api('/sessions/' + keySession.id + '/attach', {});
+  const keyPeer = peer('/ws/v1/cli/' + keySession.id, keyTicket.ticket);
+  await new Promise<void>((r, j) => {
+    keyPeer.ws.once('open', r);
+    keyPeer.ws.once('error', j);
+  });
+  page.once('dialog', (d) => void d.accept());
+  await page
+    .getByRole('button', { name: '撤销 Key e2e-client-key', exact: true })
+    .click();
+  await wait(
+    () => keyPeer.ws.readyState === WebSocket.CLOSED,
+    'API key revocation closes CC socket',
+  );
+  assert.equal(keyPeer.closeCode, 4001);
+  assert.equal((await request('/hosts')).r.status, 401);
+  token = priorToken;
+  const agentKeyPeer = peer('/ws/v1/agent', agentKey);
+  await new Promise<void>((r, j) => {
+    agentKeyPeer.ws.once('open', r);
+    agentKeyPeer.ws.once('error', j);
+  });
+  page.once('dialog', (d) => void d.accept());
+  await page
+    .getByRole('button', { name: '撤销 Key e2e-agent-key', exact: true })
+    .click();
+  await wait(
+    () => agentKeyPeer.ws.readyState === WebSocket.CLOSED,
+    'API key revocation closes A socket',
+  );
+  assert.equal(agentKeyPeer.closeCode, 4001);
+  mkdirSync('.local', { recursive: true });
+  await page.screenshot({
+    path: '.local/api-key-management.png',
+    fullPage: true,
+  });
+  pass(
+    'web role/host scoped key generation, native A/CC direct-key login, immutable A binding and immediate live revocation',
+  );
   const visitor = await browser.newContext();
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
@@ -726,8 +865,11 @@ try {
   const credentials = (await api('/admin/devices', undefined, { admin: true }))
     .credentials;
   const cc = credentials.find(
-    (c: any) => c.id && c.role === 'cli' && c.hostId === enrolled.hostId,
+    (c: any) =>
+      c.id ===
+      createHash('sha256').update(clientCredentials.token).digest('hex'),
   );
+  assert(cc, 'paired CC credential remains independent of API keys');
   token = clientCredentials.token;
   const activeCli = await api('/sessions', {
     hostId: enrolled.hostId,
@@ -745,6 +887,7 @@ try {
     () => activePeer.ws.readyState === WebSocket.CLOSED,
     'CC revocation closes live connection',
   );
+  assert.equal(activePeer.closeCode, 4001);
   assert.equal(restored.ws.readyState, WebSocket.OPEN);
 
   token = clientCredentials.token;

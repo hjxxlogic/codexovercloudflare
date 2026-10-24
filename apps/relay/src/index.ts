@@ -130,6 +130,15 @@ export default {
           { 'Set-Cookie': cookieHeader(req, 'coc_admin', result.token, 28800) },
         );
       }
+      if (p === '/api/v1/auth/api-key' && req.method === 'POST') {
+        const d = await body(req);
+        return json(
+          await registryCall(env, 'apiKeyLogin', {
+            ...d,
+            ip: req.headers.get('cf-connecting-ip') || 'local',
+          }),
+        );
+      }
       if (p === '/api/v1/auth/device/start' && req.method === 'POST') {
         const d = await body(req);
         const result = await registryCall(env, 'deviceStart', {
@@ -192,6 +201,33 @@ export default {
           return json(await registryCall(env, 'devices'));
         if (p === '/api/v1/admin/hosts' && req.method === 'GET')
           return json(await registryCall(env, 'hosts'));
+        if (p === '/api/v1/admin/api-keys') {
+          if (req.method === 'GET')
+            return json(await registryCall(env, 'apiKeys'));
+          if (req.method === 'POST')
+            return json(
+              await registryCall(env, 'apiKeyCreate', await body(req)),
+            );
+        }
+        if (p === '/api/v1/admin/api-keys/revoke' && req.method === 'POST') {
+          const revoked: Auth[] = await registryCall(
+            env,
+            'apiKeyRevoke',
+            await body(req),
+          );
+          for (const auth of revoked)
+            await hostStub(env, auth.hostId!).fetch(
+              'https://internal/revoke-auth',
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  hash: auth.hash,
+                  agent: auth.role === 'agent',
+                }),
+              },
+            );
+          return json({ ok: true });
+        }
         const action = p.match(/^\/api\/v1\/admin\/(approve|reject|revoke)$/);
         if (action && req.method === 'POST') {
           const d = await body(req);
