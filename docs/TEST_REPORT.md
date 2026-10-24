@@ -1,13 +1,13 @@
 # 本机测试记录
 
-日期：2026-10-24。版本：C++ 迁移开发版 0.2.0。仅代表已测本机场景，不代表生产部署或全部需求验收。
+日期：2026-10-24。版本：C++ 迁移开发版 0.2.0。记录已测本机场景及生产发布冒烟，不代表全部需求验收。
 
 ## 环境
 
 - 宿主：Ubuntu 20.04、glibc 2.31、GCC 9.4、CMake 4.2.3、Boost 1.71、OpenSSL 1.1.1f、SQLite 3.31.1、nlohmann/json 3.7.3。
 - 工具：Node.js 22.17、Codex 0.164.0、clang-format 10。
 - 集成容器：Debian Bookworm、GCC 12、Boost 1.74、OpenSSL 3、SQLite 3.40、nlohmann/json 3.11、真实 Wrangler/workerd 与 Playwright Chromium。
-- 宿主与容器分别构建二进制，避免混用系统动态库。测试使用临时项目、凭据、端口和 DO 状态，没有连接生产 `r.xlogic.cc`。
+- 宿主与容器分别构建二进制，避免混用系统动态库。测试使用临时项目、凭据、端口和 DO 状态，上述本机测试未连接生产 `r.xlogic.cc`，生产冒烟另见下节。
 
 ## C++ 迁移验证
 
@@ -34,9 +34,21 @@ TLS 回归测试发现 Boost 旧 RFC2818 回调在 SAN 不匹配时仍可能回�
 
 宿主无法直接运行新版 workerd，仍使用 `Dockerfile.test` 容器；未替换宿主 glibc。原 TypeScript Agent / CLI 已删除，集成工具通过子进程调用 C++ 二进制。Node.js 仅用于云端、网页和开发测试工具。
 
+## 0.2.0 首次生产发布
+
+2026-10-24 已发布至 `https://r.xlogic.cc`，首发 Worker 版本为 `e25cac8c-596e-4351-b319-27b2d12c5674`；后续同步发布文档及最终源码包。域名绑定到 `codex-over-cloudflare`，生产 `OWNER_SECRET` 确认为 Cloudflare `secret_text`，未提交密钥。
+
+- 用户确认浏览器可以直接访问首页。
+- HTTPS 首页和 `/api/v1/healthz` 返回 200；未登录查询主机返回 401，跨域登录请求返回 403。
+- 已用 Debian 12 C++ 客户端在生产完成登录、主机查询及退出，使用独立临时凭据文件；未登记设备或调用模型。
+- 下载页提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 包与源码包；三个线上包均通过 SHA256 校验。
+- 解压 Ubuntu 原生包后，在不含 Node.js 的 PATH 下可直接执行 CLI。
+
+本机路由器曾缓存新域名的解析失败；发布验证仅在测试进程 / 临时容器中指定 Cloudflare 边缘地址，保留完整 HTTPS 主机名与证书校验，未修改系统 DNS。用户浏览器的正常访问独立确认域名可达。
+
 ## 尚未完成的验收
 
-- Cloudflare 生产部署、DO 休眠唤醒、跨网络连接和发布断线。
+- 生产 DO 休眠唤醒、跨网络会话和发布断线；HTTP 发布冒烟不覆盖这些场景。
 - 4 会话持续 8 小时、P95 延迟、1 GiB 配额与慢客户端长期压力。
 - CLI 再附着、Agent 重启后的旧线程恢复、超大事件分片。
 - 全部审批类型、全部原生 TUI 功能、macOS / Windows 和移动浏览器兼容性。
