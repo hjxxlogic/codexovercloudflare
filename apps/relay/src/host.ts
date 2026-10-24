@@ -33,6 +33,10 @@ type Ticket = {
   takeover: boolean;
 };
 export class HostRelayDO extends DurableObject<Env> {
+  private messages = new WeakMap<
+    WebSocket,
+    { tail: Promise<void>; bytes: number }
+  >();
   pending = new Map<
     string,
     {
@@ -237,6 +241,32 @@ export class HostRelayDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+    const bytes =
+      typeof raw === 'string'
+        ? new TextEncoder().encode(raw).length
+        : raw.byteLength;
+    let queue = this.messages.get(ws);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), bytes: 0 };
+      this.messages.set(ws, queue);
+    }
+    if (queue.bytes + bytes > MAX_QUEUE) {
+      ws.close(4000, 'Incoming message queue full');
+      return;
+    }
+    queue.bytes += bytes;
+    const current = queue.tail
+      .catch(() => {})
+      .then(() => this.handleMessage(ws, raw));
+    queue.tail = current;
+    try {
+      await current;
+    } finally {
+      queue.bytes -= bytes;
+      if (queue.tail === current) this.messages.delete(ws);
+    }
+  }
+  private async handleMessage(ws: WebSocket, raw: string | ArrayBuffer) {
     try {
       if (typeof raw !== 'string')
         throw new AppError('INVALID_REQUEST', 'Text frames required');

@@ -325,6 +325,20 @@ try {
     () => p.messages.some((m) => m.event?.type === 'turn/completed'),
     'streamed turn',
   );
+  const liveEvents = p.messages
+    .filter((m) => m.type === 'event')
+    .map((m) => m.event);
+  assert.deepEqual(
+    liveEvents.map((e) => e.seq),
+    liveEvents.map((e) => e.seq).sort((a, b) => a - b),
+  );
+  assert.equal(
+    liveEvents
+      .filter((e) => e.type === 'item/agentMessage/delta')
+      .map((e) => e.data.delta)
+      .join(''),
+    'echo: hello',
+  );
   p.ws.send(JSON.stringify(prompt));
   await wait(
     () =>
@@ -514,6 +528,26 @@ try {
   await page.getByLabel('任务内容').fill('browser hello');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.getByText('echo: browser hello', { exact: true }).waitFor();
+  await page.getByText(/已连接 · 空闲/).waitFor();
+  await page.getByLabel('任务内容').fill('hello 你好，世界！');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await page.getByText('echo: hello 你好，世界！', { exact: true }).waitFor();
+  await page.getByText(/已连接 · 空闲/).waitFor();
+  const browserSession = await page.locator('.conversation .id').innerText();
+  await page.reload();
+  await page.getByLabel('主机').selectOption(enrolled.hostId);
+  await page
+    .getByRole('button', {
+      name: browserSession.split('~')[1].slice(0, 8) + ' · web · ready',
+      exact: true,
+    })
+    .click();
+  await page.getByText('echo: browser hello', { exact: true }).waitFor();
+  await page.getByText('echo: hello 你好，世界！', { exact: true }).waitFor();
+  await page.getByText(/已连接 · 空闲/).waitFor();
+  pass(
+    'character-by-character English/Chinese streaming and ordered history after browser reload',
+  );
   await page.screenshot({
     path: process.env.COC_SCREENSHOT_PATH || join(dir, 'browser.png'),
     fullPage: true,

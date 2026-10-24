@@ -47,10 +47,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         params: { command: 'echo fake', cwd: process.cwd() },
       });
     } else if (!text.includes('hold')) {
-      send({
-        method: 'item/agentMessage/delta',
-        params: { delta: 'echo: ' + text },
-      });
+      for (const delta of 'echo: ' + text)
+        send({
+          method: 'item/agentMessage/delta',
+          params: { itemId: 'reply-' + turn, turnId: 'turn-' + turn, delta },
+        });
       send({
         method: 'turn/completed',
         params: { turn: { id: 'turn-' + turn, status: 'completed' } },

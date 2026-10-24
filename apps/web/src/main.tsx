@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Event, Session } from '../../../packages/protocol/src/index.ts';
 import './style.css';
+import { visibleEvents } from './events.ts';
 
 async function api(path: string, data?: unknown): Promise<any> {
   const r = await fetch('/api/v1' + path, {
@@ -92,11 +93,12 @@ function App() {
     setPending(false);
     setBusy(selected.running);
     const seen = new Set<number>();
+    let stateSeq = 0;
     const add = (e: Event) => {
       if (seen.has(e.seq)) return;
       seen.add(e.seq);
       after.current = Math.max(after.current, e.seq);
-      setEvents((v) => [...v.slice(-999), e]);
+      setEvents((v) => [...v, e].sort((a, b) => a.seq - b.seq).slice(-1000));
       const d = e.data as any;
       if (e.type === 'approval')
         setApprovals((v) => [
@@ -105,8 +107,13 @@ function App() {
         ]);
       if (e.type === 'approvalResolved')
         setApprovals((v) => v.filter((a) => a.approvalId !== d.approvalId));
-      if (e.type === 'turn/started') setBusy(true);
-      if (['turn/completed', 'sessionClosed'].includes(e.type)) setBusy(false);
+      if (
+        e.seq > stateSeq &&
+        ['turn/started', 'turn/completed', 'sessionClosed'].includes(e.type)
+      ) {
+        stateSeq = e.seq;
+        setBusy(e.type === 'turn/started');
+      }
     };
     const connect = async () => {
       setStatus(attempt ? '正在重连' : '正在连接');
@@ -524,54 +531,6 @@ function App() {
       <footer>文件和命令在远程服务器执行。关闭页面不会立即停止任务。</footer>
     </main>
   );
-}
-function visibleEvents(events: Event[]) {
-  const visible = new Set([
-    'user',
-    'item/agentMessage/delta',
-    'turn/started',
-    'turn/completed',
-    'turn/diff/updated',
-    'turn/plan/updated',
-    'item/commandExecution/outputDelta',
-    'item/fileChange/outputDelta',
-    'item/started',
-    'warning',
-    'error',
-    'approvalResolved',
-    'sessionClosed',
-  ]);
-  const result: Event[] = [];
-  for (const event of events) {
-    if (!visible.has(event.type)) continue;
-    if (
-      event.type === 'item/started' &&
-      !['commandExecution', 'fileChange', 'mcpToolCall'].includes(
-        (event.data as any)?.item?.type,
-      )
-    )
-      continue;
-    const previous = result.at(-1);
-    if (event.type.endsWith('/delta') || event.type.endsWith('/outputDelta')) {
-      if (
-        previous?.type === event.type &&
-        (previous.data as any).itemId === (event.data as any).itemId
-      ) {
-        result[result.length - 1] = {
-          ...previous,
-          data: {
-            ...(event.data as object),
-            delta:
-              ((previous.data as any).delta || '') +
-              ((event.data as any).delta || ''),
-          },
-        };
-        continue;
-      }
-    }
-    result.push(event);
-  }
-  return result;
 }
 function eventTitle(e: Event) {
   return (
