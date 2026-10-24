@@ -1,0 +1,51 @@
+{
+  "name": "codex-over-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.17.0"
+  },
+  "scripts": {
+    "dev": "npm run build:web && wrangler dev --ip 127.0.0.1 --port 8787",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "build": "npm run build:web && tsc --noEmit && wrangler deploy --dry-run --outdir dist/worker",
+    "agent": "tsx apps/agent/src/main.ts",
+    "coc": "tsx apps/cli/src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && prettier --check apps packages tests scripts examples README.md docs/USER_GUIDE.md docs/DEVELOPMENT.md docs/TEST_REPORT.md package.json tsconfig.json wrangler.jsonc vitest.config.ts eslint.config.js .prettierrc.json",
+    "format": "prettier --write apps packages tests scripts examples README.md docs/USER_GUIDE.md docs/DEVELOPMENT.md docs/TEST_REPORT.md package.json tsconfig.json wrangler.jsonc vitest.config.ts eslint.config.js .prettierrc.json",
+    "test": "vitest run",
+    "test:e2e": "tsx tests/e2e.ts",
+    "test:codex": "tsx scripts/codex-smoke.ts",
+    "setup:local": "tsx scripts/setup-local.ts",
+    "test:native": "tsx scripts/native-cli-smoke.ts",
+    "test:task": "tsx scripts/codex-task-smoke.ts"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261024.1",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
+  },
+  "overrides": {
+    "undici": "^7.30.1"
+  }
+}

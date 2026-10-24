@@ -1,0 +1,20 @@
+[Unit]
+Description=Remote Codex Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=coc
+WorkingDirectory=/opt/codexovercloudflare
+Environment=HOME=/home/coc
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env npm run agent -- /home/coc/.config/coc/agent.json
+Restart=on-failure
+RestartSec=5
+UMask=0077
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+{
+  "relayUrl": "https://r.xlogic.cc",
+  "hostId": "REPLACE_WITH_ENROLLED_HOST_ID",
+  "token": "REPLACE_WITH_ENROLLED_DEVICE_TOKEN",
+  "codexPath": "codex",
+  "codexArgs": [],
+  "sandbox": "workspace-write",
+  "dataDir": "/home/coc/.local/share/coc",
+  "projects": [
+    {
+      "id": "my-project",
+      "name": "My project",
+      "path": "/srv/projects/my-project"
+    }
+  ]
+}

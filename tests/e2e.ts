@@ -1,0 +1,399 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createServer } from 'node:net';
+import { randomBytes, randomUUID } from 'node:crypto';
+import WebSocket from 'ws';
+import { chromium } from '@playwright/test';
+import { Agent } from '../apps/agent/src/agent.ts';
+
+const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
+const secret = randomBytes(32).toString('hex');
+const server = createServer();
+await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+const port = (server.address() as any).port;
+await new Promise<void>((r) => server.close(() => r()));
+const origin = `http://127.0.0.1:${port}`;
+const worker = spawn(
+  process.execPath,
+  [
+    'node_modules/wrangler/bin/wrangler.js',
+    'dev',
+    '--ip',
+    '127.0.0.1',
+    '--port',
+    String(port),
+    '--persist-to',
+    join(dir, 'worker'),
+    '--var',
+    'OWNER_SECRET:' + secret,
+  ],
+  {
+    env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  },
+);
+let logs = '';
+worker.stdout.on('data', (d) => {
+  logs += d;
+});
+worker.stderr.on('data', (d) => {
+  logs += d;
+});
+let token = '',
+  cookie = '',
+  agent: Agent | undefined,
+  browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+const sockets: WebSocket[] = [];
+async function wait(
+  test: () => boolean | Promise<boolean>,
+  label: string,
+  timeout = 15000,
+) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    if (await test()) return;
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  throw new Error('Timeout: ' + label);
+}
+async function request(
+  path: string,
+  data?: unknown,
+  options: { anonymous?: boolean; key?: string; origin?: string } = {},
+) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Origin: options.origin || origin,
+  };
+  if (!options.anonymous) headers.Authorization = 'Bearer ' + token;
+  if (data !== undefined)
+    headers['Idempotency-Key'] = options.key || randomUUID();
+  const r = await fetch(origin + '/api/v1' + path, {
+    method: data === undefined ? 'GET' : 'POST',
+    headers,
+    body: data === undefined ? undefined : JSON.stringify(data),
+  });
+  const b: any = await r.json();
+  return { r, b };
+}
+async function api(path: string, data?: unknown, opts: any = {}) {
+  const { r, b } = await request(path, data, opts);
+  assert.equal(r.status, 200, JSON.stringify(b));
+  return b;
+}
+function peer(path: string, auth?: string) {
+  const ws = new WebSocket(origin.replace('http', 'ws') + path, {
+    headers: {
+      Origin: origin,
+      ...(auth ? { Authorization: 'Bearer ' + auth } : { Cookie: cookie }),
+    },
+  });
+  const messages: any[] = [];
+  ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
+  ws.on('error', () => {});
+  sockets.push(ws);
+  return { ws, messages };
+}
+async function web(id: string) {
+  const t = await api(`/sessions/${id}/attach`, {});
+  const p = peer('/ws/v1/web/' + id);
+  await new Promise<void>((r, j) => {
+    p.ws.once('open', r);
+    p.ws.once('error', j);
+  });
+  p.ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
+  await wait(() => p.messages.some((m) => m.type === 'attached'), 'web attach');
+  return p;
+}
+const pass = (message: string) => console.log('PASS: ' + message);
+try {
+  await wait(
+    async () => {
+      try {
+        if (worker.exitCode !== null) throw new Error('Worker exited');
+        return (
+          await fetch(origin + '/api/v1/healthz', {
+            signal: AbortSignal.timeout(1000),
+          })
+        ).ok;
+      } catch {
+        if (worker.exitCode !== null)
+          throw new Error('Wrangler exited before becoming ready');
+        return false;
+      }
+    },
+    'Wrangler startup',
+    60000,
+  );
+  assert.equal((await request('/hosts')).r.status, 401);
+  assert.equal(
+    (
+      await request(
+        '/auth/login',
+        { secret: 'wrong', kind: 'cli' },
+        { anonymous: true },
+      )
+    ).r.status,
+    401,
+  );
+  const login = await request(
+    '/auth/login',
+    { secret, kind: 'cli' },
+    { anonymous: true },
+  );
+  assert.equal(login.r.status, 200);
+  token = login.b.token;
+  cookie = login.r.headers.get('set-cookie')!.split(';')[0];
+  assert.equal(
+    (
+      await request(
+        '/hosts/enrollments',
+        { name: 'bad' },
+        { origin: 'https://evil.example' },
+      )
+    ).r.status,
+    403,
+  );
+  pass('login, unauthorized access and cross-origin rejection');
+  const e = await api('/hosts/enrollments', { name: 'local-test' });
+  const enrolled = await api(
+    '/agent/enroll',
+    { code: e.code },
+    { anonymous: true },
+  );
+  assert.equal(
+    (await request('/agent/enroll', { code: e.code }, { anonymous: true })).r
+      .status,
+    401,
+  );
+  pass('one-use device enrollment');
+  agent = new Agent({
+    relayUrl: origin,
+    hostId: enrolled.hostId,
+    token: enrolled.token,
+    codexPath: process.execPath,
+    codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
+    sandbox: 'workspace-write',
+    dataDir: join(dir, 'agent'),
+    projects: [{ id: 'test-project', name: 'Test project', path: dir }],
+  });
+  agent.start();
+  await wait(async () => (await api('/hosts'))[0].online, 'Agent online');
+  assert.equal(
+    (await api(`/hosts/${enrolled.hostId}/projects`))[0].id,
+    'test-project',
+  );
+  assert.equal(
+    (
+      await request('/sessions', {
+        hostId: enrolled.hostId,
+        projectId: 'not-allowed',
+        mode: 'web',
+      })
+    ).r.status,
+    409,
+  );
+  const key = randomUUID();
+  const s = await api(
+    '/sessions',
+    { hostId: enrolled.hostId, projectId: 'test-project', mode: 'web' },
+    { key },
+  );
+  assert.equal(
+    (
+      await api(
+        '/sessions',
+        { hostId: enrolled.hostId, projectId: 'test-project', mode: 'web' },
+        { key },
+      )
+    ).id,
+    s.id,
+  );
+  pass('Agent online, project allowlist and idempotent session creation');
+  const p = await web(s.id);
+  const prompt = { action: 'prompt', requestId: randomUUID(), text: 'hello' };
+  p.ws.send(JSON.stringify(prompt));
+  await wait(
+    () => p.messages.some((m) => m.event?.type === 'turn/completed'),
+    'streamed turn',
+  );
+  p.ws.send(JSON.stringify(prompt));
+  await wait(
+    () =>
+      p.messages.filter(
+        (m) => m.type === 'ack' && m.requestId === prompt.requestId,
+      ).length === 2,
+    'duplicate ack',
+  );
+  assert.equal(p.messages.filter((m) => m.event?.type === 'user').length, 1);
+  pass('streaming and duplicate prompt suppression');
+  p.ws.send(
+    JSON.stringify({
+      action: 'prompt',
+      requestId: randomUUID(),
+      text: 'approval',
+    }),
+  );
+  await wait(
+    () => p.messages.some((m) => m.event?.type === 'approval'),
+    'approval request',
+  );
+  const approval = p.messages.find((m) => m.event?.type === 'approval').event
+    .data;
+  p.ws.send(
+    JSON.stringify({
+      action: 'approval',
+      requestId: randomUUID(),
+      approvalId: approval.approvalId,
+      allow: false,
+    }),
+  );
+  await wait(
+    () =>
+      p.messages.some(
+        (m) =>
+          m.event?.type === 'item/agentMessage/delta' &&
+          m.event.data.delta === 'denied',
+      ),
+    'approval rejected',
+  );
+  pass('bidirectional approval rejection');
+  assert.equal((await request(`/sessions/${s.id}/attach`, {})).r.status, 409);
+  const takeover = await api(`/sessions/${s.id}/takeover`, {});
+  const q = peer('/ws/v1/web/' + s.id);
+  await new Promise<void>((r) => q.ws.once('open', r));
+  q.ws.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
+  await wait(() => q.messages.some((m) => m.type === 'attached'), 'takeover');
+  await wait(
+    () => p.ws.readyState === WebSocket.CLOSED,
+    'old controller closed',
+  );
+  q.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+  await wait(() => q.messages.some((m) => m.type === 'sync'), 'history replay');
+  assert(
+    q.messages
+      .find((m) => m.type === 'sync')
+      .events.some((e: any) => e.type === 'user'),
+  );
+  pass('exclusive control, explicit takeover and persistent replay');
+  const reused = peer('/ws/v1/web/' + s.id);
+  await new Promise<void>((r) => reused.ws.once('open', r));
+  reused.ws.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
+  await wait(
+    () => reused.ws.readyState === WebSocket.CLOSED,
+    'ticket replay rejected',
+  );
+  pass('connection ticket cannot be reused');
+  await api(`/sessions/${s.id}/stop`, {});
+  const cli = await api('/sessions', {
+    hostId: enrolled.hostId,
+    projectId: 'test-project',
+    mode: 'cli',
+  });
+  const ticket = await api(`/sessions/${cli.id}/attach`, {});
+  const cp = peer('/ws/v1/cli/' + cli.id, ticket.ticket);
+  await new Promise<void>((r, j) => {
+    cp.ws.once('open', r);
+    cp.ws.once('error', j);
+  });
+  cp.ws.send(
+    JSON.stringify({
+      id: 1,
+      method: 'initialize',
+      params: { clientInfo: { name: 'test', version: '1' } },
+    }),
+  );
+  await wait(() => cp.messages.some((m) => m.id === 1 && m.result), 'CLI init');
+  cp.ws.send(JSON.stringify({ id: 2, method: 'thread/start', params: {} }));
+  await wait(
+    () => cp.messages.some((m) => m.id === 2 && m.result),
+    'CLI thread',
+  );
+  cp.ws.send(
+    JSON.stringify({ id: 3, method: 'config/value/write', params: {} }),
+  );
+  await wait(
+    () => cp.messages.some((m) => m.id === 3 && m.error),
+    'CLI prohibited method',
+  );
+  assert(!cp.messages.some((m) => m.id === 3 && m.result));
+  pass('CLI raw protocol routing and unsafe RPC rejection');
+  await api(`/sessions/${cli.id}/stop`, {});
+  // Real browser uses the same cookie/Origin path as users; no bearer bypass.
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.COC_BROWSER_PATH
+      ? { executablePath: process.env.COC_BROWSER_PATH }
+      : {}),
+  });
+  const page = await browser.newPage();
+  await page.goto(origin);
+  await page.getByLabel('所有者密钥').fill(secret);
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await page.getByLabel('主机').selectOption(enrolled.hostId);
+  await page.getByRole('button', { name: '创建网页会话' }).click();
+  await page.getByText(/已连接 · 空闲/).waitFor();
+  await page.getByLabel('任务内容').fill('browser hello');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await page.getByText('echo: browser hello', { exact: true }).waitFor();
+  await page.screenshot({
+    path: process.env.COC_SCREENSHOT_PATH || join(dir, 'browser.png'),
+    fullPage: true,
+  });
+  pass(
+    'browser cookie login, project selection, task submission and streaming',
+  );
+  await browser.close();
+  browser = undefined;
+  // Detach and reconnect Agent transport, without restarting its runtimes.
+  const reconnectSession = (
+    await api('/sessions?hostId=' + enrolled.hostId)
+  ).find((x: any) => x.mode === 'web' && x.state === 'ready');
+  const reconnect = await web(reconnectSession.id);
+  reconnect.ws.close();
+  await wait(
+    () => reconnect.ws.readyState === WebSocket.CLOSED,
+    'client detach',
+  );
+  agent.socket!.terminate();
+  await wait(
+    () => agent!.socket?.readyState === WebSocket.OPEN,
+    'Agent reconnect',
+    15000,
+  );
+  const restored = await web(reconnectSession.id);
+  restored.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+  await wait(
+    () => restored.messages.some((m) => m.type === 'sync'),
+    'restored web session',
+  );
+  pass('Agent network reconnect preserves runtime and web history');
+  await api(`/hosts/${enrolled.hostId}/revoke`, {});
+  await wait(
+    () => restored.ws.readyState === WebSocket.CLOSED,
+    'revoked client closes',
+  );
+  assert.equal((await api('/hosts'))[0].online, false);
+  pass('device revocation closes active connections');
+  console.log(
+    'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
+  );
+} catch (e) {
+  console.error(logs.replaceAll(secret, '[test-secret]'));
+  throw e;
+} finally {
+  for (const s of sockets) s.terminate();
+  if (browser) await browser.close();
+  if (agent && !agent.stopped) await agent.close();
+  try {
+    process.kill(-worker.pid!, 'SIGTERM');
+  } catch {
+    /* Process already exited. */
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  rmSync(dir, { recursive: true, force: true });
+}

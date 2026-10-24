@@ -1,0 +1,20 @@
+{
+  "name": "codex-over-cloudflare",
+  "main": "apps/relay/src/index.ts",
+  "compatibility_date": "2026-10-24",
+  "assets": {
+    "directory": "./dist/web",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/ws/*"],
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "REGISTRY", "class_name": "RegistryDO" },
+      { "name": "HOSTS", "class_name": "HostRelayDO" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RegistryDO", "HostRelayDO"] },
+  ],
+  "observability": { "enabled": false },
+}

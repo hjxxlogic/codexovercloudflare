@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.local/
+*.db
+*.db-shm
+*.db-wal
+playwright-report/
+test-results/

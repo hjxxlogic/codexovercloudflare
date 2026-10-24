@@ -1,0 +1,7 @@
+node_modules
+dist
+.wrangler
+.local
+package-lock.json
+docs/IDEARS.md
+AGENTS.md

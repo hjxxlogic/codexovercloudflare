@@ -1,0 +1,157 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #e8edf5;
+  background: #101722;
+  font-size: 15px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1280px;
+  margin: auto;
+  padding: 24px;
+}
+header,
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+header {
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+h1 {
+  margin: 4px 0;
+}
+h2 {
+  font-size: 18px;
+  margin-top: 0;
+}
+small,
+.status,
+footer {
+  color: #a1b2c9;
+}
+.card {
+  padding: 20px;
+  border: 1px solid #344054;
+  border-radius: 12px;
+  background: #182231;
+  margin-bottom: 16px;
+}
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+  border: 1px solid #47576b;
+  border-radius: 6px;
+  padding: 10px;
+  background: #101722;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+button {
+  cursor: pointer;
+  background: #234b77;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button:hover:enabled {
+  background: #326397;
+}
+input,
+select {
+  max-width: 100%;
+}
+textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+}
+.session {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.messages {
+  max-height: 55vh;
+  overflow: auto;
+  margin: 16px 0;
+}
+article {
+  padding: 12px;
+  border-bottom: 1px solid #344054;
+}
+pre {
+  font:
+    13px ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 0;
+}
+.approval {
+  background: #3a311e;
+  border: 1px solid #a38c4d;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.approval button {
+  margin: 12px 8px 0 0;
+}
+.error {
+  padding: 12px;
+  background: #532b35;
+  border-radius: 8px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.error button {
+  margin-left: 12px;
+}
+.id {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+footer {
+  padding: 16px 0;
+  font-size: 13px;
+}
+.conversation {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  main {
+    padding: 12px;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .row {
+    align-items: stretch;
+  }
+  .row label {
+    width: 100%;
+  }
+}
