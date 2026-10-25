@@ -1955,6 +1955,14 @@ try {
     'item/fileChange/requestApproval',
   );
   await visitorPage.getByRole('region', { name: '待确认请求' }).waitFor();
+  await visitorPage
+    .locator('.approval-queue details')
+    .filter({ hasText: 'remote-approval.txt' })
+    .locator('summary')
+    .click();
+  await visitorPage
+    .getByText('+remote approval patch preview', { exact: true })
+    .waitFor();
   await visitorPage.screenshot({
     path: join(artifacts, 'external-approval.png'),
     fullPage: true,

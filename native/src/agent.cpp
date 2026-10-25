@@ -850,6 +850,13 @@ public:
           auto it = runtimes_.find(id);
           if (it == runtimes_.end() || stopped_)
             return;
+          if (approval.contains("context")) {
+            const auto &context = approval.at("context");
+            auto event = store_.external_item(id, context.at("turnId"), context.at("item"));
+            if (!event.is_null())
+              publish(id, event);
+            return;
+          }
           const auto key = approval.at("approvalId").get<std::string>();
           it->second->approvals[key] = {
               Json{{"method", approval.at("method")}, {"params", approval.at("params")}}, now(),

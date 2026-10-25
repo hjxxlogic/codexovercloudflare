@@ -87,7 +87,31 @@ export class SharedApprovals {
     };
     this.pending.set(id, request);
     for (const [socket, thread] of this.subscriptions)
-      if (thread === threadId) socket.send(JSON.stringify(request));
+      if (thread === threadId) {
+        if (method === 'item/fileChange/requestApproval')
+          socket.send(
+            JSON.stringify({
+              method: 'item/started',
+              params: {
+                threadId,
+                turnId: 'external-turn',
+                item: {
+                  id,
+                  type: 'fileChange',
+                  status: 'inProgress',
+                  changes: [
+                    {
+                      path: 'remote-approval.txt',
+                      kind: { type: 'add' },
+                      diff: '+remote approval patch preview',
+                    },
+                  ],
+                },
+              },
+            }),
+          );
+        socket.send(JSON.stringify(request));
+      }
     return id;
   }
   resolve(id: string) {

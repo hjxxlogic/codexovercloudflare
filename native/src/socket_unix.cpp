@@ -13,7 +13,7 @@ class UnixSocket : public Socket, public std::enable_shared_from_this<UnixSocket
   std::string path_;
   SocketMessage message_;
   SocketClosed closed_;
-  beast::flat_buffer buffer_{max_frame};
+  beast::flat_buffer buffer_{max_queue};
   std::deque<std::string> writes_;
   size_t bytes_ = 0;
   bool open_ = false, ended_ = false;
@@ -73,7 +73,7 @@ public:
             self->finish();
             return;
           }
-          self->stream_.read_message_max(max_frame);
+          self->stream_.read_message_max(max_queue);
           self->stream_.set_option(ws::stream_base::timeout::suggested(beast::role_type::client));
           self->stream_.async_handshake("localhost", "/", [self](auto error) {
             if (error) {

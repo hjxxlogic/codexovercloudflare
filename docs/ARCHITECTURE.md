@@ -405,3 +405,5 @@ queue 控制接口同时验证凭证角色、会话角色、项目目录及外�
 ExternalApprovals 单独连接原共享 app-server，Linux 使用原生 Unix WebSocket，所有平台可用本机 WebSocket。先 thread/read 验证项目和已加载状态，再以无配置覆盖的 thread/resume 订阅并重放待办。仅处理匹配 threadId 的请求；服务端 serverRequest/resolved 清除待办。只允许命令 / 文件单次决策和本轮精确权限授予；不响应账户或设备身份请求。共享服务连接失败每 15 秒重试，不影响只读历史。独立 stdio 进程没有可连接的审批通道，不能热插拔。
 
 原请求 ID 保留在桥接器内，CC / CW 只能提交本会话已收到的审批 ID。写持久请求身份后转发一次，结果标为 approval-submitted，不推断最终决策归属；待解决通知才清除待办。断开不发送拒绝，不复用普通会话的十分钟审批超时。HTTP 审批及 WebSocket 审批均复核角色、会话、明确开关和活动桥接，仍不暴露任意原 app-server RPC。
+
+审批桥接同时把原服务的命令 / 文件 item 上下文写入稳定历史投影，供审批界面展示差异。原服务本机连接允许读取至 8 MiB，Relay 连接仍保持原有 256 KiB 单帧限制；大工具内容保留有界类型元数据并使用既有正文分块。

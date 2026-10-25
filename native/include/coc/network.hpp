@@ -10,6 +10,7 @@ struct Socket {
   virtual ~Socket() = default;
   virtual void start() = 0;
   virtual bool ready() const { return false; }
+  virtual void read_limit(size_t) {}
   void send(const Json &value) { send_text(value.dump()); }
   virtual void send_text(std::string) = 0;
   virtual void close() = 0;

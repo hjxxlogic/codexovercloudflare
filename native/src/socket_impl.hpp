@@ -25,7 +25,8 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   std::string token_, path_;
   SocketMessage message_;
   SocketClosed closed_;
-  beast::flat_buffer buf_{max_frame};
+  beast::flat_buffer buf_{max_queue};
+  size_t read_limit_ = max_frame;
   std::deque<std::string> writes_;
   size_t queued_ = 0;
   bool open_ = false, ended_ = false;
@@ -43,6 +44,11 @@ public:
         closed_(std::move(c)) {
   }
   bool ready() const override { return open_ && !ended_; }
+  void read_limit(size_t value) override {
+    if (value > max_queue || open_)
+      throw Error("CONFIG_ERROR", "Invalid local read limit");
+    read_limit_ = value;
+  }
   void start() override {
     auto self = shared_from_this();
     try {
@@ -82,7 +88,7 @@ public:
     auto self = shared_from_this();
     beast::get_lowest_layer(ws_).expires_never();
     ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::client));
-    ws_.read_message_max(max_frame);
+    ws_.read_message_max(read_limit_);
     ws_.set_option(websocket::stream_base::decorator([token = token_](websocket::request_type &r) {
       r.set(beast::http::field::authorization, "Bearer " + token);
     }));

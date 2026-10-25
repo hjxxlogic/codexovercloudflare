@@ -253,6 +253,15 @@ void external_test() {
             !active_writer_error(
                 {{"code", "HTTP_TIMEOUT"}, {"message", "already has an active writer"}}),
         "Other failures never downgrade");
+  Json patch = {
+      {"id", "patch"},
+      {"type", "fileChange"},
+      {"status", "inProgress"},
+      {"changes", Json::array({{{"path", "file.txt"}, {"diff", std::string(18000, '+')}}})}};
+  auto patch_event = store.external_item("external", "turn", patch);
+  check(patch_event["type"] == "item/started" && patch_event.contains("contentSeq") &&
+            patch_event["data"]["item"]["type"] == "fileChange",
+        "Large pending patch retains readable tool context");
   check(same_project_path(temp.path, temp.path + "/."), "Canonical project verification");
   check(!same_project_path(temp.path, temp.path + "/missing"), "Missing project rejected safely");
   shared_approval_fixture(temp.path);

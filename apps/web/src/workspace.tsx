@@ -58,14 +58,16 @@ export function ApprovalQueue({
   const cwd = typeof params.cwd === 'string' ? params.cwd : undefined;
   const grantRoot =
     typeof params.grantRoot === 'string' ? params.grantRoot : undefined;
-  const fileItem = [...events].reverse().find((event) => {
+  const fileEvent = [...events].reverse().find((event) => {
     const item = (event.data as { item?: Record<string, unknown> })?.item;
     return (
       typeof params.itemId === 'string' &&
       item?.id === params.itemId &&
       item?.type === 'fileChange'
     );
-  })?.data as { item?: { changes?: unknown[] } } | undefined;
+  });
+  const fileItem = fileEvent?.data as
+    { item?: { changes?: unknown[] } } | undefined;
   const changes = Array.isArray(fileItem?.item?.changes)
     ? fileItem.item.changes.filter(
         (
@@ -129,6 +131,9 @@ export function ApprovalQueue({
           </>
         )}
         {grantRoot && <p>请求写入范围：{grantRoot}</p>}
+        {fileEvent?.contentSeq !== undefined && (
+          <p>变更详情较大，请先展开对话中的对应工具记录核对后再决定。</p>
+        )}
         {changes.map((change, position) => (
           <details key={`${change.path}:${position}`}>
             <summary>
@@ -144,7 +149,10 @@ export function ApprovalQueue({
           </details>
         ))}
         {approval.method === 'item/fileChange/requestApproval' &&
-          !changes.length && <p>当前请求未附带可显示的文件变更明细。</p>}
+          !changes.length &&
+          fileEvent?.contentSeq === undefined && (
+            <p>当前请求未附带可显示的文件变更明细。</p>
+          )}
         <details>
           <summary>请求技术详情</summary>
           <pre tabIndex={0}>{JSON.stringify(params, null, 2)}</pre>

@@ -315,7 +315,8 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
   if (!existing.empty() && existing[0]["fingerprint"] == fingerprint)
     return nullptr;
   const auto kind = item.value("type", "");
-  std::string type = "item/completed", text = serialized;
+  std::string type = item.value("status", "") == "inProgress" ? "item/started" : "item/completed";
+  std::string text = serialized;
   Json data = {{"turnId", turn}, {"itemId", item_id}, {"item", item}};
   if (kind == "agentMessage") {
     type = "item/agentMessage/delta";
@@ -387,6 +388,9 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
       event["data"] = {{"turnId", turn},
                        {"itemId", item_id},
                        {"message", "Large external message; expand to read"}};
+      if (kind != "agentMessage" && kind != "userMessage")
+        event["data"]["item"] = {
+            {"id", item_id}, {"type", kind}, {"status", item.value("status", "")}};
     }
     run("INSERT OR REPLACE INTO history VALUES(?,?,?,?)", {seq, id, event.dump(), revision});
     if (type == "user")

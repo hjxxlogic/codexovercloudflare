@@ -64,6 +64,7 @@ void ExternalApprovals::start() {
       socket_ = plain_socket(io_, url, token, message, closed, "/");
     }
     attempts_ = 0;
+    socket_->read_limit(max_queue);
     socket_->start();
     wait_ready();
   } catch (const std::exception &) {
@@ -160,6 +161,12 @@ void ExternalApprovals::receive(Json value) {
   auto params = value.value("params", Json::object());
   if (params.value("threadId", "") != thread_)
     return;
+  if ((method == "item/started" || method == "item/completed") && params.contains("item") &&
+      (params["item"].value("type", "") == "fileChange" ||
+       params["item"].value("type", "") == "commandExecution")) {
+    approval_({{"context", params}});
+    return;
+  }
   if (method == "serverRequest/resolved") {
     const auto key = "external:" + id_key(params.at("requestId"));
     if (approvals_.erase(key)) {
