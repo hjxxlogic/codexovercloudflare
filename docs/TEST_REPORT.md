@@ -2,6 +2,14 @@
 
 日期：2026-10-24。0.5.2 已发布，源码标签 `v0.5.2` 指向 `e3a4e051ed825bdcb4dcd106fb133a40c04e0b7e`。当前结果见下表和 [逐项实施记录](stabilization-2026-10-24.md)。后文保留各版本历史证据；旧的“未完成”不能作为当前结论。此次未调用模型。
 
+## 0.5.3 · 2026-10-25 · 发布与线上验收
+
+- 发布源码 `b6f9c0d` 和标签 `v0.5.3` 已推送。Worker 版本 `6f8083b8-cfc0-4423-b3e6-bd04003cb99f` 于 UTC 00:53:48 发布至 `r.xlogic.cc`，流量 100%。现有生产密钥与用户设备授权保留。
+- 提交后的干净 Ubuntu 20.04 / Debian 12 原生构建均通过；两个平台归档的程序字节与构建产物一致，源码归档与 `git archive b6f9c0d` 一致，四个程序的构建身份绑定同一提交和 sourceDigest `13808d99c604353c3da189a74dcf1f4aec6e5cec36b4eeed08c3bc82c271f570`。干净构建的 CLI 默认自动安装和空闲 Agent 后台准备 / 重启回归亦通过；包校验记录 `.local/cc-request-approval/package-verification.json`。
+- 线上 JS / CSS、手册及下载清单与本地发布内容一致；健康 200、未登录业务 401、跨域登录 403、安全头、UTF-8 文档和三个归档 SHA256 均通过。实际下载的 Ubuntu 两个程序在匹配系统运行 `--version` 通过，实际下载 Debian CC 在容器中用于下述生产登录。
+- UTC 00:55:55，真实管理网页与实际下载的 0.5.3 CC 完成不传 `--host` 的中文留言申请、管理员选择临时 A、CC 保存正确角色 / 目标及 0600 凭证文件、目标 / 管理接口隔离、撤销后 401。CW 同时验证多行留言按纯文本显示、未选择 / 无效服务器拒绝、管理员选目标、Secure / HttpOnly Cookie 及刷新保留。测试完成仅清理本次临时 A/CC/CW 授权并撤销临时管理会话；无页面脚本错误，未操作用户已有设备或调用模型。
+- 线上证据在 `.local/cc-request-approval-deploy/online-verification.json`、`browser-verification.json`、`registry-rollout.json`、`deploy.log` 和部署版本记录，截图同目录。本轮覆盖发布与登录，不表示真实生产 Codex 任务、长期负载或 DO 休眠升级已验收；既有开发预览边界保持。
+
 ## 0.5.3 · 2026-10-25 · CC 与 CW 统一留言申请（发布前验收）
 
 - CC 配对登录使用 `--message TEXT` 传递选填留言，不再要求服务器标识；管理员在同一设备授权页查看留言并选择服务器。CC 使用批准结果的 hostId 保存原格式的私有多授权文件；已有凭证、服务器切换及固定目标的 API Key 登录继续可用。
