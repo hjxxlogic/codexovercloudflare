@@ -28,7 +28,7 @@ jobs:
           PY
             exit 1
           fi
-      - run: npm run lint && npm run lint:cpp && npm run typecheck && npm run protocol:check
+      - run: python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check
       - run: npm run build
       - run: npm test
       - run: npm run test:tls
@@ -52,3 +52,72 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
       - run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON && cmake --build build-sanitize -j 2
       - run: ctest --test-dir build-sanitize --output-on-failure
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.local/vcpkg-cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.local/vcpkg-downloads
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Keep source bytes identical for build provenance on every platform.
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@v4
+        id: windows-dependencies
+        with:
+          path: .local/vcpkg-cache
+          key: windows-2022-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: windows-2022-vcpkg-x64-static-
+      - uses: actions/cache/restore@v4
+        id: windows-downloads
+        with:
+          path: .local/vcpkg-downloads
+          key: windows-2022-vcpkg-downloads-${{ hashFiles('vcpkg.json') }}
+          restore-keys: windows-2022-vcpkg-downloads-
+      - name: Prepare dependency cache
+        run: New-Item -ItemType Directory -Force .local/vcpkg-cache, .local/vcpkg-downloads | Out-Null
+      - name: Configure Windows x64 with static dependencies
+        shell: pwsh
+        run: >-
+          python scripts/ci-command.py cmake -S . -B build-windows -A x64
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+      - run: python scripts/ci-command.py cmake --build build-windows --config Release --parallel 2
+      - run: python scripts/ci-command.py ctest --test-dir build-windows -C Release --output-on-failure
+      - name: Validate executable metadata and startup
+        shell: pwsh
+        run: |
+          ./build-windows/Release/coc-agent.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-client.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-agent.exe --help
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-client.exe --help
+          exit $LASTEXITCODE
+      - name: Verify Windows release packaging guards
+        run: python scripts/ci-command.py python tests/windows-release.py
+      - name: Package verified Windows x64 binaries
+        run: python scripts/ci-command.py python scripts/package-release.py --build-dir build-windows/Release --platform windows-x64
+      - uses: actions/cache/save@v4
+        if: always() && steps.windows-dependencies.outputs.cache-hit != 'true'
+        with:
+          path: .local/vcpkg-cache
+          key: windows-2022-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+      - uses: actions/cache/save@v4
+        if: always() && steps.windows-downloads.outputs.cache-hit != 'true'
+        with:
+          path: .local/vcpkg-downloads
+          key: windows-2022-vcpkg-downloads-${{ hashFiles('vcpkg.json') }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            dist/web/downloads/*.zip
+            dist/web/downloads/*source.tar.gz
+            dist/web/downloads/SHA256SUMS
+            dist/web/downloads/index.json

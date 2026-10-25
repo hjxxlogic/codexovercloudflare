@@ -6,10 +6,15 @@
 #include <openssl/rand.h>
 #include <regex>
 #include <set>
+#ifndef _WIN32
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#endif
 namespace coc {
+#ifndef _WIN32
 PrivateLock::PrivateLock(const std::filesystem::path &path) {
   auto parent = path.parent_path();
   if (!parent.empty() && !std::filesystem::exists(parent)) {
@@ -29,6 +34,17 @@ PrivateLock::~PrivateLock() {
   if (fd_ >= 0)
     close(fd_);
 }
+
+#else
+PrivateLock::PrivateLock(const std::filesystem::path &path) {
+  if (!path.parent_path().empty())
+    std::filesystem::create_directories(path.parent_path());
+  handle_ = private_file(path.wstring() + L".lock", GENERIC_READ | GENERIC_WRITE, 0, OPEN_ALWAYS);
+  if (handle_ == INVALID_HANDLE_VALUE)
+    throw Error("CONFIG_BUSY", "Cannot acquire private configuration lock");
+}
+PrivateLock::~PrivateLock() { CloseHandle(handle_); }
+#endif
 
 Json error_data(const std::exception &e) {
   auto p = dynamic_cast<const Error *>(&e);
@@ -63,11 +79,12 @@ std::string id_key(const Json &id) { return id.is_string() ? id.get<std::string>
 Json read_json(const std::filesystem::path &p) {
   std::ifstream f(p);
   if (!f)
-    throw Error("CONFIG_ERROR", "Cannot open configuration: " + p.string());
+    throw Error("CONFIG_ERROR", "Cannot open configuration: " + p.u8string());
   Json j;
   f >> j;
   return j;
 }
+#ifndef _WIN32
 void save_private(const std::filesystem::path &p, const Json &j, bool exclusive) {
   auto parent = p.parent_path();
   if (!parent.empty() && !std::filesystem::exists(parent)) {
@@ -120,6 +137,36 @@ void save_private(const std::filesystem::path &p, const Json &j, bool exclusive)
     throw;
   }
 }
+#else
+void save_private(const std::filesystem::path &path, const Json &data, bool exclusive) {
+  if (!path.parent_path().empty())
+    std::filesystem::create_directories(path.parent_path());
+  auto temporary = path.wstring() + L".tmp-" + wide(uuid());
+  WinHandle file(private_file(temporary, GENERIC_WRITE, 0, CREATE_NEW));
+  if (!file)
+    throw Error("CONFIG_ERROR", "Cannot create private configuration");
+  try {
+    auto text = data.dump(2) + "\n";
+    DWORD count = 0;
+    if (!WriteFile(file.get(), text.data(), DWORD(text.size()), &count, nullptr) ||
+        count != text.size() || !FlushFileBuffers(file.get()))
+      throw Error("CONFIG_ERROR", "Cannot persist private configuration");
+    file.reset();
+    auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
+      throw Error("CONFIG_ERROR", "Configuration must be a regular file");
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                     MOVEFILE_WRITE_THROUGH | (exclusive ? 0 : MOVEFILE_REPLACE_EXISTING)))
+      throw Error("CONFIG_ERROR", "Configuration exists or cannot be replaced");
+  } catch (...) {
+    file.reset();
+    DeleteFileW(temporary.c_str());
+    throw;
+  }
+}
+#endif
+
 Url relay_url(std::string s) {
   std::smatch m;
   static const std::regex re(
@@ -220,21 +267,30 @@ Json agent_config(Json c) {
     if (!valid_id(id) || !ids.insert(id).second || !p.at("name").is_string() ||
         p["name"].get<std::string>().empty() || utf16_length(p["name"].get<std::string>()) > 100)
       throw Error("CONFIG_ERROR", "Invalid project");
-    auto path = std::filesystem::canonical(p.at("path").get<std::string>());
+    auto path =
+        std::filesystem::canonical(std::filesystem::u8path(p.at("path").get<std::string>()));
     if (!std::filesystem::is_directory(path))
       throw Error("CONFIG_ERROR", "Project must be a directory");
     for (const auto &root : roots) {
       auto prefix = [](const auto &a, const auto &b) {
-        auto pair = std::mismatch(a.begin(), a.end(), b.begin(), b.end());
+        auto pair =
+            std::mismatch(a.begin(), a.end(), b.begin(), b.end(), [](const auto &x, const auto &y) {
+#ifdef _WIN32
+              return _wcsicmp(x.c_str(), y.c_str()) == 0;
+#else
+          return x == y;
+#endif
+            });
         return pair.first == a.end();
       };
       if (prefix(root, path) || prefix(path, root))
         throw Error("CONFIG_ERROR", "Project roots must not duplicate or overlap");
     }
     roots.push_back(path);
-    p["path"] = path.string();
+    p["path"] = path.u8string();
   }
-  c["dataDir"] = std::filesystem::absolute(c["dataDir"].get<std::string>()).string();
+  c["dataDir"] = std::filesystem::absolute(std::filesystem::u8path(c["dataDir"].get<std::string>()))
+                     .u8string();
   return c;
 }
 Json guard_cli(Json m, const std::string &cwd, const std::string &sandbox,

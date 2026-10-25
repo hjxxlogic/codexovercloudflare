@@ -1,11 +1,16 @@
 #include "coc/process.hpp"
-#include <fcntl.h>
 #include <iostream>
+#ifndef _WIN32
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#endif
 namespace coc {
+#ifndef _WIN32
 void verify_codex(const Json &c) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
@@ -133,6 +138,34 @@ CodexProcess::~CodexProcess() {
     }
   }
 }
+#else
+void verify_codex(const Json &c) {
+  std::vector<std::string> args = {c.at("codexPath")};
+  for (auto &a : c.at("codexArgs"))
+    args.push_back(a);
+  args.push_back("--version");
+  auto text = windows_capture(args);
+  while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+    text.pop_back();
+  if (text != "codex-cli 0.164.0")
+    throw Error("CODEX_VERSION", "Unsupported Codex version; expected codex-cli 0.164.0");
+}
+CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::string &cwd,
+                           std::function<void(Json)> msg, std::function<void()> ex)
+    : io_(io), input_(io), output_(io), poll_(io), kill_(io), message_(std::move(msg)),
+      exit_(std::move(ex)) {
+  std::vector<std::string> args = {c.at("codexPath")};
+  for (auto &a : c.at("codexArgs"))
+    args.push_back(a);
+  args.insert(args.end(), {"app-server", "--listen", "stdio://", "-c",
+                           "sandbox_mode=\"" + c.at("sandbox").get<std::string>() + "\"", "-c",
+                           "approval_policy=\"on-request\""});
+  child_ = std::make_unique<WindowsChild>(args, cwd);
+  input_.assign(child_->input.release());
+  output_.assign(child_->output.release());
+}
+CodexProcess::~CodexProcess() = default;
+#endif
 void CodexProcess::start() {
   read();
   reap();
@@ -231,6 +264,20 @@ void CodexProcess::reap() {
   poll_.async_wait([self](auto ec) {
     if (ec)
       return;
+#ifdef _WIN32
+    DWORD code = 0;
+    if (self->child_->poll(code)) {
+      std::cerr << Json{{"event", "codex_exit"},
+                        {"time", now()},
+                        {"expected", self->closing_},
+                        {"exitCode", code}}
+                       .dump()
+                << '\n';
+      self->child_->terminate();
+      self->exit();
+    } else
+      self->reap();
+#else
     int status;
     int r = waitpid(self->pid_, &status, WNOHANG);
     if (r == self->pid_ || (r < 0 && errno == ECHILD)) {
@@ -243,6 +290,7 @@ void CodexProcess::reap() {
       self->exit();
     } else
       self->reap();
+#endif
   });
 }
 void CodexProcess::exit() {
@@ -265,6 +313,9 @@ void CodexProcess::close() {
   if (exited_ || closing_)
     return;
   closing_ = true;
+#ifdef _WIN32
+  child_->terminate();
+#else
   ::kill(-pid_, SIGTERM);
   auto self = shared_from_this();
   kill_.expires_after(std::chrono::seconds(3));
@@ -272,5 +323,6 @@ void CodexProcess::close() {
     if (!ec && !self->exited_)
       ::kill(-self->pid_, SIGKILL);
   });
+#endif
 }
 } // namespace coc

@@ -45,7 +45,29 @@ npm run dev
 
 开发需要 Node.js ≥22.17、C++17、CMake ≥3.16、Boost.System ≥1.71、OpenSSL、SQLite3、nlohmann/json ≥3.7。Ubuntu 20.04 的 workerd 容器方案见 [开发说明](DEVELOPMENT.md)。以下示例的 R 地址在本机体验时替换为 `http://127.0.0.1:8787`。
 
+### Windows x64
+
+原生源码新增 Windows 10/11 x64、Windows Server 2019+ 的 `coc-agent.exe` / `coc-client.exe` 构建；下载是否已发布以下载清单为准。Windows ZIP 使用静态第三方库和 MSVC 运行库，无需安装 Node.js 或单独复制 DLL。下载 `coc-<版本>-windows-x64.zip` 后用 `Get-FileHash -Algorithm SHA256` 核对 `SHA256SUMS`，完整解压到用户可写目录，并把该目录加入 PATH。
+
+必须使用 Codex 0.164.0 的原生 `codex.exe`。将它加入 PATH，或设置 `$env:COC_CODEX_PATH = 'C:\Tools\Codex\codex.exe'`；Agent 也可在配置中设置 `codexPath`。npm 的 `codex.cmd` 不能直接作为子进程启动路径；使用 npm 安装 Codex 时，需指向其实际原生可执行文件。先运行 `& $env:COC_CODEX_PATH --version` 确认版本；模型凭据和 Codex Windows 沙箱需按 Codex 本身要求配置。CC 的远程 TUI 使用 Windows Terminal / PowerShell。
+
+```powershell
+.\coc-agent.exe login --relay https://r.xlogic.cc --project 'C:\Projects\demo'
+.\coc-agent.exe run
+# 在另一台客户端电脑申请独立 CC 授权
+.\coc-client.exe login --relay https://r.xlogic.cc --message '申请 Windows 开发访问'
+.\coc-client.exe hosts
+```
+
+默认配置在 `%LOCALAPPDATA%\coc-agent\agent.json`、`%LOCALAPPDATA%\coc-client\credentials.json`；历史缓存在 `%LOCALAPPDATA%\coc-client\history`。`--config`、`COC_AGENT_CONFIG`、`COC_CREDENTIALS` 等显式路径仍可覆盖。凭据与 Agent 状态使用当前用户及 SYSTEM 的受保护 ACL；不要放到 FAT/exFAT 或共享给不可信用户的目录。JSON 中项目路径用 `C:/Projects/demo` 或转义反斜杠，配置文件保持 UTF-8。
+
+Windows 支持授权、审批、Agent 会话、CC 历史和工作区文件传输；CW 聊天下载同时识别项目内的 Windows 盘符和反斜杠路径。文件接口使用 `/` 分隔项目相对路径，拒绝盘符、UNC、设备名、备用数据流、符号链接及 junction；项目必须位于本地磁盘。上传期间目录和目标可能因文件共享锁而无法移动或写入。TLS 同时加载 OpenSSL 默认信任路径和 Windows ROOT 证书库，保留主机名校验。
+
+Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配置与状态，校验新版 ZIP 后替换两个程序，再重新运行；不改变凭据或数据库。Windows 不执行自动替换，`update` 返回手动升级提示。后台常驻可由任务计划程序以同一普通用户身份运行 `coc-agent.exe run`；当前不提供 Windows Service 注册命令。源码构建和测试见 [开发说明](DEVELOPMENT.md)。
+
 ### 原生程序自动更新
+
+以下自动更新机制适用于 Linux；Windows 按上一节手动整包升级。
 
 从 0.5.2 起默认启用自动更新。Agent 运行期间每小时检查配置中 `relayUrl` 的 `/downloads/`；下载和候选检查在后台进行，等所有运行会话结束且没有历史读取后才关闭连接、释放数据库锁并原地重启，沿用原启动参数。空闲检查最多约 30 秒一次；保持附着但未执行任务的会话仍算运行会话，须结束会话后才切换。CLI 在成功的业务命令结束（TUI 退出）后检查，安装后下一次启动生效，不会在 TUI 运行中替换进程。help、version、doctor、logout 和离线历史读取不触发自动检查。
 

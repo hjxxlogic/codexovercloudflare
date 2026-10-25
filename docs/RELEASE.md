@@ -107,3 +107,9 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 同步发布 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 的 Agent / CC 和源码包。主机记录新增可选唤醒配置及按主机持久化的一分钟限流，无需迁移授权或 SQLite 数据。管理员可在服务器离线时配置、覆盖、禁用或恢复 Agent URL；旧 Agent 省略字段不清除云端配置。需要先更新 Worker，再使用新网页或原生唤醒功能。既有服务沿用自动更新配置，发布不直接替换用户服务。
 
 中继访问 HTTPS 唤醒 URL，不携带客户端凭证、不跟随重定向；网络服务接受请求不等于服务器实际开机。发布后仅使用临时测试主机验证配置接口、角色隔离、离线唤醒 / 限流、客户端等待和上线刷新，不唤醒已有用户主机。真实硬件休眠 / 开机和长期负载继续属于验收边界。
+
+### Windows x64 包
+
+新增 `coc-<version>-windows-x64.zip`，在 Windows x64 上使用 `x64-windows-static` 构建并执行 `ctest -C Release` 后，以 `--platform windows-x64` 打包。打包拒绝脏源码、来源不匹配及错误目标；清单与 SHA256SUMS 同时识别 `.zip` / `.tar.gz`。Windows ZIP 包含两个 `.exe`、示例配置、手册及静态依赖的许可证通知，无 systemd 单元。默认从 `build-windows/vcpkg_installed/x64-windows-static/share/*/copyright` 收集许可证，使用其他安装目录时传 `--dependency-dir`。第三方库和 MSVC CRT 静态链接；不得将依赖未收齐的动态构建标为官方 ZIP。
+
+合并各平台下载时须核对 version/commit/sourceDigest/protocol 相同，并重新生成最终清单与 SHA256；CI artifact 不等于线上发布。Windows 当前不自动更新或重启升级，也不注册 Windows Service，用户停止 Agent 后校验并整包替换。现有 Linux 自动更新不会选择 Windows ZIP。

@@ -2,9 +2,13 @@
 #include <algorithm>
 #include <fcntl.h>
 #include <memory>
+#ifndef _WIN32
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#endif
 namespace coc {
 void Store::fail(int code) {
   if (storage_failure_)
@@ -19,6 +23,7 @@ void Store::fail(int code) {
     category = "STORAGE_CORRUPT";
   throw Error(category, "Journal operation failed (SQLite " + std::to_string(code) + ")");
 }
+#ifndef _WIN32
 Store::Lock::Lock(const std::string &dir, bool exclusive) {
   std::filesystem::create_directories(dir);
   chmod(dir.c_str(), 0700);
@@ -38,6 +43,23 @@ Store::Lock::~Lock() {
   if (fd >= 0)
     ::close(fd);
 }
+
+#else
+Store::Lock::Lock(const std::string &dir, bool exclusive) {
+  auto root = std::filesystem::u8path(dir);
+  std::filesystem::create_directories(root);
+  private_path(root);
+  if (!exclusive)
+    return;
+  handle = private_file(root / "agent.lock", GENERIC_READ | GENERIC_WRITE, 0, OPEN_ALWAYS);
+  if (handle == INVALID_HANDLE_VALUE)
+    throw Error("STATE_LOCKED", "Another Agent is using this dataDir or it is inaccessible");
+}
+Store::Lock::~Lock() {
+  if (handle)
+    CloseHandle(handle);
+}
+#endif
 
 Json Store::query(const std::string &sql, const Json &args) {
   auto found = statements_.find(sql);
@@ -98,15 +120,21 @@ void Store::clear_statements() {
 }
 void Store::run(const std::string &s, const Json &a) { query(s, a); }
 Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritative) {
-  std::filesystem::create_directories(dir);
+  std::filesystem::create_directories(std::filesystem::u8path(dir));
+#ifndef _WIN32
   chmod(dir.c_str(), 0700);
-  auto path = std::filesystem::path(dir) / "agent.db";
-  if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
+#endif
+  auto path = std::filesystem::u8path(dir) / "agent.db";
+  if (sqlite3_open(path.u8string().c_str(), &db_) != SQLITE_OK) {
     if (db_)
       sqlite3_close(db_);
     throw Error("STORAGE_ERROR", "Cannot open journal");
   }
+#ifdef _WIN32
+  private_path(path);
+#else
   chmod(path.c_str(), 0600);
+#endif
   sqlite3_busy_timeout(db_, 250);
   try {
     run("PRAGMA journal_mode=WAL");

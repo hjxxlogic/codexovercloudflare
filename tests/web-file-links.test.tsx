@@ -24,6 +24,30 @@ describe('chat file paths', () => {
       'docs/my report.txt',
     );
   });
+  it('resolves Windows drive paths only inside the selected Windows project', () => {
+    const windowsRoot = 'C:\\Projects\\Demo';
+    for (const path of [
+      'C:\\Projects\\Demo\\docs\\report.txt:12',
+      'c:/projects/demo/docs/report.txt',
+      'file:///C:/Projects/Demo/docs/report.txt#L12',
+      'docs\\report.txt',
+    ])
+      expect(projectFilePath(path, windowsRoot)).toBe('docs/report.txt');
+    for (const path of [
+      'D:/Projects/Demo/report.txt',
+      'C:/Projects/Demo-other/report.txt',
+      'C:/Projects/Demo/../secret',
+      '\\\\server\\share\\secret.txt',
+      'file://server/share/secret.txt',
+      'C:relative.txt',
+      'report.txt:stream',
+      'https://example.com/a.txt',
+    ])
+      expect(projectFilePath(path, windowsRoot)).toBeNull();
+    expect(fileReferences('C:\\Projects\\Demo\\report.txt:12')).toEqual([
+      { index: 0, text: 'C:\\Projects\\Demo\\report.txt:12' },
+    ]);
+  });
   it('rejects external URLs, project prefix collisions and escaping paths', () => {
     for (const path of [
       'https://example.com/a.txt',

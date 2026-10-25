@@ -42,7 +42,9 @@ export const agentConfigSchema = z.object({
       z.object({
         enabled: z.boolean().optional(),
         intervalHours: z.number().int().min(1).max(168).optional(),
-        platform: z.enum(['', 'ubuntu20.04', 'debian12']).optional(),
+        platform: z
+          .enum(['', 'ubuntu20.04', 'debian12', 'windows-x64'])
+          .optional(),
       }),
     ])
     .optional(),

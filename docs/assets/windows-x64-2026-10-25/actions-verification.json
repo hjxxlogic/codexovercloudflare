@@ -1,0 +1,230 @@
+{
+  "sourceCommit": "0c4a18e0501f019fe30c222eb0e3677aa2e8242c",
+  "branch": "feat/windows-x64-20261025",
+  "runId": 40186032178,
+  "runUrl": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40186032178",
+  "conclusion": "success",
+  "completedAt": "2026-10-25T10:48:59Z",
+  "jobs": [
+    {
+      "name": "sanitizers",
+      "id": 121146889202,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON && cmake --build build-sanitize -j 2",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ctest --test-dir build-sanitize --output-on-failure",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "windows-x64",
+      "id": 121146889320,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@v5",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Prepare dependency cache",
+          "conclusion": "success"
+        },
+        {
+          "name": "Configure Windows x64 with static dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/ci-command.py cmake --build build-windows --config Release --parallel 2",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/ci-command.py ctest --test-dir build-windows -C Release --output-on-failure",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate executable metadata and startup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify Windows release packaging guards",
+          "conclusion": "success"
+        },
+        {
+          "name": "Package verified Windows x64 binaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-python@v5",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "regression",
+      "id": 121146889329,
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install locked dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run build",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm test",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:tls",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:backup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:release",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:update",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:e2e && npm run test:ui",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12596362590,
+      "name": "windows-x64",
+      "size_in_bytes": 9217801,
+      "digest": "sha256:b97d12fd3e0318501f393070f1641ddf743ecf50ca8142bb04cd17e786702af6",
+      "expired": false
+    },
+    {
+      "id": 12595429189,
+      "name": "browser-evidence",
+      "size_in_bytes": 2095329,
+      "digest": "sha256:f1e65feb74263307cc69de4286bb22bd4e62946ecab64a4f2c0bc824100f8a78",
+      "expired": false
+    }
+  ],
+  "observedDependencyConfigureSeconds": {
+    "withoutConfiguredBinaryCache": 406,
+    "withConfiguredBinaryCache": 47
+  },
+  "boundaries": {
+    "windowsBuiltOn": "GitHub Actions windows-2022",
+    "localWindowsBuildStopped": true,
+    "modelCalls": false,
+    "productionDeployment": false,
+    "realWindowsCodexSessionValidated": false
+  }
+}

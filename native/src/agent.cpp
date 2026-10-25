@@ -276,7 +276,7 @@ public:
     for (auto &p : config_["projects"])
       if (p["id"] == id) {
         auto path = p["path"].get<std::string>();
-        if (std::filesystem::canonical(path).string() != path)
+        if (std::filesystem::canonical(std::filesystem::u8path(path)).u8string() != path)
           throw Error("PATH_CHANGED", "Project real path changed");
         return p;
       }
@@ -1070,7 +1070,8 @@ public:
   void check_update() {
     try {
       // Only this setting is hot-reloaded; project/policy changes still need restart.
-      config_["autoUpdate"] = read_json(config_file_).value("autoUpdate", Json(true));
+      config_["autoUpdate"] =
+          read_json(config_file_).value("autoUpdate", Json(UpdateSettings{}.enabled));
       if (updater_.poll(config_, config_.at("relayUrl"),
                         runtimes_.empty() && archive_loading_.empty() && !listing_threads_ &&
                             file_requests_ == 0)) {
@@ -1119,7 +1120,7 @@ public:
         approval_check_failed_ = false;
         // Quote the config path for a POSIX shell, including spaces, quotes and '$'.
         std::string config_arg = "'";
-        for (char c : std::filesystem::absolute(config_file_).string())
+        for (char c : std::filesystem::absolute(config_file_).u8string())
           config_arg += c == '\'' ? "'\\''" : std::string(1, c);
         config_arg += "'";
         std::set<std::string> pending;
@@ -1261,9 +1262,13 @@ public:
   }
 };
 } // namespace coc
-int main(int argc, char **argv) {
+int coc_main(int argc, char **argv) {
   try {
+#ifdef _WIN32
+    coc::windows_console();
+#else
     signal(SIGPIPE, SIG_IGN);
+#endif
     if (argc == 2 && std::string(argv[1]) == "--version") {
       std::cout << COC_BUILD_JSON << '\n';
       return 0;
@@ -1272,8 +1277,8 @@ int main(int argc, char **argv) {
     if (options.values.count("message"))
       throw coc::Error("USAGE", "--message is only supported by coc-client paired login");
     auto command = options.args.empty() ? "help" : options.args[0];
-    auto file = std::filesystem::path(options.get(
-        "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
+    auto file = std::filesystem::u8path(options.get(
+        "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").u8string()));
     if (command == "help") {
       std::cout
           << "Usage: coc-agent "
@@ -1319,17 +1324,17 @@ int main(int argc, char **argv) {
       } else {
         if (options.get("project").empty())
           throw coc::Error("USAGE", "First login requires --project <directory>");
-        auto path = std::filesystem::canonical(options.get("project"));
+        auto path = std::filesystem::canonical(std::filesystem::u8path(options.get("project")));
         auto id = options.get("project-id", "my-project");
         if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
           throw coc::Error("CONFIG_ERROR", "Invalid project");
-        config = {
-            {"autoUpdate", true},
-            {"codexPath", "codex"},
-            {"codexArgs", coc::Json::array()},
-            {"sandbox", "workspace-write"},
-            {"dataDir", (std::filesystem::absolute(file).parent_path() / "data").string()},
-            {"projects", coc::Json::array({{{"id", id}, {"name", id}, {"path", path.string()}}})}};
+        config = {{"autoUpdate", coc::UpdateSettings{}.enabled},
+                  {"codexPath", "codex"},
+                  {"codexArgs", coc::Json::array()},
+                  {"sandbox", "workspace-write"},
+                  {"dataDir", (std::filesystem::absolute(file).parent_path() / "data").u8string()},
+                  {"projects",
+                   coc::Json::array({{{"id", id}, {"name", id}, {"path", path.u8string()}}})}};
       }
       auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent",
                                      options.get("name", "Codex agent"), "", options.api_key);
@@ -1415,3 +1420,18 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t **argv) {
+  std::vector<std::string> values;
+  for (int i = 0; i < argc; ++i)
+    values.push_back(coc::utf8(argv[i]));
+  std::vector<char *> arguments;
+  for (auto &value : values)
+    arguments.push_back(value.data());
+  arguments.push_back(nullptr);
+  return coc_main(argc, arguments.data());
+}
+#else
+int main(int argc, char **argv) { return coc_main(argc, argv); }
+#endif

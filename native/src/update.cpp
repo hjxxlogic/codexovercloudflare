@@ -1,6 +1,7 @@
 #include "coc/update.hpp"
 #include "coc/build.hpp"
 #include "coc/network.hpp"
+#ifndef _WIN32
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -15,6 +16,11 @@
 #include <thread>
 #include <unistd.h>
 extern char **environ;
+#else
+#include "coc/windows.hpp"
+#include <iostream>
+#include <regex>
+#endif
 namespace coc {
 namespace {
 constexpr size_t archive_limit = 32 * 1024 * 1024, binary_limit = 64 * 1024 * 1024;
@@ -22,6 +28,7 @@ void require(bool ok, const std::string &message) {
   if (!ok)
     throw Error("UPDATE_FAILED", message);
 }
+#ifndef _WIN32
 std::string digest(const std::string &bytes) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
   SHA256(reinterpret_cast<const unsigned char *>(bytes.data()), bytes.size(), hash);
@@ -147,13 +154,14 @@ std::string release_platform() {
     return "debian12";
   throw Error("UPDATE_PLATFORM", "No matching release for this OS; configure autoUpdate.platform");
 }
+#endif
 void log_error(const std::exception &error) {
   std::cerr << Json{{"event", "auto_update_failed"}, {"error", error_data(error)}}.dump() << '\n';
 }
 } // namespace
 UpdateSettings update_settings(const Json &config) {
   UpdateSettings settings;
-  auto value = config.value("autoUpdate", Json(true));
+  auto value = config.value("autoUpdate", Json(settings.enabled));
   if (value.is_boolean()) {
     settings.enabled = value.get<bool>();
     return settings;
@@ -165,7 +173,8 @@ UpdateSettings update_settings(const Json &config) {
   auto platform = value.value("platform", Json(""));
   if (!enabled.is_boolean() || !interval.is_number_integer() || interval < 1 || interval > 168 ||
       !platform.is_string() ||
-      (platform != "" && platform != "ubuntu20.04" && platform != "debian12"))
+      (platform != "" && platform != "ubuntu20.04" && platform != "debian12" &&
+       platform != "windows-x64"))
     throw Error("CONFIG_ERROR", "Invalid autoUpdate enabled, intervalHours (1..168) or platform");
   settings.enabled = enabled.get<bool>();
   settings.interval_hours = interval.get<int>();
@@ -183,6 +192,7 @@ bool newer_release(const std::string &candidate, const std::string &current) {
   }
   return false;
 }
+#ifndef _WIN32
 std::filesystem::path executable_path() { return std::filesystem::read_symlink("/proc/self/exe"); }
 PreparedUpdate::PreparedUpdate(std::filesystem::path executable, std::filesystem::path temporary,
                                std::unique_ptr<PrivateLock> lock, uint64_t device, uint64_t inode)
@@ -294,6 +304,35 @@ std::unique_ptr<PreparedUpdate> prepare_update(const Json &config, const std::st
           "Candidate target or clean-source identity is invalid");
   return prepared;
 }
+#else
+std::filesystem::path executable_path() {
+  std::wstring path(32768, L'\0');
+  auto size = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
+  require(size > 0 && size < path.size(), "Cannot locate Windows executable");
+  path.resize(size);
+  return std::filesystem::path(path);
+}
+PreparedUpdate::PreparedUpdate(std::filesystem::path executable, std::filesystem::path temporary,
+                               std::unique_ptr<PrivateLock> lock, uint64_t device, uint64_t inode)
+    : executable_(std::move(executable)), temporary_(std::move(temporary)), lock_(std::move(lock)),
+      device_(device), inode_(inode) {}
+PreparedUpdate::~PreparedUpdate() = default;
+void PreparedUpdate::install() {
+  throw Error("UPDATE_PLATFORM",
+              "On Windows stop the Agent and replace the complete official ZIP distribution");
+}
+std::unique_ptr<PreparedUpdate> prepare_update(const Json &config, const std::string &,
+                                               bool manual) {
+  update_settings(config);
+  if (manual)
+    throw Error("UPDATE_PLATFORM", "Windows uses manual ZIP upgrades; stop the Agent, verify "
+                                   "SHA256SUMS and replace the complete distribution");
+  return nullptr;
+}
+void restart_updated(int, char **) {
+  throw Error("UPDATE_PLATFORM", "Restart the Windows Agent manually after upgrading");
+}
+#endif
 void automatic_update(const Json &config, const std::string &relay) {
   try {
     if (auto update = prepare_update(config, relay))
@@ -302,6 +341,7 @@ void automatic_update(const Json &config, const std::string &relay) {
     log_error(error);
   }
 }
+#ifndef _WIN32
 void restart_updated(int, char **argv) {
   auto path = executable_path();
   // /proc/self/exe still refers to the old unlinked inode after rename.
@@ -317,6 +357,7 @@ void restart_updated(int, char **argv) {
   throw Error("UPDATE_RESTART",
               "Cannot restart updated Agent; previous executable was retained when possible");
 }
+#endif
 bool AgentUpdater::poll(const Json &config, const std::string &relay, bool idle) {
   const auto settings = update_settings(config);
   if (pending_.valid() && pending_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {

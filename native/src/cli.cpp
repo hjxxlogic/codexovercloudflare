@@ -10,9 +10,13 @@
 #include <iostream>
 #include <openssl/sha.h>
 #include <sstream>
+#ifndef _WIN32
 #include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#endif
+#include <thread>
 namespace coc {
 class Cli {
   Options options_;
@@ -20,7 +24,10 @@ class Cli {
   bool takeover_ = false;
   Json store() {
     if (!std::filesystem::exists(credentials_))
-      return {{"version", 2}, {"entries", Json::array()}, {"selected", ""}, {"autoUpdate", true}};
+      return {{"version", 2},
+              {"entries", Json::array()},
+              {"selected", ""},
+              {"autoUpdate", coc::UpdateSettings{}.enabled}};
     auto data = read_json(credentials_);
     if (data.value("version", 0) != 2)
       throw Error("LOGIN_REQUIRED",
@@ -96,8 +103,9 @@ class Cli {
     std::ostringstream scope;
     for (auto byte : digest)
       scope << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(byte);
-    auto root = option("cache-dir", config_path("COC_HISTORY_DIR", "coc-client/history").string());
-    return std::make_unique<Store>((std::filesystem::path(root) / scope.str()).string(), false);
+    auto root =
+        option("cache-dir", config_path("COC_HISTORY_DIR", "coc-client/history").u8string());
+    return std::make_unique<Store>((std::filesystem::u8path(root) / scope.str()).u8string(), false);
   }
   int64_t cursor_option(const std::string &name) {
     auto text = option(name, "0");
@@ -218,6 +226,7 @@ class Cli {
                                      t.value("sandbox", "workspace-write"),
                                      "--ask-for-approval",
                                      "on-request"};
+#ifndef _WIN32
     std::vector<char *> argv;
     for (auto &a : args)
       argv.push_back(a.data());
@@ -231,6 +240,9 @@ class Cli {
       execvp(argv[0], argv.data());
       _exit(127);
     }
+#else
+    WindowsChild child(args, "", false, t.at("ticket").get<std::string>());
+#endif
     asio::io_context history_io;
     std::unique_ptr<Store> cache;
     try {
@@ -319,32 +331,45 @@ class Cli {
       reader->start();
     };
     reconnect();
+#ifdef _WIN32
+    DWORD status = 0;
+#else
     int status;
+#endif
     while (true) {
+#ifdef _WIN32
+      if (child.poll(status))
+        break;
+#else
       auto done = waitpid(pid, &status, WNOHANG);
       if (done == pid)
         break;
       if (done < 0 && errno != EINTR)
         throw Error("SPAWN_FAILED", "Cannot wait for Codex TUI");
+#endif
       history_io.restart();
       history_io.run_for(std::chrono::milliseconds(100));
       if (history_io.stopped())
-        usleep(10000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     finished = true;
     retry.cancel();
     reader->close();
     history_io.restart();
     history_io.poll();
+#ifdef _WIN32
+    if (status != 0)
+#else
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+#endif
       throw Error("CODEX_EXITED", "Codex TUI exited unsuccessfully");
   }
 
 public:
   Cli(int argc, char **argv)
       : options_(argc, argv),
-        credentials_(option(
-            "config", config_path("COC_CREDENTIALS", "coc-client/credentials.json").string())),
+        credentials_(std::filesystem::u8path(option(
+            "config", config_path("COC_CREDENTIALS", "coc-client/credentials.json").u8string()))),
         takeover_(options_.takeover) {}
   void run() {
     auto command = options_.args.empty() ? "help" : options_.args[0];
@@ -521,9 +546,13 @@ public:
   }
 };
 } // namespace coc
-int main(int argc, char **argv) {
+int coc_main(int argc, char **argv) {
   try {
+#ifdef _WIN32
+    coc::windows_console();
+#else
     signal(SIGPIPE, SIG_IGN);
+#endif
     if (argc == 2 && std::string(argv[1]) == "--version") {
       std::cout << COC_BUILD_JSON << '\n';
       return 0;
@@ -535,3 +564,18 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t **argv) {
+  std::vector<std::string> values;
+  for (int i = 0; i < argc; ++i)
+    values.push_back(coc::utf8(argv[i]));
+  std::vector<char *> arguments;
+  for (auto &value : values)
+    arguments.push_back(value.data());
+  arguments.push_back(nullptr);
+  return coc_main(argc, arguments.data());
+}
+#else
+int main(int argc, char **argv) { return coc_main(argc, argv); }
+#endif

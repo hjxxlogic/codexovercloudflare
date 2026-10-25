@@ -46,7 +46,7 @@ public:
     auto self = shared_from_this();
     try {
 #ifdef COC_TLS
-      ctx_.set_default_verify_paths();
+      configure_trust(ctx_);
       ws_.next_layer().set_verify_mode(ssl::verify_peer);
       verify_tls_hostname(ws_.next_layer().native_handle(), url_.host);
 #endif

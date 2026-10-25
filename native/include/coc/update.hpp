@@ -4,7 +4,11 @@
 #include <memory>
 namespace coc {
 struct UpdateSettings {
+#ifdef _WIN32
+  bool enabled = false;
+#else
   bool enabled = true;
+#endif
   int interval_hours = 1;
   std::string platform;
 };

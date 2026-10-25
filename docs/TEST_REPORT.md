@@ -2,6 +2,15 @@
 
 日期：2026-10-25。0.5.6 已发布，源码标签 `v0.5.6` 指向 `672e5f42120bf1c527fee58b73313190f2d89be3`。最新部署和线上唤醒验收见下文，后文保留各版本历史证据。本轮未调用模型。
 
+## 未发布 · Windows x64 支持
+
+- 功能源码 `0c4a18e0501f019fe30c222eb0e3677aa2e8242c` 已推送到 `feat/windows-x64-20261025`。[GitHub Actions 40186032178](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40186032178) 于 2026-10-25 UTC 10:48:59 完成，`windows-x64`、`regression`、`sanitizers` 三个作业全部通过；[验证元数据](assets/windows-x64-2026-10-25/actions-verification.json) 保存源码、步骤结果与产物摘要。证据文档另行提交，不改写已构建源码。
+- Windows Server 2022 / MSVC x64 / vcpkg 静态构建通过。原生 CTest 覆盖 UTF-8 凭据与受保护 ACL、配置/状态排他锁、SQLite 历史与去重、项目大小写重叠、非法路径与只读策略、文件上传/读回/完成去重/版本拒绝/覆盖/取消、目录句柄释放、参数引用、进程树终止、stdio RPC、Windows 根证书加载及异步 DNS / HTTP。符号链接测试仅在系统允许创建链接时执行。
+- Agent / CLI 的 `--version`、`--help`、模拟 PE 的打包保护回归以及正式 ZIP 打包通过。Actions 的 `windows-x64` artifact 包含 `coc-0.5.6-windows-x64.zip`、源码归档、`SHA256SUMS` 与下载清单；ZIP 含两个 `.exe`、示例、手册和静态依赖许可证。打包核对干净源码、版本/提交/源码摘要/协议/目标，并拒绝错误平台、脏源码和陈旧程序。此为分支预览产物，尚未更新生产下载页。
+- vcpkg 二进制依赖与工具/源码下载分别缓存，失败构建也保存缓存；依赖变化时按 ABI 复用兼容包。观察到依赖配置从未配置二进制缓存时的 406 秒降为命中后的 47 秒；这是依赖准备阶段的实测，主程序仍重新编译。
+- Linux Release、原生 CTest、77 项 Vitest、TypeScript、ESLint / Prettier、C++ 格式、协议文档、网页/Worker dry-run、TLS、备份、发布来源、实际自动更新、Chromium 端到端/界面回归及 sanitizer 全部通过。C++ 测试同时兼容 clang-format 10 / 18；Windows 聊天路径覆盖盘符、反斜杠、file URI、行号、大小写及越界拒绝。
+- 本地 Windows 构建已按用户要求停止，Windows 主程序编译/测试/打包均以 Actions 结果为准。本机旧 Codex 0.130.0 未升级或用于会话验收；未调用模型、未部署生产。真实 Windows Codex 0.164.0 TUI、沙箱设置、重启/休眠与长期压力仍待验收；Windows 当前采用手动整包升级。
+
 ## 网页更新 · 2026-10-25 · CW 刷新恢复会话上线验收
 
 - 功能源码 `9bf7f4b` 已提交并推送；Worker 版本 `fe350e29-82eb-49f3-82f2-1cea3090b10b` 于 UTC 03:46:28 部署至 `r.xlogic.cc`，流量 100%。网页和在线手册同步更新，原生程序与源码下载继续保留既有 0.5.6。

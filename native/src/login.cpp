@@ -1,9 +1,13 @@
 #include "coc/login.hpp"
 #include <cstdlib>
 #include <iostream>
+#ifndef _WIN32
 #include <termios.h>
-#include <thread>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#endif
+#include <thread>
 namespace coc {
 Options::Options(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
@@ -35,12 +39,23 @@ std::string Options::get(const std::string &key, const std::string &fallback) co
   return it == values.end() ? fallback : it->second;
 }
 std::filesystem::path config_path(const char *env, const std::string &relative) {
+#ifdef _WIN32
+  auto key = wide(env);
+  if (auto value = _wgetenv(key.c_str()))
+    return std::filesystem::path(value);
+  if (auto appdata = _wgetenv(L"LOCALAPPDATA"))
+    return std::filesystem::path(appdata) / relative;
+  if (auto home = _wgetenv(L"USERPROFILE"))
+    return std::filesystem::path(home) / ".config" / relative;
+  throw Error("CONFIG_ERROR", std::string("LOCALAPPDATA, USERPROFILE or ") + env + " must be set");
+#else
   if (auto value = getenv(env))
-    return value;
+    return std::filesystem::u8path(value);
   auto home = getenv("HOME");
   if (!home)
     throw Error("CONFIG_ERROR", std::string("HOME or ") + env + " must be set");
-  return std::filesystem::path(home) / ".config" / relative;
+  return std::filesystem::u8path(home) / ".config" / relative;
+#endif
 }
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
                   const std::string &host, bool api_key, const std::string &message) {
@@ -50,6 +65,24 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     if (const auto env = getenv("COC_API_KEY"))
       value = env;
     else {
+#ifdef _WIN32
+      struct HiddenInput {
+        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD saved = 0;
+        bool active = false;
+        HiddenInput() {
+          if (GetConsoleMode(input, &saved)) {
+            if (!SetConsoleMode(input, saved & ~ENABLE_ECHO_INPUT))
+              throw Error("INPUT", "Cannot secure terminal input");
+            active = true;
+          }
+        }
+        ~HiddenInput() {
+          if (active)
+            SetConsoleMode(input, saved);
+        }
+      } hidden;
+#else
       struct HiddenInput {
         termios saved{};
         bool active = false;
@@ -69,6 +102,7 @@ Json device_login(const std::string &relay, const std::string &role, const std::
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved);
         }
       } hidden;
+#endif
       std::cerr << "API_KEY: " << std::flush;
       std::getline(std::cin, value);
       std::cerr << '\n';

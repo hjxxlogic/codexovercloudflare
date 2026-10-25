@@ -11,7 +11,11 @@ struct Error : std::runtime_error {
   Error(std::string c, std::string m) : std::runtime_error(m), code(std::move(c)) {}
 };
 class PrivateLock {
+#ifdef _WIN32
+  void *handle_ = nullptr;
+#else
   int fd_ = -1;
+#endif
 
 public:
   explicit PrivateLock(const std::filesystem::path &path);

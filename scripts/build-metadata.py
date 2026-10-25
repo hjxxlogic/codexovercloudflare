@@ -9,6 +9,7 @@ import sys
 
 
 def identity():
+    os.chdir(pathlib.Path(__file__).resolve().parents[1])
     if os.environ.get('COC_TEST_BUILD_METADATA'):
         metadata = json.loads(pathlib.Path(os.environ['COC_TEST_BUILD_METADATA']).read_text())
         metadata['dirty'] = True
@@ -23,7 +24,7 @@ def identity():
             contents = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
             digest.update(name + b'\0' + contents + b'\0')
     return {'version': json.loads(pathlib.Path('package.json').read_text())['version'],
-            'commit': commit, 'target': sys.platform + '-' + platform.machine(), 'sourceDigest': digest.hexdigest(), 'protocol': 1,
+            'commit': commit, 'target': 'windows-x86_64' if sys.platform == 'win32' and platform.machine().lower() in ('amd64', 'x86_64') else sys.platform + '-' + platform.machine(), 'sourceDigest': digest.hexdigest(), 'protocol': 1,
             'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'])),
             'capabilities': ['session-pages', 'request-status', 'upload-status', 'content-revision']}
 

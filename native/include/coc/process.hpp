@@ -1,5 +1,8 @@
 #pragma once
 #include "common.hpp"
+#ifdef _WIN32
+#include "windows.hpp"
+#endif
 #include <boost/asio.hpp>
 #include <deque>
 #include <functional>
@@ -11,7 +14,12 @@ void verify_codex(const Json &config);
 using Completion = std::function<void(Json, Json)>; // result, error (null on success)
 class CodexProcess : public std::enable_shared_from_this<CodexProcess> {
   asio::io_context &io_;
+#ifdef _WIN32
+  asio::windows::stream_handle input_, output_;
+  std::unique_ptr<WindowsChild> child_;
+#else
   asio::posix::stream_descriptor input_, output_;
+#endif
   asio::steady_timer poll_, kill_;
   boost::asio::streambuf buffer_{max_queue};
   std::deque<std::string> writes_;

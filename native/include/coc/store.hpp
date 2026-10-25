@@ -6,7 +6,11 @@
 namespace coc {
 class Store {
   struct Lock {
+#ifdef _WIN32
+    void *handle = nullptr;
+#else
     int fd = -1;
+#endif
     explicit Lock(const std::string &dir, bool exclusive);
     ~Lock();
   };
