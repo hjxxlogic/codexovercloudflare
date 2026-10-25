@@ -1,3 +1,4 @@
+#include "coc/approvals.hpp"
 #include "coc/common.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
@@ -5,6 +6,7 @@
 #include "coc/process.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
+#include "external-approvals.hpp"
 #include <condition_variable>
 #include <ctime>
 #include <fstream>
@@ -157,8 +159,62 @@ void core() {
   std::cout << "PASS: URL validation, web schemas, RPC isolation, policy, redaction, SQLite "
                "replay/restart/deduplication, private configuration\n";
 }
+void external_approval_contract(const std::string &endpoint, const std::string &thread,
+                                const std::string &cwd, bool allow) {
+  asio::io_context io;
+  asio::steady_timer deadline(io, std::chrono::seconds(15));
+  std::shared_ptr<ExternalApprovals> bridge;
+  bool received = false, resolved = false;
+  std::string failure;
+  auto end = [&] {
+    bridge->close();
+    deadline.cancel();
+    io.stop();
+  };
+  bridge = std::make_shared<ExternalApprovals>(
+      io, Json{{"approvalEndpoint", endpoint}}, thread, cwd,
+      [&](Json approval) {
+        received = true;
+        auto result = bridge->answer(approval.at("approvalId"), allow);
+        check(result.at("state") == "approval-submitted", "Approval forwarded as submission only");
+        rejects([&] { bridge->answer(approval.at("approvalId"), !allow); }, "RESULT_UNKNOWN");
+      },
+      [&](Json) {
+        resolved = true;
+        end();
+      },
+      [&](bool available, std::string message) {
+        if (!available) {
+          failure = message;
+          end();
+        }
+      });
+  deadline.async_wait([&](auto error) {
+    if (!error) {
+      failure = "Approval contract timed out";
+      end();
+    }
+  });
+  bridge->start();
+  io.run();
+  check(failure.empty() && received && resolved,
+        failure.empty() ? "No approval resolution" : failure.c_str());
+  std::cout
+      << "PASS: native original-server approval replay, explicit decision, duplicate guard and "
+         "resolution\n";
+}
 void external_test() {
   Temp temp;
+  auto config = agent_config(
+      {{"hostId", "external"},
+       {"token", std::string(24, 'x')},
+       {"dataDir", temp.path + "/state"},
+       {"projects", Json::array({{{"id", "project"}, {"name", "Project"}, {"path", temp.path}}})}});
+  check(config["externalSessions"]["allowApprovals"] == false &&
+            config["externalSessions"]["allowQueue"] == false,
+        "External side effects disabled by default");
+  config["externalSessions"]["allowApprovals"] = "true";
+  rejects([&] { agent_config(config); }, "CONFIG_ERROR");
   Store store(temp.path);
   store.save({{"id", "external"}, {"state", "ready"}});
   Json item = {{"id", "reply"}, {"type", "agentMessage"}, {"text", "你好"}};
@@ -199,6 +255,7 @@ void external_test() {
         "Other failures never downgrade");
   check(same_project_path(temp.path, temp.path + "/."), "Canonical project verification");
   check(!same_project_path(temp.path, temp.path + "/missing"), "Missing project rejected safely");
+  shared_approval_fixture(temp.path);
   std::cout << "PASS: external stable snapshots, revisions, rewrite, chunks, archive overlap and "
                "writer fallback\n";
 }
@@ -757,7 +814,12 @@ int main(int argc, char **argv) {
     std::cerr.setf(std::ios::unitbuf);
     signal(SIGPIPE, SIG_IGN);
     std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "--benchmark" || mode == "--benchmark-batch") {
+    if (mode == "--external-approval") {
+      if (argc != 5 && argc != 6)
+        throw Error("USAGE", "--external-approval ENDPOINT THREAD CWD [--allow]");
+      external_approval_contract(argv[2], argv[3], argv[4],
+                                 argc == 6 && std::string(argv[5]) == "--allow");
+    } else if (mode == "--benchmark" || mode == "--benchmark-batch") {
       if (argc != 5)
         throw Error("USAGE", "--benchmark DELTA BYTES MAX_SECONDS");
       stream_benchmark(std::stoi(argv[2]), std::stoi(argv[3]), std::stoi(argv[4]),

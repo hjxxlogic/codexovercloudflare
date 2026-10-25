@@ -253,9 +253,9 @@ Agent 必须与原客户端使用同一系统用户、同一 `CODEX_HOME`，项�
 }
 ```
 
-只读 Agent 即使开启该开关也不能入队。队列输入由原客户端消费、执行和审批，沿用原客户端自身的 sandbox、网络和审批设置；Agent 的策略不能覆盖外部 writer。确认原客户端设置符合预期后再开启。原客户端版本或状态不支持队列时会返回错误；“已加入队列”不表示已执行，也不保证原客户端会立即消费。
+只读 Agent 即使开启该开关也不能入队。队列输入由原客户端消费并执行，沿用原客户端自身的 sandbox、网络和审批设置；开启共享服务审批接入后，可在 CC / CW 提交审批决定。Agent 的策略不能覆盖外部 writer。确认原客户端设置符合预期后再开启。原客户端版本或状态不支持队列时会返回错误；“已加入队列”不表示已执行，也不保证原客户端会立即消费。
 
-外部会话执行中仍可点“加入队列”。消息按稳定 item ID 更新，同一条增长中的回复不会重复追加全文；大内容继续分块读取。停止此连接仅停止 Agent 观察进程，原客户端继续运行，已入队消息保留；中断、审批与接管外部 writer 均不支持。网络故障时保持原 request ID 查询结果，不能将未确认请求换新 ID 自动重发。
+外部会话执行中仍可点“加入队列”。消息按稳定 item ID 更新，同一条增长中的回复不会重复追加全文；大内容继续分块读取。停止此连接仅停止 Agent 观察进程，原客户端继续运行，已入队消息保留；不支持中断或接管外部 writer；远程审批需按下一节接入原共享服务。网络故障时保持原 request ID 查询结果，不能将未确认请求换新 ID 自动重发。
 
 CC 可显式连接为观察模式，无需启动本地 TUI：
 
@@ -269,6 +269,48 @@ coc-client stop SESSION_ID --host A_ID
 ```
 
 `observe` 返回新的 CLI 观察会话 ID；`history` 读取最新已同步内容，支持已有分页、分块及离线缓存。`queue` 输出请求 ID；同 ID 同内容返回既有结果，不重复入队，同 ID 不同内容被拒绝。若入队应答丢失，同 ID 重试只查询 pending queue 来确认；已被原客户端消费时保留 `RESULT_UNKNOWN`，请核对原客户端历史。CC / CW 会话及请求保持角色隔离。
+
+### 无人值守外部会话的远程审批
+
+外部 session 的审批必须连接**原来的同一个 app-server**，不能从历史或消息队列恢复。已在共享 app-server 中运行的终端 / IDE 会话，可以在不结束任务的情况下接入；只有独占 stdio、未开放服务连接的现有进程无法热插拔审批转发。此时页面明确显示“审批在原客户端”，不能把消息入队视为已经解决审批。无人值守前请先完成一次远程审批验证。
+
+配置默认关闭；需 workspace-write Agent 明确开启：
+
+```json
+{
+  "sandbox": "workspace-write",
+  "externalSessions": {
+    "allowQueue": true,
+    "allowApprovals": true,
+    "approvalEndpoint": "",
+    "approvalTokenFile": ""
+  }
+}
+```
+
+Linux 不填 endpoint 时，连接 `$CODEX_HOME/app-server-control/app-server-control.sock`；未设置 CODEX_HOME 时使用 `~/.codex`。也可显式填写 `unix:///绝对路径/app-server-control.sock`。socket 必须归 Agent 用户所有，且禁止其他用户访问；仅接入已有服务，不启动或停止原服务，不覆盖其 sandbox 或审批策略。Agent 验证 thread 已在该服务加载且项目匹配后订阅；不匹配时不会冷恢复该线程。
+
+Windows 使用显式的本机 WebSocket endpoint；Linux 也支持此方式。例如先在 Codex 电脑启动共享服务，再由本地终端连接该服务：
+
+```bash
+codex app-server --listen ws://127.0.0.1:4500
+codex --remote ws://127.0.0.1:4500
+```
+
+然后把 Agent 的 `externalSessions.approvalEndpoint` 设为 `ws://127.0.0.1:4500`。只接受本机 loopback 地址或私有 Unix socket；不会自动暴露公网端口。共享服务启用 capability-token 鉴权时，给服务配置 `--ws-auth capability-token --ws-token-file PATH`，Agent 的 `approvalTokenFile` 填同一令牌文件路径，本地终端用 `--remote-auth-token-env ENV_NAME` 提供令牌。令牌不发送给 Relay / CC / CW。
+
+页面显示“可远程审批”才代表已接入。已有待审批会在订阅时重放，新请求实时转发；原客户端或另一连接处理后会清除远程待办。CW 可处理命令执行、文件变更和本轮额外权限请求：命令 / 文件只批准本次，额外权限只授予请求列出的 network / fileSystem 权限且限本轮，不授予永久或整会话权限。MCP 表单、工具输入及其他不兼容交互会显示需要原客户端处理；生物验证等绑定原设备的请求不转移。不会自动放行或把不支持的请求自动拒绝。
+
+CC 使用观察会话 ID 处理待办：
+
+```bash
+coc-client approvals SESSION_ID --host A_ID
+coc-client approve SESSION_ID --host A_ID --approval-id APPROVAL_ID --request-id stable-approval-request
+coc-client reject SESSION_ID --host A_ID --approval-id APPROVAL_ID --request-id another-stable-request
+coc-client request stable-approval-request --session SESSION_ID --host A_ID
+```
+
+`approval-submitted` 仅表示决定已提交，最终以原 app-server 的解决通知及执行结果为准；其他客户端也可能先处理。相同 request ID 不重复发送；同一审批已提交后，不允许换 ID 再发相反决定。断线结果不明时先查询，不自动重发。审批连接每 15 秒尝试恢复，并重新获取仍待处理的请求。断开观察只关闭 Agent 自己的连接，不自动拒绝外部审批，不中断原任务，也不关闭共享服务。既有普通 Agent 会话的审批超时规则不变。
 
 在“会话记录”顶部的“连接设置”点击“添加 A 授权”可再次留言申请，由管理员选择另一个 A；0.5.5 起也可填写目标 A，由该 Agent 或管理员批准。已有授权保留；下拉列表仅展示本浏览器已授权的 A。刷新或重新打开浏览器后，可选择原 A 与网页会话，恢复保留的历史和当前状态。不同标签页可以选择不同 A，R 根据请求目标选择对应 Cookie，不依赖全局当前凭证。
 

@@ -398,3 +398,10 @@ CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史
 ExternalThread 独立于原 writer，以 thread/read 验证项目后，使用 thread/items/list 或 legacy thread/turns/list 的双向游标轮询落盘历史。观察进程不 resume、start、interrupt 或处理原客户端审批。正常恢复仅在明确 active writer 错误时转观察。SQLite external_items 保存 thread turn/item 对应的稳定 seq 和内容指纹；同内容不写日志，增长保存后缀，重写替换正文，投影增加 revision，已有历史/分块/重连协议继续工作。归档使用保留的负序号，避免与普通归档冲突。
 
 queue 控制接口同时验证凭证角色、会话角色、项目目录及外部队列配置。每个请求先写持久去重记录和 clientUserMessageId，再标记 submitted 后发送 thread/queue/add。应答确认才记录 queued；未知结果只使用 queue/list 对账，不自动再次添加。原客户端消费后无法从 pending queue 证明结果，保持未知并提示人工核对。实验性队列 API 仅在 Agent 的 Codex 初始化启用，原生 RPC allowlist 继续拒绝直接调用该 API。
+
+
+### 外部审批桥接
+
+ExternalApprovals 单独连接原共享 app-server，Linux 使用原生 Unix WebSocket，所有平台可用本机 WebSocket。先 thread/read 验证项目和已加载状态，再以无配置覆盖的 thread/resume 订阅并重放待办。仅处理匹配 threadId 的请求；服务端 serverRequest/resolved 清除待办。只允许命令 / 文件单次决策和本轮精确权限授予；不响应账户或设备身份请求。共享服务连接失败每 15 秒重试，不影响只读历史。独立 stdio 进程没有可连接的审批通道，不能热插拔。
+
+原请求 ID 保留在桥接器内，CC / CW 只能提交本会话已收到的审批 ID。写持久请求身份后转发一次，结果标为 approval-submitted，不推断最终决策归属；待解决通知才清除待办。断开不发送拒绝，不复用普通会话的十分钟审批超时。HTTP 审批及 WebSocket 审批均复核角色、会话、明确开关和活动桥接，仍不暴露任意原 app-server RPC。

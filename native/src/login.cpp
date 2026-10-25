@@ -26,7 +26,7 @@ Options::Options(int argc, char **argv) {
       if (key != "relay" && key != "host" && key != "name" && key != "message" && key != "config" &&
           key != "project" && key != "project-id" && key != "before" && key != "seq" &&
           key != "offset" && key != "offline" && key != "cache-dir" && key != "request-id" &&
-          key != "revision" && key != "cursor" && key != "session")
+          key != "revision" && key != "cursor" && key != "session" && key != "approval-id")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);

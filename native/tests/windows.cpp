@@ -5,6 +5,7 @@
 #include "coc/store.hpp"
 #include "coc/tls.hpp"
 #include "coc/update.hpp"
+#include "external-approvals.hpp"
 #include <aclapi.h>
 #include <algorithm>
 #include <cctype>
@@ -87,6 +88,7 @@ int main() {
                                                               {"name", "Windows project"},
                                                               {"path", project.u8string()}}})}});
     auto path = validated.at("projects").at(0).at("path").get<std::string>();
+    shared_approval_fixture(path);
     auto duplicate = validated;
     auto upper_path = path;
     std::transform(upper_path.begin(), upper_path.end(), upper_path.begin(),

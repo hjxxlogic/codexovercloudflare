@@ -307,6 +307,8 @@ function eventText(e: Event): string {
       ? '任务已完成。'
       : '任务已停止或失败：' +
           (d.turn?.error?.message || d.turn?.status || '未知状态');
+  if (e.type === 'approvalResolved' && d.external)
+    return d.message || '原客户端已解决此审批；以执行结果为准。';
   if (e.type === 'approvalResolved')
     return d.allow ? '已允许该操作。' : '已拒绝该操作。';
   if (e.type === 'sessionClosed') return '会话已结束：' + d.state;

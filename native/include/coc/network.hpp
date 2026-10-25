@@ -9,6 +9,7 @@ Json http_json(const Url &, const std::string &path, const Json &body,
 struct Socket {
   virtual ~Socket() = default;
   virtual void start() = 0;
+  virtual bool ready() const { return false; }
   void send(const Json &value) { send_text(value.dump()); }
   virtual void send_text(std::string) = 0;
   virtual void close() = 0;

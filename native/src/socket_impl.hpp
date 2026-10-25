@@ -42,6 +42,7 @@ public:
         url_(std::move(u)), token_(std::move(t)), path_(std::move(path)), message_(std::move(m)),
         closed_(std::move(c)) {
   }
+  bool ready() const override { return open_ && !ended_; }
   void start() override {
     auto self = shared_from_this();
     try {

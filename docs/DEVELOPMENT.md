@@ -205,3 +205,7 @@ python scripts/package-release.py --build-dir build-windows/Release --platform w
 ## 外部会话测试
 
 `python3 tests/external-codex.py` 使用安装的 Codex 0.164.0，临时 CODEX_HOME 和项目，独立 owner / reader app-server 验证两种历史模式、writer 锁、只读双向游标及队列。唯一模型 provider 指向关闭的本机端口，不读取用户凭证，不调用真实模型。默认 E2E 使用确定性 fixture 验证消息增长、队列去重与断开隔离；Windows 构建及测试只在 GitHub Actions 运行。
+
+### 外部审批测试
+
+`python3 tests/external-approvals.py` 使用真实 Codex 0.164.0、隔离 home / 共享 Unix socket 和本机 Responses stub 产生实际审批，再由原生 `coc-tests --external-approval` 分别拒绝 / 批准，验证原客户端收到解决通知且仍存活。无真实模型或用户凭据；拒绝时命令不执行，批准时仅执行临时项目中的无副作用 echo；Node WebSocket 适配器仅为测试 fixture，发行二进制直接使用 C++ WebSocket。E2E 的 SharedApprovals fixture 覆盖 CC / CW、精确本轮权限、已解决请求、错项目 / 未加载线程拒绝及安全断开。

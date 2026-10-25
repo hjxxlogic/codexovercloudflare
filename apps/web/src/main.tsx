@@ -699,6 +699,7 @@ function App() {
       if (!live) return;
       const d = e.data as any;
       if (e.type === 'sessionClosed') {
+        setApprovals([]);
         setReady(false);
         setStatus('会话已结束');
         setSelected((current) =>
@@ -720,6 +721,9 @@ function App() {
                 ...current,
                 running: d.running,
                 externalStatus: d.externalStatus,
+                ...(d.approvalForwarding !== undefined
+                  ? { approvalForwarding: d.approvalForwarding }
+                  : {}),
               }
             : current,
         );
@@ -729,6 +733,12 @@ function App() {
           ...v.filter((a) => a.approvalId !== d.approvalId),
           d,
         ]);
+      if (e.type === 'approvalSubmitted')
+        setApprovals((v) =>
+          v.map((a) =>
+            a.approvalId === d.approvalId ? { ...a, submitted: true } : a,
+          ),
+        );
       if (e.type === 'approvalResolved')
         setApprovals((v) => v.filter((a) => a.approvalId !== d.approvalId));
       if (
@@ -848,6 +858,8 @@ function App() {
             }
             if (d.type === 'event') add(d.event);
             if (d.type === 'ack') {
+              if (d.result?.state === 'approval-submitted')
+                setNotice('审批决定已发送，等待原客户端确认；请勿重复提交。');
               if (d.result?.state === 'queued')
                 setNotice(
                   '已加入原客户端队列，等待原客户端执行；审批仍在原客户端处理。',
@@ -1058,7 +1070,7 @@ function App() {
             .record('pending')
             .catch(() => undefined);
           if (disposed) return;
-          setText(savedDraft || '');
+          setText((current) => current || savedDraft || '');
           if (savedPending) {
             pendingCommand.current = savedPending;
             setUnconfirmed(savedPending);
@@ -1773,7 +1785,11 @@ function App() {
             !online
               ? '服务器离线 · 只读缓存'
               : selected?.external
-                ? '外部会话 · 只读同步' + (busy ? ' · 原客户端执行中' : '')
+                ? '外部会话 · 只读同步' +
+                  (selected.approvalForwarding
+                    ? ' · 可远程审批'
+                    : ' · 审批在原客户端') +
+                  (busy ? ' · 原客户端执行中' : '')
                 : approvals.length
                   ? '等待你的确认'
                   : status
@@ -2445,7 +2461,11 @@ function App() {
                       approvals={approvals}
                       events={events}
                       target={`${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`}
-                      ready={ready && online}
+                      ready={
+                        ready &&
+                        online &&
+                        (!selected.external || !!selected.approvalForwarding)
+                      }
                       pending={pending}
                       onAnswer={(approvalId, allow) =>
                         send({ action: 'approval', approvalId, allow })
@@ -2554,7 +2574,9 @@ function App() {
                         <small>
                           {selected.external &&
                             (selected.queueEnabled
-                              ? '外部会话：已入队不代表已执行，原客户端负责执行与审批。 '
+                              ? selected.approvalForwarding
+                                ? '外部会话：已入队不代表已执行；可在此审批命令与文件操作，执行沿用原客户端策略。 '
+                                : '外部会话：已入队不代表已执行；当前审批仍需原客户端处理。 '
                               : '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ')}
                           {matchMedia('(pointer: coarse)').matches
                             ? 'Enter 换行，点击发送提交'

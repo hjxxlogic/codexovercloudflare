@@ -1,3 +1,4 @@
+#include "coc/approvals.hpp"
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/external.hpp"
@@ -17,10 +18,12 @@ namespace coc {
 struct Approval {
   Json rpc;
   int64_t time;
+  bool submitted = false, unsupported = false;
 };
 struct Runtime {
   std::shared_ptr<CodexProcess> process;
   std::shared_ptr<ExternalThread> reader;
+  std::shared_ptr<ExternalApprovals> external_approvals;
   std::string observer_error;
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
   bool submitted = false, busy = false, interrupt_pending = false;
@@ -550,6 +553,31 @@ public:
       done(info, nullptr);
       return;
     }
+    if (action == "approvals" || action == "answer") {
+      const auto s = store_.get(d.at("sessionId"));
+      if (s["mode"] != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong credential for session mode");
+      auto rt = runtimes_.find(s.at("id"));
+      if (action == "answer") {
+        external_answer(s.at("id"),
+                        web_command({{"action", "approval"},
+                                     {"requestId", d.at("requestId")},
+                                     {"approvalId", d.at("approvalId")},
+                                     {"allow", d.at("allow")}}),
+                        done);
+        return;
+      }
+      Json pending = Json::array();
+      if (rt != runtimes_.end())
+        for (auto &[key, approval] : rt->second->approvals)
+          pending.push_back({{"approvalId", key},
+                             {"method", approval.rpc.at("method")},
+                             {"params", redact(approval.rpc.value("params", Json::object()))},
+                             {"submitted", approval.submitted},
+                             {"unsupported", approval.unsupported}});
+      done({{"forwarding", s.value("approvalForwarding", false)}, {"data", pending}}, nullptr);
+      return;
+    }
     if (action == "queue") {
       auto s = store_.get(d.at("sessionId"));
       if (s["mode"] != d.at("mode"))
@@ -739,6 +767,9 @@ public:
     s["queueEnabled"] =
         config_.value("externalSessions", Json::object()).value("allowQueue", false) &&
         config_["sandbox"] == "workspace-write";
+    s["approvalConfigured"] = config_["externalSessions"].value("allowApprovals", false) &&
+                              config_["sandbox"] == "workspace-write";
+    s["approvalForwarding"] = false;
     s["externalStatus"] = "unknown";
     s["externalSeeded"] = false;
     store_.save(s);
@@ -806,7 +837,93 @@ public:
       store_.save(s);
       store_.finish(key, s);
       done(s, nullptr);
+      if (s.value("approvalConfigured", false))
+        start_external_approvals(id);
     });
+  }
+  void start_external_approvals(const std::string &id) {
+    auto rt = runtimes_.at(id);
+    const auto s = store_.get(id);
+    rt->external_approvals = std::make_shared<ExternalApprovals>(
+        io_, config_["externalSessions"], s.at("threadId"), project(s.at("projectId")).at("path"),
+        [this, id](Json approval) {
+          auto it = runtimes_.find(id);
+          if (it == runtimes_.end() || stopped_)
+            return;
+          const auto key = approval.at("approvalId").get<std::string>();
+          it->second->approvals[key] = {
+              Json{{"method", approval.at("method")}, {"params", approval.at("params")}}, now(),
+              false, approval.value("unsupported", false)};
+          emit(id, "approval", approval);
+        },
+        [this, id](Json resolved) {
+          auto it = runtimes_.find(id);
+          if (it == runtimes_.end() || stopped_)
+            return;
+          it->second->approvals.erase(resolved.at("approvalId"));
+          resolved["external"] = true;
+          emit(id, "approvalResolved", resolved);
+        },
+        [this, id](bool connected, std::string message) {
+          auto it = runtimes_.find(id);
+          if (it == runtimes_.end() || stopped_)
+            return;
+          auto s = store_.get(id);
+          if (s["state"] != "ready")
+            return;
+          s["approvalForwarding"] = connected;
+          store_.save(s);
+          emit(id, "externalState",
+               {{"running", s.value("running", false)},
+                {"externalStatus", s.value("externalStatus", "unknown")},
+                {"approvalForwarding", connected}});
+          if (!connected) {
+            for (auto &[key, approval] : it->second->approvals)
+              emit(id, "approvalResolved",
+                   {{"approvalId", key},
+                    {"external", true},
+                    {"message", "Approval connection lost; decision unconfirmed"}});
+            it->second->approvals.clear();
+            if (it->second->observer_error != message) {
+              it->second->observer_error = message;
+              emit(id, "warning",
+                   {{"message",
+                     message +
+                         "; remote approvals unavailable; original client remains authoritative"}});
+            }
+          }
+        });
+    rt->external_approvals->start();
+  }
+  void external_answer(const std::string &id, const Json &cmd, Completion done) {
+    const auto s = store_.get(id);
+    auto runtime = runtimes_.find(id);
+    if (!s.value("external", false) || runtime == runtimes_.end() ||
+        !runtime->second->external_approvals || !s.value("approvalForwarding", false) ||
+        s["state"] != "ready")
+      throw Error("APPROVAL_UNAVAILABLE", "No connection to original approval server");
+    const auto key = id + ":" + cmd.at("requestId").get<std::string>();
+    auto cached = store_.begin(key, web_fingerprint(cmd));
+    if (cached["cached"] == true) {
+      done(cached["value"], nullptr);
+      return;
+    }
+    try {
+      store_.submitted(key);
+      auto result =
+          runtime->second->external_approvals->answer(cmd.at("approvalId"), cmd.at("allow"));
+      auto approval = runtime->second->approvals.find(cmd.at("approvalId"));
+      if (approval != runtime->second->approvals.end())
+        approval->second.submitted = true;
+      store_.finish(key, result);
+      emit(id, "approvalSubmitted", {{"approvalId", cmd.at("approvalId")}});
+      done(result, nullptr);
+    } catch (const std::exception &error) {
+      auto value = error_data(error);
+      if (value.value("code", "") != "RESULT_UNKNOWN")
+        store_.finish(key, {{"requestError", value}});
+      done(nullptr, value);
+    }
   }
   void queue_external(const std::string &id, const Json &cmd, Completion done) {
     auto s = store_.get(id);
@@ -1185,12 +1302,22 @@ public:
       for (auto &[key, a] : rt->approvals)
         replay["approvals"].push_back({{"approvalId", key},
                                        {"method", a.rpc["method"]},
-                                       {"params", redact(a.rpc.value("params", Json::object()))}});
+                                       {"params", redact(a.rpc.value("params", Json::object()))},
+                                       {"submitted", a.submitted},
+                                       {"unsupported", a.unsupported}});
       notice(id, replay);
       done(nullptr, nullptr);
       return;
     }
     if (s.value("external", false)) {
+      if (action == "approval") {
+        external_answer(id, cmd, [this, id, cmd, done](Json result, Json error) {
+          if (error.is_null())
+            notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
+          done(result, error);
+        });
+        return;
+      }
       if (action != "prompt")
         throw Error("EXTERNAL_READ_ONLY",
                     "The original Codex client handles interruption and approvals");
@@ -1293,12 +1420,16 @@ public:
       return;
     if (runtimes_.at(id)->reader)
       runtimes_.at(id)->reader->close();
+    if (runtimes_.at(id)->external_approvals)
+      runtimes_.at(id)->external_approvals->close();
     auto s = store_.get(id);
     if (s["state"] == "closing")
       s["state"] = "closed";
     else if (s["state"] != "closed")
       s["state"] = "failed";
     s["running"] = false;
+    if (s.value("external", false))
+      s["approvalForwarding"] = false;
     store_.save(s);
     emit(id, "sessionClosed", {{"state", s["state"]}});
     runtimes_.erase(id);
@@ -1308,11 +1439,15 @@ public:
     auto it = runtimes_.find(id);
     s["state"] = it == runtimes_.end() ? "closed" : "closing";
     s["running"] = false;
+    if (s.value("external", false))
+      s["approvalForwarding"] = false;
     store_.save(s);
     if (it != runtimes_.end()) {
       auto p = it->second->process;
       if (it->second->reader)
         it->second->reader->close();
+      if (it->second->external_approvals)
+        it->second->external_approvals->close();
       if (!s.value("external", false) && s.contains("turnId"))
         p->request("turn/interrupt", {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
                    [](Json, Json) {});
@@ -1415,7 +1550,7 @@ public:
         for (auto &[id, r] : runtimes_) {
           std::vector<std::string> expired;
           for (auto &[key, a] : r->approvals)
-            if (now() - a.time > 600000)
+            if (!r->external_approvals && now() - a.time > 600000)
               expired.push_back(key);
           for (auto &key : expired)
             answer(id, key, false);

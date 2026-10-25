@@ -1,10 +1,12 @@
 # 更新日志
 
-## 0.5.7 · 2026-10-25 · 外部会话只读同步与队列
+## 0.5.7 · 2026-10-25 · 外部会话、队列与远程审批
 
 - 连接其他终端 / IDE 正在运行的 Codex 线程时，active writer 错误自动转为只读观察，兼容 legacy / paginated 历史和增长中的消息。
 - 明确配置 `externalSessions.allowQueue=true` 的 workspace-write Agent 可通过原生 Codex 队列发送输入；保留稳定请求身份、结果查询及未知结果恢复。
 - CW 显示外部状态并支持运行中入队；CC 新增 `threads / observe / queue`，沿用历史分页与离线缓存。执行和审批保留在原客户端，断开观察不停止原任务。
+
+- 增加原共享 app-server 审批接入：`allowApprovals` 显式开启后，CC / CW 可处理命令、文件及本轮权限请求；Linux 支持私有 Unix socket，Windows / Linux 支持本机 WebSocket。既有独占 stdio 进程无法事后转移审批；无连接时明确显示能力边界。
 
 ### Windows x64
 

@@ -49,7 +49,12 @@ export const agentConfigSchema = z.object({
     ])
     .optional(),
   externalSessions: z
-    .object({ allowQueue: z.boolean().default(false) })
+    .object({
+      allowQueue: z.boolean().default(false),
+      allowApprovals: z.boolean().optional(),
+      approvalEndpoint: z.string().max(4096).optional(),
+      approvalTokenFile: z.string().max(4096).optional(),
+    })
     .optional(),
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
@@ -67,6 +72,8 @@ export const sessionSchema = z.object({
   threadId: idSchema.optional(),
   external: z.boolean().optional(),
   queueEnabled: z.boolean().optional(),
+  approvalConfigured: z.boolean().optional(),
+  approvalForwarding: z.boolean().optional(),
   externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
   sandbox: z.enum(['read-only', 'workspace-write']).optional(),
@@ -226,6 +233,20 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       mode: z.enum(['web', 'cli']),
       threadId: idSchema.optional(),
       external: z.boolean().optional(),
+    }),
+  ),
+  control(
+    'approvals',
+    z.object({ sessionId: sessionIdSchema, mode: z.enum(['web', 'cli']) }),
+  ),
+  control(
+    'answer',
+    z.object({
+      sessionId: sessionIdSchema,
+      mode: z.enum(['web', 'cli']),
+      requestId: idSchema,
+      approvalId: z.string().min(1).max(200),
+      allow: z.boolean(),
     }),
   ),
   control(

@@ -414,6 +414,10 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 真实 Codex 0.164.0 的隔离 owner / reader 检查已通过：paginated / legacy、active writer 错误、只读反向游标、独立进程入队与 queue/list 一致。模型 provider 仅指向本地关闭端口，无真实模型调用。Linux CTest（Debian 容器）、77 项 Vitest、TLS、备份恢复、发布来源与更新器检查通过；格式、类型和生成协议检查通过。外部场景 E2E 已验证 paginated / legacy 增长快照、稳定 revision、相同请求去重、丢失应答后 queue/list 对账、不同内容拒绝、默认禁止入队、CC observe/history/queue/request、外部中断拒绝与安全断开。Chromium UI 回归验证桌面 / 手机布局、原有会话恢复与缓存流程；全量 E2E 及最终发行检查结果随发布证据更新。
 
-原生代码提交 `0458960` 的 [GitHub Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40195600279) 中 Windows x64 编译、CTest、启动和打包，以及 Linux sanitizers 已通过。最终发行提交重新运行三个 CI jobs；Windows 全程仅在 Actions 构建 / 测试，未在本地执行。真实 Codex 双进程测试在首次 paginated DB 初始化后启动 reader，避免上游首次建库竞态；只比较游标锚点身份，不依赖异步 turn 状态不变。队列实际模型执行、外部客户端审批和长期负载不在本次无模型验收范围。
+原生代码提交 `0458960` 的 [GitHub Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40195600279) 中 Windows x64 编译、CTest、启动和打包，以及 Linux sanitizers 已通过。最终发行提交重新运行三个 CI jobs；Windows 全程仅在 Actions 构建 / 测试，未在本地执行。真实 Codex 双进程测试在首次 paginated DB 初始化后启动 reader，避免上游首次建库竞态；只比较游标锚点身份，不依赖异步 turn 状态不变。真实模型执行和长期负载不在本次无模型验收范围；外部审批追加验证如下。
 
 网页外部会话与运行中队列：[截图](assets/external-session-2026-10-25/desktop.png)。
+
+### 0.5.7 无人值守审批追加验证
+
+真实 Codex 0.164.0 共享 Unix app-server 验证原生桥接：原 owner 产生实际命令审批，新连接重放请求，由 C++ 原生客户端明确提交决定并接收解决通知，原 owner 继续存活。Responses provider 为本机确定性 stub，使用隔离 home / 项目，未读取用户凭据或调用真实模型。拒绝和批准分别验证不执行 / 仅执行无副作用 echo。集成回归增加 CC 审批命令、CW 审批界面、本轮精确权限、重复决定、原客户端先解决、错项目 / 未加载线程、不支持的交互及安全断开；发行源码的 CI 和发布后生产临时 fixture 结果在完成后记录。

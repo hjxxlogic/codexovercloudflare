@@ -248,9 +248,17 @@ Json agent_config(Json c) {
   if (c.contains("wakeUrl"))
     c["wakeUrl"] = wake_url(c["wakeUrl"]);
   auto external = c.value("externalSessions", Json::object());
-  if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean())
-    throw Error("CONFIG_ERROR", "externalSessions.allowQueue must be boolean");
-  c["externalSessions"] = {{"allowQueue", external.value("allowQueue", false)}};
+  if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean() ||
+      !external.value("allowApprovals", Json(false)).is_boolean())
+    throw Error("CONFIG_ERROR", "External session switches must be boolean");
+  for (const auto &field : {"approvalEndpoint", "approvalTokenFile"})
+    if (!external.value(field, Json("")).is_string() || external.value(field, "").size() > 4096 ||
+        external.value(field, "").find('\0') != std::string::npos)
+      throw Error("CONFIG_ERROR", "Invalid external approval endpoint or token file");
+  c["externalSessions"] = {{"allowQueue", external.value("allowQueue", false)},
+                           {"allowApprovals", external.value("allowApprovals", false)},
+                           {"approvalEndpoint", external.value("approvalEndpoint", "")},
+                           {"approvalTokenFile", external.value("approvalTokenFile", "")}};
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
   c["sandbox"] = c.value("sandbox", "workspace-write");

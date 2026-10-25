@@ -496,6 +496,20 @@ public:
                                      {"external", true}})
                        .dump(2)
                 << '\n';
+    } else if (command == "approvals") {
+      std::cout << api("/sessions/" + id + "/approvals").dump(2) << '\n';
+    } else if (command == "approve" || command == "reject") {
+      if (id.empty() || option("approval-id").empty())
+        throw Error("USAGE", "approve|reject SESSION_ID --approval-id ID [--request-id ID]");
+      const auto request_id = option("request-id", uuid());
+      if (!valid_id(request_id))
+        throw Error("USAGE", "Invalid --request-id");
+      std::cerr << "Approval request ID: " << request_id << "; query its status before retrying\n";
+      std::cout << api("/sessions/" + id + "/approval",
+                       {{"approvalId", option("approval-id")}, {"allow", command == "approve"}},
+                       request_id)
+                       .dump(2)
+                << '\n';
     } else if (command == "queue") {
       if (id.empty() || option("message").empty())
         throw Error("USAGE", "queue SESSION_ID --message TEXT [--request-id ID]");
@@ -547,7 +561,8 @@ public:
     } else {
       std::cout
           << "Usage: coc-client "
-             "<login|logout|status|use|hosts|projects|threads|observe|queue|sessions|connect|"
+             "<login|logout|status|use|hosts|projects|threads|observe|queue|approvals|approve|"
+             "reject|sessions|connect|"
              "attach|stop|history|cache-"
              "clear|doctor|update> [options]\n"
              "Options: --relay URL --host ID --name NAME --message TEXT --project ID --config PATH "

@@ -502,6 +502,34 @@ export default {
           }),
         );
       }
+      const approvalSession = p.match(
+        /^\/api\/v1\/sessions\/([\w~-]+)\/(approvals|approval)$/,
+      );
+      if (
+        approvalSession &&
+        ((approvalSession[2] === 'approvals' && req.method === 'GET') ||
+          (approvalSession[2] === 'approval' && req.method === 'POST'))
+      ) {
+        const hostId = idSchema.parse(approvalSession[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        const input = req.method === 'POST' ? await body(req) : {};
+        const answer =
+          req.method === 'POST'
+            ? {
+                requestId: idSchema.parse(req.headers.get('idempotency-key')),
+                approvalId: z.string().min(1).max(200).parse(input.approvalId),
+                allow: z.boolean().parse(input.allow),
+              }
+            : {};
+        return hostStub(env, hostId).fetch(
+          internal(req, '/control', auth, hostId, {
+            action: req.method === 'POST' ? 'answer' : 'approvals',
+            data: { sessionId: approvalSession[1], mode: auth.role, ...answer },
+          }),
+        );
+      }
       const queuedSession = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/queue$/);
       if (queuedSession && req.method === 'POST') {
         const hostId = idSchema.parse(queuedSession[1].split('~')[0]);

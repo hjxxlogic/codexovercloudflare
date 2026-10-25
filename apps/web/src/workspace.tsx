@@ -35,6 +35,8 @@ export function ApprovalQueue({
     approvalId: string;
     method: string;
     params: Record<string, unknown>;
+    submitted?: boolean;
+    unsupported?: boolean;
   }[];
   events: Event[];
   target: string;
@@ -100,10 +102,20 @@ export function ApprovalQueue({
         )}
       </div>
       <div className="approval-body">
+        {approval.unsupported && (
+          <p role="alert">
+            此交互类型暂不支持远程答复，需要在原客户端处理：{approval.method}
+          </p>
+        )}
+        {approval.method === 'item/permissions/requestApproval' && (
+          <pre tabIndex={0}>{JSON.stringify(params.permissions, null, 2)}</pre>
+        )}
         <h3>
           {approval.method === 'item/fileChange/requestApproval'
             ? '请求修改文件'
-            : '请求运行命令'}
+            : approval.method === 'item/permissions/requestApproval'
+              ? '请求扩大本轮权限'
+              : '请求运行命令'}
         </h3>
         <p>
           {target}
@@ -140,19 +152,27 @@ export function ApprovalQueue({
       </div>
       <div className="approval-actions">
         <button
-          disabled={!ready || pending}
+          disabled={
+            !ready || pending || approval.submitted || approval.unsupported
+          }
           onClick={() => onAnswer(approval.approvalId, false)}
         >
           拒绝
         </button>
         <button
           className="primary"
-          disabled={!ready || pending}
+          disabled={
+            !ready || pending || approval.submitted || approval.unsupported
+          }
           onClick={() => onAnswer(approval.approvalId, true)}
         >
-          允许本次
+          {approval.method === 'item/permissions/requestApproval'
+            ? '允许本轮请求的权限'
+            : '允许本次'}
         </button>
-        {pending && <span role="status">正在提交决定…</span>}
+        {(pending || approval.submitted) && (
+          <span role="status">等待原客户端确认审批决定…</span>
+        )}
         {!ready && <small>连接恢复后可提交决定；可在下方停止任务。</small>}
       </div>
     </section>

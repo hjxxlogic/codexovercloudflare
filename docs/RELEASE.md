@@ -118,3 +118,8 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 ## 0.5.7：外部会话
 
 配套发布 Worker、网页、三个平台原生包和源码。配置 externalSessions.allowQueue 默认关闭；新表 external_items 自动创建，不修改原 Codex 数据或授权。先更新 Agent / Worker 才能使用观察和队列。原客户端必须支持 Codex 0.164.0 队列 API，执行与审批由其负责。Windows 包只使用 GitHub Actions 已验证的产物，不在本地构建或执行。
+
+
+### 0.5.7 无人值守审批补充
+
+同步发布新增共享服务审批接入。allowApprovals 默认关闭；需原 session 所属 app-server 可通过私有 Unix socket 或本机 WebSocket 访问。Windows 使用本机 WebSocket。禁止将只读历史进程冒充原审批通道；无法接入的独立 stdio 会话明确提示限制。发布验证分别覆盖真实 Codex 协议和生产 Relay 上的临时 fixture，不调用真实模型或接管用户已有会话。

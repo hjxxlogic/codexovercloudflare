@@ -347,6 +347,12 @@
       "queueEnabled": {
         "type": "boolean"
       },
+      "approvalConfigured": {
+        "type": "boolean"
+      },
+      "approvalForwarding": {
+        "type": "boolean"
+      },
       "externalStatus": {
         "type": "string",
         "enum": [
@@ -693,6 +699,91 @@
               "key",
               "projectId",
               "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "approvals"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              }
+            },
+            "required": [
+              "sessionId",
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "answer"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "requestId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "approvalId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "sessionId",
+              "mode",
+              "requestId",
+              "approvalId",
+              "allow"
             ],
             "additionalProperties": false
           }

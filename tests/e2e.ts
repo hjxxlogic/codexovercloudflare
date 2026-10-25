@@ -17,6 +17,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { chromium, type Page } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
+import { SharedApprovals } from './fixtures/shared-approvals.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local';
@@ -61,6 +62,8 @@ let adminToken = '',
   browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const sockets: WebSocket[] = [];
 let wakeService: ReturnType<typeof createHttpServer> | undefined;
+const sharedApprovals = new SharedApprovals(dir);
+const approvalEndpoint = await sharedApprovals.ready();
 async function wait(
   test: () => boolean | Promise<boolean>,
   label: string,
@@ -581,7 +584,11 @@ try {
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
     sandbox: 'workspace-write',
-    externalSessions: { allowQueue: true },
+    externalSessions: {
+      allowQueue: true,
+      allowApprovals: true,
+      approvalEndpoint,
+    },
     dataDir: join(dir, 'agent'),
     projects: [{ id: 'test-project', name: 'Test project', path: dir }],
   });
@@ -984,6 +991,136 @@ try {
   token = '';
   pass(
     'native CLI observe/history/queue/request and queue disabled by default',
+  );
+  const sharedRequest = sharedApprovals.add('external-approval-cli');
+  const approvalSession = JSON.parse(
+    await cliCommand([
+      'observe',
+      'external-approval-cli',
+      '--project',
+      'test-project',
+    ]),
+  );
+  let pendingApproval: any;
+  await wait(async () => {
+    const state = JSON.parse(
+      await cliCommand(['approvals', approvalSession.id]),
+    );
+    pendingApproval = state.data.find(
+      (a: any) => a.approvalId === 'external:' + sharedRequest,
+    );
+    return state.forwarding && !!pendingApproval;
+  }, 'original pending approval replay');
+  const approvalResult = JSON.parse(
+    await cliCommand([
+      'approve',
+      approvalSession.id,
+      '--approval-id',
+      pendingApproval.approvalId,
+      '--request-id',
+      'stable-remote-approval',
+    ]),
+  );
+  assert.equal(approvalResult.state, 'approval-submitted');
+  await wait(
+    () => sharedApprovals.decisions.has(sharedRequest),
+    'remote approval accepted',
+  );
+  assert.deepEqual(sharedApprovals.decisions.get(sharedRequest), {
+    decision: 'accept',
+  });
+  assert.equal(
+    JSON.parse(
+      await cliCommand([
+        'approve',
+        approvalSession.id,
+        '--approval-id',
+        pendingApproval.approvalId,
+        '--request-id',
+        'stable-remote-approval',
+      ]),
+    ).state,
+    'approval-submitted',
+  );
+  const permissionsRequest = sharedApprovals.add(
+    'external-approval-cli',
+    'item/permissions/requestApproval',
+  );
+  await wait(
+    async () =>
+      JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
+        (a: any) => a.approvalId === 'external:' + permissionsRequest,
+      ),
+    'permission approval delivery',
+  );
+  await cliCommand([
+    'approve',
+    approvalSession.id,
+    '--approval-id',
+    'external:' + permissionsRequest,
+  ]);
+  await wait(
+    () => sharedApprovals.decisions.has(permissionsRequest),
+    'explicit permission grant',
+  );
+  assert.deepEqual(sharedApprovals.decisions.get(permissionsRequest), {
+    permissions: { network: { enabled: true } },
+    scope: 'turn',
+  });
+  const stale = sharedApprovals.add('external-approval-cli');
+  await wait(
+    async () =>
+      JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
+        (a: any) => a.approvalId === 'external:' + stale,
+      ),
+    'pending local resolution',
+  );
+  sharedApprovals.resolve(stale);
+  await wait(
+    async () =>
+      JSON.parse(await cliCommand(['approvals', approvalSession.id])).data
+        .length === 0,
+    'original client resolution clears remote approval',
+  );
+  const unsupported = sharedApprovals.add(
+    'external-approval-cli',
+    'item/tool/requestUserInput',
+  );
+  await wait(
+    async () =>
+      JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
+        (a: any) => a.approvalId === 'external:' + unsupported && a.unsupported,
+      ),
+    'unsupported interactions reported without automatic denial',
+  );
+  assert(sharedApprovals.pending.has(unsupported));
+  const untouched = sharedApprovals.add('external-approval-cli');
+  await cliCommand(['stop', approvalSession.id]);
+  assert(sharedApprovals.pending.has(untouched));
+  for (const threadId of ['external-unloaded', 'external-foreign-approval']) {
+    const session = JSON.parse(
+      await cliCommand(['observe', threadId, '--project', 'test-project']),
+    );
+    await wait(
+      () =>
+        sharedApprovals.requests.some(
+          (r) => r.method === 'thread/read' && r.threadId === threadId,
+        ),
+      'original approval scope verification',
+    );
+    assert(
+      !sharedApprovals.requests.some(
+        (r) => r.method === 'thread/resume' && r.threadId === threadId,
+      ),
+    );
+    assert.equal(
+      JSON.parse(await cliCommand(['approvals', session.id])).forwarding,
+      false,
+    );
+    await cliCommand(['stop', session.id]);
+  }
+  pass(
+    'original shared-server approval replay, CC explicit approval, per-turn permissions, deduplication, local resolution, project isolation and safe disconnect',
   );
   const largeSession = await api('/sessions', {
     hostId: enrolled.hostId,
@@ -1813,6 +1950,31 @@ try {
     .filter({ hasText: '已加入原客户端队列，等待原客户端执行' })
     .getByRole('button', { name: '关闭', exact: true })
     .click();
+  const browserApproval = sharedApprovals.add(
+    'external-history',
+    'item/fileChange/requestApproval',
+  );
+  await visitorPage.getByRole('region', { name: '待确认请求' }).waitFor();
+  await visitorPage.screenshot({
+    path: join(artifacts, 'external-approval.png'),
+    fullPage: true,
+  });
+  await visitorPage.getByRole('button', { name: '拒绝', exact: true }).click();
+  await wait(
+    () => sharedApprovals.decisions.has(browserApproval),
+    'CW remote file approval',
+  );
+  assert.deepEqual(sharedApprovals.decisions.get(browserApproval), {
+    decision: 'decline',
+  });
+  await visitorPage
+    .getByRole('region', { name: '待确认请求' })
+    .waitFor({ state: 'hidden' });
+  if (await visitorPage.locator('.notice').isVisible())
+    await visitorPage
+      .locator('.notice')
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
   const beforeExternalToken = token;
   token = '';
   const browserExternal = (
@@ -2158,6 +2320,7 @@ try {
   if (browser) await browser.close();
   if (agent && !agent.stopped) await agent.close();
   if (otherAgent && !otherAgent.stopped) await otherAgent.close();
+  await sharedApprovals.close();
   if (wakeService)
     await new Promise<void>((done) => wakeService!.close(() => done()));
   try {
