@@ -124,6 +124,7 @@ function App() {
   const [logged, setLogged] = useState(false),
     [admin, setAdmin] = useState(false),
     [deviceMessage, setDeviceMessage] = useState(''),
+    [requestedHost, setRequestedHost] = useState(''),
     [approvalHosts, setApprovalHosts] = useState<Record<string, string>>({}),
     [deviceName, setDeviceName] = useState('网页客户端'),
     [adding, setAdding] = useState(false),
@@ -143,6 +144,7 @@ function App() {
       id: string;
       code: string;
       expires: number;
+      requestedHostId?: string;
     }>(),
     [generating, setGenerating] = useState(false),
     [secret, setSecret] = useState(''),
@@ -280,6 +282,8 @@ function App() {
         const result = await api('/auth/device/poll', { id: grant.id });
         if (disposed) return;
         if (result.state === 'approved') {
+          if (grant.requestedHostId && result.hostId !== grant.requestedHostId)
+            throw new Error('批准的服务器与申请目标不一致，请重新申请。');
           setGrant(undefined);
           setAdding(false);
           if (currentMode.current === 'cw') {
@@ -290,7 +294,11 @@ function App() {
           await refresh();
         } else if (result.state === 'rejected') {
           setGrant(undefined);
-          setError('管理员已拒绝登录申请');
+          setError(
+            grant.requestedHostId
+              ? '目标服务器或管理员已拒绝登录申请'
+              : '管理员已拒绝登录申请',
+          );
         } else timer = setTimeout(() => void poll(), 2000);
       } catch (e) {
         if (!disposed) {
@@ -1130,7 +1138,15 @@ function App() {
           role: 'web',
           name: deviceName,
           message: deviceMessage,
+          ...(requestedHost.trim()
+            ? { requestedHostId: requestedHost.trim() }
+            : {}),
         });
+        if (
+          requestedHost.trim() &&
+          result.requestedHostId !== requestedHost.trim()
+        )
+          throw new Error('中继尚不支持指定服务器审批，请升级后重试。');
         setGrant(result);
       }
     } catch (e) {
@@ -1163,7 +1179,11 @@ function App() {
         id,
         ...(action === 'approve' &&
         devices.pending.find((item) => item.id === id)?.role !== 'agent'
-          ? { hostId: approvalHosts[id] }
+          ? {
+              hostId:
+                devices.pending.find((item) => item.id === id)
+                  ?.requestedHostId || approvalHosts[id],
+            }
           : {}),
       });
       setDevices(await api('/admin/devices'));
@@ -1278,7 +1298,9 @@ function App() {
         </label>
       ) : (
         <>
-          <small>填写设备名称和留言，管理员批准时为你选择服务器。</small>
+          <small>
+            可指定目标服务器，由该 Agent 或管理员批准；留空则由管理员选择。
+          </small>
           <label>
             设备名称
             <input
@@ -1288,6 +1310,17 @@ function App() {
               disabled={!!grant}
               value={deviceName}
               onChange={(e) => setDeviceName(e.target.value)}
+            />
+          </label>
+          <label>
+            目标服务器 ID（选填）
+            <input
+              aria-label="目标服务器 ID（选填）"
+              maxLength={100}
+              disabled={!!grant}
+              value={requestedHost}
+              onChange={(e) => setRequestedHost(e.target.value)}
+              placeholder="由服务器所有者提供"
             />
           </label>
           <label>
@@ -1309,9 +1342,17 @@ function App() {
       {!adminLogin && grant && (
         <div role="status">
           <p>
-            等待管理员批准，配对码：<strong>{grant.code}</strong>
+            {grant.requestedHostId
+              ? '等待目标服务器或管理员批准，配对码：'
+              : '等待管理员批准，配对码：'}
+            <strong>{grant.code}</strong>
           </p>
-          <p>设备：{deviceName} · 服务器由管理员选择</p>
+          <p>
+            设备：{deviceName} ·{' '}
+            {grant.requestedHostId
+              ? `目标服务器：${grant.requestedHostId}`
+              : '服务器由管理员选择'}
+          </p>
           {deviceMessage && (
             <p className="request-message">留言：{deviceMessage}</p>
           )}
@@ -1324,8 +1365,8 @@ function App() {
       )}
       {!adminLogin && (
         <p>
-          填写设备名称和留言 → 提交申请 →
-          管理员核对配对码、选择服务器并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
+          填写设备名称和留言 → 提交申请 → 目标 Agent
+          或管理员核对配对码并批准；未指定目标时由管理员选择。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
         </p>
       )}
     </form>
@@ -1643,7 +1684,7 @@ function App() {
             退出其他管理会话
           </button>
           <p>
-            批准前请与申请方核对配对码和角色；客户端申请需查看留言并选择目标服务器。管理身份不能直接操作
+            批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作
             Codex 会话。
           </p>
           {managing && <p>当前请求：{managing}</p>}
@@ -1673,7 +1714,8 @@ function App() {
                     目标服务器
                     <select
                       aria-label={`目标服务器 ${d.code}`}
-                      value={approvalHosts[d.id] || ''}
+                      value={d.requestedHostId || approvalHosts[d.id] || ''}
+                      disabled={!!d.requestedHostId}
                       onChange={(e) =>
                         setApprovalHosts((current) => ({
                           ...current,
@@ -1689,6 +1731,11 @@ function App() {
                       ))}
                     </select>
                   </label>
+                  {d.requestedHostId && (
+                    <p>
+                      申请方指定：{d.requestedHostId}；该 Agent 也可批准或拒绝。
+                    </p>
+                  )}
                   {!keyHosts.length && (
                     <p>暂无可授权的服务器，请先授权服务器 Agent。</p>
                   )}
@@ -1710,7 +1757,10 @@ function App() {
                 disabled={
                   generating ||
                   (d.role !== 'agent' &&
-                    !keyHosts.some((h) => h.id === approvalHosts[d.id]))
+                    !keyHosts.some(
+                      (h) =>
+                        h.id === (d.requestedHostId || approvalHosts[d.id]),
+                    ))
                 }
                 onClick={() => void manage('approve', d.id)}
               >

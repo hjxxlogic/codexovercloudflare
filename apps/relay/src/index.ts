@@ -59,6 +59,14 @@ async function authenticate(
     );
   return auth;
 }
+async function authenticateAgent(req: Request, env: Env) {
+  const value = bearer(req);
+  if (!value) throw new AppError('UNAUTHORIZED', 'Agent login required', 401);
+  const auth: Auth = await registryCall(env, 'auth', { token: value });
+  if (auth.role !== 'agent')
+    throw new AppError('FORBIDDEN', 'Agent credential required', 403);
+  return auth;
+}
 function originCheck(r: Request) {
   const origin = r.headers.get('origin');
   if (origin && origin !== new URL(r.url).origin)
@@ -308,12 +316,29 @@ export default {
         return response;
       }
       if (p === '/api/v1/agent/status' && req.method === 'GET') {
-        const auth: Auth = await registryCall(env, 'auth', {
-          token: bearer(req) || '',
-        });
-        if (auth.role !== 'agent')
-          throw new AppError('FORBIDDEN', 'Agent credential required', 403);
+        const auth = await authenticateAgent(req, env);
         return json(await registryCall(env, 'host', { id: auth.hostId }));
+      }
+      if (p === '/api/v1/agent/requests' && req.method === 'GET') {
+        const auth = await authenticateAgent(req, env);
+        return json(
+          await registryCall(env, 'agentDevices', { agentHash: auth.hash }),
+        );
+      }
+      const agentDecision = p.match(
+        /^\/api\/v1\/agent\/requests\/([^/]+)\/(approve|reject)$/,
+      );
+      if (agentDecision && req.method === 'POST') {
+        const auth = await authenticateAgent(req, env);
+        return json(
+          await registryCall(
+            env,
+            agentDecision[2] === 'approve'
+              ? 'agentDeviceApprove'
+              : 'agentDeviceReject',
+            { id: idSchema.parse(agentDecision[1]), agentHash: auth.hash },
+          ),
+        );
       }
       if (p === '/ws/v1/agent') {
         const auth: Auth = await registryCall(env, 'auth', {

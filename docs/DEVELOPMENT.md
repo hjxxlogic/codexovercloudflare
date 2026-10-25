@@ -167,3 +167,11 @@ Store 基准：
 两者在独立临时库中交错写入四个会话，分别每次提交 1 条和最多 128 条。批量模式的 P95 是整批调用延迟，不能直接与单事件 P95 比较；未模拟 Agent 的 10 ms 收集定时器，也不能代替端到端延迟和慢盘压测。不要并行运行基准。Agent 每 30 秒日志增加 eventBatches、batchedEvents、eventBatchMaxUs，以及 fileRequests、fileQueueBytes、bufferedEvents；前三项在每次采样后清零，最大耗时不是 P95。
 
 实现和实测边界见 [性能修复记录](perf-fixes-2026-10-25.md)。完整端到端仍使用上述 Bookworm 容器方案，Worker dry-run 只打包，不发布。
+
+## 指定目标的 Agent 审批（0.5.5）
+
+设备申请的新字段为 `requestedHostId`，不要将旧 `hostId` 解释为显式目标，否则旧客户端会意外改变管理员分配行为。Worker、网页及使用新命令的原生程序需要一起更新；新版客户端核对响应中的目标，不兼容旧 Relay 时明确失败。Agent 审批 API 只接受服务端鉴权产生的摘要，Registry 事务内再次检查撤销状态和主机作用域。
+
+`tests/device-auth.test.ts` 覆盖 cli / web 指定目标、请求列表脱敏、其他主机 / 未指定 / Agent 申请拒绝、管理员改绑拒绝、伪造请求体无效、角色隔离、过期与拒绝、在途撤销、API Key 撤销以及管理员 / Agent 并发只签发一次。`tests/e2e.ts` 使用真实原生 `requests / approve / reject`，验证 Agent 服务停止时批准 CC、运行时批准 / 拒绝 CW、管理页目标锁定、HttpOnly Cookie 刷新保留，并保留管理员选择目标的原有用例。使用确定性 Codex 夹具，不调用模型。截图通过 `COC_ARTIFACT_DIR` 保存。
+
+Agent 启动提示回归在同一端到端测试中预置本机、异主机及未指定申请，验证仅本机申请输出提示、控制字符转义、无轮询秘密泄露且未自动批准；运行中新增 CW 申请，验证周期发现和原申请不重复提示。进程 harness 只代理申请查询并捕获程序输出，可注入 503 检查后台失败不阻止 Agent 在线、随后自动恢复。生产实现位于原生 Agent，不依赖测试工具。检查使用独立线程池，单次 5 秒超时，退出等待在途检查完成。

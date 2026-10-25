@@ -42,6 +42,9 @@ class Agent {
   Store file_store_;
   WorkspaceFiles files_;
   asio::thread_pool file_pool_{1};
+  asio::thread_pool approval_pool_{1};
+  bool approval_check_pending_ = false, approval_check_failed_ = false;
+  std::set<std::string> notified_requests_;
   size_t file_requests_ = 0, file_bytes_ = 0;
   bool file_cleanup_pending_ = false;
   Json buffered_events_ = Json::array();
@@ -71,6 +74,7 @@ public:
       worker_.join();
     }
     file_pool_.join();
+    approval_pool_.join();
   }
   void start() {
     store_.on_failure([this] {
@@ -86,6 +90,7 @@ public:
         if (!ec)
           close();
       });
+      check_client_requests();
       connect();
       check_update();
       maintain();
@@ -1074,11 +1079,78 @@ public:
                 << '\n';
     }
   }
+  void check_client_requests() {
+    if (stopped_ || approval_check_pending_)
+      return;
+    approval_check_pending_ = true;
+    auto work = asio::make_work_guard(io_);
+    const auto relay = relay_url(config_.at("relayUrl"));
+    const auto token = config_.at("token").get<std::string>();
+    const auto host = config_.at("hostId");
+    asio::post(approval_pool_, [this, relay, token, host, work = std::move(work)]() mutable {
+      Json result, failure;
+      try {
+        result =
+            http_json(relay, "/api/v1/agent/requests", nullptr, token, "", std::chrono::seconds(5));
+        if (result.at("hostId") != host || !result.at("pending").is_array())
+          throw Error("PROTOCOL_MISMATCH", "Invalid Agent approval list");
+      } catch (const std::exception &error) {
+        failure = error_data(error);
+      }
+      asio::post(io_, [this, result = std::move(result), failure = std::move(failure),
+                       work = std::move(work)] {
+        approval_check_pending_ = false;
+        if (stopped_)
+          return;
+        if (!failure.is_null()) {
+          if (!approval_check_failed_)
+            std::cerr << Json{{"event", "client_approval_check_failed"},
+                              {"error", failure},
+                              {"message", "Will retry; Agent continues running"}}
+                             .dump()
+                      << '\n';
+          approval_check_failed_ = true;
+          return;
+        }
+        approval_check_failed_ = false;
+        // Quote the config path for a POSIX shell, including spaces, quotes and '$'.
+        std::string config_arg = "'";
+        for (char c : std::filesystem::absolute(config_file_).string())
+          config_arg += c == '\'' ? "'\\''" : std::string(1, c);
+        config_arg += "'";
+        std::set<std::string> pending;
+        for (const auto &request : result.at("pending")) {
+          if (!request.is_object() || !request.value("id", Json()).is_string() ||
+              !valid_id(request.at("id").get<std::string>()) ||
+              request.value("requestedHostId", Json()) != config_.at("hostId") ||
+              (request.value("role", Json()) != "cli" && request.value("role", Json()) != "web"))
+            continue;
+          const auto id = request.at("id").get<std::string>();
+          pending.insert(id);
+          if (notified_requests_.count(id))
+            continue;
+          // JSON escapes untrusted names/messages so they cannot inject terminal commands.
+          Json notice = {{"event", "client_approval_required"}};
+          for (const auto *key :
+               {"id", "role", "name", "requestedHostId", "message", "code", "expires"})
+            notice[key] = request.value(key, Json());
+          std::cerr
+              << "Client login approval required. Verify the pairing code, role and message.\n"
+              << notice.dump() << "\nApprove: coc-agent approve " << id << " --config "
+              << config_arg << "\nReject:  coc-agent reject " << id << " --config " << config_arg
+              << '\n'
+              << std::flush;
+        }
+        notified_requests_ = std::move(pending);
+      });
+    });
+  }
   void maintain() {
     maintenance_.expires_after(std::chrono::seconds(30));
     maintenance_.async_wait([this](auto ec) {
       if (ec || stopped_)
         return;
+      check_client_requests();
       check_update();
       if (stopped_)
         return;
@@ -1200,12 +1272,17 @@ int main(int argc, char **argv) {
         "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
     if (command == "help") {
       std::cout
-          << "Usage: coc-agent <login|logout|status|doctor|run|update|--version> [--config PATH] "
+          << "Usage: coc-agent "
+             "<login|logout|status|requests|approve|reject|doctor|run|update|--version> [--config "
+             "PATH] "
              "[--relay URL] "
              "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
              "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
              "displayed request in the management website. logout only "
-             "removes local credentials.\n";
+             "removes local credentials.\n"
+             "requests: list CC/CW requests explicitly targeting this Agent.\n"
+             "approve REQUEST_ID / reject REQUEST_ID: after checking the pairing code and role, "
+             "handle one targeted request with this Agent credential.\n";
       return 0;
     }
     if (options.api_key && command != "login")
@@ -1269,6 +1346,24 @@ int main(int argc, char **argv) {
       auto result = coc::doctor(coc::read_json(file), true);
       std::cout << result.dump(2) << '\n';
       return result["ok"] == true ? 0 : 1;
+    }
+    if (command == "requests" || command == "approve" || command == "reject") {
+      const bool decision = command != "requests";
+      if (options.args.size() != (decision ? 2 : 1) ||
+          (decision && !coc::valid_id(options.args[1])))
+        throw coc::Error("USAGE", "Use requests, approve REQUEST_ID or reject REQUEST_ID");
+      const auto config = coc::read_json(file);
+      const auto token = config.value("token", "");
+      if (token.empty())
+        throw coc::Error("UNAUTHORIZED", "Agent login required");
+      auto path = std::string("/api/v1/agent/requests");
+      if (decision)
+        path += "/" + options.args[1] + "/" + command;
+      std::cout << coc::http_json(coc::relay_url(config.at("relayUrl")), path,
+                                  decision ? coc::Json::object() : coc::Json(nullptr), token)
+                       .dump(2)
+                << '\n';
+      return 0;
     }
     if (command == "status") {
       auto config = coc::read_json(file);

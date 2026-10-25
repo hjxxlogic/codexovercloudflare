@@ -162,6 +162,21 @@ export class RegistryDO extends DurableObject<Env> {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
         const hostId = role === 'agent' ? crypto.randomUUID() : undefined;
+        const requestedHostId =
+          d.requestedHostId === undefined
+            ? undefined
+            : idSchema.parse(d.requestedHostId);
+        if (requestedHostId !== undefined) {
+          if (role === 'agent')
+            throw new AppError(
+              'INVALID_REQUEST',
+              'Only clients can select a target',
+              400,
+            );
+          const host = await s.get<Host>('host:' + requestedHostId);
+          if (!host || host.version !== 2 || host.disabled)
+            throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+        }
         const message =
           role !== 'agent'
             ? z.string().trim().max(1000).default('').parse(d.message)
@@ -175,6 +190,7 @@ export class RegistryDO extends DurableObject<Env> {
           role,
           name,
           hostId,
+          requestedHostId,
           message,
           code: id.slice(0, 8).toUpperCase(),
           pollHash: await digest(pollSecret),
@@ -189,23 +205,73 @@ export class RegistryDO extends DurableObject<Env> {
           code: request.code,
           expires: request.expires,
           hostId,
+          requestedHostId,
           url: '/#authorize=' + id,
         });
+      }
+      if (op === 'agentDevices') {
+        return json(
+          await s.transaction(async (tx) => {
+            const agent = await this.approvingAgent(tx, d.agentHash);
+            const pending = Array.from(
+              (await tx.list<any>({ prefix: 'device:' })).values(),
+            )
+              .filter(
+                (request) =>
+                  ['cli', 'web'].includes(request.role) &&
+                  request.requestedHostId === agent.hostId &&
+                  request.state === 'pending' &&
+                  request.expires > Date.now(),
+              )
+              .map(
+                ({
+                  id,
+                  role,
+                  name,
+                  requestedHostId,
+                  message,
+                  code,
+                  expires,
+                }) => ({
+                  id,
+                  role,
+                  name,
+                  requestedHostId,
+                  message,
+                  code,
+                  expires,
+                }),
+              );
+            return { hostId: agent.hostId, pending };
+          }),
+        );
       }
       if (op === 'devices') {
         const pending = Array.from(
           (await s.list<any>({ prefix: 'device:' })).values(),
         )
           .filter((v) => v.expires > Date.now() && v.state === 'pending')
-          .map(({ id, role, name, hostId, message, code, expires }) => ({
-            id,
-            role,
-            name,
-            hostId,
-            message,
-            code,
-            expires,
-          }));
+          .map(
+            ({
+              id,
+              role,
+              name,
+              hostId,
+              requestedHostId,
+              message,
+              code,
+              expires,
+            }) => ({
+              id,
+              role,
+              name,
+              hostId,
+              requestedHostId,
+              message,
+              code,
+              expires,
+            }),
+          );
         const credentials = Array.from(
           (await s.list<Auth>({ prefix: 'auth:' })).values(),
         )
@@ -219,10 +285,32 @@ export class RegistryDO extends DurableObject<Env> {
           }));
         return json({ pending, credentials });
       }
-      if (op === 'deviceApprove' || op === 'deviceReject') {
+      if (
+        [
+          'deviceApprove',
+          'deviceReject',
+          'agentDeviceApprove',
+          'agentDeviceReject',
+        ].includes(op)
+      ) {
+        const byAgent = op.startsWith('agent');
         const key = 'device:' + idSchema.parse(d.id);
         await s.transaction(async (tx) => {
+          const agent = byAgent
+            ? await this.approvingAgent(tx, d.agentHash)
+            : undefined;
           const request = await tx.get<any>(key);
+          if (
+            agent &&
+            (!request ||
+              !['cli', 'web'].includes(request.role) ||
+              request.requestedHostId !== agent.hostId)
+          )
+            throw new AppError(
+              'FORBIDDEN',
+              'Request is not explicitly addressed to this Agent',
+              403,
+            );
           if (
             !request ||
             request.expires <= Date.now() ||
@@ -233,10 +321,25 @@ export class RegistryDO extends DurableObject<Env> {
               'Request expired or already handled',
               409,
             );
-          if (op === 'deviceReject') request.state = 'rejected';
+          if (op === 'deviceReject' || op === 'agentDeviceReject')
+            request.state = 'rejected';
           else {
-            if (request.role !== 'agent')
-              request.hostId = idSchema.parse(d.hostId);
+            if (request.role !== 'agent') {
+              if (
+                request.requestedHostId !== undefined &&
+                d.hostId !== undefined &&
+                d.hostId !== request.requestedHostId
+              )
+                throw new AppError(
+                  'FORBIDDEN',
+                  'The requested target cannot be changed',
+                  403,
+                );
+              request.hostId =
+                agent?.hostId ??
+                request.requestedHostId ??
+                idSchema.parse(d.hostId);
+            }
             if (request.role === 'agent') {
               await this.createHost(tx, request.name, request.hostId);
             } else {
@@ -386,6 +489,30 @@ export class RegistryDO extends DurableObject<Env> {
     } catch (e) {
       return failure(e);
     }
+  }
+  private async approvingAgent(tx: DurableObjectTransaction, hash: unknown) {
+    const id = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .parse(hash);
+    const agent = await tx.get<Auth>('auth:' + id);
+    if (
+      !agent ||
+      agent.version !== 2 ||
+      agent.expires <= Date.now() ||
+      (agent.apiKeyId && !(await tx.get('apiKey:' + agent.apiKeyId)))
+    )
+      throw new AppError(
+        'UNAUTHORIZED',
+        'Agent authorization revoked or expired',
+        401,
+      );
+    if (agent.role !== 'agent' || !agent.hostId)
+      throw new AppError('FORBIDDEN', 'Agent credential required', 403);
+    const host = await tx.get<Host>('host:' + agent.hostId);
+    if (!host || host.version !== 2 || host.disabled)
+      throw new AppError('UNAUTHORIZED', 'Agent unavailable', 401);
+    return agent;
   }
   private async createHost(
     tx: DurableObjectTransaction,

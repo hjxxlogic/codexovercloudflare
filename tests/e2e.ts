@@ -79,6 +79,7 @@ async function request(
     origin?: string;
     admin?: boolean;
     cookie?: string;
+    ip?: string;
   } = {},
 ) {
   const headers: Record<string, string> = {
@@ -91,6 +92,7 @@ async function request(
     else if (cookie) headers.Cookie = cookie;
   }
   if (options.cookie) headers.Cookie = options.cookie;
+  if (options.ip) headers['CF-Connecting-IP'] = options.ip;
   if (data !== undefined)
     headers['Idempotency-Key'] = options.key || randomUUID();
   const r = await fetch(origin + '/api/v1' + path, {
@@ -220,7 +222,12 @@ async function cliCommand(
   input = '',
   env: NodeJS.ProcessEnv = {},
   binary = process.env.COC_CLI_BINARY || 'build/coc-client',
-  approval?: { hostId: string; message?: string; page?: Page },
+  approval?: {
+    hostId: string;
+    message?: string;
+    page?: Page;
+    agentConfig?: string;
+  },
 ) {
   const child = spawn(resolve(binary), args, {
     env: {
@@ -247,6 +254,42 @@ async function cliCommand(
           assert.equal(pending.role, 'cli');
           assert.equal(pending.hostId, undefined);
           assert.equal(pending.message, approval.message || '');
+          if (approval.agentConfig) {
+            const agentBinary =
+              process.env.COC_AGENT_BINARY || 'build/coc-agent';
+            const listed = JSON.parse(
+              await cliCommand(
+                ['requests', '--config', approval.agentConfig],
+                '',
+                {},
+                agentBinary,
+              ),
+            );
+            assert.equal(listed.hostId, approval.hostId);
+            assert(
+              listed.pending.some(
+                (request: any) =>
+                  request.id === id &&
+                  request.requestedHostId === approval.hostId,
+              ),
+            );
+            assert.equal(
+              listed.pending.find((request: any) => request.id === id).pollHash,
+              undefined,
+            );
+            assert.deepEqual(
+              JSON.parse(
+                await cliCommand(
+                  ['approve', id, '--config', approval.agentConfig],
+                  '',
+                  {},
+                  agentBinary,
+                ),
+              ),
+              { ok: true },
+            );
+            return;
+          }
           if (approval.page) {
             await approval.page
               .getByLabel('目标服务器 ' + pending.code, { exact: true })
@@ -405,21 +448,44 @@ try {
     (await request('/sessions?hostId=' + other.hostId)).r.status,
     403,
   );
-  await cliCommand(
-    ['login', '--relay', origin, '--host', enrolled.hostId],
-    '',
-    {},
-    undefined,
-    {
-      hostId: other.hostId,
-    },
-  );
+  await cliCommand(['login', '--relay', origin], '', {}, undefined, {
+    hostId: other.hostId,
+  });
   assert.equal(
     JSON.parse(readFileSync(join(dir, 'credentials.json'), 'utf8')).entries
       .length,
     2,
   );
   await cliCommand(['use', '--host', enrolled.hostId]);
+  const targetedCliFile = join(dir, 'agent-approved-client.json');
+  await cliCommand(
+    [
+      'login',
+      '--relay',
+      origin,
+      '--host',
+      enrolled.hostId,
+      '--config',
+      targetedCliFile,
+      '--message',
+      '请目标 Agent 批准',
+    ],
+    '',
+    {},
+    undefined,
+    {
+      hostId: enrolled.hostId,
+      message: '请目标 Agent 批准',
+      agentConfig: configFile,
+    },
+  );
+  assert.equal(
+    JSON.parse(readFileSync(targetedCliFile, 'utf8')).entries[0].hostId,
+    enrolled.hostId,
+  );
+  pass(
+    'CC explicitly targets its Agent and native Agent approves without a running daemon or administrator approval',
+  );
   const webStart = await request(
     '/auth/device/start',
     { role: 'web', name: 'API web', message: 'API browser request' },
@@ -455,6 +521,38 @@ try {
   pass(
     'native A/CC unified login, scoped credentials, administrator isolation, multi-A store and one-use CW delivery',
   );
+  const startupRequest = await api(
+    '/auth/device/start',
+    {
+      role: 'cli',
+      name: 'Startup client',
+      requestedHostId: enrolled.hostId,
+      message: '请核对配对码\n\u001b[31m不是命令',
+    },
+    { anonymous: true, ip: '192.0.2.26' },
+  );
+  const foreignRequest = await api(
+    '/auth/device/start',
+    {
+      role: 'web',
+      name: 'Other host client',
+      requestedHostId: other.hostId,
+    },
+    { anonymous: true, ip: '192.0.2.26' },
+  );
+  const unassignedRequest = await api(
+    '/auth/device/start',
+    {
+      role: 'cli',
+      name: 'Unassigned client',
+    },
+    { anonymous: true, ip: '192.0.2.26' },
+  );
+  const approvalNotices = (a: Agent) =>
+    a.output
+      .split('\n')
+      .filter((line) => line.includes('"event":"client_approval_required"'))
+      .map((line) => JSON.parse(line));
   agent = new Agent({
     relayUrl: origin,
     hostId: enrolled.hostId,
@@ -467,6 +565,44 @@ try {
   });
   agent.start();
   await wait(async () => (await api('/hosts'))[0].online, 'Agent online');
+  await wait(
+    () => approvalNotices(agent!).some((n) => n.id === startupRequest.id),
+    'startup pending client approval notice',
+  );
+  assert.deepEqual(
+    approvalNotices(agent).map((n) => n.id),
+    [startupRequest.id],
+  );
+  assert.equal(approvalNotices(agent)[0].code, startupRequest.code);
+  assert(
+    agent.output.includes(
+      'coc-agent approve ' + startupRequest.id + ' --config ',
+    ),
+  );
+  assert(
+    agent.output.includes(
+      'coc-agent reject ' + startupRequest.id + ' --config ',
+    ),
+  );
+  assert(!agent.output.includes('\u001b[31m'));
+  assert(!agent.output.includes(startupRequest.pollSecret));
+  assert.equal(
+    (
+      await api(
+        '/auth/device/poll',
+        {
+          id: startupRequest.id,
+          pollSecret: startupRequest.pollSecret,
+        },
+        { anonymous: true },
+      )
+    ).state,
+    'pending',
+  );
+  await api('/admin/reject', { id: unassignedRequest.id }, { admin: true });
+  pass(
+    'Agent startup reports only explicitly targeted pending requests with escaped text and manual commands; no automatic approval',
+  );
   otherAgent = new Agent({
     relayUrl: origin,
     hostId: other.hostId,
@@ -477,6 +613,7 @@ try {
     dataDir: join(dir, 'other-agent'),
     projects: [{ id: 'other-project', name: 'Other project', path: dir }],
   });
+  otherAgent.approvalStatus = 503;
   otherAgent.start();
   await wait(
     async () =>
@@ -484,6 +621,11 @@ try {
         .online,
     'other Agent online',
   );
+  await wait(
+    () => otherAgent!.output.includes('client_approval_check_failed'),
+    'approval check failure warns without stopping Agent',
+  );
+  otherAgent.approvalStatus = undefined;
   assert.equal(
     JSON.parse(await cliCommand(['projects', '--host', 'local-test']))[0].id,
     'test-project',
@@ -1089,6 +1231,117 @@ try {
   assert.equal(statSync(pairedCliFile).mode & 0o777, 0o600);
   pass(
     'CC paired login without host sends a message and persists the administrator UI-selected server',
+  );
+  const targetedBrowser = await browser.newContext({
+    extraHTTPHeaders: { 'CF-Connecting-IP': '192.0.2.24' },
+  });
+  const targetedPage = await targetedBrowser.newPage();
+  await targetedPage.goto(origin);
+  await targetedPage.getByLabel('目标服务器 ID（选填）').fill(enrolled.hostId);
+  await targetedPage
+    .getByLabel('给管理员留言')
+    .fill('请目标 Agent 批准网页访问');
+  await targetedPage
+    .getByRole('button', { name: '申请登录', exact: true })
+    .click();
+  const targetedCode = await targetedPage
+    .locator('.login-card strong')
+    .innerText();
+  await page
+    .getByLabel('目标服务器 ' + targetedCode, { exact: true })
+    .waitFor();
+  assert(
+    await page
+      .getByLabel('目标服务器 ' + targetedCode, { exact: true })
+      .isDisabled(),
+  );
+  assert.equal(
+    await page
+      .getByLabel('目标服务器 ' + targetedCode, { exact: true })
+      .inputValue(),
+    enrolled.hostId,
+  );
+  await targetedPage.screenshot({
+    path: join(artifacts, 'cw-agent-approval-request.png'),
+    fullPage: true,
+  });
+  const agentBinary = process.env.COC_AGENT_BINARY || 'build/coc-agent';
+  const agentRequests = () =>
+    cliCommand(['requests', '--config', configFile], '', {}, agentBinary).then(
+      JSON.parse,
+    );
+  const targetedRequest = (await agentRequests()).pending.find(
+    (request: any) => request.code === targetedCode,
+  );
+  assert(targetedRequest && targetedRequest.role === 'web');
+  await wait(
+    () => approvalNotices(agent!).some((n) => n.id === targetedRequest.id),
+    'running Agent reports newly arrived CW request',
+    40000,
+  );
+  assert.equal(
+    approvalNotices(agent!).filter((n) => n.id === startupRequest.id).length,
+    1,
+  );
+  await api('/admin/reject', { id: startupRequest.id }, { admin: true });
+  await wait(
+    () => approvalNotices(otherAgent!).some((n) => n.id === foreignRequest.id),
+    'approval check recovers on next poll',
+    40000,
+  );
+  await api('/admin/reject', { id: foreignRequest.id }, { admin: true });
+  pass(
+    'running Agents discover new requests, deduplicate notices and recover from approval service failure',
+  );
+  await cliCommand(
+    ['approve', targetedRequest.id, '--config', configFile],
+    '',
+    {},
+    agentBinary,
+  );
+  await targetedPage.locator('.chat-workspace').waitFor();
+  const targetedCookie = (await targetedBrowser.cookies()).find(
+    (c) => c.name === 'coc_web_' + enrolled.hostId,
+  );
+  assert(targetedCookie?.httpOnly);
+  assert.equal((await agentRequests()).pending.length, 0);
+  await targetedPage.reload();
+  await targetedPage.locator('.chat-workspace').waitFor();
+  const rejectedBrowser = await browser.newContext({
+    extraHTTPHeaders: { 'CF-Connecting-IP': '192.0.2.25' },
+  });
+  const rejectedPage = await rejectedBrowser.newPage();
+  await rejectedPage.goto(origin);
+  await rejectedPage.getByLabel('目标服务器 ID（选填）').fill(enrolled.hostId);
+  await rejectedPage
+    .getByRole('button', { name: '申请登录', exact: true })
+    .click();
+  const rejectedCode = await rejectedPage
+    .locator('.login-card strong')
+    .innerText();
+  const rejectedRequest = (await agentRequests()).pending.find(
+    (request: any) => request.code === rejectedCode,
+  );
+  assert(rejectedRequest);
+  await cliCommand(
+    ['reject', rejectedRequest.id, '--config', configFile],
+    '',
+    {},
+    agentBinary,
+  );
+  await rejectedPage
+    .getByRole('alert')
+    .filter({ hasText: '目标服务器或管理员已拒绝登录申请' })
+    .waitFor();
+  assert(
+    !(await rejectedBrowser.cookies()).some((c) =>
+      c.name.startsWith('coc_web_'),
+    ),
+  );
+  await targetedBrowser.close();
+  await rejectedBrowser.close();
+  pass(
+    'CW explicit target is immutable in administrator UI; native Agent approves/rejects while running and scoped cookie survives reload',
   );
   // Give this simulated browser its own IP rate budget, separate from native setup.
   const visitor = await browser.newContext({

@@ -460,7 +460,8 @@ public:
              "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
              "--session ID --offline true --cache-dir PATH\n"
-             "login: send optional --message TEXT; the administrator selects the server. "
+             "login: send optional --message TEXT; --host ID explicitly targets that Agent "
+             "for approval. Without --host the administrator selects the server. "
              "login --api-key: requires --host ID; read COC_API_KEY or prompt securely. "
              "logout only removes "
              "local credentials.\n";

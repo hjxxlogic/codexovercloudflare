@@ -74,6 +74,20 @@ async function grant(role: string, hostId?: string) {
     })
   ).data;
 }
+async function agentRequest(path: string, token?: string, data?: unknown) {
+  const response = await worker.fetch(
+    new Request('https://relay.test/api/v1/agent/' + path, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: {
+        Origin: 'https://relay.test',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+    }),
+    env,
+  );
+  return { status: response.status, data: (await response.json()) as any };
+}
 beforeEach(() => {
   storage = new Storage();
   env = {
@@ -89,6 +103,243 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it.each(['cli', 'web'])(
+    'lets only the explicitly requested Agent approve a %s request',
+    async (role) => {
+      const a = await grant('agent'),
+        b = await grant('agent');
+      const start = (requestedHostId?: string) =>
+        op('deviceStart', {
+          role,
+          name: 'targeted client',
+          requestedHostId,
+          message: '核对配对码',
+        });
+      const own = (await start(a.hostId)).data;
+      const foreign = (await start(b.hostId)).data;
+      const unassigned = (await start()).data;
+      const newAgent = (
+        await op('deviceStart', { role: 'agent', name: 'new A' })
+      ).data;
+      expect(own.requestedHostId).toBe(a.hostId);
+      const listed = await agentRequest('requests', a.token);
+      expect(listed.status).toBe(200);
+      expect(listed.data.hostId).toBe(a.hostId);
+      expect(listed.data.pending).toEqual([
+        expect.objectContaining({
+          id: own.id,
+          code: own.code,
+          role,
+          requestedHostId: a.hostId,
+          message: '核对配对码',
+        }),
+      ]);
+      expect(listed.data.pending[0]).not.toHaveProperty('pollHash');
+      expect(listed.data.pending[0]).not.toHaveProperty('pollSecret');
+      expect(listed.data).not.toHaveProperty('credentials');
+      for (const id of [foreign.id, unassigned.id, newAgent.id]) {
+        for (const decision of ['approve', 'reject'])
+          expect(
+            (
+              await agentRequest(`requests/${id}/${decision}`, a.token, {
+                hostId: a.hostId,
+              })
+            ).status,
+          ).toBe(403);
+      }
+      expect(
+        (await op('deviceApprove', { id: own.id, hostId: b.hostId })).status,
+      ).toBe(403);
+      expect(
+        (
+          await agentRequest(`requests/${own.id}/approve`, b.token, {
+            agentHash: (await op('auth', { token: a.token })).data.hash,
+          })
+        ).status,
+      ).toBe(403);
+      const approved = await agentRequest(
+        `requests/${own.id}/approve`,
+        a.token,
+        { hostId: b.hostId },
+      );
+      expect(approved).toEqual({ status: 200, data: { ok: true } });
+      expect((await agentRequest('requests', a.token)).data.pending).toEqual(
+        [],
+      );
+      const delivered = await op('devicePoll', {
+        id: own.id,
+        pollSecret: own.pollSecret,
+        web: role === 'web',
+      });
+      expect(delivered.data).toMatchObject({
+        state: 'approved',
+        role,
+        hostId: a.hostId,
+      });
+      expect(
+        (await op('auth', { token: delivered.data.token })).data.hostId,
+      ).toBe(a.hostId);
+      expect(
+        (
+          await op('devicePoll', {
+            id: own.id,
+            pollSecret: own.pollSecret,
+            web: role === 'web',
+          })
+        ).status,
+      ).toBe(401);
+    },
+  );
+  it('requires live Agent credentials at the route and inside the approval transaction', async () => {
+    const a = await grant('agent');
+    const cc = await grant('cli', a.hostId),
+      cw = await grant('web', a.hostId);
+    const owner = (await op('login', { secret: env.OWNER_SECRET })).data;
+    const request = (
+      await op('deviceStart', {
+        role: 'cli',
+        name: 'client',
+        requestedHostId: a.hostId,
+      })
+    ).data;
+    for (const token of [undefined, cc.token, cw.token, owner.token]) {
+      expect((await agentRequest('requests', token)).status).toBe(
+        token ? 403 : 401,
+      );
+      expect(
+        (await agentRequest(`requests/${request.id}/approve`, token, {}))
+          .status,
+      ).toBe(token ? 403 : 401);
+    }
+    const auth = (await op('auth', { token: a.token })).data;
+    // Simulate revocation after the Worker authorized the token, before the transaction.
+    await op('credentialRevoke', { id: auth.hash });
+    expect(
+      (await op('agentDeviceApprove', { id: request.id, agentHash: auth.hash }))
+        .status,
+    ).toBe(401);
+    expect((await agentRequest('requests', a.token)).status).toBe(401);
+    expect((await op('devices')).data.pending).toHaveLength(1);
+    expect((await op('deviceApprove', { id: request.id })).status).toBe(404);
+  });
+  it('rechecks disabled hosts and API key revocation even with a captured Agent hash', async () => {
+    const key = (await op('apiKeyCreate', { role: 'agent', name: 'A key' }))
+      .data;
+    const a = (
+      await op('apiKeyLogin', { apiKey: key.apiKey, role: 'agent', name: 'A' })
+    ).data;
+    const request = (
+      await op('deviceStart', {
+        role: 'web',
+        name: 'CW',
+        requestedHostId: a.hostId,
+      })
+    ).data;
+    expect(
+      (await agentRequest('requests', key.apiKey)).data.pending,
+    ).toHaveLength(1);
+    const host = storage.values.get('host:' + a.hostId);
+    storage.values.set('host:' + a.hostId, { ...host, disabled: true });
+    expect(
+      (await op('agentDeviceApprove', { id: request.id, agentHash: key.id }))
+        .status,
+    ).toBe(401);
+    storage.values.set('host:' + a.hostId, host);
+    storage.values.delete('apiKey:' + key.id);
+    expect((await op('agentDevices', { agentHash: key.id })).status).toBe(401);
+    expect(
+      (await op('agentDeviceReject', { id: request.id, agentHash: key.id }))
+        .status,
+    ).toBe(401);
+  });
+  it('serializes Agent and administrator approval and preserves the requested target', async () => {
+    const a = await grant('agent');
+    const request = (
+      await op('deviceStart', {
+        role: 'cli',
+        name: 'client',
+        requestedHostId: a.hostId,
+      })
+    ).data;
+    const results = await Promise.all([
+      agentRequest(`requests/${request.id}/approve`, a.token, {}),
+      op('deviceApprove', { id: request.id }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(
+      (await op('devices')).data.credentials.filter(
+        (a: any) => a.role === 'cli',
+      ),
+    ).toHaveLength(1);
+    const result = await op('devicePoll', {
+      id: request.id,
+      pollSecret: request.pollSecret,
+      web: false,
+    });
+    expect(result.data.hostId).toBe(a.hostId);
+  });
+  it('validates explicit targets, expires requests and permits scoped rejection', async () => {
+    const a = await grant('agent');
+    for (const requestedHostId of ['', null, 123, 'bad/path'])
+      expect(
+        (
+          await op('deviceStart', {
+            role: 'cli',
+            name: 'client',
+            requestedHostId,
+          })
+        ).status,
+      ).toBe(400);
+    expect(
+      (
+        await op('deviceStart', {
+          role: 'web',
+          name: 'client',
+          requestedHostId: 'unknown',
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await op('deviceStart', {
+          role: 'agent',
+          name: 'agent',
+          requestedHostId: a.hostId,
+        })
+      ).status,
+    ).toBe(400);
+    const request = (
+      await op('deviceStart', {
+        role: 'web',
+        name: 'client',
+        requestedHostId: a.hostId,
+      })
+    ).data;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 300001);
+    try {
+      expect((await agentRequest('requests', a.token)).data.pending).toEqual(
+        [],
+      );
+      expect(
+        (await agentRequest(`requests/${request.id}/approve`, a.token, {}))
+          .status,
+      ).toBe(409);
+    } finally {
+      clock.mockRestore();
+    }
+    expect(
+      (await agentRequest(`requests/${request.id}/reject`, a.token, {})).status,
+    ).toBe(200);
+    expect(
+      (
+        await op('devicePoll', {
+          id: request.id,
+          pollSecret: request.pollSecret,
+          web: true,
+        })
+      ).data.state,
+    ).toBe('rejected');
+  });
   it.each(['web', 'cli'])(
     'takes a %s message without a host and binds only the administrator-selected host',
     async (role) => {

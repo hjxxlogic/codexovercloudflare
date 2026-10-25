@@ -2,7 +2,7 @@
 
 > 实现进展：本文件保留初始目标基线；当前开发版本的实际能力与测试结果见 [README](../README.md) 和 [测试记录](TEST_REPORT.md)。
 
-> 状态：0.5.4 在统一 CC / CW 配对申请基础上优化存储、传输与完整本地历史；目标与实际状态对照见文末。日期：2026-10-25。
+> 状态：0.5.5 增加指定目标的 Agent 审批及运行提示，保留完整本地历史；目标与实际状态对照见文末。日期：2026-10-25。
 > 对应 [项目需求](REQUIREMENTS.md)，保留 [原始构想](IDEARS.md) 作为背景记录。
 
 ## 1. 架构结论
@@ -68,11 +68,20 @@ flowchart LR
 
 连接由 Worker 转交到对应 DO；DO 不能回连内网。Agent 的单条上行连接承载多个隔离通道，每个通道映射到独立 runtime。
 
-### 3.1 0.3.0 设备授权模型
+### 3.1 设备授权模型
 
 R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。
 
-A / CC / CW 共用 deviceStart → 管理员 approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。CC / CW 的 deviceStart 接受 name 和选填 message（trim 后最多 1000 字符），忽略申请端 hostId，不提前绑定或公开服务器目录。管理员列表返回留言；deviceApprove 对 cli / web 角色强制接收 hostId，在事务内校验目标为 version 2 且未停用，再签发绑定该 A 的凭证。A 仍在批准时创建主机。CC 使用 `--message` 提交留言，收到批准结果中的 hostId 后按原多授权格式存储，配对登录无需 `--host`；API Key 的绑定及校验流程独立保持。留言仅在临时申请中保存，审批页以纯文本显示，不写入长期凭证。旧 CC / 网页发起的申请也需管理员明确选择服务器；0.5.3 需同步更新 Worker、网页和 CC 下载包，已有 Agent 与授权无需重办。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
+A / CC / CW 共用 deviceStart → approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。CC / CW 接受 name 和选填 message（trim 后最多 1000 字符），留言仅在临时申请中保存，以纯文本显示，不写入长期凭证。A 仍由管理员批准并创建主机。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
+
+0.5.5 的指定目标审批增加 `requestedHostId`：仅 cli / web 可提交，deviceStart 校验为有效、未停用的 version 2 主机并原样返回。旧 `hostId` 输入继续忽略，未指定的新旧申请均由管理员选择目标。新 CC 的 `login --host` 与 CW 的选填目标输入发送新字段，并核对申请响应及领取结果，不支持的旧 Relay 不会静默降级。指定目标只允许对应 Agent 或管理员批准，任何审批方均不能改绑；未指定时 deviceApprove 仍强制接收管理员的 hostId。原有凭证、Auth version 2 与 API Key 登录兼容。
+
+Agent 使用 Bearer 访问 `/api/v1/agent/requests` 及单请求 approve/reject。Worker 校验角色，并将服务端解析出的凭证摘要传入 RegistryDO，不信任请求体中的身份或主机。Registry 在同一个事务中重新验证 Agent 凭证、关联 API Key 和主机仍有效，且请求必须为明确指定该主机的 cli / web。列表只返回本机未过期 pending 请求的核对字段，不返回全局授权、令牌或轮询秘密；扫描受现有 200 条临时请求配额约束。审批与原管理员路径共用事务签发逻辑，竞争只成功一次，领取仍须原轮询秘密。Agent 不具有全局管理、撤销或新 Agent 授权能力。
+
+原生 `requests / approve / reject` 直接读取 Agent 配置，使用既有 HTTPS 客户端，不启动 Codex runtime、不打开 Store 或占用 dataDir 锁，服务运行或停止时均可明确操作。
+
+`Agent::start` 在连接调度前发起一次客户端申请检查，之后由 30 秒维护周期触发。单线程 `approval_pool_` 执行最多一个在途 HTTP GET，超时 5 秒；结果回到业务执行器处理，不占用文件传输池或阻塞 relay 心跳。查询结果再次核对目标和客户端角色，只向 stderr 输出新请求的白名单字段与人工审批命令；名称和留言使用 JSON 转义，配置路径使用 POSIX shell 单引号转义。按当前 pending ID 集合去重，空间随有效待处理申请有界；进程重启后重新提示。失败保留去重状态、连续失败仅提示一次，恢复后继续发现新申请。退出时等待有界请求结束且丢弃结果，不在停止后发出审批提示。
+
 
 Auth version 2 使用 agent / cli / web 三种独立角色，hostId 固定绑定，设备凭证 expires 使用安全整数最大值表示无固定到期。管理身份 owner 独立，仍为 8 小时。旧认证记录拒绝使用，不自动提升为新授权。CC / CW 的 HTTP、会话票据、WebSocket 都按角色和目标 A 校验，不能调用管理接口。CC 仅控制 cli 模式，CW 仅控制 web 模式。管理员身份不能直接操作会话。
 
@@ -155,6 +164,8 @@ Agent 重启后将旧 runtime 标记为中断，检查线程历史后允许用�
 | `POST /auth/login`、`POST /auth/logout`                                                 | 管理身份登录 / 清除本地管理 Cookie         |
 | `GET /auth/me`                                                                          | 查询独立管理身份                           |
 | `POST /auth/forget`                                                                     | 清除指定 A 的本地 CW Cookie，不撤销 R 授权 |
+| `GET /agent/requests` | Agent 查看明确指定自己的待处理客户端申请 |
+| `POST /agent/requests/:id/approve`、`POST /agent/requests/:id/reject` | Agent 明确批准 / 拒绝本机申请 |
 | `GET /hosts`、`GET /hosts/:id/projects`                                                 | 获取设备及经 Agent 同步的项目描述          |
 | `POST /auth/device/start`、`POST /auth/device/poll`                                     | 统一申请 / 领取角色和 A 专用授权           |
 | `GET /admin/devices`、`POST /admin/approve`、`POST /admin/reject`、`POST /admin/revoke` | 查看、批准、拒绝、撤销设备授权             |

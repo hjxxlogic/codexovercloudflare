@@ -1,10 +1,13 @@
 // Test-only process harness; all Agent behavior lives in the native executable.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { resolve, join } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import type { AgentConfig } from '../../packages/protocol/src/index.ts';
 export class Agent {
+  output = '';
+  approvalStatus?: number;
   stopped = false;
   socket?: WebSocket;
   private child?: ChildProcess;
@@ -24,9 +27,38 @@ export class Agent {
     );
   }
   private async launch() {
-    const proxy = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    const server = createServer((req, res) => {
+      if (req.method !== 'GET' || req.url !== '/api/v1/agent/requests') {
+        res.writeHead(404).end();
+        return;
+      }
+      if (this.approvalStatus) {
+        res.writeHead(this.approvalStatus).end(
+          JSON.stringify({
+            error: {
+              code: 'TEST_UNAVAILABLE',
+              message: 'Approval service unavailable',
+            },
+          }),
+        );
+        return;
+      }
+      void fetch(this.config.relayUrl + req.url, {
+        headers: { Authorization: req.headers.authorization || '' },
+      })
+        .then(async (response) => {
+          const body = await response.text();
+          res.writeHead(response.status, {
+            'Content-Type': 'application/json',
+          });
+          res.end(body);
+        })
+        .catch(() => res.writeHead(502).end());
+    });
+    const proxy = new WebSocketServer({ server });
     this.proxy = proxy;
-    await new Promise<void>((r) => proxy.once('listening', r));
+    proxy.on('close', () => server.close());
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     proxy.on('connection', (downstream, req) => {
       const upstream = new WebSocket(
         this.config.relayUrl.replace(/^http/, 'ws') + '/ws/v1/agent',
@@ -93,8 +125,13 @@ export class Agent {
       ['run', '--config', file],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    this.child.stdout?.resume();
-    this.child.stderr?.on('data', (d) => process.stderr.write(d));
+    this.child.stdout?.on('data', (d) => {
+      this.output += d;
+    });
+    this.child.stderr?.on('data', (d) => {
+      this.output += d;
+      process.stderr.write(d);
+    });
     this.child.on('exit', () => {
       this.stopped = true;
       for (const p of this.peers) p.terminate();

@@ -82,25 +82,38 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     return result;
   }
   Json input = {{"role", role}, {"name", name}};
-  if (role == "cli")
+  if (role == "cli") {
     input["message"] = message;
+    if (!host.empty()) {
+      if (!valid_id(host))
+        throw Error("USAGE", "Invalid target host ID");
+      input["requestedHostId"] = host;
+    }
+  }
   auto request = http_json(url, "/api/v1/auth/device/start", input);
-  if (role == "cli")
+  if (role == "cli" && !host.empty()) {
+    if (request.value("requestedHostId", "") != host)
+      throw Error("PROTOCOL_MISMATCH", "Relay does not support explicitly targeted login");
+    std::cout << "Requested server: " << host
+              << "\nThat Agent or the administrator can approve this request.\n";
+  } else if (role == "cli")
     std::cout << "The administrator will select the server for this request.\n";
   std::cout << "Authorize in browser: " << url.origin << request.at("url").get<std::string>()
             << "\nPairing code: " << request.at("code").get<std::string>()
-            << "\nWaiting for administrator approval (5 minutes)...\n"
+            << "\nWaiting for approval (5 minutes)...\n"
             << std::flush;
   while (now() < request.at("expires").get<int64_t>()) {
     auto result = http_json(url, "/api/v1/auth/device/poll",
                             {{"id", request.at("id")}, {"pollSecret", request.at("pollSecret")}});
     if (result.at("state") == "approved") {
+      if (role == "cli" && !host.empty() && result.value("hostId", "") != host)
+        throw Error("FORBIDDEN", "Approved server differs from the requested server");
       result.erase("state");
       result["relay"] = url.origin;
       return result;
     }
     if (result.at("state") == "rejected")
-      throw Error("LOGIN_REJECTED", "Administrator rejected login");
+      throw Error("LOGIN_REJECTED", "Login request rejected");
     std::this_thread::sleep_for(std::chrono::seconds(2));
   }
   throw Error("LOGIN_EXPIRED", "Login request expired; run login again");
