@@ -57,6 +57,7 @@ jobs:
     timeout-minutes: 40
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.local/vcpkg-cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.local/vcpkg-downloads
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,8 +71,15 @@ jobs:
         with:
           path: .local/vcpkg-cache
           key: windows-2022-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: windows-2022-vcpkg-x64-static-
+      - uses: actions/cache/restore@v4
+        id: windows-downloads
+        with:
+          path: .local/vcpkg-downloads
+          key: windows-2022-vcpkg-downloads-${{ hashFiles('vcpkg.json') }}
+          restore-keys: windows-2022-vcpkg-downloads-
       - name: Prepare dependency cache
-        run: New-Item -ItemType Directory -Force .local/vcpkg-cache | Out-Null
+        run: New-Item -ItemType Directory -Force .local/vcpkg-cache, .local/vcpkg-downloads | Out-Null
       - name: Configure Windows x64 with static dependencies
         shell: pwsh
         run: >-
@@ -100,6 +108,11 @@ jobs:
         with:
           path: .local/vcpkg-cache
           key: windows-2022-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+      - uses: actions/cache/save@v4
+        if: always() && steps.windows-downloads.outputs.cache-hit != 'true'
+        with:
+          path: .local/vcpkg-downloads
+          key: windows-2022-vcpkg-downloads-${{ hashFiles('vcpkg.json') }}
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64

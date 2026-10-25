@@ -194,7 +194,7 @@ ctest --test-dir build-windows -C Release --output-on-failure
 
 Windows CTest 使用原生模拟 Codex 子进程，不调用模型；覆盖 UTF-8 配置、排他锁、SQLite 历史与去重、Windows 路径拒绝规则、分块传输/覆盖、参数引用、stdio RPC 和进程退出。符号链接测试仅在系统允许创建链接时执行。Linux 专用故障注入、Docker TUI 和真实 Codex 验收仍需按对应环境运行；Windows CI 不代替真实 Codex TUI、沙箱及长期压力验证。
 
-CI 的 `windows-x64` 作业执行 MSVC Release 构建、CTest、启动检查和 ZIP 打包；不部署。正式包需在干净提交上生成：
+CI 的 `windows-x64` 作业执行 MSVC Release 构建、CTest、启动检查和 ZIP 打包；不部署。Actions 分别缓存 vcpkg 已编译依赖及下载的工具/源码包，主程序编译失败也会保存缓存。缓存键包含依赖清单摘要；清单变化时尝试恢复旧缓存，由 vcpkg 按 ABI 校验后复用兼容包。缓存均位于忽略的 `.local/`，不包含凭据或运行状态；Agent / CLI 自身仍重新编译。正式包需在干净提交上生成：
 
 ```powershell
 python scripts/package-release.py --build-dir build-windows/Release --platform windows-x64
