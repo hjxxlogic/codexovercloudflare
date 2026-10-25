@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import {
   createContext,
   useContext,
@@ -173,8 +174,8 @@ export function FileLink({
     <>
       <a
         href={href}
-        title={`下载 ${path}`}
-        aria-label={`下载 ${path}`}
+        title={t('下载 {0}', path)}
+        aria-label={t('下载 {0}', path)}
         aria-disabled={busy}
         onClick={(event) => {
           event.preventDefault();
@@ -209,7 +210,7 @@ export function FileLink({
       {status && (
         <small className="file-link-status" role="status">
           {' '}
-          {status}
+          {t(status)}
         </small>
       )}
     </>

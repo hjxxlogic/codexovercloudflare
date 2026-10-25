@@ -292,6 +292,74 @@ try {
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);
   assert.match(await group.locator(':scope > summary').innerText(), /3 项/);
+  const languageDraft = '中英文切换保留草稿 / keep this draft';
+  await page.getByLabel('任务内容').fill(languageDraft);
+  const languageAttachCalls = attachCalls;
+  await openMenu(page);
+  await page.getByLabel('语言 / Language').selectOption('en');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page).toHaveTitle('Remote Codex');
+  await expect(
+    page.getByRole('navigation', { name: 'Feature menu' }),
+  ).toBeVisible();
+  await expect(group.locator(':scope > summary')).toContainText('3 items');
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel('Task', { exact: true })).toHaveValue(
+    languageDraft,
+  );
+  await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
+  await expect(page.getByText('任务已完成。', { exact: true })).toBeVisible();
+  assert.equal(
+    attachCalls,
+    languageAttachCalls,
+    'language switching does not reconnect',
+  );
+  await page.getByRole('button', { name: 'Feature menu' }).click();
+  await page.getByRole('button', { name: /^Workspace files/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Workspace files' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Upload file', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await page.reload();
+  await expect(page.getByLabel('Task', { exact: true })).toHaveValue(
+    languageDraft,
+  );
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 480 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole('button', { name: 'Feature menu' }).click();
+    await expect(page.getByLabel('语言 / Language')).toBeVisible();
+    await expect(
+      page.getByRole('button', {
+        name: 'Switch to Administrator mode',
+        exact: true,
+      }),
+    ).toBeVisible();
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      'English menu has no horizontal overflow',
+    );
+    await page.screenshot({
+      path: join(artifacts, `cw-english-${viewport.width}.png`),
+    });
+    await page.keyboard.press('Escape');
+  }
+  await page.getByRole('button', { name: 'Feature menu' }).click();
+  await page.getByLabel('语言 / Language').selectOption('zh-CN');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await expect(page).toHaveTitle('远程 Codex');
+  await expect(group.locator(':scope > summary')).toContainText('3 项');
+  await page.keyboard.press('Escape');
+  await page.getByLabel('任务内容').fill('');
+  await page.setViewportSize({ width: 390, height: 844 });
   const downloadBytes = Buffer.alloc(65539, 255);
   const fileReads: {
     projectId: string;
@@ -536,6 +604,33 @@ try {
         await page.screenshot({
           path: join(artifacts, `approvals-${height}.png`),
         });
+      if (count === 3 && height === 844) {
+        const approvalConnections = attachCalls;
+        await openMenu(page);
+        await page.getByLabel('语言 / Language').selectOption('en');
+        await page.keyboard.press('Escape');
+        await expect(
+          page.getByText('Request to run a command', { exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Allow once', exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Deny', exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Next', exact: true }),
+        ).toBeVisible();
+        assert.equal(
+          attachCalls,
+          approvalConnections,
+          'language switching keeps pending approvals connected',
+        );
+        await page.getByRole('button', { name: 'Feature menu' }).click();
+        await page.getByLabel('语言 / Language').selectOption('zh-CN');
+        await page.keyboard.press('Escape');
+        await expect(page.getByText('等待你的确认 · 1 / 3')).toBeVisible();
+      }
     }
   }
   approvals = [];
@@ -640,6 +735,19 @@ try {
         .filter({ hasText: '模拟历史读取失败' })
         .waitFor({ timeout: 5000 });
       await expect(loadOlder).toBeEnabled();
+      // Entering history mode changes the header height. Fail once more at
+      // the top so the retry starts with a stable layout and scroll position.
+      failOlderPageOnce = true;
+      const failedCalls = olderPageCalls;
+      await historyPage.locator('.messages').evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      await expect.poll(() => olderPageCalls).toBe(failedCalls + 1);
+      await historyPage
+        .getByRole('alert')
+        .filter({ hasText: '模拟历史读取失败' })
+        .waitFor({ timeout: 5000 });
+      await expect(loadOlder).toBeEnabled();
       await expect(messages).toHaveCount(150);
       await historyPage
         .locator('.error')
@@ -648,7 +756,8 @@ try {
     }
     const callsBefore = olderPageCalls;
     for (const count of [300, 450, 600]) {
-      if (size) {
+      const wheelAtTop = !!size && count === 300;
+      if (size && !wheelAtTop) {
         await historyPage.locator('.messages').evaluate((el) => {
           el.scrollTop = 240;
         });
@@ -660,17 +769,31 @@ try {
       }
       const anchor = messages.first();
       const seq = await anchor.getAttribute('data-event-seq');
-      const top = size
-        ? await historyPage.locator('.messages').evaluate((el) => {
-            el.scrollTop = 80;
-            const top = el
-              .querySelector('[data-event-seq]')!
-              .getBoundingClientRect().top;
-            for (let index = 0; index < 5; index++)
-              el.dispatchEvent(new Event('scroll'));
-            return top;
-          })
-        : (await anchor.boundingBox())!.y;
+      const top =
+        size && !wheelAtTop
+          ? await historyPage.locator('.messages').evaluate((el) => {
+              el.scrollTop = 80;
+              const top = el
+                .querySelector('[data-event-seq]')!
+                .getBoundingClientRect().top;
+              for (let index = 0; index < 5; index++)
+                el.dispatchEvent(new Event('scroll'));
+              return top;
+            })
+          : (await anchor.boundingBox())!.y;
+      if (wheelAtTop) {
+        await expect
+          .poll(() =>
+            historyPage.locator('.messages').evaluate((el) => el.scrollTop),
+          )
+          .toBe(0);
+        await historyPage.locator('.messages').hover();
+        await historyPage.locator('.messages').dispatchEvent('wheel', {
+          deltaY: 100,
+        });
+        await expect(messages).toHaveCount(150);
+        await historyPage.mouse.wheel(0, -100);
+      }
       if (!size)
         await loadOlder.evaluate((button) =>
           (button as HTMLButtonElement).click(),
@@ -897,9 +1020,41 @@ try {
   await openMenu(page);
   await expect(menu.getByRole('button', { name: /^设备授权/ })).toBeVisible();
   await expect(menu.getByRole('button', { name: /^CW 对话/ })).toHaveCount(0);
+  await page.getByLabel('语言 / Language').selectOption('en');
+  const englishMenu = page.getByRole('navigation', { name: 'Feature menu' });
+  await expect(
+    page.getByRole('heading', { name: 'Administrator sign-in' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Owner secret')).toBeVisible();
+  await englishMenu
+    .getByRole('button', { name: 'Switch to CW mode', exact: true })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Connect to a remote server' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Message to administrator')).toBeVisible();
+  await englishMenu
+    .getByRole('button', { name: 'Switch to Administrator mode', exact: true })
+    .click();
+  await page.getByLabel('Owner secret').fill('synthetic-owner-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Device access management' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Feature menu' }).click();
+  await englishMenu.getByRole('button', { name: /^API Key/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'API Key management' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Key name')).toBeVisible();
+  await page.getByRole('button', { name: 'Feature menu' }).click();
+  await page.getByLabel('语言 / Language').selectOption('zh-CN');
+  await expect(
+    page.getByRole('heading', { name: 'API Key 管理' }),
+  ).toBeVisible();
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

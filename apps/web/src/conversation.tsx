@@ -1,3 +1,4 @@
+import { t, useLanguage } from './i18n.ts';
 import {
   memo,
   useState,
@@ -20,6 +21,7 @@ import { visibleEvents } from './events.ts';
 import { groupToolEvents } from './events.ts';
 
 export function CopyText({ text }: { text: string }) {
+  useLanguage();
   const [message, setMessage] = useState('');
   return (
     <>
@@ -31,9 +33,9 @@ export function CopyText({ text }: { text: string }) {
             .catch(() => setMessage('请手动选择文本复制'))
         }
       >
-        复制
+        {t('复制')}
       </button>
-      <small role="status">{message}</small>
+      <small role="status">{t(message)}</small>
     </>
   );
 }
@@ -93,6 +95,7 @@ const EventView = memo(
     onRead: ConversationProps['onRead'];
     reading?: boolean;
   }) {
+    useLanguage();
     const [expanded, setExpanded] = useState(false);
     const fileContext = useContext(FileContext);
     const chat =
@@ -134,7 +137,12 @@ const EventView = memo(
                   a: ({ children, href }) => (
                     <FileLink href={href}>{children}</FileLink>
                   ),
-                  img: ({ alt }) => <span>[图片：{alt}]</span>,
+                  img: ({ alt }) => (
+                    <span>
+                      {t('[图片：')}
+                      {alt}]
+                    </span>
+                  ),
                 }}
               >
                 {content || ''}
@@ -166,12 +174,12 @@ const EventView = memo(
               disabled={reading || (!!chunk && !chunk.more)}
             >
               {reading
-                ? '正在读取…'
+                ? t('正在读取…')
                 : chunk
                   ? chunk.more
-                    ? '展开更多'
-                    : '已读完'
-                  : '展开内容'}
+                    ? t('展开更多')
+                    : t('已读完')
+                  : t('展开内容')}
             </button>
           </>
         )}
@@ -214,6 +222,7 @@ export const ConversationView = memo(function ConversationView({
   onRead,
   reading = {},
 }: ConversationProps) {
+  useLanguage();
   const render = (event: Event) => (
     <EventView
       key={event.seq}
@@ -241,8 +250,8 @@ export const ConversationView = memo(function ConversationView({
         data-event-seq={group.events[0].seq}
       >
         <summary>
-          工具调用 · {group.events.length} 项
-          {group.events.some(toolFailed) ? ' · 含失败' : ''}
+          {t('工具调用 ·')} {group.events.length} {t('项')}
+          {group.events.some(toolFailed) ? t(' · 含失败') : ''}
         </summary>
         {group.events.map(render)}
       </details>
@@ -273,45 +282,48 @@ function eventTitle(e: Event) {
     const label =
       item.command ||
       (item.type === 'fileChange'
-        ? `修改文件${item.changes ? ` · ${item.changes.length} 项` : ''}`
-        : '工具调用');
-    return `${label} · ${item.exitCode != null ? `退出码 ${item.exitCode}` : e.type === 'item/completed' ? '已完成' : '进行中'}`;
+        ? t(
+            '修改文件{0}',
+            item.changes ? t(' · {0} 项', item.changes.length) : '',
+          )
+        : t('工具调用'));
+    return `${label} · ${item.exitCode != null ? t('退出码 {0}', item.exitCode) : e.type === 'item/completed' ? t('已完成') : t('进行中')}`;
   }
   return (
     (
       {
-        user: '你',
+        user: t('你'),
         'item/agentMessage/delta': 'Codex',
-        'turn/started': '开始任务',
-        'turn/completed': '本轮结束',
-        'turn/diff/updated': '代码差异',
-        'turn/plan/updated': '执行计划',
-        'item/started': '工具操作',
-        'item/completed': '工具结果',
-        'item/commandExecution/outputDelta': '命令输出',
-        'item/fileChange/outputDelta': '文件变更',
-        queueAccepted: '已加入原客户端队列 · 等待执行',
-        warning: '提示',
-        error: '错误',
-        approvalResolved: '审批结果',
-        sessionClosed: '会话结束',
+        'turn/started': t('开始任务'),
+        'turn/completed': t('本轮结束'),
+        'turn/diff/updated': t('代码差异'),
+        'turn/plan/updated': t('执行计划'),
+        'item/started': t('工具操作'),
+        'item/completed': t('工具结果'),
+        'item/commandExecution/outputDelta': t('命令输出'),
+        'item/fileChange/outputDelta': t('文件变更'),
+        queueAccepted: t('已加入原客户端队列 · 等待执行'),
+        warning: t('提示'),
+        error: t('错误'),
+        approvalResolved: t('审批结果'),
+        sessionClosed: t('会话结束'),
       } as Record<string, string>
-    )[e.type] || '任务活动'
+    )[e.type] || t('任务活动')
   );
 }
 function eventText(e: Event): string {
   const d = e.data as any;
-  if (e.type === 'turn/started') return '任务已开始。';
+  if (e.type === 'turn/started') return t('任务已开始。');
   if (e.type === 'turn/completed')
     return d.turn?.status === 'completed'
-      ? '任务已完成。'
-      : '任务已停止或失败：' +
-          (d.turn?.error?.message || d.turn?.status || '未知状态');
+      ? t('任务已完成。')
+      : t('任务已停止或失败：') +
+          (d.turn?.error?.message || d.turn?.status || t('未知状态'));
   if (e.type === 'approvalResolved' && d.external)
-    return d.message || '原客户端已解决此审批；以执行结果为准。';
+    return d.message || t('原客户端已解决此审批；以执行结果为准。');
   if (e.type === 'approvalResolved')
-    return d.allow ? '已允许该操作。' : '已拒绝该操作。';
-  if (e.type === 'sessionClosed') return '会话已结束：' + d.state;
+    return d.allow ? t('已允许该操作。') : t('已拒绝该操作。');
+  if (e.type === 'sessionClosed') return t('会话已结束：') + d.state;
   if (e.type === 'turn/plan/updated')
     return (
       (d.explanation || '') +
@@ -325,7 +337,7 @@ function eventText(e: Event): string {
       ? [
           d.item.command,
           d.item.aggregatedOutput,
-          d.item.exitCode != null ? '退出码：' + d.item.exitCode : '',
+          d.item.exitCode != null ? t('退出码：') + d.item.exitCode : '',
         ]
           .filter(Boolean)
           .join('\n\n')
@@ -336,6 +348,6 @@ function eventText(e: Event): string {
     d.diff ||
     d.message ||
     d.error?.message ||
-    '状态已更新。'
+    t('状态已更新。')
   );
 }

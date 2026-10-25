@@ -76,6 +76,8 @@ flowchart LR
 
 连接由 Worker 转交到对应 DO；DO 不能回连内网。Agent 的单条上行连接承载多个隔离通道，每个通道映射到独立 runtime。
 
+Web UI 的中文 / English 语言状态独立于认证与会话，默认中文，使用本机 localStorage 保留并同步同源标签页；不可用时退回内存。React 通过外部状态订阅更新界面与日期格式，文档 `lang` 和标题同步更新。语言切换不重建连接、不重置草稿或审批；翻译表仅覆盖界面文案，不改写对话、命令、路径或协议载荷。
+
 ### 3.1 设备授权模型
 
 R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。
@@ -89,7 +91,6 @@ Agent 使用 Bearer 访问 `/api/v1/agent/requests` 及单请求 approve/reject�
 原生 `requests / approve / reject` 直接读取 Agent 配置，使用既有 HTTPS 客户端，不启动 Codex runtime、不打开 Store 或占用 dataDir 锁，服务运行或停止时均可明确操作。
 
 `Agent::start` 在连接调度前发起一次客户端申请检查，之后由 30 秒维护周期触发。单线程 `approval_pool_` 执行最多一个在途 HTTP GET，超时 5 秒；结果回到业务执行器处理，不占用文件传输池或阻塞 relay 心跳。查询结果再次核对目标和客户端角色，只向 stderr 输出新请求的白名单字段与人工审批命令；名称和留言使用 JSON 转义，配置路径使用 POSIX shell 单引号转义。按当前 pending ID 集合去重，空间随有效待处理申请有界；进程重启后重新提示。失败保留去重状态、连续失败仅提示一次，恢复后继续发现新申请。退出时等待有界请求结束且丢弃结果，不在停止后发出审批提示。
-
 
 Auth version 2 使用 agent / cli / web 三种独立角色，hostId 固定绑定，设备凭证 expires 使用安全整数最大值表示无固定到期。管理身份 owner 独立，仍为 8 小时。旧认证记录拒绝使用，不自动提升为新授权。CC / CW 的 HTTP、会话票据、WebSocket 都按角色和目标 A 校验，不能调用管理接口。CC 仅控制 cli 模式，CW 仅控制 web 模式。管理员身份不能直接操作会话。
 
@@ -172,8 +173,8 @@ Agent 重启后将旧 runtime 标记为中断，检查线程历史后允许用�
 | `POST /auth/login`、`POST /auth/logout`                                                 | 管理身份登录 / 清除本地管理 Cookie         |
 | `GET /auth/me`                                                                          | 查询独立管理身份                           |
 | `POST /auth/forget`                                                                     | 清除指定 A 的本地 CW Cookie，不撤销 R 授权 |
-| `GET /agent/requests` | Agent 查看明确指定自己的待处理客户端申请 |
-| `POST /agent/requests/:id/approve`、`POST /agent/requests/:id/reject` | Agent 明确批准 / 拒绝本机申请 |
+| `GET /agent/requests`                                                                   | Agent 查看明确指定自己的待处理客户端申请   |
+| `POST /agent/requests/:id/approve`、`POST /agent/requests/:id/reject`                   | Agent 明确批准 / 拒绝本机申请              |
 | `GET /hosts`、`GET /hosts/:id/projects`                                                 | 获取设备及经 Agent 同步的项目描述          |
 | `POST /auth/device/start`、`POST /auth/device/poll`                                     | 统一申请 / 领取角色和 A 专用授权           |
 | `GET /admin/devices`、`POST /admin/approve`、`POST /admin/reject`、`POST /admin/revoke` | 查看、批准、拒绝、撤销设备授权             |
@@ -392,13 +393,11 @@ CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史
 - 浏览器按 seq/revision 合并 20 ms 内的实时缓存写入，最多一个写事务和有界待写批次（400 条/192 KiB）。已保存数据不自动淘汰；清理使用当前 scope 范围游标并保留草稿/待确认请求。缓存记录原始分页边界，也能从覆盖当前游标的缓存页读取子范围，避免返回最新后重新下载旧页。服务端回放仍负责补齐缺失修订，checkpoint 不依据未经确认的实时事件提前推进。
 - 纯流式显示按约 16 ms 合并，字节计数按不可变事件对象复用；对话/消息 memo 隔离输入状态变化，折叠工具只在展开后挂载正文。已加载历史完整呈现，已展开正文不再裁掉前文。
 
-
 ## 外部 writer 观察与队列（0.5.7）
 
 ExternalThread 独立于原 writer，以 thread/read 验证项目后，使用 thread/items/list 或 legacy thread/turns/list 的双向游标轮询落盘历史。观察进程不 resume、start、interrupt 或处理原客户端审批。正常恢复仅在明确 active writer 错误时转观察。SQLite external_items 保存 thread turn/item 对应的稳定 seq 和内容指纹；同内容不写日志，增长保存后缀，重写替换正文，投影增加 revision，已有历史/分块/重连协议继续工作。归档使用保留的负序号，避免与普通归档冲突。
 
 queue 控制接口同时验证凭证角色、会话角色、项目目录及外部队列配置。每个请求先写持久去重记录和 clientUserMessageId，再标记 submitted 后发送 thread/queue/add。应答确认才记录 queued；未知结果只使用 queue/list 对账，不自动再次添加。原客户端消费后无法从 pending queue 证明结果，保持未知并提示人工核对。实验性队列 API 仅在 Agent 的 Codex 初始化启用，原生 RPC allowlist 继续拒绝直接调用该 API。
-
 
 ### 外部审批桥接
 

@@ -1,3 +1,10 @@
+import {
+  t,
+  localeTag,
+  useLanguage,
+  setLanguage,
+  type Language,
+} from './i18n.ts';
 import React, {
   useEffect,
   useLayoutEffect,
@@ -64,6 +71,7 @@ function CodexMark() {
 type View = 'chat' | 'connection' | 'devices' | 'keys';
 type Mode = 'cw' | 'admin';
 function App() {
+  const language = useLanguage();
   const [view, setView] = useState<View>('chat');
   const [mode, setMode] = useState<Mode>('cw');
   const adminLogin = mode === 'admin';
@@ -138,7 +146,7 @@ function App() {
     [deviceMessage, setDeviceMessage] = useState(''),
     [requestedHost, setRequestedHost] = useState(''),
     [approvalHosts, setApprovalHosts] = useState<Record<string, string>>({}),
-    [deviceName, setDeviceName] = useState('网页客户端'),
+    [deviceName, setDeviceName] = useState(() => t('网页客户端')),
     [adding, setAdding] = useState(false),
     [checking, setChecking] = useState(true),
     [devices, setDevices] = useState<{ pending: any[]; credentials: any[] }>({
@@ -184,7 +192,9 @@ function App() {
     if (
       fileBusy &&
       !confirm(
-        '关闭面板会取消传输；正在提交的文件可能已经发布，请重新打开核对结果。继续？',
+        t(
+          '关闭面板会取消传输；正在提交的文件可能已经发布，请重新打开核对结果。继续？',
+        ),
       )
     )
       return;
@@ -1336,8 +1346,14 @@ function App() {
       action === 'revoke' &&
       !confirm(
         device?.role === 'agent'
-          ? `停用服务器 ${device.name} 并撤销其所有客户端授权？相关连接会关闭。`
-          : `撤销客户端 ${device?.name || id} 的访问？该客户端连接会关闭，其他授权保留。`,
+          ? t(
+              '停用服务器 {0} 并撤销其所有客户端授权？相关连接会关闭。',
+              device.name,
+            )
+          : t(
+              '撤销客户端 {0} 的访问？该客户端连接会关闭，其他授权保留。',
+              device?.name || id,
+            ),
       )
     )
       return;
@@ -1446,18 +1462,18 @@ function App() {
   };
   const connectionControls = logged && (
     <section className="card">
-      <h2>登录与授权</h2>
-      <button onClick={() => setAdding((v) => !v)}>添加 A 授权</button>
+      <h2>{t('登录与授权')}</h2>
+      <button onClick={() => setAdding((v) => !v)}>{t('添加 A 授权')}</button>
     </section>
   );
   const loginForm = !checking && (adminLogin ? !admin : !logged || adding) && (
     <form onSubmit={login} className="card login-card">
-      <h2>{adminLogin ? '管理员登录' : '连接远程服务器'}</h2>
+      <h2>{adminLogin ? t('管理员登录') : t('连接远程服务器')}</h2>
       {adminLogin ? (
         <label>
-          所有者密钥
+          {t('所有者密钥')}
           <input
-            aria-label="所有者密钥"
+            aria-label={t('所有者密钥')}
             type="password"
             required
             autoComplete="current-password"
@@ -1468,12 +1484,14 @@ function App() {
       ) : (
         <>
           <small>
-            可指定目标服务器，由该 Agent 或管理员批准；留空则由管理员选择。
+            {t(
+              '可指定目标服务器，由该 Agent 或管理员批准；留空则由管理员选择。',
+            )}
           </small>
           <label>
-            设备名称
+            {t('设备名称')}
             <input
-              aria-label="设备名称"
+              aria-label={t('设备名称')}
               required
               maxLength={100}
               disabled={!!grant}
@@ -1482,23 +1500,23 @@ function App() {
             />
           </label>
           <label>
-            目标服务器 ID（选填）
+            {t('目标服务器 ID（选填）')}
             <input
-              aria-label="目标服务器 ID（选填）"
+              aria-label={t('目标服务器 ID（选填）')}
               maxLength={100}
               disabled={!!grant}
               value={requestedHost}
               onChange={(e) => setRequestedHost(e.target.value)}
-              placeholder="由服务器所有者提供"
+              placeholder={t('由服务器所有者提供')}
             />
           </label>
           <label>
-            给管理员留言
+            {t('给管理员留言')}
             <textarea
-              aria-label="给管理员留言"
+              aria-label={t('给管理员留言')}
               maxLength={1000}
               disabled={!!grant}
-              placeholder="例如：你的身份、希望访问的服务器或用途（选填）"
+              placeholder={t('例如：你的身份、希望访问的服务器或用途（选填）')}
               value={deviceMessage}
               onChange={(e) => setDeviceMessage(e.target.value)}
             />
@@ -1506,48 +1524,56 @@ function App() {
         </>
       )}
       <button type="submit" disabled={generating || (!adminLogin && !!grant)}>
-        {adminLogin ? '登录' : '申请登录'}
+        {adminLogin ? t('登录') : t('申请登录')}
       </button>
       {!adminLogin && grant && (
         <div role="status">
           <p>
             {grant.requestedHostId
-              ? '等待目标服务器或管理员批准，配对码：'
-              : '等待管理员批准，配对码：'}
+              ? t('等待目标服务器或管理员批准，配对码：')
+              : t('等待管理员批准，配对码：')}
             <strong>{grant.code}</strong>
           </p>
           <p>
-            设备：{deviceName} ·{' '}
+            {t('设备：')}
+            {deviceName} ·{' '}
             {grant.requestedHostId
-              ? `目标服务器：${grant.requestedHostId}`
-              : '服务器由管理员选择'}
+              ? t('目标服务器：{0}', grant.requestedHostId)
+              : t('服务器由管理员选择')}
           </p>
           {deviceMessage && (
-            <p className="request-message">留言：{deviceMessage}</p>
+            <p className="request-message">
+              {t('留言：')}
+              {deviceMessage}
+            </p>
           )}
           <details>
-            <summary>请求标识</summary>
+            <summary>{t('请求标识')}</summary>
             <p>{grant.id}</p>
           </details>
-          <p>有效期至 {new Date(grant.expires).toLocaleString()}</p>
+          <p>
+            {t('有效期至')}{' '}
+            {new Date(grant.expires).toLocaleString(localeTag())}
+          </p>
         </div>
       )}
       {!adminLogin && (
         <p>
-          填写设备名称和留言 → 提交申请 → 目标 Agent
-          或管理员核对配对码并批准；未指定目标时由管理员选择。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
+          {t(
+            '填写设备名称和留言 → 提交申请 → 目标 Agent 或管理员核对配对码并批准；未指定目标时由管理员选择。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。',
+          )}
         </p>
       )}
     </form>
   );
   const projectPicker = (
     <section className="card project-picker">
-      <h2>选择远程项目</h2>
+      <h2>{t('选择远程项目')}</h2>
       <div className="row">
         <label>
-          主机
+          {t('主机')}
           <select
-            aria-label="主机"
+            aria-label={t('主机')}
             value={host}
             onChange={(e) => {
               setSelected(undefined);
@@ -1555,18 +1581,18 @@ function App() {
               setHost(e.target.value);
             }}
           >
-            <option value="">请选择</option>
+            <option value="">{t('请选择')}</option>
             {hosts.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.name} · {h.online ? '在线' : '离线'}
+                {h.name} · {h.online ? t('在线') : t('离线')}
               </option>
             ))}
           </select>
         </label>
         <label>
-          项目
+          {t('项目')}
           <select
-            aria-label="项目"
+            aria-label={t('项目')}
             value={project}
             onChange={(e) => {
               setSelected(undefined);
@@ -1580,13 +1606,15 @@ function App() {
             ))}
           </select>
         </label>
-        <button onClick={() => void refresh()}>刷新主机</button>
+        <button onClick={() => void refresh()}>{t('刷新主机')}</button>
         <button
           disabled={!host}
           onClick={() => {
             if (
               confirm(
-                '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                t(
+                  '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                ),
               )
             )
               void api('/auth/forget', { hostId: host })
@@ -1599,7 +1627,7 @@ function App() {
                 .catch(report);
           }}
         >
-          移除本地授权
+          {t('移除本地授权')}
         </button>
         <button
           disabled={!online || !host || !project || creating}
@@ -1608,7 +1636,7 @@ function App() {
             void create();
           }}
         >
-          创建网页会话
+          {t('创建网页会话')}
         </button>
       </div>
     </section>
@@ -1628,23 +1656,25 @@ function App() {
           {view === 'chat' && logged ? (
             <span>
               {threads.find((t) => t.id === selected?.threadId)?.name ||
-                'Codex 对话'}
+                t('Codex 对话')}
             </span>
           ) : (
             <>
-              <CodexMark /> <span>远程 Codex</span>
-              <small>{mode === 'admin' ? '管理员模式' : 'CW 工作台'}</small>
+              <CodexMark /> <span>{t('远程 Codex')}</span>
+              <small>
+                {mode === 'admin' ? t('管理员模式') : t('CW 工作台')}
+              </small>
             </>
           )}
         </a>
         {logged && view === 'chat' && (
           <div className="header-actions">
-            <button onClick={() => setPanel('sessions')}>历史</button>
+            <button onClick={() => setPanel('sessions')}>{t('历史')}</button>
             <button
               disabled={!online || !project || creating}
               onClick={() => void create()}
             >
-              新建
+              {t('新建')}
             </button>
           </div>
         )}
@@ -1654,18 +1684,18 @@ function App() {
           aria-controls="feature-menu"
           onClick={() => setMenuOpen((v) => !v)}
         >
-          <MenuIcon /> 功能菜单
+          <MenuIcon /> {t('功能菜单')}
         </button>
         {menuOpen && (
-          <nav id="feature-menu" aria-label="功能菜单">
+          <nav id="feature-menu" aria-label={t('功能菜单')}>
             <div className="menu-heading">
-              <strong>{mode === 'cw' ? 'CW 模式' : '管理员模式'}</strong>
+              <strong>{mode === 'cw' ? t('CW 模式') : t('管理员模式')}</strong>
               <small>
                 {mode === 'cw'
-                  ? '对话与远程工作区'
+                  ? t('对话与远程工作区')
                   : admin
-                    ? '已登录管理'
-                    : '需要管理员登录'}
+                    ? t('已登录管理')
+                    : t('需要管理员登录')}
               </small>
             </div>
             <div className="menu-items">
@@ -1678,8 +1708,8 @@ function App() {
                       setMenuOpen(false);
                     }}
                   >
-                    <strong>会话记录</strong>
-                    <small>恢复与搜索历史对话</small>
+                    <strong>{t('会话记录')}</strong>
+                    <small>{t('恢复与搜索历史对话')}</small>
                   </button>
                   <button
                     disabled={creating || !online}
@@ -1692,8 +1722,8 @@ function App() {
                       } else openSessions();
                     }}
                   >
-                    <strong>新建对话</strong>
-                    <small>在当前项目开始新对话</small>
+                    <strong>{t('新建对话')}</strong>
+                    <small>{t('在当前项目开始新对话')}</small>
                   </button>
                   <button
                     onClick={() => {
@@ -1707,8 +1737,8 @@ function App() {
                       }
                     }}
                   >
-                    <strong>工作区文件</strong>
-                    <small>上传、下载远程项目文件</small>
+                    <strong>{t('工作区文件')}</strong>
+                    <small>{t('上传、下载远程项目文件')}</small>
                   </button>
                   <button
                     disabled={!selected}
@@ -1718,23 +1748,23 @@ function App() {
                       setMenuOpen(false);
                     }}
                   >
-                    <strong>会话详情</strong>
-                    <small>连接状态、远程项目与会话操作</small>
+                    <strong>{t('会话详情')}</strong>
+                    <small>{t('连接状态、远程项目与会话操作')}</small>
                   </button>
                 </>
               )}
               {(mode === 'cw'
                 ? ([
-                    ['chat', 'CW 对话', '会话与远程任务'],
+                    ['chat', t('CW 对话'), t('会话与远程任务')],
                     ...(!logged
                       ? ([
-                          ['connection', '登录与授权', '连接远程服务器'],
+                          ['connection', t('登录与授权'), t('连接远程服务器')],
                         ] as const)
                       : []),
                   ] as const)
                 : ([
-                    ['devices', '设备授权', '审批与管理设备'],
-                    ['keys', 'API Key', '管理访问凭证'],
+                    ['devices', t('设备授权'), t('审批与管理设备')],
+                    ['keys', 'API Key', t('管理访问凭证')],
                   ] as const)
               ).map(([id, label, description]) => (
                 <button
@@ -1763,15 +1793,28 @@ function App() {
                       .catch(report)
                   }
                 >
-                  <strong>退出管理</strong>
-                  <small>结束当前管理员登录</small>
+                  <strong>{t('退出管理')}</strong>
+                  <small>{t('结束当前管理员登录')}</small>
                 </button>
               )}
             </div>
             <div className="menu-footer">
+              <label className="language-picker">
+                <span>语言 / Language</span>
+                <select
+                  aria-label="语言 / Language"
+                  value={language}
+                  onChange={(event) =>
+                    setLanguage(event.target.value as Language)
+                  }
+                >
+                  <option value="zh-CN">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
               <button className="mode-switch" onClick={switchMode}>
                 <span aria-hidden="true">⇄</span>
-                切换到{mode === 'cw' ? '管理员' : 'CW'}模式
+                {t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
               </button>
             </div>
           </nav>
@@ -1783,15 +1826,15 @@ function App() {
           project={projects.find((p) => p.id === project)?.name || project}
           status={
             !online
-              ? '服务器离线 · 只读缓存'
+              ? t('服务器离线 · 只读缓存')
               : selected?.external
-                ? '外部会话 · 只读同步' +
+                ? t('外部会话 · 只读同步') +
                   (selected.approvalForwarding
-                    ? ' · 可远程审批'
-                    : ' · 审批在原客户端') +
-                  (busy ? ' · 原客户端执行中' : '')
+                    ? t(' · 可远程审批')
+                    : t(' · 审批在原客户端')) +
+                  (busy ? t(' · 原客户端执行中') : '')
                 : approvals.length
-                  ? '等待你的确认'
+                  ? t('等待你的确认')
                   : status
           }
           onDetails={() => {
@@ -1802,21 +1845,21 @@ function App() {
       )}
       {createOperation && (
         <div className="notice" role="status">
-          正在确认 {remoteTarget} 的会话创建结果。请求：
+          {t('正在确认')} {remoteTarget} {t('的会话创建结果。请求：')}
           {createOperation.requestId}
           <button
             disabled={creating || !online}
             onClick={() => void create(createOperation.threadId)}
           >
-            以原请求继续确认
+            {t('以原请求继续确认')}
           </button>
-          <small>重复使用同一请求身份；不会自动另建任务。</small>
+          <small>{t('重复使用同一请求身份；不会自动另建任务。')}</small>
         </div>
       )}
       {notice && (
         <div role="status" className="notice">
-          {notice}
-          <button onClick={() => setNotice('')}>关闭</button>
+          {t(notice)}
+          <button onClick={() => setNotice('')}>{t('关闭')}</button>
         </div>
       )}
       {view !== 'chat' && (
@@ -1824,48 +1867,56 @@ function App() {
           <span>
             {
               {
-                chat: 'CW 对话',
-                connection: '登录与授权',
-                devices: '设备授权',
-                keys: 'API Key 管理',
+                chat: t('CW 对话'),
+                connection: t('登录与授权'),
+                devices: t('设备授权'),
+                keys: t('API Key 管理'),
               }[view]
             }
           </span>
           <small>
             {mode === 'admin'
-              ? '管理员模式'
+              ? t('管理员模式')
               : hosts.find((h) => h.id === host)?.name ||
-                '选择远程主机开始工作'}
+                t('选择远程主机开始工作')}
           </small>
         </div>
       )}
       {error && (
         <div role="alert" className="error">
-          {error}
-          <button onClick={() => setError('')}>关闭</button>
+          {t(error)}
+          <button onClick={() => setError('')}>{t('关闭')}</button>
         </div>
       )}
-      {checking && <p role="status">正在检查登录状态…</p>}
+      {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
       {admin && view === 'devices' && (
         <section className="card">
-          <h2>设备授权管理</h2>
+          <h2>{t('设备授权管理')}</h2>
           <button
             onClick={() => {
-              if (confirm('撤销其他浏览器的管理员登录？设备与客户端授权保留。'))
+              if (
+                confirm(t('撤销其他浏览器的管理员登录？设备与客户端授权保留。'))
+              )
                 void api('/auth/logout-others', {})
                   .then(() => setNotice('其他管理会话已撤销'))
                   .catch(report);
             }}
           >
-            退出其他管理会话
+            {t('退出其他管理会话')}
           </button>
           <p>
-            批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作
-            Codex 会话。
+            {t(
+              '批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作 Codex 会话。',
+            )}
           </p>
-          {managing && <p>当前请求：{managing}</p>}
-          <h3>服务器唤醒配置</h3>
+          {managing && (
+            <p>
+              {t('当前请求：')}
+              {managing}
+            </p>
+          )}
+          <h3>{t('服务器唤醒配置')}</h3>
           {keyHosts.map((h) => (
             <HostWakeSettings
               key={h.id}
@@ -1880,8 +1931,8 @@ function App() {
               }}
             />
           ))}
-          <h3>待授权请求</h3>
-          {!devices.pending.length && <p>暂无待授权请求</p>}
+          <h3>{t('待授权请求')}</h3>
+          {!devices.pending.length && <p>{t('暂无待授权请求')}</p>}
           {devices.pending.map((d) => (
             <div
               className={`card ${d.id === managing ? 'highlight-request' : ''}`}
@@ -1891,21 +1942,22 @@ function App() {
               <p>
                 {d.name} ·{' '}
                 {d.role === 'agent'
-                  ? '服务器 Agent'
+                  ? t('服务器 Agent')
                   : d.role === 'cli'
-                    ? '命令行客户端'
-                    : '网页客户端'}{' '}
-                · 配对码 {d.code}
+                    ? t('命令行客户端')
+                    : t('网页客户端')}{' '}
+                {t('· 配对码')} {d.code}
               </p>
               {d.role !== 'agent' ? (
                 <>
                   <p className="request-message">
-                    留言：{d.message || '未填写'}
+                    {t('留言：')}
+                    {d.message || t('未填写')}
                   </p>
                   <label>
-                    目标服务器
+                    {t('目标服务器')}
                     <select
-                      aria-label={`目标服务器 ${d.code}`}
+                      aria-label={t('目标服务器 {0}', d.code)}
                       value={d.requestedHostId || approvalHosts[d.id] || ''}
                       disabled={!!d.requestedHostId}
                       onChange={(e) =>
@@ -1915,7 +1967,7 @@ function App() {
                         }))
                       }
                     >
-                      <option value="">请选择服务器</option>
+                      <option value="">{t('请选择服务器')}</option>
                       {keyHosts.map((h) => (
                         <option key={h.id} value={h.id}>
                           {h.name} · {h.id}
@@ -1925,24 +1977,27 @@ function App() {
                   </label>
                   {d.requestedHostId && (
                     <p>
-                      申请方指定：{d.requestedHostId}；该 Agent 也可批准或拒绝。
+                      {t('申请方指定：')}
+                      {d.requestedHostId}
+                      {t('；该 Agent 也可批准或拒绝。')}
                     </p>
                   )}
                   {!keyHosts.length && (
-                    <p>暂无可授权的服务器，请先授权服务器 Agent。</p>
+                    <p>{t('暂无可授权的服务器，请先授权服务器 Agent。')}</p>
                   )}
                 </>
               ) : (
                 <p>
-                  目标服务器：
+                  {t('目标服务器：')}
                   {keyHosts.find((host) => host.id === d.hostId)?.name ||
                     d.hostId}
                 </p>
               )}
               <details>
-                <summary>请求标识与有效期</summary>
+                <summary>{t('请求标识与有效期')}</summary>
                 <p>
-                  {d.id} · 有效期至 {new Date(d.expires).toLocaleString()}
+                  {d.id} {t('· 有效期至')}{' '}
+                  {new Date(d.expires).toLocaleString(localeTag())}
                 </p>
               </details>
               <button
@@ -1956,33 +2011,37 @@ function App() {
                 }
                 onClick={() => void manage('approve', d.id)}
               >
-                批准 {d.code}
+                {t('批准')} {d.code}
               </button>
               <button
                 disabled={generating}
                 onClick={() => void manage('reject', d.id)}
               >
-                拒绝 {d.code}
+                {t('拒绝')} {d.code}
               </button>
             </div>
           ))}
-          <h3>已授权设备</h3>
+          <h3>{t('已授权设备')}</h3>
           {devices.credentials.map((d) => (
             <div className="card" key={d.id} data-credential-id={d.id}>
               <p>
                 {d.name} ·{' '}
                 {d.role === 'agent'
-                  ? '服务器 Agent'
+                  ? t('服务器 Agent')
                   : d.role === 'cli'
-                    ? '命令行客户端'
-                    : '网页客户端'}{' '}
-                · 服务器：
+                    ? t('命令行客户端')
+                    : t('网页客户端')}{' '}
+                {t('· 服务器：')}
                 {keyHosts.find((host) => host.id === d.hostId)?.name ||
                   d.hostId}
               </p>
-              <p>授权时间：{new Date(d.created).toLocaleString()} · 长期有效</p>
+              <p>
+                {t('授权时间：')}
+                {new Date(d.created).toLocaleString(localeTag())}{' '}
+                {t('· 长期有效')}
+              </p>
               <details>
-                <summary>授权标识与服务器</summary>
+                <summary>{t('授权标识与服务器')}</summary>
                 <p className="id">
                   {d.id} · {d.hostId}
                 </p>
@@ -1992,7 +2051,7 @@ function App() {
                 disabled={generating}
                 onClick={() => void manage('revoke', d.id)}
               >
-                撤销 {d.name}
+                {t('撤销')} {d.name}
               </button>
             </div>
           ))}
@@ -2000,10 +2059,11 @@ function App() {
       )}
       {admin && view === 'keys' && (
         <section className="card">
-          <h2>API Key 管理</h2>
+          <h2>{t('API Key 管理')}</h2>
           <p>
-            Key 本身就是长期访问凭证，直到从 R 撤销。角色与目标 A
-            不可修改；请妥善保管。
+            {t(
+              'Key 本身就是长期访问凭证，直到从 R 撤销。角色与目标 A 不可修改；请妥善保管。',
+            )}
           </p>
           <form
             onSubmit={(e) => {
@@ -2024,9 +2084,9 @@ function App() {
             }}
           >
             <label>
-              Key 名称
+              {t('Key 名称')}
               <input
-                aria-label="Key 名称"
+                aria-label={t('Key 名称')}
                 required
                 maxLength={100}
                 value={keyName}
@@ -2034,9 +2094,9 @@ function App() {
               />
             </label>
             <label>
-              使用程序
+              {t('使用程序')}
               <select
-                aria-label="使用程序"
+                aria-label={t('使用程序')}
                 value={keyRole}
                 onChange={(e) => setKeyRole(e.target.value)}
               >
@@ -2046,14 +2106,14 @@ function App() {
             </label>
             {keyRole === 'cli' ? (
               <label>
-                目标 A
+                {t('目标 A')}
                 <select
-                  aria-label="Key 目标 A"
+                  aria-label={t('Key 目标 A')}
                   required
                   value={keyHost}
                   onChange={(e) => setKeyHost(e.target.value)}
                 >
-                  <option value="">请选择 A</option>
+                  <option value="">{t('请选择 A')}</option>
                   {keyHosts.map((h) => (
                     <option key={h.id} value={h.id}>
                       {h.name} · {h.id}
@@ -2062,14 +2122,14 @@ function App() {
                 </select>
               </label>
             ) : (
-              <p>A Key 在首次登录时创建并永久绑定自己的 A。</p>
+              <p>{t('A Key 在首次登录时创建并永久绑定自己的 A。')}</p>
             )}
-            <button disabled={generating}>生成 API_KEY</button>
+            <button disabled={generating}>{t('生成 API_KEY')}</button>
           </form>
           {newKey && (
             <div className="card">
-              <p>仅显示这一次，请保存：</p>
-              <input aria-label="新 API_KEY" readOnly value={newKey} />
+              <p>{t('仅显示这一次，请保存：')}</p>
+              <input aria-label={t('新 API_KEY')} readOnly value={newKey} />
               <button
                 onClick={() =>
                   void navigator.clipboard
@@ -2080,29 +2140,34 @@ function App() {
                     )
                 }
               >
-                复制 API_KEY
+                {t('复制 API_KEY')}
               </button>
-              <button onClick={() => setNewKey('')}>隐藏 API_KEY</button>
+              <button onClick={() => setNewKey('')}>{t('隐藏 API_KEY')}</button>
             </div>
           )}
           {apiKeys.map((k) => (
             <div className="card" key={k.id}>
               <p>
-                {k.name} · {k.role === 'agent' ? 'coc-agent' : 'coc-client'} ·
-                服务器：
+                {k.name} · {k.role === 'agent' ? 'coc-agent' : 'coc-client'}{' '}
+                {t('· 服务器：')}
                 {keyHosts.find((host) => host.id === k.hostId)?.name ||
                   k.hostId ||
-                  '等待首次使用绑定'}
+                  t('等待首次使用绑定')}
               </p>
-              <p>创建于 {new Date(k.created).toLocaleString()} · 长期有效</p>
+              <p>
+                {t('创建于')} {new Date(k.created).toLocaleString(localeTag())}{' '}
+                {t('· 长期有效')}
+              </p>
               <button
                 disabled={generating}
                 onClick={() => {
                   if (
                     !confirm(
                       k.role === 'agent' && k.hostId
-                        ? '撤销此 A Key 将停用 A，并撤销其全部客户端授权。继续？'
-                        : '撤销此 API Key？',
+                        ? t(
+                            '撤销此 A Key 将停用 A，并撤销其全部客户端授权。继续？',
+                          )
+                        : t('撤销此 API Key？'),
                     )
                   )
                     return;
@@ -2117,7 +2182,7 @@ function App() {
                     .finally(() => setGenerating(false));
                 }}
               >
-                撤销 Key {k.name}
+                {t('撤销 Key')} {k.name}
               </button>
             </div>
           ))}
@@ -2156,13 +2221,13 @@ function App() {
                 <div className="panel-heading">
                   <h2 id="chat-panel-title">
                     {panel === 'details'
-                      ? '会话详情'
+                      ? t('会话详情')
                       : panel === 'files'
-                        ? '工作区文件'
-                        : '会话记录'}
+                        ? t('工作区文件')
+                        : t('会话记录')}
                   </h2>
-                  <button aria-label="关闭面板" onClick={closePanel}>
-                    关闭
+                  <button aria-label={t('关闭面板')} onClick={closePanel}>
+                    {t('关闭')}
                   </button>
                 </div>
                 {panel === 'files' && (
@@ -2178,30 +2243,30 @@ function App() {
                   <aside className="session-sidebar">
                     <section
                       className="connection-settings"
-                      aria-label="连接设置"
+                      aria-label={t('连接设置')}
                     >
-                      <h3>连接设置</h3>
+                      <h3>{t('连接设置')}</h3>
                       {error && (
                         <p className="error" role="alert">
-                          {error}
+                          {t(error)}
                         </p>
                       )}
                       {projectPicker}
                       {connectionControls}
                       {loginForm}
                     </section>
-                    <h3>会话列表</h3>
+                    <h3>{t('会话列表')}</h3>
                     <button
                       className="new-chat"
                       disabled={!online || !host || !project || creating}
                       onClick={() => void create()}
                     >
-                      ＋ 新建对话
+                      {t('＋ 新建对话')}
                     </button>
                     <input
                       className="session-search"
-                      aria-label="搜索会话"
-                      placeholder="搜索已加载的会话…"
+                      aria-label={t('搜索会话')}
+                      placeholder={t('搜索已加载的会话…')}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
@@ -2217,10 +2282,10 @@ function App() {
                           .catch(report);
                       }}
                     >
-                      {loadingThreads ? '正在加载…' : '刷新会话'}
+                      {loadingThreads ? t('正在加载…') : t('刷新会话')}
                     </button>
                     <p className="sidebar-caption">
-                      与远程 Codex 共用历史 · 当前项目
+                      {t('与远程 Codex 共用历史 · 当前项目')}
                     </p>
                     <SessionHistory
                       sessions={sessions}
@@ -2262,7 +2327,7 @@ function App() {
                             .catch(report)
                         }
                       >
-                        加载更多会话记录
+                        {t('加载更多会话记录')}
                       </button>
                     )}
                     {cursor && (
@@ -2270,7 +2335,7 @@ function App() {
                         disabled={loadingThreads}
                         onClick={() => void loadThreads(true)}
                       >
-                        加载更多
+                        {t('加载更多')}
                       </button>
                     )}
                   </aside>
@@ -2278,37 +2343,47 @@ function App() {
                 {panel === 'details' && selected && (
                   <section className="session-details">
                     <p className="status">
-                      {status}
-                      {selected.external ? ' · 外部会话 · 只读同步' : ''} ·{' '}
-                      {busy ? '执行中' : '空闲'} · 远程项目 {selected.projectId}
+                      {t(status)}
+                      {selected.external
+                        ? t(' · 外部会话 · 只读同步')
+                        : ''} · {busy ? t('执行中') : t('空闲')}{' '}
+                      {t('· 远程项目')} {selected.projectId}
                     </p>
                     {selected.state !== 'ready' && selected.threadId && (
                       <button
                         disabled={!online || creating}
                         onClick={() => {
-                          if (confirm(`在 ${remoteTarget} 恢复并继续此线程？`))
+                          if (
+                            confirm(
+                              t('在 {0} 恢复并继续此线程？', remoteTarget),
+                            )
+                          )
                             void create(selected.threadId);
                         }}
                       >
-                        恢复并继续
+                        {t('恢复并继续')}
                       </button>
                     )}
                     <p>{remoteTarget}</p>
                     <p>{projects.find((p) => p.id === project)?.path}</p>
                     <details>
-                      <summary>会话标识</summary>
+                      <summary>{t('会话标识')}</summary>
                       <p className="id">{selected.id}</p>
                     </details>
                     <details>
-                      <summary>本机存储</summary>
+                      <summary>{t('本机存储')}</summary>
                       <p>
-                        清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。
+                        {t(
+                          '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
+                        )}
                       </p>
                       <button
                         onClick={() => {
                           if (
                             confirm(
-                              '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                              t(
+                                '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                              ),
                             )
                           )
                             void localHistory.current
@@ -2317,7 +2392,7 @@ function App() {
                               .catch(report);
                         }}
                       >
-                        清理本机会话缓存
+                        {t('清理本机会话缓存')}
                       </button>
                     </details>
                     <div className="row">
@@ -2327,15 +2402,15 @@ function App() {
                         }
                         onClick={() => send({ action: 'interrupt' })}
                       >
-                        停止本轮
+                        {t('停止本轮')}
                       </button>
                       <button
                         onClick={() => {
                           if (
                             confirm(
                               selected.external
-                                ? '断开此只读连接？原客户端继续运行。'
-                                : '结束会话？已修改文件不会回滚。',
+                                ? t('断开此只读连接？原客户端继续运行。')
+                                : t('结束会话？已修改文件不会回滚。'),
                             )
                           )
                             void api(`/sessions/${selected.id}/stop`, {})
@@ -2352,7 +2427,7 @@ function App() {
                               .catch(report);
                         }}
                       >
-                        结束会话
+                        {t('结束会话')}
                       </button>
                       <button
                         onClick={() => {
@@ -2360,33 +2435,45 @@ function App() {
                           setReconnect((n) => n + 1);
                         }}
                       >
-                        重新连接
+                        {t('重新连接')}
                       </button>
                       <button
                         onClick={() => {
                           if (
                             confirm(
-                              `接管 ${remoteTarget} 的当前会话会断开其他控制端，继续？`,
+                              t(
+                                '接管 {0} 的当前会话会断开其他控制端，继续？',
+                                remoteTarget,
+                              ),
                             )
                           )
                             setTakeover((v) => !v);
                         }}
                       >
-                        接管控制权
+                        {t('接管控制权')}
                       </button>
                     </div>
                   </section>
                 )}
               </dialog>
-              <section className="conversation" aria-label="Codex 对话">
+              <section className="conversation" aria-label={t('Codex 对话')}>
                 {selected ? (
                   <>
                     <div
                       className="messages"
                       ref={messageList}
                       role="log"
-                      aria-label="对话消息"
+                      aria-label={t('对话消息')}
                       aria-live="off"
+                      onWheel={(e) => {
+                        if (
+                          e.deltaY < 0 &&
+                          e.currentTarget.scrollTop <= 0 &&
+                          hasOlder &&
+                          !loadingHistory
+                        )
+                          loadHistory.current(olderCursor);
+                      }}
                       onScroll={(e) => {
                         const el = e.currentTarget;
                         const scrolledUp =
@@ -2407,20 +2494,21 @@ function App() {
                     >
                       {olderView.current && (
                         <p className="status">
-                          正在浏览较早内容 ·
-                          已加载的消息全部保留，优先读取本地历史。
+                          {t(
+                            '正在浏览较早内容 · 已加载的消息全部保留，优先读取本地历史。',
+                          )}
                         </p>
                       )}
                       <div className="row">
                         {hasOlder && (
                           <button
-                            aria-label="加载更早内容"
+                            aria-label={t('加载更早内容')}
                             disabled={loadingHistory}
                             onClick={() => loadHistory.current(olderCursor)}
                           >
                             {loadingHistory
-                              ? '正在加载更早内容…'
-                              : '加载更早内容'}
+                              ? t('正在加载更早内容…')
+                              : t('加载更早内容')}
                           </button>
                         )}
                         {(away || olderView.current) && (
@@ -2432,11 +2520,11 @@ function App() {
                               loadHistory.current();
                             }}
                           >
-                            返回最新内容
+                            {t('返回最新内容')}
                           </button>
                         )}
                       </div>
-                      {historyNotice && <p role="status">{historyNotice}</p>}
+                      {historyNotice && <p role="status">{t(historyNotice)}</p>}
                       <FileContext.Provider value={fileContext}>
                         <ConversationView
                           events={events}
@@ -2449,12 +2537,14 @@ function App() {
                         <p className="thinking" role="status">
                           ●{' '}
                           {approvals.length
-                            ? '等待你的确认'
-                            : 'Codex 正在处理…'}
+                            ? t('等待你的确认')
+                            : t('Codex 正在处理…')}
                         </p>
                       )}
                       {!events.length && (
-                        <p className="empty-hint">对话已就绪，发送任务开始。</p>
+                        <p className="empty-hint">
+                          {t('对话已就绪，发送任务开始。')}
+                        </p>
                       )}
                     </div>
                     <ApprovalQueue
@@ -2474,7 +2564,9 @@ function App() {
                     {unconfirmed && (
                       <div className="submission-state" role="status">
                         <strong>
-                          {pending ? '正在提交任务' : '任务提交结果待确认'}
+                          {pending
+                            ? t('正在提交任务')
+                            : t('任务提交结果待确认')}
                         </strong>
                         <p>{unconfirmed.text}</p>
                         <button
@@ -2483,17 +2575,19 @@ function App() {
                             setReconnect((n) => n + 1);
                           }}
                         >
-                          重新连接并查询结果
+                          {t('重新连接并查询结果')}
                         </button>
                         <small>
-                          请求 {unconfirmed.requestId}
-                          ；请先核对远程历史，避免重复执行。
+                          {t('请求')} {unconfirmed.requestId}
+                          {t('；请先核对远程历史，避免重复执行。')}
                         </small>
                       </div>
                     )}
                     {selected.state !== 'ready' ? (
                       <p className="readonly-hint">
-                        会话已结束 · 历史只读，请从历史记录显式恢复并继续。
+                        {t(
+                          '会话已结束 · 历史只读，请从历史记录显式恢复并继续。',
+                        )}
                       </p>
                     ) : (
                       <form
@@ -2513,9 +2607,9 @@ function App() {
                         }}
                       >
                         <label>
-                          任务内容
+                          {t('任务内容')}
                           <textarea
-                            aria-label="任务内容"
+                            aria-label={t('任务内容')}
                             value={text}
                             onKeyDown={(e) => {
                               if (
@@ -2535,16 +2629,16 @@ function App() {
                                 .catch(report);
                             }}
                             maxLength={64000}
-                            title="Enter 发送，Shift + Enter 换行"
+                            title={t('Enter 发送，Shift + Enter 换行')}
                             disabled={
                               selected.external && !selected.queueEnabled
                             }
                             placeholder={
                               selected.external
-                                ? '加入原客户端队列…'
+                                ? t('加入原客户端队列…')
                                 : busy
-                                  ? '可编辑下一条草稿，任务结束后发送…'
-                                  : '发送消息给 Codex…'
+                                  ? t('可编辑下一条草稿，任务结束后发送…')
+                                  : t('发送消息给 Codex…')
                             }
                           />
                         </label>
@@ -2554,7 +2648,7 @@ function App() {
                             disabled={!ready || !online}
                             onClick={() => send({ action: 'interrupt' })}
                           >
-                            停止本轮
+                            {t('停止本轮')}
                           </button>
                         ) : (
                           <button
@@ -2568,24 +2662,30 @@ function App() {
                               !text.trim()
                             }
                           >
-                            {selected.external ? '加入队列' : '发送'}
+                            {selected.external ? t('加入队列') : t('发送')}
                           </button>
                         )}
                         <small>
                           {selected.external &&
                             (selected.queueEnabled
                               ? selected.approvalForwarding
-                                ? '外部会话：已入队不代表已执行；可在此审批命令与文件操作，执行沿用原客户端策略。 '
-                                : '外部会话：已入队不代表已执行；当前审批仍需原客户端处理。 '
-                              : '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ')}
+                                ? t(
+                                    '外部会话：已入队不代表已执行；可在此审批命令与文件操作，执行沿用原客户端策略。 ',
+                                  )
+                                : t(
+                                    '外部会话：已入队不代表已执行；当前审批仍需原客户端处理。 ',
+                                  )
+                              : t(
+                                  '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ',
+                                ))}
                           {matchMedia('(pointer: coarse)').matches
-                            ? 'Enter 换行，点击发送提交'
-                            : 'Enter 发送 · Shift+Enter 换行'}
+                            ? t('Enter 换行，点击发送提交')
+                            : t('Enter 发送 · Shift+Enter 换行')}
                           {text.length > 60000
-                            ? ` · 剩余 ${64000 - text.length} 字符`
+                            ? t(' · 剩余 {0} 字符', 64000 - text.length)
                             : ''}
                         </small>
-                        {!ready && <small role="status">{status}</small>}
+                        {!ready && <small role="status">{t(status)}</small>}
                       </form>
                     )}
                   </>
@@ -2594,8 +2694,10 @@ function App() {
                     <div className="welcome-icon">
                       <CodexMark />
                     </div>
-                    <h2>今天要一起完成什么？</h2>
-                    <p>恢复 Codex 本地会话，或在远程项目中开始新对话。</p>
+                    <h2>{t('今天要一起完成什么？')}</h2>
+                    <p>
+                      {t('恢复 Codex 本地会话，或在远程项目中开始新对话。')}
+                    </p>
                     <button
                       disabled={creating || (!!host && !online)}
                       onClick={() => {
@@ -2603,7 +2705,7 @@ function App() {
                         else openSessions();
                       }}
                     >
-                      {host && project ? '＋ 开始新对话' : '连接远程项目'}
+                      {host && project ? t('＋ 开始新对话') : t('连接远程项目')}
                     </button>
                   </div>
                 )}
@@ -2613,7 +2715,9 @@ function App() {
         </>
       )}
       {view !== 'chat' && (
-        <footer>文件和命令在远程服务器执行。关闭页面不会立即停止任务。</footer>
+        <footer>
+          {t('文件和命令在远程服务器执行。关闭页面不会立即停止任务。')}
+        </footer>
       )}
     </main>
   );

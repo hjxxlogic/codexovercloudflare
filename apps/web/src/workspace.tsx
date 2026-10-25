@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import { useEffect, useState } from 'react';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { CopyText, Diff } from './conversation.tsx';
@@ -16,9 +17,9 @@ export function WorkspaceHeader({
   return (
     <button className="workspace-context" onClick={onDetails}>
       <span>
-        {host || '未选择服务器'} / {project || '未选择项目'}
+        {host || t('未选择服务器')} / {project || t('未选择项目')}
       </span>
-      <span role="status">{status}</span>
+      <span role="status">{t(status)}</span>
     </button>
   );
 }
@@ -84,21 +85,21 @@ export function ApprovalQueue({
       )
     : [];
   return (
-    <section className="approval-queue" aria-label="待确认请求">
+    <section className="approval-queue" aria-label={t('待确认请求')}>
       <div className="approval-heading">
         <strong>
-          等待你的确认 · {index + 1} / {approvals.length}
+          {t('等待你的确认 ·')} {index + 1} / {approvals.length}
         </strong>
         {approvals.length > 1 && (
           <div className="row">
             <button disabled={index === 0} onClick={() => setIndex(index - 1)}>
-              上一项
+              {t('上一项')}
             </button>
             <button
               disabled={index >= approvals.length - 1}
               onClick={() => setIndex(index + 1)}
             >
-              下一项
+              {t('下一项')}
             </button>
           </div>
         )}
@@ -106,7 +107,8 @@ export function ApprovalQueue({
       <div className="approval-body">
         {approval.unsupported && (
           <p role="alert">
-            此交互类型暂不支持远程答复，需要在原客户端处理：{approval.method}
+            {t('此交互类型暂不支持远程答复，需要在原客户端处理：')}
+            {approval.method}
           </p>
         )}
         {approval.method === 'item/permissions/requestApproval' && (
@@ -114,10 +116,10 @@ export function ApprovalQueue({
         )}
         <h3>
           {approval.method === 'item/fileChange/requestApproval'
-            ? '请求修改文件'
+            ? t('请求修改文件')
             : approval.method === 'item/permissions/requestApproval'
-              ? '请求扩大本轮权限'
-              : '请求运行命令'}
+              ? t('请求扩大本轮权限')
+              : t('请求运行命令')}
         </h3>
         <p>
           {target}
@@ -130,19 +132,24 @@ export function ApprovalQueue({
             <CopyText text={command} />
           </>
         )}
-        {grantRoot && <p>请求写入范围：{grantRoot}</p>}
+        {grantRoot && (
+          <p>
+            {t('请求写入范围：')}
+            {grantRoot}
+          </p>
+        )}
         {fileEvent?.contentSeq !== undefined && (
-          <p>变更详情较大，请先展开对话中的对应工具记录核对后再决定。</p>
+          <p>{t('变更详情较大，请先展开对话中的对应工具记录核对后再决定。')}</p>
         )}
         {changes.map((change, position) => (
           <details key={`${change.path}:${position}`}>
             <summary>
               {change.path} ·{' '}
               {change.kind?.type === 'add'
-                ? '新增'
+                ? t('新增')
                 : change.kind?.type === 'delete'
-                  ? '删除'
-                  : '修改'}
+                  ? t('删除')
+                  : t('修改')}
               {change.kind?.move_path ? ` → ${change.kind.move_path}` : ''}
             </summary>
             <Diff text={change.diff} />
@@ -151,10 +158,10 @@ export function ApprovalQueue({
         {approval.method === 'item/fileChange/requestApproval' &&
           !changes.length &&
           fileEvent?.contentSeq === undefined && (
-            <p>当前请求未附带可显示的文件变更明细。</p>
+            <p>{t('当前请求未附带可显示的文件变更明细。')}</p>
           )}
         <details>
-          <summary>请求技术详情</summary>
+          <summary>{t('请求技术详情')}</summary>
           <pre tabIndex={0}>{JSON.stringify(params, null, 2)}</pre>
         </details>
       </div>
@@ -165,7 +172,7 @@ export function ApprovalQueue({
           }
           onClick={() => onAnswer(approval.approvalId, false)}
         >
-          拒绝
+          {t('拒绝')}
         </button>
         <button
           className="primary"
@@ -175,13 +182,15 @@ export function ApprovalQueue({
           onClick={() => onAnswer(approval.approvalId, true)}
         >
           {approval.method === 'item/permissions/requestApproval'
-            ? '允许本轮请求的权限'
-            : '允许本次'}
+            ? t('允许本轮请求的权限')
+            : t('允许本次')}
         </button>
         {(pending || approval.submitted) && (
-          <span role="status">等待原客户端确认审批决定…</span>
+          <span role="status">{t('等待原客户端确认审批决定…')}</span>
         )}
-        {!ready && <small>连接恢复后可提交决定；可在下方停止任务。</small>}
+        {!ready && (
+          <small>{t('连接恢复后可提交决定；可在下方停止任务。')}</small>
+        )}
       </div>
     </section>
   );

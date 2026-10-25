@@ -1,3 +1,4 @@
+import { t, localeTag } from './i18n.ts';
 import type { Session } from '../../../packages/protocol/src/index.ts';
 
 export type Thread = {
@@ -65,9 +66,13 @@ export function SessionHistory({
   return (
     <>
       {error && (
-        <p role="alert">历史目录读取失败：{error}。可使用上方刷新重试。</p>
+        <p role="alert">
+          {t('历史目录读取失败：')}
+          {t(error)}
+          {t('。可使用上方刷新重试。')}
+        </p>
       )}
-      {loading && <p role="status">正在读取历史目录…</p>}
+      {loading && <p role="status">{t('正在读取历史目录…')}</p>}
       {visible.map(([key, row]) => {
         const { session, thread } = row;
         const active = session?.state === 'ready';
@@ -75,7 +80,7 @@ export function SessionHistory({
           session?.title ||
           thread?.name ||
           thread?.preview ||
-          (active ? '进行中的对话' : '历史会话（只读）');
+          (active ? t('进行中的对话') : t('历史会话（只读）'));
         const current =
           !!selected &&
           (selected.id === session?.id || selected.threadId === key);
@@ -91,24 +96,24 @@ export function SessionHistory({
               <small>
                 {projectName} ·{' '}
                 {active
-                  ? '进行中 · 查看对话'
+                  ? t('进行中 · 查看对话')
                   : session
-                    ? '已结束 · 查看历史'
-                    : '恢复并继续'}
-                {!online ? ' · 本机目录' : ''}
+                    ? t('已结束 · 查看历史')
+                    : t('恢复并继续')}
+                {!online ? t(' · 本机目录') : ''}
               </small>
               <small>
-                {new Date(activity(row)).toLocaleString()}
-                {current ? ' · 当前对话' : ''}
+                {new Date(activity(row)).toLocaleString(localeTag())}
+                {current ? t(' · 当前对话') : ''}
               </small>
             </button>
             {session && !active && thread && (
               <button
                 disabled={creating || !online}
                 onClick={() => onResume(key)}
-                aria-label={`恢复并继续：${title}`}
+                aria-label={t('恢复并继续：{0}', title)}
               >
-                恢复并继续
+                {t('恢复并继续')}
               </button>
             )}
           </div>
@@ -117,10 +122,10 @@ export function SessionHistory({
       {!visible.length && !loading && !error && (
         <p className="empty-hint">
           {search
-            ? '没有匹配的已加载会话。'
+            ? t('没有匹配的已加载会话。')
             : project
-              ? '暂无本地历史，创建新对话开始。'
-              : '请先选择主机与项目。'}
+              ? t('暂无本地历史，创建新对话开始。')
+              : t('请先选择主机与项目。')}
         </p>
       )}
     </>

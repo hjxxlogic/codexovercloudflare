@@ -147,6 +147,19 @@ h3 {
   border-top: 1px solid #3b414e;
   padding-top: 8px;
 }
+.language-picker {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px 12px;
+  font-size: 13px;
+}
+.language-picker select {
+  width: auto;
+  min-width: 100px;
+}
 .topbar nav button {
   display: flex;
   flex-direction: column;

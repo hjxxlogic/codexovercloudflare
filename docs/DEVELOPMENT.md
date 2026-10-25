@@ -110,6 +110,8 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## CW 网页开发
 
+`i18n.ts` 提供中文 / English 切换，`translations.ts` 以中文源文案为键保存英文和 `{0}` 等插值。新增界面文案调用 `t()` 并补齐英文；状态消息保留中文源文案，显示时翻译，以便切换现有通知。日期使用 `localeTag()`；不要翻译对话正文、命令、路径或远端原始数据。App 与缓存的对话组件通过 `useLanguage()` 订阅语言变化；勿将语言加入连接 effect 依赖。选择写入 `coc-language` localStorage，同源标签页通过 storage 事件同步；不可写时只保存在内存中。`tests/web-i18n.test.ts` 检查插值与原始数据保留，`test:ui` 验证双语切换、刷新保留、菜单布局及连接 / 草稿保留。
+
 网页使用 react-markdown / remark-gfm 渲染聊天 Markdown。`main.tsx` 管理 CW / 管理员模式及功能分页、会话记录顶部的 CW 连接 / 授权操作、点击外部/Escape 关闭的菜单与会话生命周期；管理登录 / 退出只在管理员模式展示，授权 hash 直接进入管理员模式；`events.ts` 负责有序去重和流式组装。新增本地历史接口须同时更新 Worker 路由校验与原生 Agent 校验，不向网页开放任意 app-server RPC。
 
 `tests/e2e.ts` 的确定性协议夹具包含本地历史及异项目线程，验证历史列表过滤、恢复历史与继续对话、分页 / 搜索、Markdown / 安全链接、折叠工具、移动端宽度和功能菜单。截图输出 `.local/cw-chat-desktop.png`、`.local/cw-chat-mobile.png`；测试不调用模型。历史功能需要与 Worker 一起更新原生 Agent。

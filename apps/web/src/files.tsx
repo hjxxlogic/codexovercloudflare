@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryCache } from './history.ts';
 import { api, ApiError } from './api.ts';
@@ -136,7 +137,12 @@ export function WorkspaceFiles({
     if (
       overwrite &&
       !confirm(
-        `确认覆盖 ${target || project} 的远程项目文件“${path ? path + '/' : ''}${name}”？`,
+        t(
+          '确认覆盖 {0} 的远程项目文件“{1}{2}”？',
+          target || project,
+          path ? path + '/' : '',
+          name,
+        ),
       )
     )
       return;
@@ -238,14 +244,15 @@ export function WorkspaceFiles({
     }
   }
   return (
-    <section className="workspace-files" aria-label="工作区文件">
+    <section className="workspace-files" aria-label={t('工作区文件')}>
       <p className="file-context">
-        远程项目：{target || project} · 单文件上限 {sizeLabel(limit)}
+        {t('远程项目：')}
+        {target || project} {t('· 单文件上限')} {sizeLabel(limit)}
       </p>
       <div className="file-toolbar">
         <div className="file-path">
           <button disabled={busy} onClick={() => setPath('')}>
-            项目根目录
+            {t('项目根目录')}
           </button>
           {path
             .split('/')
@@ -265,18 +272,22 @@ export function WorkspaceFiles({
           disabled={!path || busy || loading}
           onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
         >
-          上级目录
+          {t('上级目录')}
         </button>
         <button disabled={busy || loading} onClick={() => void load()}>
-          刷新文件
+          {t('刷新文件')}
         </button>
       </div>
       {error && (
         <p role="alert" className="error">
-          {error}
+          {t(error)}
         </p>
       )}
-      <div className="file-list" aria-label="远程文件列表" aria-busy={loading}>
+      <div
+        className="file-list"
+        aria-label={t('远程文件列表')}
+        aria-busy={loading}
+      >
         {entries.map((entry) => (
           <div className="file-entry" key={entry.name}>
             {entry.directory ? (
@@ -287,7 +298,7 @@ export function WorkspaceFiles({
                   setPath(path ? `${path}/${entry.name}` : entry.name)
                 }
               >
-                目录 · {entry.name}
+                {t('目录 ·')} {entry.name}
               </button>
             ) : (
               <>
@@ -295,28 +306,28 @@ export function WorkspaceFiles({
                   {entry.name}
                   <small>
                     {sizeLabel(entry.size)}
-                    {entry.size > limit ? ' · 超过单文件传输上限' : ''}
+                    {entry.size > limit ? t(' · 超过单文件传输上限') : ''}
                   </small>
                 </span>
                 <button
                   disabled={busy || entry.size > limit}
                   onClick={() => void download(entry)}
-                  aria-label={`下载 ${entry.name}`}
+                  aria-label={t('下载 {0}', entry.name)}
                 >
-                  下载
+                  {t('下载')}
                 </button>
               </>
             )}
           </div>
         ))}
-        {loading && <p role="status">正在读取目录…</p>}
+        {loading && <p role="status">{t('正在读取目录…')}</p>}
         {!loading && !error && !entries.length && (
-          <p className="empty-hint">当前目录没有可传输的文件。</p>
+          <p className="empty-hint">{t('当前目录没有可传输的文件。')}</p>
         )}
       </div>
       {next && (
         <button disabled={loading || busy} onClick={() => void load(true)}>
-          加载更多文件
+          {t('加载更多文件')}
         </button>
       )}
       <form
@@ -326,13 +337,13 @@ export function WorkspaceFiles({
           void upload();
         }}
       >
-        <h3>上传到当前目录</h3>
+        <h3>{t('上传到当前目录')}</h3>
         <label>
-          选择文件
+          {t('选择文件')}
           <input
             type="file"
             ref={uploadInput}
-            aria-label="选择上传文件"
+            aria-label={t('选择上传文件')}
             disabled={!writable || busy || loading}
             onChange={(e) => {
               const selected = e.currentTarget.files?.[0];
@@ -345,9 +356,9 @@ export function WorkspaceFiles({
         {file && (
           <>
             <label>
-              保存为
+              {t('保存为')}
               <input
-                aria-label="远程文件名"
+                aria-label={t('远程文件名')}
                 required
                 value={name}
                 disabled={busy}
@@ -361,7 +372,7 @@ export function WorkspaceFiles({
                 disabled={busy}
                 onChange={(e) => setOverwrite(e.target.checked)}
               />
-              覆盖已有文件
+              {t('覆盖已有文件')}
             </label>
           </>
         )}
@@ -369,10 +380,10 @@ export function WorkspaceFiles({
           type="submit"
           disabled={!writable || !file || !name.trim() || busy || loading}
         >
-          上传文件
+          {t('上传文件')}
         </button>
         {!loading && writable === false && (
-          <p>Agent 当前为只读模式，允许下载，禁止上传。</p>
+          <p>{t('Agent 当前为只读模式，允许下载，禁止上传。')}</p>
         )}
       </form>
       {unknownUpload && (
@@ -391,20 +402,26 @@ export function WorkspaceFiles({
               .catch((error: Error) => setError(error.message))
           }
         >
-          查询提交结果
+          {t('查询提交结果')}
         </button>
       )}
-      {busy && <progress aria-label="文件传输进度" value={fraction} max={1} />}
+      {busy && (
+        <progress aria-label={t('文件传输进度')} value={fraction} max={1} />
+      )}
       {progress && (
         <p role="status" className="transfer-progress">
-          {progress}
+          {t(progress)}
         </p>
       )}
       {busy && (
-        <button onClick={() => transfer.current?.abort()}>取消传输</button>
+        <button onClick={() => transfer.current?.abort()}>
+          {t('取消传输')}
+        </button>
       )}
       <p className="file-context">
-        仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会取消正在传输的文件，已完成的上传会保留。
+        {t(
+          '仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会取消正在传输的文件，已完成的上传会保留。',
+        )}
       </p>
     </section>
   );

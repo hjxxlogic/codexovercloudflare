@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import { useState } from 'react';
 import { api } from './api.ts';
 
@@ -42,15 +43,15 @@ export function HostWakeSettings({
       <h4>{host.name}</h4>
       <p>
         {host.wakeUrlOverride === undefined
-          ? '使用 Agent 配置'
+          ? t('使用 Agent 配置')
           : host.wakeUrlOverride
-            ? '使用管理员配置'
-            : '管理员已禁用唤醒'}
+            ? t('使用管理员配置')
+            : t('管理员已禁用唤醒')}
       </p>
       <label>
-        唤醒 URL
+        {t('唤醒 URL')}
         <input
-          aria-label={`唤醒 URL ${host.name}`}
+          aria-label={t('唤醒 URL {0}', host.name)}
           type="url"
           autoComplete="off"
           placeholder="https://example.com/wake?key=…"
@@ -58,13 +59,13 @@ export function HostWakeSettings({
           onChange={(event) => setUrl(event.target.value)}
         />
       </label>
-      <p>离线时由中继访问。管理员配置优先；保存空值禁用唤醒。</p>
+      <p>{t('离线时由中继访问。管理员配置优先；保存空值禁用唤醒。')}</p>
       <div className="actions">
         <button disabled={busy} type="submit">
-          保存唤醒配置
+          {t('保存唤醒配置')}
         </button>
         <button disabled={busy} type="button" onClick={() => void save(null)}>
-          使用 Agent 配置
+          {t('使用 Agent 配置')}
         </button>
       </div>
     </form>
