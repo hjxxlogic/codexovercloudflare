@@ -445,6 +445,9 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       if (result != ERROR_SUCCESS)
         throw Error("FILE_IO", "Cannot preserve upload target permissions");
     }
+    // Classic NT replacement requires closing our handle to the old target.
+    // Its version and ACL were checked above, immediately before publication.
+    upload.previous_file.reset();
     // Rename the open staging handle; no shell, path traversal or partial target.
     const auto &target = upload.name;
     std::vector<unsigned char> storage(sizeof(FILE_RENAME_INFO) + target.size() * sizeof(wchar_t));
