@@ -1,0 +1,79 @@
+{
+  "time": "2026-10-25T03:56:22.186013+00:00",
+  "origin": "https://r.xlogic.cc",
+  "checks": [
+    {
+      "path": "/api/v1/healthz",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/hosts",
+      "status": 401
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "status": 403
+    },
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/assets/index-wPKXhFVt.css",
+      "status": 200
+    },
+    {
+      "path": "/assets/index-C73cQxzz.js",
+      "status": 200
+    },
+    {
+      "path": "/downloads/USER_GUIDE.md",
+      "status": 200
+    },
+    {
+      "path": "/downloads/index.json",
+      "status": 200
+    },
+    {
+      "path": "/downloads/SHA256SUMS",
+      "status": 200
+    },
+    {
+      "path": "/downloads/codex-over-cloudflare-0.5.6-source.tar.gz",
+      "status": 200
+    },
+    {
+      "path": "/downloads/coc-0.5.6-linux-x86_64-ubuntu20.04.tar.gz",
+      "status": 200
+    },
+    {
+      "path": "/downloads/coc-0.5.6-linux-x86_64-debian12.tar.gz",
+      "status": 200
+    }
+  ],
+  "assets": [
+    {
+      "path": "/assets/index-C73cQxzz.js",
+      "sha256": "8a22d4a2967e1e4de42ece912b545298dbc54ee07c7ad71ca14b76891fc49290"
+    },
+    {
+      "path": "/assets/index-wPKXhFVt.css",
+      "sha256": "4647abb1c599bf162e828df982a526170f80fe17449b8ccbb9c6a4ec72679cdd"
+    }
+  ],
+  "archives": [
+    {
+      "file": "coc-0.5.6-linux-x86_64-debian12.tar.gz",
+      "sha256": "fb00c6197898ff1a99165f5f6eb41f6b287e4e6d70714fc04515ad972f4f44f2"
+    },
+    {
+      "file": "coc-0.5.6-linux-x86_64-ubuntu20.04.tar.gz",
+      "sha256": "ee64aa5cf5216c9b6a646981d9bee8e07856d1b339c5e4dc471651d602e94f02"
+    },
+    {
+      "file": "codex-over-cloudflare-0.5.6-source.tar.gz",
+      "sha256": "68d0f3dc65df64b78433954122b2eec3655f20f8f32793c3285b3667a026b399"
+    }
+  ],
+  "nativeVersion": "0.5.6"
+}
