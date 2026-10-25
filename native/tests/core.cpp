@@ -198,6 +198,7 @@ void external_test() {
                 {{"code", "HTTP_TIMEOUT"}, {"message", "already has an active writer"}}),
         "Other failures never downgrade");
   check(same_project_path(temp.path, temp.path + "/."), "Canonical project verification");
+  check(!same_project_path(temp.path, temp.path + "/missing"), "Missing project rejected safely");
   std::cout << "PASS: external stable snapshots, revisions, rewrite, chunks, archive overlap and "
                "writer fallback\n";
 }

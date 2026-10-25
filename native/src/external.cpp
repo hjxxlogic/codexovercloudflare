@@ -15,8 +15,13 @@ bool same_project_path(const std::string &left, const std::string &right) {
   if (left.empty() || right.empty() || left.find('\0') != std::string::npos ||
       right.find('\0') != std::string::npos)
     return false;
-  auto a = std::filesystem::canonical(std::filesystem::u8path(left));
-  auto b = std::filesystem::canonical(std::filesystem::u8path(right));
+  std::error_code error;
+  auto a = std::filesystem::canonical(std::filesystem::u8path(left), error);
+  if (error)
+    return false;
+  auto b = std::filesystem::canonical(std::filesystem::u8path(right), error);
+  if (error)
+    return false;
 #ifdef _WIN32
   return _wcsicmp(a.c_str(), b.c_str()) == 0;
 #else
