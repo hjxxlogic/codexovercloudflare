@@ -412,7 +412,7 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 ## 0.5.7 外部会话验收
 
-真实 Codex 0.164.0 的隔离 owner / reader 检查已通过：paginated / legacy、active writer 错误、只读反向游标、独立进程入队与 queue/list 一致。模型 provider 仅指向本地关闭端口，无真实模型调用。Linux CTest（Debian 容器）、77 项 Vitest、TLS、备份恢复、发布来源与更新器检查通过；格式、类型和生成协议检查通过。外部场景 E2E 已验证 paginated / legacy 增长快照、稳定 revision、相同请求去重、丢失应答后 queue/list 对账、不同内容拒绝、默认禁止入队、CC observe/history/queue/request、外部中断拒绝与安全断开。Chromium UI 回归验证桌面 / 手机布局、原有会话恢复与缓存流程；全量 E2E 及最终发行检查结果随发布证据更新。
+真实 Codex 0.164.0 的隔离 owner / reader 检查已通过：paginated / legacy、active writer 错误、只读反向游标、独立进程入队与 queue/list 一致。模型 provider 仅指向本地关闭端口，无真实模型调用。Linux CTest（Debian 容器）、77 项 Vitest、TLS、备份恢复、发布来源与更新器检查通过；格式、类型和生成协议检查通过。外部场景 E2E 已验证 paginated / legacy 增长快照、稳定 revision、相同请求去重、丢失应答后 queue/list 对账、不同内容拒绝、默认禁止入队、CC observe/history/queue/request、外部中断拒绝与安全断开。Chromium UI 回归验证桌面 / 手机布局、原有会话恢复与缓存流程；全量 E2E 和最终发行检查均已通过，发布证据见下文。
 
 原生代码提交 `0458960` 的 [GitHub Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40195600279) 中 Windows x64 编译、CTest、启动和打包，以及 Linux sanitizers 已通过。最终发行提交重新运行三个 CI jobs；Windows 全程仅在 Actions 构建 / 测试，未在本地执行。真实 Codex 双进程测试在首次 paginated DB 初始化后启动 reader，避免上游首次建库竞态；只比较游标锚点身份，不依赖异步 turn 状态不变。真实模型执行和长期负载不在本次无模型验收范围；外部审批追加验证如下。
 
@@ -420,4 +420,16 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 ### 0.5.7 无人值守审批追加验证
 
-真实 Codex 0.164.0 共享 Unix app-server 验证原生桥接：原 owner 产生实际命令审批，新连接重放请求，由 C++ 原生客户端明确提交决定并接收解决通知，原 owner 继续存活。Responses provider 为本机确定性 stub，使用隔离 home / 项目，未读取用户凭据或调用真实模型。拒绝和批准分别验证不执行 / 仅执行无副作用 echo。集成回归增加 CC 审批命令、CW 审批界面、本轮精确权限、重复决定、原客户端先解决、错项目 / 未加载线程、不支持的交互及安全断开；发行源码的 CI 和发布后生产临时 fixture 结果在完成后记录。
+真实 Codex 0.164.0 共享 Unix app-server 验证原生桥接：原 owner 产生实际命令审批，新连接重放请求，由 C++ 原生客户端明确提交决定并接收解决通知，原 owner 继续存活。Responses provider 为本机确定性 stub，使用隔离 home / 项目，未读取用户凭据或调用真实模型。拒绝和批准分别验证不执行 / 仅执行无副作用 echo。集成回归增加 CC 审批命令、CW 审批界面、本轮精确权限、重复决定、原客户端先解决、错项目 / 未加载线程、不支持的交互及安全断开；发行源码 CI 和生产临时 fixture 均已通过，结果如下。
+
+### 0.5.7 发布验收完成
+
+- 源码 `94be403f37f842aaf968746984af59293d55efa7` 已合并并推送 master，标签 `v0.5.7` 指向该发行源码。[最终 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40200405588) 的 regression、sanitizers、windows-x64 全部通过，包括 Windows 本机 WebSocket 审批契约、CTest、启动检查及 ZIP 打包。Windows 全程未在本地构建或执行。先前一次 CI 在浏览器关闭后的控制权释放时序上超时，重连用例改为显式获取测试控制权，最终门禁已通过。
+- 本地 Ubuntu / Debian CTest、77 项 Vitest、TLS、备份恢复、发布来源与更新器检查、类型 / 格式 / 生成协议和 Worker dry-run 通过。真实 Codex 0.164.0 的只读与队列测试覆盖两种历史模式；原生共享审批分别验证拒绝不执行和批准后继续执行临时项目中的无副作用 echo，原 owner 保持连接。未使用真实模型或用户 Codex 凭据。
+- 2026-10-25 22:11（Asia/Shanghai）发布至 `https://r.xlogic.cc`；Worker 版本 `5f6b77c0-6a9b-47ca-be84-28c76112e0be`，部署 `1a2f1558-f9eb-40e4-a3cb-53ce5705d92f`，100% 流量。健康接口返回 0.5.7，未登录业务为 401，跨域登录为 403，首页安全头、新 JS / CSS 字节、手册 UTF-8 与源文件字节一致。
+- Ubuntu 20.04 / Debian 12 / Windows x64 和源码四个在线归档 SHA256 与本机发行产物一致，version / commit / sourceDigest / protocol 一致；Windows 外层 Actions artifact 另与 GitHub 提供的 digest 核对。Linux 下载包实际执行身份与帮助检查；Windows 原生执行仅由对应 Actions job 验证。旧版直接下载地址保留，下载清单只列本次四个包。
+- 生产验证使用实际下载的 Debian Agent、独立临时项目和确定性 Codex / 原服务 fixture，经真实 Worker 和 Chromium 验证 active-writer 降级、快照刷新、运行中入队、去重、请求查询、CW 显式审批、桌面 / 手机界面及安全断开。网页无运行时错误。验证后撤销本次临时请求 / 凭据，停止 Agent 并退出管理登录，未操作已有用户设备或调用真实模型。生产 fixture 验证不等同于在用户原有 Codex 进程中执行模型任务；真实 Codex 协议由上述本地隔离测试覆盖。
+
+接入边界保持明确：远程审批需要原会话所属的共享 app-server；既有独占 stdio 进程不能事后转移审批。默认 `allowQueue / allowApprovals` 均关闭，需升级 Agent 并显式配置；不代替用户更新已有服务。命令 / 文件、本轮精确权限可远程处理，其他交互和设备身份验证仍受原客户端兼容性限制；真实硬件无人值守长稳、八小时压力等既有验收边界未扩充为已完成。
+
+证据：[CI](assets/external-session-2026-10-25/actions-verification.json)、[部署](assets/external-session-2026-10-25/deployment.json)、[发行包](assets/external-session-2026-10-25/package-verification.json)、[在线资源](assets/external-session-2026-10-25/online-verification.json)、[线上流程](assets/external-session-2026-10-25/browser-verification.json)、[远程审批](assets/external-session-2026-10-25/production-external-approval.png)。本节为发布后的独立证据提交，不改写发行标签及源码包。

@@ -1,0 +1,25 @@
+{
+  "sourceCommit": "94be403f37f842aaf968746984af59293d55efa7",
+  "sourceDigest": "cdb33714ca98a359354b6e1f9ff5e88231884450e3b3a3b15835b19e9d542d52",
+  "version": "0.5.7",
+  "windowsActionsRun": 40200405588,
+  "windowsArtifactDigest": "sha256:b866777efdfdd76c66ad486ba5911e30a5da82be9a6c5a44b2a16b795d738eb8",
+  "archives": [
+    {
+      "file": "coc-0.5.7-linux-x86_64-debian12.tar.gz",
+      "sha256": "8dea028b372ab3f1f24a98149a8d2c9ec6f8ce0cde54be1dd0012efe0955f4ff"
+    },
+    {
+      "file": "coc-0.5.7-linux-x86_64-ubuntu20.04.tar.gz",
+      "sha256": "7240f7744f0ec7e71090b847f9a59cc662b7246a4858cbb3da9c1854a53f9745"
+    },
+    {
+      "file": "coc-0.5.7-windows-x64.zip",
+      "sha256": "65cab01eec7e8b30932b6117afd7d1ef44a965067d382d64efa4ddd5efd1dfbc"
+    },
+    {
+      "file": "codex-over-cloudflare-0.5.7-source.tar.gz",
+      "sha256": "cddeb91f302b0f6fc6a9365485a96cf138670a7b41549670f2d91dbda5ea067e"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "time": "2026-10-25T14:14:15.970Z",
+  "origin": "https://r.xlogic.cc",
+  "nativeVersion": "0.5.7",
+  "sourceCommit": "94be403f37f842aaf968746984af59293d55efa7",
+  "activeWriterFallback": "passed",
+  "snapshotRefresh": "passed",
+  "queueWhileRunning": "passed",
+  "queueDeduplication": "passed",
+  "remoteApprovals": "passed",
+  "requestStatus": "passed",
+  "safeDisconnect": "passed",
+  "desktopAndMobile": "passed",
+  "pageErrors": [],
+  "modelCalls": false,
+  "fixture": "downloaded Debian native Agent + deterministic Codex peer against production Worker; genuine Codex contract tested separately",
+  "cleanup": "temporary requests and credentials revoked; temporary Agent stopped; admin session logged out"
+}

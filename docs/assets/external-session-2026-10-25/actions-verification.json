@@ -1,0 +1,29 @@
+{
+  "run": 40200405588,
+  "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40200405588",
+  "sourceCommit": "94be403f37f842aaf968746984af59293d55efa7",
+  "windowsBuildLocation": "GitHub Actions only",
+  "jobs": [
+    {
+      "name": "windows-x64",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40200405588/job/121190177709",
+      "conclusion": "success",
+      "started_at": "2026-10-25T14:02:54Z",
+      "completed_at": "2026-10-25T14:07:10Z"
+    },
+    {
+      "name": "sanitizers",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40200405588/job/121190177899",
+      "conclusion": "success",
+      "started_at": "2026-10-25T14:02:54Z",
+      "completed_at": "2026-10-25T14:06:37Z"
+    },
+    {
+      "name": "regression",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40200405588/job/121190177906",
+      "conclusion": "success",
+      "started_at": "2026-10-25T14:02:54Z",
+      "completed_at": "2026-10-25T14:09:07Z"
+    }
+  ]
+}
