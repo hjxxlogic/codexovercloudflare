@@ -52,3 +52,45 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
       - run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON && cmake --build build-sanitize -j 2
       - run: ctest --test-dir build-sanitize --output-on-failure
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Keep source bytes identical for build provenance on every platform.
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Windows x64 with static dependencies
+        shell: pwsh
+        run: >-
+          cmake -S . -B build-windows -A x64
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+      - run: cmake --build build-windows --config Release --parallel 2
+      - run: ctest --test-dir build-windows -C Release --output-on-failure
+      - name: Validate executable metadata and startup
+        shell: pwsh
+        run: |
+          ./build-windows/Release/coc-agent.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-client.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-agent.exe --help
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./build-windows/Release/coc-client.exe --help
+          exit $LASTEXITCODE
+      - name: Verify Windows release packaging guards
+        run: python tests/windows-release.py
+      - name: Package verified Windows x64 binaries
+        run: python scripts/package-release.py --build-dir build-windows/Release --platform windows-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            dist/web/downloads/*.zip
+            dist/web/downloads/*source.tar.gz
+            dist/web/downloads/SHA256SUMS
+            dist/web/downloads/index.json

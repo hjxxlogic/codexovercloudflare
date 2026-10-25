@@ -122,7 +122,7 @@ TLS 身份校验使用 [OpenSSL SSL_set1_host](https://docs.openssl.org/1.1.1/ma
 
 C++ Agent 使用一个 Asio 事件循环串行管理会话、SQLite 和网络；每个连接分别串行化发送，每个子进程独立维护 RPC 超时。WebSocket 限制单帧 256 KiB、待发队列 8 MiB，超限断开；本地 Codex 单条 RPC 约 8 MiB 缓冲限制与网络单帧分开；网页大内容发送引用，超大 CLI RPC 转为历史分块读取提示，不断开整台 Agent。网页命令按会话排队，CLI 消息按白名单转发，不在网络回调里等待 Codex 响应。Beast 的并发约束见 [官方说明](https://www.boost.org/doc/libs/latest/libs/beast/doc/html/beast/using_websocket/notes.html)。
 
-本机当前验证平台为 Linux x86_64。二进制依赖系统 Boost.System、OpenSSL、SQLite、libstdc++ 等动态库，不宣称静态单文件分发；必须在目标兼容发行版构建。macOS / Windows 尚待进程与平台层适配。只有构建中转、网页和测试工具时需要 Node.js ≥ 22.17。
+本机当前验证平台为 Linux x86_64。Linux 二进制依赖系统 Boost.System、OpenSSL、SQLite、libstdc++ 等动态库，不宣称静态单文件分发；必须在目标兼容发行版构建。Windows x64 增加 MSVC / vcpkg 静态构建及独立平台实现；macOS 尚待适配。Windows 子进程通过 CreateProcessW 参数引用、受限句柄继承、重叠命名管道和 Job Object 管理进程树；私有状态使用受保护 DACL，SQLite 使用 UTF-8 路径，OpenSSL 加载 Windows ROOT。工作区操作持有祖先目录句柄，拒绝 reparse point / junction、设备名和备用数据流。Windows 使用手动 ZIP 升级，Linux 原有原子更新流程保持。实际验收范围见 TEST_REPORT.md。只有构建中转、网页和测试工具时需要 Node.js ≥ 22.17。
 
 不引入 D1、KV、R2、Redis 和消息队列：首版设备目录规模小，正文留在远程主机。后续跨主机查询或附件服务出现实际需求时再增加存储。
 

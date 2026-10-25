@@ -3,12 +3,18 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
+#ifndef _WIN32
 #include <fcntl.h>
 #include <set>
 #include <signal.h>
 #include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
+#else
+#include "coc/windows.hpp"
+#include <cstring>
+#include <ws2tcpip.h>
+#endif
 namespace coc {
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -17,6 +23,7 @@ using tcp = asio::ip::tcp;
 namespace {
 // getaddrinfo may outlive Asio cancellation. Isolate libc resolution in a
 // cancellable process so the HTTP deadline also bounds DNS and leaves no worker.
+#ifndef _WIN32
 class DeadlineResolver {
   asio::posix::stream_descriptor output_;
   std::string buffer_;
@@ -93,6 +100,73 @@ public:
         });
   }
 };
+#else
+// Windows exposes cancellable asynchronous DNS directly; no resolver worker
+// can keep io.run() alive after the HTTP deadline indefinitely.
+class DeadlineResolver {
+  asio::windows::object_handle event_;
+  OVERLAPPED operation_{};
+  PADDRINFOEXW answers_ = nullptr;
+  HANDLE cancellation_ = nullptr;
+  bool pending_ = false;
+  std::wstring host_, port_;
+  ADDRINFOEXW hints_{};
+
+public:
+  explicit DeadlineResolver(asio::io_context &io)
+      : event_(io, CreateEventW(nullptr, TRUE, FALSE, nullptr)) {
+    operation_.hEvent = event_.native_handle();
+  }
+  ~DeadlineResolver() {
+    if (answers_)
+      FreeAddrInfoExW(answers_);
+  }
+  void cancel() {
+    if (pending_ && cancellation_)
+      GetAddrInfoExCancel(&cancellation_);
+  }
+  void resolve(const Url &url,
+               std::function<void(boost::system::error_code, std::vector<tcp::endpoint>)> done) {
+    auto complete = [this, done](int status) {
+      pending_ = false;
+      cancellation_ = nullptr;
+      std::vector<tcp::endpoint> addresses;
+      if (status == 0) {
+        for (auto entry = answers_; entry && addresses.size() < 64; entry = entry->ai_next) {
+          tcp::endpoint endpoint;
+          if ((entry->ai_family == AF_INET || entry->ai_family == AF_INET6) &&
+              entry->ai_addrlen <= endpoint.capacity()) {
+            std::memcpy(endpoint.data(), entry->ai_addr, entry->ai_addrlen);
+            endpoint.resize(entry->ai_addrlen);
+            addresses.push_back(endpoint);
+          }
+        }
+      }
+      if (answers_) {
+        FreeAddrInfoExW(answers_);
+        answers_ = nullptr;
+      }
+      done(status ? boost::system::error_code(status, boost::system::system_category())
+                  : boost::system::error_code(),
+           addresses);
+    };
+    hints_.ai_family = AF_UNSPEC;
+    hints_.ai_socktype = SOCK_STREAM;
+    host_ = wide(url.host);
+    port_ = wide(url.port);
+    auto status = GetAddrInfoExW(host_.c_str(), port_.c_str(), NS_ALL, nullptr, &hints_, &answers_,
+                                 nullptr, &operation_, nullptr, &cancellation_);
+    if (status != WSA_IO_PENDING) {
+      complete(status);
+      return;
+    }
+    pending_ = true;
+    event_.async_wait([this, complete](auto ec) {
+      complete(ec ? int(ec.value()) : GetAddrInfoExOverlappedResult(&operation_));
+    });
+  }
+};
+#endif
 template <class Stream>
 std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const std::string &path,
                      const Json &body, const std::string &token, const std::string &request_id,
@@ -193,7 +267,7 @@ Json http_json(const Url &u, const std::string &path, const Json &body, const st
   asio::io_context io;
   if (u.tls) {
     ssl::context ctx(ssl::context::tls_client);
-    ctx.set_default_verify_paths();
+    configure_trust(ctx);
     beast::ssl_stream<beast::tcp_stream> stream(io, ctx);
     verify_tls_hostname(stream.native_handle(), u.host);
     stream.set_verify_mode(ssl::verify_peer);
@@ -207,7 +281,7 @@ std::string http_download(const Url &u, const std::string &path, size_t limit,
   asio::io_context io;
   if (u.tls) {
     ssl::context ctx(ssl::context::tls_client);
-    ctx.set_default_verify_paths();
+    configure_trust(ctx);
     beast::ssl_stream<beast::tcp_stream> stream(io, ctx);
     verify_tls_hostname(stream.native_handle(), u.host);
     stream.set_verify_mode(ssl::verify_peer);

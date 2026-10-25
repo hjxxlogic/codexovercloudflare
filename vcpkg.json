@@ -1,0 +1,13 @@
+{
+  "name": "codex-over-cloudflare",
+  "version-string": "0.5.6",
+  "dependencies": [
+    "boost-asio",
+    "boost-beast",
+    "boost-system",
+    "openssl",
+    "sqlite3",
+    "nlohmann-json"
+  ],
+  "builtin-baseline": "544a4c5c297e60e4ac4a5a1810df66748d908869"
+}

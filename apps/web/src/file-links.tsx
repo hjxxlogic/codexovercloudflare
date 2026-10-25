@@ -19,6 +19,8 @@ const LinkLabelContext = createContext(false);
 // Strip editor line references, but never turn a URL or an escaping path into a download.
 export function projectFilePath(value: string, root: string): string | null {
   let path = value.trim();
+  const windows = /^[a-z]:[\\/]/i.test(root);
+  const fileUri = path.startsWith('file:///');
   if (path.startsWith('file://')) {
     if (!path.startsWith('file:///')) return null;
     path = path.slice(7);
@@ -32,6 +34,18 @@ export function projectFilePath(value: string, root: string): string | null {
     /(?::\d+(?::\d+)?|#L\d+(?:C\d+)?(?:-L?\d+(?:C\d+)?)?)$/,
     '',
   );
+  if (windows) {
+    if (fileUri && /^\/[a-z]:\//i.test(path)) path = path.slice(1);
+    if (/^(?:\\\\|\/\/)/.test(path)) return null;
+    path = path.replace(/\\/g, '/');
+    root = root.replace(/\\/g, '/');
+    if (/^[a-z]:\//i.test(path)) {
+      const prefix = root.replace(/\/+$/, '') + '/';
+      if (!path.toLowerCase().startsWith(prefix.toLowerCase())) return null;
+      path = path.slice(prefix.length);
+    }
+    if (path.startsWith('/') || path.includes(':')) return null;
+  }
   if (/^[a-z][a-z\d+.-]*:/i.test(path)) return null;
   if (
     !path ||
@@ -58,7 +72,7 @@ export function projectFilePath(value: string, root: string): string | null {
 // Plain prose needs a path separator or filename extension; explicit links can use any filename.
 export function fileReferences(text: string) {
   const pattern =
-    /^(?:file:\/\/\/|\.{0,2}\/|[\p{L}\p{N}_@-]+\/)[^\s<>"'`，。；！？（）【】]+|^[\p{L}\p{N}_@-]+(?:\.[\p{L}\p{N}_-]+)+(?:，|。)?(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?/gu;
+    /^(?:file:\/\/\/|[a-z]:[\\/]|\.{0,2}[\\/]|[\p{L}\p{N}_@-]+[\\/])[^\s<>"'`，。；！？（）【】]+|^[\p{L}\p{N}_@-]+(?:\.[\p{L}\p{N}_-]+)+(?:，|。)?(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?/giu;
   // Skip prose tokens without separators before matching filenames. This keeps long
   // streamed paragraphs from causing quadratic regexp backtracking.
   return Array.from(

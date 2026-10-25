@@ -179,3 +179,25 @@ Agent 启动提示回归在同一端到端测试中预置本机、异主机及�
 ## 离线唤醒回归
 
 构建原生程序和网页后执行 `npm run test:wake`，用本地 HTTP / WebSocket 夹具验证真实 Agent 的唤醒配置及 capabilities、CC 离线唤醒等待与幂等重试，以及 Chromium 的管理员配置和 CW 上线刷新；不调用模型。`npm test` 包含主机配置权限、URL 脱敏、管理员覆盖/禁用/回退、在线跳过、并发及 DO 重建限流、失败限流与共享 C++ / Zod URL 校验夹具。UI 截图默认保存 `.local/wake-ui/`，可用 `COC_ARTIFACT_DIR` 修改。
+
+## Windows x64 原生构建
+
+建议将源码检出到 Windows 本地 NTFS 路径，避免 UNC 工作目录限制。安装 Visual Studio 2022/2026 的“使用 C++ 的桌面开发”、Windows SDK、CMake ≥3.16、Python 3 和 Git。原生构建不需要 Node.js。使用 vcpkg（设置 `VCPKG_ROOT` 为其目录），仓库 `vcpkg.json` 固定依赖注册表基线；推荐 `x64-windows-static`，同时静态链接 MSVC CRT。不要使用 Win32/x86 生成器。
+
+```powershell
+cmake -S . -B build-windows -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static
+cmake --build build-windows --config Release --parallel 2
+ctest --test-dir build-windows -C Release --output-on-failure
+.\build-windows\Release\coc-agent.exe --version
+.\build-windows\Release\coc-client.exe --help
+```
+
+Windows CTest 使用原生模拟 Codex 子进程，不调用模型；覆盖 UTF-8 配置、排他锁、SQLite 历史与去重、Windows 路径拒绝规则、分块传输/覆盖、参数引用、stdio RPC 和进程退出。符号链接测试仅在系统允许创建链接时执行。Linux 专用故障注入、Docker TUI 和真实 Codex 验收仍需按对应环境运行；Windows CI 不代替真实 Codex TUI、沙箱及长期压力验证。
+
+CI 的 `windows-x64` 作业执行 MSVC Release 构建、CTest、启动检查和 ZIP 打包；不部署。正式包需在干净提交上生成：
+
+```powershell
+python scripts/package-release.py --build-dir build-windows/Release --platform windows-x64
+```
+
+结果位于 `dist/web/downloads`，包含 ZIP、源码、SHA256 和构建身份。静态依赖许可证默认取自该构建目录的 `vcpkg_installed/x64-windows-static`；自定义安装目录时为打包命令添加 `--dependency-dir <triplet目录>`。Windows 更新先采用手动整包替换，不能使用 Linux 的 ELF/tar 原地更新流程。不要混用 Windows 与 Linux 构建目录。云端、网页与现有 TypeScript 集成脚本继续使用文档中的 Linux 测试环境。

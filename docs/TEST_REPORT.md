@@ -2,6 +2,13 @@
 
 日期：2026-10-25。0.5.6 已发布，源码标签 `v0.5.6` 指向 `672e5f42120bf1c527fee58b73313190f2d89be3`。最新部署和线上唤醒验收见下文，后文保留各版本历史证据。本轮未调用模型。
 
+## 未发布 · Windows x64 支持
+
+- Linux Release 构建、原生 CTest、77 项 Vitest、TypeScript、ESLint / Prettier、C++ 格式、协议文档一致性及网页构建通过。新增 Windows 聊天路径回归覆盖盘符、反斜杠、file URI、行号、大小写、跨盘符和目录越界。
+- `tests/release-provenance.py` 通过来源绑定、脏源码/陈旧二进制拒绝、错误平台和 LF 校验和检查；`test:update` 通过 Linux 实际升级、原子替换、旧版本、损坏归档、候选身份/协议错误、禁用与并发锁测试；`test:tls` 通过受信任 HTTPS/WSS、不可信 CA 和错误主机名测试。
+- Windows 本地构建已按用户要求停止，未完成主程序编译或原生 CTest，不计为通过。依赖准备期间发现 WSL UNC 工作目录限制；正式 Windows 构建与测试改在 GitHub Actions 的本地 NTFS 工作目录执行。Windows 打包保护已在临时仓库中用模拟 PE 程序验证通过。新增 CI 生成静态 ZIP 并上传 artifact，不执行部署。
+- 本机已有 Windows Codex 为 0.130.0，与固定的 0.164.0 不匹配，未用于会话验收。未调用模型、未升级该 Codex、未发布生产包；Windows 真实 Codex TUI、沙箱设置、系统重启/休眠及长期压力仍待对应环境验收。Windows 使用手动整包升级，不宣称 Linux 自动更新流程可用于 PE 程序。
+
 ## 网页更新 · 2026-10-25 · CW 刷新恢复会话上线验收
 
 - 功能源码 `9bf7f4b` 已提交并推送；Worker 版本 `fe350e29-82eb-49f3-82f2-1cea3090b10b` 于 UTC 03:46:28 部署至 `r.xlogic.cc`，流量 100%。网页和在线手册同步更新，原生程序与源码下载继续保留既有 0.5.6。

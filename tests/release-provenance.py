@@ -38,6 +38,11 @@ with tempfile.TemporaryDirectory(prefix='coc-release-test-') as directory:
     assert clean.returncode == 0, clean.stderr
     manifest = json.loads((root / 'dist/web/downloads/index.json').read_text())
     assert manifest['sourceDigest'] == metadata['sourceDigest']
+    if sys.platform != 'win32':
+        wrong_target = subprocess.run(command[:-1] + ['windows-x64'], cwd=root, env=env, text=True, capture_output=True)
+        assert wrong_target.returncode != 0 and 'Windows x64' in wrong_target.stderr
+    sums = (root / 'dist/web/downloads/SHA256SUMS').read_bytes()
+    assert b'\r' not in sums, 'Checksums must remain compatible with Linux update parsing'
     (root / 'untracked-input').write_text('new build input')
     dirty = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True)
     assert dirty.returncode != 0 and 'clean' in dirty.stderr
