@@ -59,7 +59,7 @@ python3 scripts/package-release.py --build-dir .local/build-container --platform
 
 ```bash
 node node_modules/wrangler/bin/wrangler.js deploy \
-  --tag v0.5.6 --message 'Release 0.5.6 offline Agent wake URLs for CW and CC'
+  --tag v0.5.7 --message 'Release 0.5.7 external Codex session history and queue'
 ```
 
 只有初始化或明确轮换密钥时才追加 `--secrets-file .local/production/secrets.json`。
@@ -70,7 +70,7 @@ node node_modules/wrangler/bin/wrangler.js deploy \
 
 生产授权冒烟只使用明确标记的临时设备和独立凭证文件：申请临时 A，在真实管理网页核对并批准，验证下载的 A 登录；再为该 A 授权 CC / CW，验证各自作用域及管理员接口拒绝。测试后只撤销本次创建的临时授权，不能操作用户真实设备。测试不调用模型；不宣称覆盖生产 Codex 会话与长期负载。
 
-记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.6` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
+记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.7` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
 
 DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
 

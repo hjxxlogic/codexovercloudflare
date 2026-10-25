@@ -825,6 +825,11 @@ try {
         { key: lostId },
       );
       assert.equal(unconfirmed.b.error.code, 'RESULT_UNKNOWN');
+      const reconciled = await api(
+        `/hosts/${enrolled.hostId}/requests/${lostId}?sessionId=${session.id}`,
+      );
+      assert.equal(reconciled.state, 'completed');
+      assert.equal(reconciled.result.state, 'queued');
       const recovered = await api(
         `/sessions/${session.id}/queue`,
         { text: 'lost queue reply' },
@@ -930,6 +935,11 @@ try {
   );
   assert.equal(observed.mode, 'cli');
   assert.equal(observed.external, true);
+  assert.equal(
+    (await request(`/sessions/${observed.id}/queue`, { text: 'wrong role' })).r
+      .status,
+    403,
+  );
   const cliQueue = JSON.parse(
     await cliCommand([
       'queue',
@@ -1769,7 +1779,9 @@ try {
     'browser cookie login, project selection, task submission and streaming',
   );
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByRole('button', { name: /外部运行会话/ }).click();
+  await visitorPage
+    .getByRole('button', { name: '恢复并继续：外部运行会话', exact: true })
+    .click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage
     .getByText(/外部会话 · 只读同步/)
@@ -1796,6 +1808,11 @@ try {
     path: join(artifacts, 'external-session-queue.png'),
     fullPage: true,
   });
+  await visitorPage
+    .locator('.notice')
+    .filter({ hasText: '已加入原客户端队列，等待原客户端执行' })
+    .getByRole('button', { name: '关闭', exact: true })
+    .click();
   const beforeExternalToken = token;
   token = '';
   const browserExternal = (

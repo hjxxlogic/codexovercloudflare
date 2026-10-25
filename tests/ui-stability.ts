@@ -145,11 +145,15 @@ const server = createServer((req, res) => {
 const sockets = new Set<WebSocket>();
 const controls = new Set<WebSocket>();
 const wss = new WebSocketServer({ server });
+const controlSessions = new WeakMap<WebSocket, typeof session>();
 const sync = (ws: WebSocket) =>
   ws.send(
     JSON.stringify({
       type: 'sync',
-      session: { ...session, running: approvals.length > 0 },
+      session: {
+        ...(controlSessions.get(ws) || session),
+        running: approvals.length > 0,
+      },
       approvals,
       events: [],
       more: false,
@@ -161,6 +165,10 @@ wss.on('connection', (ws, request) => {
     sockets.delete(ws);
     controls.delete(ws);
   });
+  controlSessions.set(
+    ws,
+    request.url?.includes(otherSession.id) ? otherSession : session,
+  );
   const history = request.url?.includes('/history/');
   if (history) ws.send(JSON.stringify({ type: 'history-ready' }));
   else controls.add(ws);

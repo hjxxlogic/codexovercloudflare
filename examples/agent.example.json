@@ -6,6 +6,7 @@
   "codexPath": "codex",
   "codexArgs": [],
   "sandbox": "workspace-write",
+  "externalSessions": { "allowQueue": false },
   "dataDir": "/home/coc/.local/share/coc",
   "projects": [
     {

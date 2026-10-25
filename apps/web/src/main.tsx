@@ -825,7 +825,7 @@ function App() {
             if (d.type === 'sync') {
               clearTimeout(handshake);
               setSelected((current) =>
-                current?.id === selected.id
+                current?.id === selected.id && d.session.id === selected.id
                   ? { ...current, ...d.session }
                   : current,
               );
@@ -2262,8 +2262,8 @@ function App() {
                 {panel === 'details' && selected && (
                   <section className="session-details">
                     <p className="status">
-                      {status} ·{' '}
-                      {selected.external ? '外部会话 · 只读同步' : ''} ·{' '}
+                      {status}
+                      {selected.external ? ' · 外部会话 · 只读同步' : ''} ·{' '}
                       {busy ? '执行中' : '空闲'} · 远程项目 {selected.projectId}
                     </p>
                     {selected.state !== 'ready' && selected.threadId && (

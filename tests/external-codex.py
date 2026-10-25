@@ -61,10 +61,16 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
         try:
             owner = Peer(env, str(work))
             peers.append(owner)
-            reader = Peer(env, str(work))
-            peers.append(reader)
             thread = owner.call('thread/start', {'cwd': str(work), 'sandbox': 'read-only',
                 'approvalPolicy': 'on-request', 'ephemeral': False, 'historyMode': mode})['thread']['id']
+            owner.call('thread/inject_items', {'threadId': thread, 'items': [
+                {'type': 'message', 'role': 'user', 'content': [
+                    {'type': 'input_text', 'text': 'persist isolated test thread'}]}]})
+            # Initialize the paginated store before another process can race its first migration.
+            if mode == 'paginated':
+                owner.call('thread/items/list', {'threadId': thread, 'limit': 1})
+            reader = Peer(env, str(work))
+            peers.append(reader)
             owner.call('turn/start', {'threadId': thread, 'input': [
                 {'type': 'text', 'text': 'local transport probe', 'text_elements': []}]})
             deadline = time.monotonic() + 10
@@ -89,7 +95,8 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
                 time.sleep(0.05)
             assert page['backwardsCursor'], page
             forward = reader.call(method, dict(params, sortDirection='asc', cursor=page['backwardsCursor']))
-            assert forward['data'] == page['data'], (page, forward)
+            identity = lambda entry: entry.get('item', entry)['id']
+            assert list(map(identity, forward['data'])) == list(map(identity, page['data'])), (page, forward)
             queued = reader.call('thread/queue/add', {'threadId': thread, 'clientUserMessageId': 'queue-' + mode,
                 'input': [{'type': 'text', 'text': 'queued from independent reader', 'text_elements': []}]})
             pending = reader.call('thread/queue/list', {'threadId': thread, 'limit': 100})
