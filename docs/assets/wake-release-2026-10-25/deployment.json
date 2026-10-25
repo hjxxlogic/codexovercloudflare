@@ -1,0 +1,16 @@
+{
+  "origin": "https://r.xlogic.cc",
+  "version": "0.5.6",
+  "tag": "v0.5.6",
+  "commit": "672e5f42120bf1c527fee58b73313190f2d89be3",
+  "sourceDigest": "b5b12c3d8f33e3de095ca77d0429a7976621994c471d18e26c22ac362e95f0db",
+  "deploymentId": "0d249278-7dac-4478-b0b2-ed978570a9ff",
+  "createdOn": "2026-10-25T02:41:49.77907Z",
+  "versions": [
+    {
+      "version_id": "cf6537ae-7597-485b-ad9f-6ff5ce39032a",
+      "percentage": 100
+    }
+  ],
+  "message": "Release 0.5.6 offline Agent wake URLs for CW and CC"
+}

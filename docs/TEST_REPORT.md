@@ -1,5 +1,18 @@
 # 本机测试记录
 
+日期：2026-10-25。0.5.6 已发布，源码标签 `v0.5.6` 指向 `672e5f42120bf1c527fee58b73313190f2d89be3`。最新部署和线上唤醒验收见下文，后文保留各版本历史证据。本轮未调用模型。
+
+## 0.5.6 · 2026-10-25 · 发布与线上验收
+
+- 源码 `672e5f4` 和标签 `v0.5.6` 已推送。Worker 版本 `cf6537ae-7597-485b-ad9f-6ff5ce39032a` 于 UTC 02:41:49 发布至 `r.xlogic.cc`，流量 100%；Worker、网页、在线手册和两平台原生下载同步更新。
+- Ubuntu 20.04 / Debian 12 干净 Release 构建、两平台 CTest、63 项 Vitest、TLS 的可信证书 / 未知 CA / 错误主机名、原生与 Chromium 唤醒回归、类型 / 格式 / 协议检查、发行来源与 Worker dry-run 均通过。干净构建的更新器回归包括 CLI 自动安装、空闲 Agent 关闭存储后重启；未直接替换其他用户主机服务。
+- 两平台归档中的程序逐字节等于已验证构建，版本 / 提交 / protocol / sourceDigest `b5b12c3d8f33e3de095ca77d0429a7976621994c471d18e26c22ac362e95f0db` 一致且 dirty=false；源码归档等于 `git archive`，所有 SHA256 匹配。实际从生产下载的两个平台程序在匹配环境执行 `--version / help` 通过。
+- 线上健康检查报告 0.5.6，网页 JS / CSS、手册、下载清单和三个归档均与本地字节 / SHA256 一致；未登录业务 401、跨域管理登录 403、安全响应头及手册 UTF-8 通过。
+- 使用实际下载的 Ubuntu 程序、真实 Chromium 和独立临时主机验证：Agent 命令配置 URL；管理员离线覆盖 / 禁用 / 恢复 Agent 地址；CC `status` 触发实际 GET 并收到 requested，随后请求受到 cooldown 限流；CW 发现离线自动请求唤醒，CC `projects` 等待 Agent 启动后恢复，CW 自动加载项目，在线唤醒返回 online；普通列表不暴露 URL，错误角色 / 目标调用拒绝，Cookie 保持 HttpOnly / Secure，浏览器无脚本错误。
+- 生产唤醒 GET 使用 `https://example.com/` 这一无副作用的测试地址，随后手动启动临时 Agent 验证恢复；未测试真实硬件休眠 / 开机，不把 HTTP 成功等同于开机完成。本地完整端到端则由独立唤醒服务实际启动 Agent。全程未调用模型，只撤销本次带测试前缀的临时请求 / 凭据，测试 Agent 已停止、管理会话已退出。
+- 首次线上验收脚本错过登录后立即发出的唤醒响应；提前注册监听后，又因提示框含“关闭”按钮而不满足整段精确匹配。调整测试监听与文字断言后完整线上唤醒验收通过，产品代码未改变。
+- 永久证据：[部署身份](assets/wake-release-2026-10-25/deployment.json)、[发行包校验](assets/wake-release-2026-10-25/package-verification.json)、[线上资源](assets/wake-release-2026-10-25/online-verification.json)、[线上唤醒交互](assets/wake-release-2026-10-25/browser-verification.json)。本地日志位于 `.local/wake-release-0.5.6/`；发布后证据单独提交，不改写已发布的源码标签或发行归档。
+
 ## 0.5.6 · 2026-10-25 · 离线 Agent 唤醒（发布前验收）
 
 - 宿主原生 / 网页构建、CTest 1/1、63 项 Vitest、类型、ESLint / Prettier / clang-format 和协议文档检查通过；Worker dry-run 打包通过，仅打包未发布。共享 URL 夹具验证 C++ / Zod 的支持范围。
@@ -7,8 +20,6 @@
 - 真实原生程序配合本地 HTTP / WebSocket 夹具验证 Agent 配置命令、清除和 capabilities 登记，以及 CC 唤醒等待、相同幂等标识的离线重试、`status / hosts` 触发和未配置的错误。Chromium 验证管理员保存 / 禁用 / 恢复、手机布局和 CW 自动唤醒后加载项目；原有完整 `test:ui` 回归通过。
 - 完整真实 Wrangler / 原生程序 / Chromium 端到端回归通过，包含新增场景：Agent 停止时由原生 CC 发现离线并发起请求，中继 GET 独立本地唤醒服务，服务启动原生 Agent，CC 等到上线后成功读取项目；唤醒请求不携带中继凭据，在线跳过且普通列表不暴露 URL。测试使用临时凭据和确定性 Codex，不调用模型。
 - 宿主 Wrangler 启动报 EPIPE，使用现有 Bookworm release 测试镜像、关闭外部网络继续验证；旧 local 镜像缺少 git，未修改系统或安装依赖。截图由包含中文字体的容器生成并目视检查：[管理员桌面](assets/wake-url-2026-10-25/admin-desktop.png)、[管理员手机](assets/wake-url-2026-10-25/admin-mobile.png)、[CW 上线后目录](assets/wake-url-2026-10-25/cw-online-mobile.png)。未部署。
-
-日期：2026-10-25。0.5.5 已发布，源码标签 `v0.5.5` 指向 `8da4085e7c1e7cf888701e08a05ecd4f1318f4b5`。最新发布与线上审批验收见下文，后文保留各版本历史证据。本轮未调用模型。
 
 ## 0.5.5 · 2026-10-25 · 发布与线上验收
 

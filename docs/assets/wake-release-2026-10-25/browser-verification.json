@@ -1,0 +1,21 @@
+{
+  "time": "2026-10-25T02:45:52.051Z",
+  "origin": "https://r.xlogic.cc",
+  "marker": "wake-smoke-53c97879",
+  "nativeVersion": "0.5.6",
+  "nativeAgentConfiguration": "passed",
+  "adminDisableOverrideFallback": "passed",
+  "offlineGETAndCooldown": "passed",
+  "nativeCCWakeAndWait": "passed",
+  "cwAutomaticWake": "passed",
+  "cwOnlineCatalog": "passed",
+  "URLPrivacy": "passed",
+  "roleAndHostIsolation": "passed",
+  "onlineSkip": "passed",
+  "scopedCookie": "passed",
+  "manualCharset": "UTF-8",
+  "pageErrors": [],
+  "modelCalls": false,
+  "boundary": "Wake GET used https://example.com/; actual hardware power-on not exercised; Agent started manually for recovery verification",
+  "cleanup": "Only temporary test credentials/requests removed; test Agent stopped; admin session revoked"
+}
