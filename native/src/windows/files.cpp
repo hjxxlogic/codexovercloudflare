@@ -17,7 +17,8 @@ constexpr int64_t file_limit = 20 * 1024 * 1024, chunk_limit = 64 * 1024;
     throw Error("FILE_EXISTS", "File already exists; explicitly allow overwrite");
   if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
     throw Error("FILE_NOT_FOUND", "File or directory not found");
-  if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION)
+  if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_DIRECTORY ||
+      code == ERROR_CANT_ACCESS_FILE || code == 4395)
     throw Error("FORBIDDEN",
                 "Workspace path is inaccessible or in use (Windows " + std::to_string(code) + ")");
   throw Error("FILE_IO",
@@ -96,8 +97,8 @@ std::string version(HANDLE file) {
          std::to_string(basic.LastWriteTime.QuadPart) + ":" +
          std::to_string(basic.ChangeTime.QuadPart);
 }
-// Inspect canonical ancestors and lock project directories against writes and
-// moves for the entire operation or upload. System ancestors remain shareable.
+// Keep project directories stable against moves. Child lookup and enumeration
+// use handles so write sharing cannot redirect an operation through a junction.
 struct Directory {
   std::filesystem::path path;
   std::vector<WinHandle> ancestors;
@@ -108,8 +109,7 @@ struct Directory {
     path = absolute.root_path();
     auto hold = [&](bool project_directory) {
       auto access = FILE_READ_ATTRIBUTES | (project_directory ? FILE_LIST_DIRECTORY : 0);
-      auto share = project_directory ? FILE_SHARE_READ
-                                     : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+      auto share = FILE_SHARE_READ | FILE_SHARE_WRITE | (project_directory ? 0 : FILE_SHARE_DELETE);
       WinHandle handle(CreateFileW(path.c_str(), access, share, nullptr, OPEN_EXISTING,
                                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                                    nullptr));
@@ -125,15 +125,20 @@ struct Directory {
       hold(path == absolute);
     }
     for (size_t i = 0; i < count; ++i) {
+      WinHandle handle(relative_file(ancestors.back().get(), wide(parts[i]),
+                                     FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING, true));
+      if (!handle)
+        failed();
+      information(handle.get());
       path /= wide(parts[i]);
-      hold(true);
+      ancestors.push_back(std::move(handle));
     }
   }
 };
-WinHandle open_file(const std::filesystem::path &path, DWORD access, DWORD creation = OPEN_EXISTING,
-                    DWORD share = FILE_SHARE_READ) {
-  WinHandle file(CreateFileW(path.c_str(), access, share, nullptr, creation,
-                             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+WinHandle open_file(const Directory &parent, const std::wstring &name, DWORD access,
+                    DWORD creation = OPEN_EXISTING, DWORD share = FILE_SHARE_READ) {
+  WinHandle file(relative_file(parent.ancestors.back().get(), name, access, share, creation));
   if (!file)
     failed();
   if (information(file.get()).dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -193,15 +198,17 @@ std::string decode(const std::string &text) {
 struct WorkspaceFiles::Upload {
   std::unique_ptr<Directory> parent;
   WinHandle file, previous_file;
-  std::filesystem::path temporary, target;
+  std::wstring name;
   std::string root, owner, previous;
   int64_t size = 0, offset = 0, touched = now();
   bool published = false;
   std::map<int64_t, std::string> pending;
   ~Upload() {
-    file.reset();
-    if (!temporary.empty())
-      DeleteFileW(temporary.c_str());
+    if (file && !published) {
+      FILE_DISPOSITION_INFO disposition{TRUE};
+      SetFileInformationByHandle(file.get(), FileDispositionInfo, &disposition,
+                                 sizeof(disposition));
+    }
   }
 };
 WorkspaceFiles::WorkspaceFiles(Store *store) : store_(store) {}
@@ -230,22 +237,37 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     Directory directory(root, parts, parts.size());
     std::map<std::string, Json> page;
     auto after = d.value("after", "");
-    for (auto &entry : std::filesystem::directory_iterator(directory.path)) {
-      auto name = entry.path().filename().u8string();
-      if (name <= after || name.rfind(".coc-upload-", 0) == 0)
-        continue;
-      auto attributes = GetFileAttributesW(entry.path().c_str());
-      if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
-        continue;
-      bool dir = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-      std::error_code ec;
-      auto size = dir ? 0 : entry.file_size(ec);
-      if (ec)
-        continue;
-      page[name] = {{"name", name}, {"directory", dir}, {"size", size}};
-      if (page.size() > 101)
-        page.erase(std::prev(page.end()));
+    std::vector<unsigned char> storage(64 * 1024);
+    auto kind = FileIdBothDirectoryRestartInfo;
+    while (GetFileInformationByHandleEx(directory.ancestors.back().get(), kind, storage.data(),
+                                        DWORD(storage.size()))) {
+      kind = FileIdBothDirectoryInfo;
+      size_t position = 0;
+      for (;;) {
+        auto entry = reinterpret_cast<FILE_ID_BOTH_DIR_INFO *>(storage.data() + position);
+        if (!(entry->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+          try {
+            auto name =
+                utf8(std::wstring(entry->FileName, entry->FileNameLength / sizeof(wchar_t)));
+            components(name); // Also hide internal, device and unsupported names.
+            if (name > after) {
+              bool dir = (entry->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+              page[name] = {{"name", name},
+                            {"directory", dir},
+                            {"size", dir ? 0 : entry->EndOfFile.QuadPart}};
+              if (page.size() > 101)
+                page.erase(std::prev(page.end()));
+            }
+          } catch (const Error &) {
+          }
+        }
+        if (!entry->NextEntryOffset)
+          break;
+        position += entry->NextEntryOffset;
+      }
     }
+    if (GetLastError() != ERROR_NO_MORE_FILES)
+      failed();
     bool more = page.size() > 100;
     if (more)
       page.erase(std::prev(page.end()));
@@ -262,7 +284,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     if (parts.empty())
       throw Error("INVALID_PATH", "Select a file");
     Directory parent(root, parts, parts.size() - 1);
-    auto file = open_file(parent.path / wide(parts.back()), GENERIC_READ);
+    auto file = open_file(parent, wide(parts.back()), GENERIC_READ);
     auto size = size_of(information(file.get()));
     if (size > file_limit)
       throw Error("FILE_TOO_LARGE", "File exceeds 20 MiB");
@@ -323,25 +345,25 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       throw Error("INVALID_REQUEST", "Select a file up to 20 MiB");
     auto upload = std::make_unique<Upload>();
     upload->parent = std::make_unique<Directory>(root, parts, parts.size() - 1);
-    upload->target = upload->parent->path / wide(parts.back());
+    upload->name = wide(parts.back());
     upload->root = root;
     upload->owner = owner;
     upload->size = size;
-    auto attributes = GetFileAttributesW(upload->target.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES) {
-      if (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
-        throw Error("FORBIDDEN", "Upload target must be a regular file");
+    try {
+      auto previous = open_file(*upload->parent, upload->name, GENERIC_READ, OPEN_EXISTING,
+                                FILE_SHARE_READ | FILE_SHARE_DELETE);
       if (!d.value("overwrite", false))
         throw Error("FILE_EXISTS", "Explicitly allow overwrite");
-      // Keep the target stable until publication. Delete sharing permits atomic replacement.
-      upload->previous_file = open_file(upload->target, GENERIC_READ, OPEN_EXISTING,
-                                        FILE_SHARE_READ | FILE_SHARE_DELETE);
-      upload->previous = version(upload->previous_file.get());
-    } else if (GetLastError() != ERROR_FILE_NOT_FOUND)
-      failed();
-    upload->temporary = upload->parent->path / wide(".coc-upload-" + uuid());
-    upload->file = WinHandle(private_file(upload->temporary, GENERIC_READ | GENERIC_WRITE | DELETE,
-                                          FILE_SHARE_READ | FILE_SHARE_DELETE, CREATE_NEW));
+      upload->previous = version(previous.get());
+      upload->previous_file = std::move(previous);
+    } catch (const Error &error) {
+      if (error.code != "FILE_NOT_FOUND")
+        throw;
+    }
+    upload->file = WinHandle(
+        relative_file(upload->parent->ancestors.back().get(), wide(".coc-upload-" + uuid()),
+                      GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ | FILE_SHARE_DELETE,
+                      CREATE_NEW, false, true));
     if (!upload->file)
       failed();
     uploads_[id] = std::move(upload);
@@ -400,7 +422,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     failed();
   if (!upload.published) {
     if (!upload.previous.empty()) {
-      auto current = open_file(upload.target, GENERIC_READ, OPEN_EXISTING,
+      auto current = open_file(*upload.parent, upload.name, GENERIC_READ, OPEN_EXISTING,
                                FILE_SHARE_READ | FILE_SHARE_DELETE);
       if (version(current.get()) != upload.previous)
         throw Error("FILE_CHANGED", "Upload target changed; review before overwriting");
@@ -424,7 +446,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
         throw Error("FILE_IO", "Cannot preserve upload target permissions");
     }
     // Rename the open staging handle; no shell, path traversal or partial target.
-    auto target = upload.target.filename().wstring();
+    const auto &target = upload.name;
     std::vector<unsigned char> storage(sizeof(FILE_RENAME_INFO) + target.size() * sizeof(wchar_t));
     auto rename = reinterpret_cast<FILE_RENAME_INFO *>(storage.data());
     rename->ReplaceIfExists = !upload.previous.empty();

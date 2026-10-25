@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <sddl.h>
+#include <winternl.h>
 namespace coc {
 std::wstring wide(const std::string &text) {
   if (text.empty())
@@ -98,6 +99,56 @@ HANDLE private_file(const std::filesystem::path &path, DWORD access, DWORD shari
   return handle.release();
 }
 
+HANDLE relative_file(HANDLE parent, const std::wstring &name, DWORD access, DWORD sharing,
+                     DWORD creation, bool folder, bool private_acl) {
+  if (name.empty() || name == L"." || name == L".." || name.size() > 32767 ||
+      name.find_first_of(L"\\/:") != std::wstring::npos || name.find(L'\0') != std::wstring::npos)
+    throw Error("INVALID_PATH", "Expected a single relative Windows filename");
+  using Create = NTSTATUS(NTAPI *)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
+                                   PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
+  using ToError = ULONG(NTAPI *)(NTSTATUS);
+  auto module = GetModuleHandleW(L"ntdll.dll");
+  static auto create = reinterpret_cast<Create>(GetProcAddress(module, "NtCreateFile"));
+  static auto to_error = reinterpret_cast<ToError>(GetProcAddress(module, "RtlNtStatusToDosError"));
+  if (!create || !to_error)
+    throw Error("FILE_IO", "Windows relative file access is unavailable");
+  ULONG disposition = 0;
+  if (creation == OPEN_EXISTING)
+    disposition = 1; // FILE_OPEN
+  else if (creation == CREATE_NEW)
+    disposition = 2; // FILE_CREATE
+  else
+    throw Error("FILE_IO", "Unsupported relative file disposition");
+  std::unique_ptr<Security> security;
+  if (private_acl)
+    security = std::make_unique<Security>();
+  UNICODE_STRING text{};
+  text.Buffer = const_cast<wchar_t *>(name.c_str());
+  text.Length = text.MaximumLength = static_cast<USHORT>(name.size() * sizeof(wchar_t));
+  OBJECT_ATTRIBUTES attributes{};
+  attributes.Length = sizeof(attributes);
+  attributes.RootDirectory = parent;
+  attributes.ObjectName = &text;
+  attributes.Attributes = 0x40 | 0x1000; // OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE
+  attributes.SecurityDescriptor = security ? security->descriptor : nullptr;
+  IO_STATUS_BLOCK result{};
+  HANDLE raw = INVALID_HANDLE_VALUE;
+  // FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT and the expected type.
+  const ULONG options = 0x00200000 | 0x20 | (folder ? 0x1 : 0x40);
+  const auto status =
+      create(&raw, access | SYNCHRONIZE | (private_acl ? READ_CONTROL | WRITE_DAC : 0), &attributes,
+             &result, nullptr, FILE_ATTRIBUTE_NORMAL, sharing, disposition, options, nullptr, 0);
+  if (status < 0) {
+    auto error = to_error(status);
+    security.reset();
+    SetLastError(error);
+    return INVALID_HANDLE_VALUE;
+  }
+  WinHandle handle(raw);
+  if (security)
+    protect_handle(handle.get(), *security);
+  return handle.release();
+}
 std::wstring quote_windows_argument(const std::wstring &value) {
   std::wstring result = L"\"";
   size_t slashes = 0;

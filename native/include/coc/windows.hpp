@@ -37,6 +37,8 @@ public:
 // Protected DACL: only this user and SYSTEM; no inherited broad permissions.
 void private_path(const std::filesystem::path &path);
 HANDLE private_file(const std::filesystem::path &path, DWORD access, DWORD sharing, DWORD creation);
+HANDLE relative_file(HANDLE parent, const std::wstring &name, DWORD access, DWORD sharing,
+                     DWORD creation, bool folder = false, bool private_acl = false);
 std::string codex_executable();
 std::wstring quote_windows_argument(const std::wstring &value);
 class WindowsChild {
