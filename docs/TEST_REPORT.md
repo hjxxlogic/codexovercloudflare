@@ -4,16 +4,12 @@
 
 ## 未发布 · Windows x64 支持
 
-- Linux Release 构建、原生 CTest、77 项 Vitest、TypeScript、ESLint / Prettier、C++ 格式、协议文档一致性及网页构建通过。新增 Windows 聊天路径回归覆盖盘符、反斜杠、file URI、行号、大小写、跨盘符和目录越界。
-- `tests/release-provenance.py` 通过来源绑定、脏源码/陈旧二进制拒绝、错误平台和 LF 校验和检查；`test:update` 通过 Linux 实际升级、原子替换、旧版本、损坏归档、候选身份/协议错误、禁用与并发锁测试；`test:tls` 通过受信任 HTTPS/WSS、不可信 CA 和错误主机名测试。
-- Windows 本地构建已按用户要求停止，未完成主程序编译或原生 CTest，不计为通过。依赖准备期间发现 WSL UNC 工作目录限制；正式 Windows 构建与测试改在 GitHub Actions 的本地 NTFS 工作目录执行。Windows 打包保护已在临时仓库中用模拟 PE 程序验证通过。新增 CI 生成静态 ZIP 并上传 artifact，不执行部署。
-- 首次 GitHub Actions 的 sanitizer 作业通过；Linux 静态检查发现 clang-format 10 / 18 对短 lambda 的格式差异，已改写对应测试并在两个版本下检查一致。Windows 构建继续只在 Actions 验证；失败输出附到检查注释，依赖二进制缓存供后续修复重跑使用。
-- 首轮 Windows 编译发现 Linux 的 `restart_updated` 位于条件编译范围之外，与 Windows 实现重复；已将原地重启实现限定为 Linux，继续通过 Actions 编译和测试。
-- 缓存命中后 Actions 的依赖配置约 47 秒完成，Windows 两个主程序均编译成功；原生 CTest 首次在文件访问阶段失败，已缩小系统祖先目录共享锁范围，继续修正通过已持有父目录句柄发布文件的操作；项目目录仍阻止写入/替换和 junction 越界。
-- Actions 将文件失败定位到 `finish`：Win32 `SetFileInformationByHandle` 对非空 `RootDirectory` 返回 87；已切换到 NT 相对句柄重命名接口，继续保留目录锁和版本复核。
-- 相对重命名确认仍需父目录写共享；工作区后端改为 `NtCreateFile` 相对组件打开、按句柄枚举与清理，并允许目录写共享、禁止移动，从而不靠全路径重新解析维持边界。继续在 Actions 验证。
-- 句柄后端已通过新建上传、读回、目录枚举及完成去重；覆盖测试暴露 Windows 不允许替换仍打开的旧目标，已在复核版本与 ACL 后释放自身旧目标句柄，再执行原子发布。
-- 本机已有 Windows Codex 为 0.130.0，与固定的 0.164.0 不匹配，未用于会话验收。未调用模型、未升级该 Codex、未发布生产包；Windows 真实 Codex TUI、沙箱设置、系统重启/休眠及长期压力仍待对应环境验收。Windows 使用手动整包升级，不宣称 Linux 自动更新流程可用于 PE 程序。
+- 功能源码 `0c4a18e0501f019fe30c222eb0e3677aa2e8242c` 已推送到 `feat/windows-x64-20261025`。[GitHub Actions 40186032178](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40186032178) 于 2026-10-25 UTC 10:48:59 完成，`windows-x64`、`regression`、`sanitizers` 三个作业全部通过；[验证元数据](assets/windows-x64-2026-10-25/actions-verification.json) 保存源码、步骤结果与产物摘要。证据文档另行提交，不改写已构建源码。
+- Windows Server 2022 / MSVC x64 / vcpkg 静态构建通过。原生 CTest 覆盖 UTF-8 凭据与受保护 ACL、配置/状态排他锁、SQLite 历史与去重、项目大小写重叠、非法路径与只读策略、文件上传/读回/完成去重/版本拒绝/覆盖/取消、目录句柄释放、参数引用、进程树终止、stdio RPC、Windows 根证书加载及异步 DNS / HTTP。符号链接测试仅在系统允许创建链接时执行。
+- Agent / CLI 的 `--version`、`--help`、模拟 PE 的打包保护回归以及正式 ZIP 打包通过。Actions 的 `windows-x64` artifact 包含 `coc-0.5.6-windows-x64.zip`、源码归档、`SHA256SUMS` 与下载清单；ZIP 含两个 `.exe`、示例、手册和静态依赖许可证。打包核对干净源码、版本/提交/源码摘要/协议/目标，并拒绝错误平台、脏源码和陈旧程序。此为分支预览产物，尚未更新生产下载页。
+- vcpkg 二进制依赖与工具/源码下载分别缓存，失败构建也保存缓存；依赖变化时按 ABI 复用兼容包。观察到依赖配置从未配置二进制缓存时的 406 秒降为命中后的 47 秒；这是依赖准备阶段的实测，主程序仍重新编译。
+- Linux Release、原生 CTest、77 项 Vitest、TypeScript、ESLint / Prettier、C++ 格式、协议文档、网页/Worker dry-run、TLS、备份、发布来源、实际自动更新、Chromium 端到端/界面回归及 sanitizer 全部通过。C++ 测试同时兼容 clang-format 10 / 18；Windows 聊天路径覆盖盘符、反斜杠、file URI、行号、大小写及越界拒绝。
+- 本地 Windows 构建已按用户要求停止，Windows 主程序编译/测试/打包均以 Actions 结果为准。本机旧 Codex 0.130.0 未升级或用于会话验收；未调用模型、未部署生产。真实 Windows Codex 0.164.0 TUI、沙箱设置、重启/休眠与长期压力仍待验收；Windows 当前采用手动整包升级。
 
 ## 网页更新 · 2026-10-25 · CW 刷新恢复会话上线验收
 
