@@ -403,11 +403,11 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
         throw Error("FILE_IO", "Cannot preserve upload target permissions");
     }
     // Rename the open staging handle; no shell, path traversal or partial target.
-    auto target = upload.target.wstring();
+    auto target = upload.target.filename().wstring();
     std::vector<unsigned char> storage(sizeof(FILE_RENAME_INFO) + target.size() * sizeof(wchar_t));
     auto rename = reinterpret_cast<FILE_RENAME_INFO *>(storage.data());
     rename->ReplaceIfExists = !upload.previous.empty();
-    rename->RootDirectory = nullptr;
+    rename->RootDirectory = upload.parent->ancestors.back().get();
     rename->FileNameLength = DWORD(target.size() * sizeof(wchar_t));
     std::copy(target.begin(), target.end(), rename->FileName);
     if (!SetFileInformationByHandle(upload.file.get(), FileRenameInfo, rename,

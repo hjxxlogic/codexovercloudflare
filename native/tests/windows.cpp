@@ -88,6 +88,8 @@ int main() {
     rejects([&] { agent_config(duplicate); }, "CONFIG_ERROR");
     WorkspaceFiles files;
     auto request = [&](Json value, const std::string &policy = "workspace-write") {
+      std::cout << "FILE: " << value.at("operation").get<std::string>() << " "
+                << value.value("path", "") << std::endl;
       return files.request(path, policy, "owner", value);
     };
     for (auto bad : {"../outside", "C:/outside", "a\\b", "file:stream", "CON", "a.", "a ", "a//b",
