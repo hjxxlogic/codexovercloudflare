@@ -175,3 +175,7 @@ Store 基准：
 `tests/device-auth.test.ts` 覆盖 cli / web 指定目标、请求列表脱敏、其他主机 / 未指定 / Agent 申请拒绝、管理员改绑拒绝、伪造请求体无效、角色隔离、过期与拒绝、在途撤销、API Key 撤销以及管理员 / Agent 并发只签发一次。`tests/e2e.ts` 使用真实原生 `requests / approve / reject`，验证 Agent 服务停止时批准 CC、运行时批准 / 拒绝 CW、管理页目标锁定、HttpOnly Cookie 刷新保留，并保留管理员选择目标的原有用例。使用确定性 Codex 夹具，不调用模型。截图通过 `COC_ARTIFACT_DIR` 保存。
 
 Agent 启动提示回归在同一端到端测试中预置本机、异主机及未指定申请，验证仅本机申请输出提示、控制字符转义、无轮询秘密泄露且未自动批准；运行中新增 CW 申请，验证周期发现和原申请不重复提示。进程 harness 只代理申请查询并捕获程序输出，可注入 503 检查后台失败不阻止 Agent 在线、随后自动恢复。生产实现位于原生 Agent，不依赖测试工具。检查使用独立线程池，单次 5 秒超时，退出等待在途检查完成。
+
+## 离线唤醒回归
+
+构建原生程序和网页后执行 `npm run test:wake`，用本地 HTTP / WebSocket 夹具验证真实 Agent 的唤醒配置及 capabilities、CC 离线唤醒等待与幂等重试，以及 Chromium 的管理员配置和 CW 上线刷新；不调用模型。`npm test` 包含主机配置权限、URL 脱敏、管理员覆盖/禁用/回退、在线跳过、并发及 DO 重建限流、失败限流与共享 C++ / Zod URL 校验夹具。UI 截图默认保存 `.local/wake-ui/`，可用 `COC_ARTIFACT_DIR` 修改。

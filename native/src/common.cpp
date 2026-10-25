@@ -139,6 +139,24 @@ Url relay_url(std::string s) {
   u.origin = std::string(u.tls ? "https://" : "http://") + u.authority;
   return u;
 }
+std::string wake_url(const Json &value) {
+  if (!value.is_string())
+    throw Error("CONFIG_ERROR", "wakeUrl must be a string");
+  const auto text = value.get<std::string>();
+  if (text.empty())
+    return text;
+  std::smatch match;
+  static const std::regex pattern(
+      R"(^(https?://(\[[0-9a-fA-F:]+\]|[a-zA-Z0-9.-]+)(:[0-9]{1,5})?)([/?][^\s\\#]*)?$)");
+  if (text.size() > 2048 || !std::regex_match(text, match, pattern))
+    throw Error("CONFIG_ERROR", "Invalid wakeUrl");
+  try {
+    relay_url(match[1]);
+  } catch (const Error &) {
+    throw Error("CONFIG_ERROR", "wakeUrl requires HTTPS (HTTP only on loopback)");
+  }
+  return text;
+}
 namespace {
 std::string trim_text(const std::string &text) {
   size_t first = text.size(), last = 0;
@@ -180,6 +198,8 @@ Json agent_config(Json c) {
   if (!valid_id(c["hostId"]) || c["token"].get<std::string>().size() < 20)
     throw Error("CONFIG_ERROR", "Invalid device credentials");
   c["relayUrl"] = relay_url(c.value("relayUrl", "https://r.xlogic.cc")).origin;
+  if (c.contains("wakeUrl"))
+    c["wakeUrl"] = wake_url(c["wakeUrl"]);
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
   c["sandbox"] = c.value("sandbox", "workspace-write");

@@ -11,6 +11,7 @@
 #include <openssl/sha.h>
 #include <sstream>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 namespace coc {
 class Cli {
@@ -49,12 +50,43 @@ class Cli {
   std::string option(const std::string &k, const std::string &fallback = "") {
     return options_.get(k, fallback);
   }
-  Json api(const std::string &p, const Json &body = nullptr) {
+  Json api(const std::string &p, const Json &body = nullptr, const std::string &request_id = "") {
     const auto c = load();
-    return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"),
-                     option("request-id"));
+    const auto id = request_id.empty() ? option("request-id", uuid()) : request_id;
+    try {
+      return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
+    } catch (const Error &e) {
+      if (e.code != "HOST_OFFLINE")
+        throw;
+      wait_for_host(c);
+      return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
+    }
   }
-  Json host() { return api("/hosts").at(0); }
+  Json wake(const Json &c) {
+    return http_json(relay_url(c.at("relay")),
+                     "/api/v1/hosts/" + c.at("hostId").get<std::string>() + "/wake", Json::object(),
+                     c.at("token"));
+  }
+  Json wait_for_host(const Json &c) {
+    auto status = [&] {
+      return http_json(relay_url(c.at("relay")), "/api/v1/hosts", nullptr, c.at("token")).at(0);
+    };
+    auto h = status();
+    if (h.value("online", false))
+      return h;
+    if (!h.value("wakeConfigured", false) || wake(c).value("state", "") == "unconfigured")
+      throw Error("HOST_OFFLINE", "Host offline; no wake URL configured");
+    std::cerr << "Host offline; wake requested, waiting up to 60 seconds...\n";
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      h = status();
+      if (h.value("online", false))
+        return h;
+    }
+    throw Error("HOST_OFFLINE", "Wake requested but host is still offline; retry later");
+  }
+  Json host() { return wait_for_host(load()); }
   std::unique_ptr<Store> history_cache(const Json &credential) {
     auto identity = credential.at("relay").get<std::string>() + "\n" +
                     credential.at("hostId").get<std::string>() + "\n" +
@@ -120,6 +152,7 @@ class Cli {
       std::cout << value.dump(2) << '\n';
       return;
     }
+    wait_for_host(c);
     asio::io_context io;
     asio::steady_timer timeout(io);
     std::shared_ptr<Socket> socket;
@@ -392,15 +425,22 @@ public:
       std::cout << result.dump(2) << '\n';
       if (result["ok"] != true)
         throw Error("DOCTOR_FAILED", "One or more diagnostic checks failed");
-    } else if (command == "status")
-      std::cout << credential_status(load()).dump(2) << '\n';
-    else if (command == "hosts") {
+    } else if (command == "status") {
+      auto c = load();
+      auto hosts = credential_status(c);
+      for (auto &h : hosts)
+        if (!h.value("online", false) && h.value("wakeConfigured", false))
+          h["wake"] = wake(c);
+      std::cout << hosts.dump(2) << '\n';
+    } else if (command == "hosts") {
       Json hosts = Json::array();
       const auto data = store();
       for (const auto &entry : data.at("entries")) {
         try {
           for (const auto &host : credential_status(entry)) {
             auto h = host;
+            if (!h.value("online", false) && h.value("wakeConfigured", false))
+              h["wake"] = wake(entry);
             h["relay"] = entry.at("relay");
             hosts.push_back(h);
           }
@@ -438,10 +478,9 @@ public:
                          {{"projectId", option("project")}, {"requestId", request_id}});
       std::cerr << "Create request ID: " << request_id << "; query with coc-client request "
                 << request_id << " if unconfirmed\n";
-      auto s =
-          http_json(relay_url(credential.at("relay")), "/api/v1/sessions",
-                    {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}},
-                    credential.at("token"), request_id);
+      auto s = api("/sessions",
+                   {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}},
+                   request_id);
       attach(s.at("id"));
     } else if (command == "history" || command == "cache-clear")
       history(id, command == "cache-clear");

@@ -40,6 +40,13 @@ struct Temp {
   ~Temp() { std::filesystem::remove_all(path); }
 };
 void core() {
+  for (const auto &fixture :
+       read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/wake-url-fixtures.json")) {
+    if (fixture.at("valid") == true)
+      check(wake_url(fixture.at("value")) == fixture.at("value"), "Valid wake URL");
+    else
+      rejects([&] { wake_url(fixture.at("value")); }, "CONFIG_ERROR");
+  }
   check(update_settings(Json::object()).enabled, "Updates enabled by default");
   check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
   check(!update_settings({{"autoUpdate", {{"enabled", false}, {"intervalHours", 24}}}}).enabled,

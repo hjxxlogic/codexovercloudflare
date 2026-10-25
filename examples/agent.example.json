@@ -2,6 +2,7 @@
   "relayUrl": "https://r.xlogic.cc",
   "hostId": "REPLACE_WITH_ENROLLED_HOST_ID",
   "token": "REPLACE_WITH_ENROLLED_DEVICE_TOKEN",
+  "wakeUrl": "",
   "codexPath": "codex",
   "codexArgs": [],
   "sandbox": "workspace-write",

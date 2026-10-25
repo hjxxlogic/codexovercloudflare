@@ -104,7 +104,7 @@ export default {
       const u = new URL(req.url),
         p = u.pathname;
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.0', protocol: 1 });
+        return json({ ok: true, version: '0.5.6', protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);
@@ -219,6 +219,16 @@ export default {
           return json(await registryCall(env, 'devices'));
         if (p === '/api/v1/admin/hosts' && req.method === 'GET')
           return json(await registryCall(env, 'hosts'));
+        const wakeConfig = p.match(
+          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/wake-url$/,
+        );
+        if (wakeConfig && req.method === 'POST')
+          return json(
+            await registryCall(env, 'setWakeUrl', {
+              ...(await body(req)),
+              id: wakeConfig[1],
+            }),
+          );
         if (p === '/api/v1/admin/api-keys') {
           if (req.method === 'GET')
             return json(await registryCall(env, 'apiKeys'));
@@ -301,7 +311,12 @@ export default {
               const status: any = await (
                 await hostStub(env, h.id).fetch('https://internal/status')
               ).json();
-              return { ...h, ...status };
+              const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
+              return {
+                ...visible,
+                ...status,
+                wakeConfigured: !!(wakeUrlOverride ?? agentWakeUrl),
+              };
             }),
           ),
         );
@@ -318,6 +333,15 @@ export default {
       if (p === '/api/v1/agent/status' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);
         return json(await registryCall(env, 'host', { id: auth.hostId }));
+      }
+      if (p === '/api/v1/agent/wake-url' && req.method === 'POST') {
+        const auth = await authenticateAgent(req, env);
+        return json(
+          await registryCall(env, 'agentSetWakeUrl', {
+            ...(await body(req)),
+            agentHash: auth.hash,
+          }),
+        );
       }
       if (p === '/api/v1/agent/requests' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);
@@ -363,6 +387,13 @@ export default {
             undefined,
             bearer(req),
           ),
+        );
+      }
+      const wake = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/wake$/);
+      if (wake && req.method === 'POST') {
+        const auth = await authenticate(req, env, wake[1]);
+        return hostStub(env, wake[1]).fetch(
+          internal(req, '/wake', auth, wake[1], {}),
         );
       }
       const projects = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/projects$/);

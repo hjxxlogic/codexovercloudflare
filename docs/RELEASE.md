@@ -4,7 +4,7 @@
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前版本 0.5.5 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
+当前版本 0.5.6 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
 
 2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
 
@@ -49,7 +49,7 @@ python3 scripts/package-release.py --build-dir .local/build-container --platform
 
 ```bash
 node node_modules/wrangler/bin/wrangler.js deploy \
-  --tag v0.5.5 --message 'Release 0.5.5 targeted Agent approval and pending request notices'
+  --tag v0.5.6 --message 'Release 0.5.6 offline Agent wake URLs for CW and CC'
 ```
 
 只有初始化或明确轮换密钥时才追加 `--secrets-file .local/production/secrets.json`。
@@ -60,7 +60,7 @@ node node_modules/wrangler/bin/wrangler.js deploy \
 
 生产授权冒烟只使用明确标记的临时设备和独立凭证文件：申请临时 A，在真实管理网页核对并批准，验证下载的 A 登录；再为该 A 授权 CC / CW，验证各自作用域及管理员接口拒绝。测试后只撤销本次创建的临时授权，不能操作用户真实设备。测试不调用模型；不宣称覆盖生产 Codex 会话与长期负载。
 
-记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.5` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
+记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.6` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
 
 DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
 
@@ -91,3 +91,9 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 ### 0.5.5：Agent 批准指定目标的 CC / CW
 
 需要发布 Worker、网页和新版原生程序。已有 Agent / CC / CW 凭证及 API Key 无需重新授权，也不迁移数据库。旧客户端的未指定申请继续由管理员选择；旧 `hostId` 输入仍忽略。新 CC `login --host` 与新 CW 目标输入发送 `requestedHostId`，旧 Relay 未返回目标时直接报兼容错误，因此先更新中继，再使用客户端新功能。使用 `requests / approve / reject` 及启动 / 运行审批提示的 Agent 需升级；其他 Agent 服务可继续运行旧版。Agent 立即后台检查，并每 30 秒检查新申请，去重提示且不自动批准；审批接口暂不可用不会阻止服务运行。实际部署身份和线上验收结果见测试记录。
+
+### 0.5.6：离线 Agent 唤醒
+
+同步发布 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 的 Agent / CC 和源码包。主机记录新增可选唤醒配置及按主机持久化的一分钟限流，无需迁移授权或 SQLite 数据。管理员可在服务器离线时配置、覆盖、禁用或恢复 Agent URL；旧 Agent 省略字段不清除云端配置。需要先更新 Worker，再使用新网页或原生唤醒功能。既有服务沿用自动更新配置，发布不直接替换用户服务。
+
+中继访问 HTTPS 唤醒 URL，不携带客户端凭证、不跟随重定向；网络服务接受请求不等于服务器实际开机。发布后仅使用临时测试主机验证配置接口、角色隔离、离线唤醒 / 限流、客户端等待和上线刷新，不唤醒已有用户主机。真实硬件休眠 / 开机和长期负载继续属于验收边界。

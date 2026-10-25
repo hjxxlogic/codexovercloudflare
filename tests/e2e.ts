@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { chromium, type Page } from '@playwright/test';
@@ -58,6 +59,7 @@ let adminToken = '',
   otherAgent: Agent | undefined,
   browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const sockets: WebSocket[] = [];
+let wakeService: ReturnType<typeof createHttpServer> | undefined;
 async function wait(
   test: () => boolean | Promise<boolean>,
   label: string,
@@ -553,18 +555,57 @@ try {
       .split('\n')
       .filter((line) => line.includes('"event":"client_approval_required"'))
       .map((line) => JSON.parse(line));
+  let wakeRequests = 0;
+  wakeService = createHttpServer((req, res) => {
+    assert.equal(req.method, 'GET');
+    assert.equal(req.headers.authorization, undefined);
+    assert.equal(req.headers.cookie, undefined);
+    wakeRequests++;
+    if (wakeRequests === 1) agent!.start();
+    res.writeHead(202).end();
+  });
+  await new Promise<void>((done) => wakeService!.listen(0, '127.0.0.1', done));
+  const wakeUrl = `http://127.0.0.1:${(wakeService.address() as { port: number }).port}/wake?key=test-only`;
+  await cliCommand(
+    ['wake-url', wakeUrl, '--config', configFile],
+    '',
+    {},
+    process.env.COC_AGENT_BINARY || 'build/coc-agent',
+  );
   agent = new Agent({
     relayUrl: origin,
     hostId: enrolled.hostId,
     token: enrolled.token,
+    wakeUrl,
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
     sandbox: 'workspace-write',
     dataDir: join(dir, 'agent'),
     projects: [{ id: 'test-project', name: 'Test project', path: dir }],
   });
-  agent.start();
+  const wokenProjects = JSON.parse(
+    await cliCommand(['projects', '--host', enrolled.hostId]),
+  );
+  assert.equal(wokenProjects[0].id, 'test-project');
+  assert.equal(wakeRequests, 1);
   await wait(async () => (await api('/hosts'))[0].online, 'Agent online');
+  assert.equal(
+    (await api(`/hosts/${enrolled.hostId}/wake`, {})).state,
+    'online',
+  );
+  assert.equal(wakeRequests, 1);
+  const wakeHosts = await api('/hosts');
+  assert.equal(wakeHosts[0].wakeConfigured, true);
+  assert(!JSON.stringify(wakeHosts).includes('test-only'));
+  assert.equal(
+    (await api('/admin/hosts', undefined, { admin: true })).find(
+      (h: any) => h.id === enrolled.hostId,
+    ).agentWakeUrl,
+    wakeUrl,
+  );
+  pass(
+    'native CC wakes offline Agent through real Worker GET, waits for startup, and keeps wake URL private',
+  );
   await wait(
     () => approvalNotices(agent!).some((n) => n.id === startupRequest.id),
     'startup pending client approval notice',
@@ -1876,6 +1917,8 @@ try {
   if (browser) await browser.close();
   if (agent && !agent.stopped) await agent.close();
   if (otherAgent && !otherAgent.stopped) await otherAgent.close();
+  if (wakeService)
+    await new Promise<void>((done) => wakeService!.close(() => done()));
   try {
     process.kill(-worker.pid!, 'SIGTERM');
   } catch {

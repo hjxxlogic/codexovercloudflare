@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {
     constructor(
@@ -8,6 +8,7 @@ vi.mock('cloudflare:workers', () => ({
   },
 }));
 import { RegistryDO } from '../apps/relay/src/registry.ts';
+import { HostRelayDO } from '../apps/relay/src/host.ts';
 import worker from '../apps/relay/src/index.ts';
 import type { Env } from '../apps/relay/src/common.ts';
 
@@ -723,4 +724,233 @@ describe('role restricted direct API keys', () => {
     expect((await login(cc, 'cli', a.hostId)).status).toBe(401);
     expect((await op('auth', { token: a.token })).status).toBe(200);
   });
+});
+
+describe('host wake configuration and requests', () => {
+  const hosts = new Map<
+    string,
+    { storage: Storage; online: boolean; relay: HostRelayDO }
+  >();
+  let visit: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    hosts.clear();
+    env.HOSTS = {
+      idFromName: (id: string) => id,
+      get: (id: string) => {
+        if (!hosts.has(id)) {
+          const state = {
+            storage: new Storage(),
+            online: false,
+            relay: undefined as unknown as HostRelayDO,
+          };
+          state.relay = new HostRelayDO(
+            {
+              storage: state.storage,
+              getWebSockets: () =>
+                state.online
+                  ? [
+                      {
+                        readyState: 1,
+                        deserializeAttachment: () => ({ protocol: 1 }),
+                      },
+                    ]
+                  : [],
+            } as unknown as DurableObjectState,
+            env,
+          );
+          hosts.set(id, state);
+        }
+        return {
+          fetch: (req: Request | string) =>
+            hosts
+              .get(id)!
+              .relay.fetch(typeof req === 'string' ? new Request(req) : req),
+        };
+      },
+    } as unknown as DurableObjectNamespace;
+    visit = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('accepted'));
+  });
+  afterEach(() => vi.restoreAllMocks());
+  async function request(path: string, token?: string, data?: unknown) {
+    const response = await worker.fetch(
+      new Request('https://relay.test/api/v1' + path, {
+        method: data === undefined ? 'GET' : 'POST',
+        headers: {
+          Origin: 'https://relay.test',
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        },
+        ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+      }),
+      env,
+    );
+    return { status: response.status, data: (await response.json()) as any };
+  }
+  async function setup() {
+    const a = await grant('agent'),
+      b = await grant('agent');
+    const cli = await grant('cli', a.hostId),
+      web = await grant('web', a.hostId);
+    const owner = (await op('login', { secret: env.OWNER_SECRET, ip: 'owner' }))
+      .data;
+    return { a, b, cli, web, owner };
+  }
+  it('restricts configuration and wake to the authorized host and hides URLs from clients', async () => {
+    const { a, b, cli, web, owner } = await setup();
+    expect(
+      (
+        await agentRequest('wake-url', a.token, {
+          wakeUrl: 'https://wake.test/a?secret=hidden',
+          id: b.hostId,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await op('host', { id: b.hostId })).data.agentWakeUrl,
+    ).toBeUndefined();
+    for (const credential of [undefined, cli.token, web.token])
+      expect(
+        (await agentRequest('wake-url', credential, { wakeUrl: '' })).status,
+      ).toBe(credential ? 403 : 401);
+    expect(
+      (
+        await request(`/admin/hosts/${a.hostId}/wake-url`, cli.token, {
+          wakeUrl: '',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await request(`/hosts/${b.hostId}/wake`, cli.token, {})).status,
+    ).toBe(403);
+    expect(
+      (await request(`/hosts/${a.hostId}/wake`, undefined, {})).status,
+    ).toBe(401);
+    expect(
+      (await request(`/hosts/${a.hostId}/wake`, owner.token, {})).status,
+    ).toBe(403);
+    expect((await request(`/hosts/${a.hostId}/wake`, a.token, {})).status).toBe(
+      403,
+    );
+    const listed = (await request('/hosts', cli.token)).data;
+    expect(listed[0].wakeConfigured).toBe(true);
+    expect(JSON.stringify(listed)).not.toMatch(
+      /secret|agentWakeUrl|wakeUrlOverride/,
+    );
+    const browser = await worker.fetch(
+      new Request('https://relay.test/api/v1/hosts', {
+        headers: { Cookie: `coc_web_${a.hostId}=${web.token}` },
+      }),
+      env,
+    );
+    expect(JSON.stringify(await browser.json())).not.toContain('hidden');
+    expect(
+      (await request(`/hosts/${a.hostId}/wake`, web.token, {})).data.state,
+    ).toBe('requested');
+    expect(visit).toHaveBeenCalledOnce();
+  });
+  it('persists administrator overrides, supports disabling and restoring the Agent URL, and skips online hosts', async () => {
+    const { a, cli, owner } = await setup();
+    const config = `/admin/hosts/${a.hostId}/wake-url`,
+      wake = `/hosts/${a.hostId}/wake`;
+    await agentRequest('wake-url', a.token, {
+      wakeUrl: 'https://wake.test/agent',
+    });
+    expect(
+      (
+        await request(config, owner.token, {
+          wakeUrl: 'https://wake.test/admin',
+        })
+      ).status,
+    ).toBe(200);
+    await agentRequest('wake-url', a.token, {
+      wakeUrl: 'https://wake.test/changed-agent',
+    });
+    registry = new RegistryDO(
+      { storage } as unknown as DurableObjectState,
+      env,
+    );
+    expect((await request(wake, cli.token, {})).data.state).toBe('requested');
+    expect(visit).toHaveBeenLastCalledWith(
+      'https://wake.test/admin',
+      expect.objectContaining({ method: 'GET', redirect: 'manual' }),
+    );
+    const state = hosts.get(a.hostId)!;
+    await state.storage.delete('wakeUntil');
+    state.online = true;
+    expect((await request(wake, cli.token, {})).data.state).toBe('online');
+    state.online = false;
+    await request(config, owner.token, { wakeUrl: '' });
+    expect((await request(wake, cli.token, {})).data.state).toBe(
+      'unconfigured',
+    );
+    expect((await request('/hosts', cli.token)).data[0].wakeConfigured).toBe(
+      false,
+    );
+    expect(visit).toHaveBeenCalledOnce();
+    await request(config, owner.token, { wakeUrl: null });
+    await request(wake, cli.token, {});
+    expect(visit).toHaveBeenLastCalledWith(
+      'https://wake.test/changed-agent',
+      expect.anything(),
+    );
+  });
+  it('deduplicates concurrent callers and keeps the cooldown across object recreation', async () => {
+    const { a, cli, web } = await setup();
+    await agentRequest('wake-url', a.token, {
+      wakeUrl: 'https://wake.test/start',
+    });
+    const path = `/hosts/${a.hostId}/wake`;
+    const results = await Promise.all([
+      request(path, cli.token, {}),
+      request(path, web.token, {}),
+    ]);
+    expect(results.map((r) => r.data.state).sort()).toEqual([
+      'cooldown',
+      'requested',
+    ]);
+    expect(visit).toHaveBeenCalledOnce();
+    const state = hosts.get(a.hostId)!;
+    state.relay = new HostRelayDO(
+      {
+        storage: state.storage,
+        getWebSockets: () => [],
+      } as unknown as DurableObjectState,
+      env,
+    );
+    expect((await request(path, cli.token, {})).data.state).toBe('cooldown');
+    expect(visit).toHaveBeenCalledOnce();
+    await state.storage.put('wakeUntil', Date.now() - 1);
+    expect((await request(path, cli.token, {})).data.state).toBe('requested');
+    expect(visit).toHaveBeenCalledTimes(2);
+    await op('credentialRevoke', {
+      id: (await op('auth', { token: a.token })).data.hash,
+    });
+    expect((await request(path, cli.token, {})).status).toBe(401);
+    expect(visit).toHaveBeenCalledTimes(2);
+  });
+  it.each(['redirect', 'error', 'timeout'])(
+    'sanitizes %s failures and throttles retries',
+    async (failure) => {
+      const { a, cli } = await setup();
+      await agentRequest('wake-url', a.token, {
+        wakeUrl: 'https://wake.test/?secret=hidden',
+      });
+      if (failure === 'timeout')
+        visit.mockRejectedValue(new Error('https://wake.test/?secret=hidden'));
+      else
+        visit.mockResolvedValue(
+          new Response('secret=hidden', {
+            status: failure === 'redirect' ? 302 : 500,
+          }),
+        );
+      const path = `/hosts/${a.hostId}/wake`;
+      const result = await request(path, cli.token, {});
+      expect(result.status).toBe(502);
+      expect(result.data.error.code).toBe('WAKE_FAILED');
+      expect(JSON.stringify(result)).not.toContain('hidden');
+      expect((await request(path, cli.token, {})).data.state).toBe('cooldown');
+      expect(visit).toHaveBeenCalledOnce();
+    },
+  );
 });

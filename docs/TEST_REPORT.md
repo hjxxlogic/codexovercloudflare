@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## 0.5.6 · 2026-10-25 · 离线 Agent 唤醒（发布前验收）
+
+- 宿主原生 / 网页构建、CTest 1/1、63 项 Vitest、类型、ESLint / Prettier / clang-format 和协议文档检查通过；Worker dry-run 打包通过，仅打包未发布。共享 URL 夹具验证 C++ / Zod 的支持范围。
+- 配置与唤醒单元回归覆盖主机和角色隔离、URL 脱敏、管理员覆盖 / 禁用 / 恢复、在线跳过、并发只访问一次、DO 重建保留限流、失败 / 重定向 / 网络异常限流以及撤销后禁止唤醒。
+- 真实原生程序配合本地 HTTP / WebSocket 夹具验证 Agent 配置命令、清除和 capabilities 登记，以及 CC 唤醒等待、相同幂等标识的离线重试、`status / hosts` 触发和未配置的错误。Chromium 验证管理员保存 / 禁用 / 恢复、手机布局和 CW 自动唤醒后加载项目；原有完整 `test:ui` 回归通过。
+- 完整真实 Wrangler / 原生程序 / Chromium 端到端回归通过，包含新增场景：Agent 停止时由原生 CC 发现离线并发起请求，中继 GET 独立本地唤醒服务，服务启动原生 Agent，CC 等到上线后成功读取项目；唤醒请求不携带中继凭据，在线跳过且普通列表不暴露 URL。测试使用临时凭据和确定性 Codex，不调用模型。
+- 宿主 Wrangler 启动报 EPIPE，使用现有 Bookworm release 测试镜像、关闭外部网络继续验证；旧 local 镜像缺少 git，未修改系统或安装依赖。截图由包含中文字体的容器生成并目视检查：[管理员桌面](assets/wake-url-2026-10-25/admin-desktop.png)、[管理员手机](assets/wake-url-2026-10-25/admin-mobile.png)、[CW 上线后目录](assets/wake-url-2026-10-25/cw-online-mobile.png)。未部署。
+
 日期：2026-10-25。0.5.5 已发布，源码标签 `v0.5.5` 指向 `8da4085e7c1e7cf888701e08a05ecd4f1318f4b5`。最新发布与线上审批验收见下文，后文保留各版本历史证据。本轮未调用模型。
 
 ## 0.5.5 · 2026-10-25 · 发布与线上验收

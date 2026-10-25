@@ -1,0 +1,18 @@
+[
+  { "value": "", "valid": true },
+  { "value": "https://wake.example/start?key=secret", "valid": true },
+  { "value": "https://wake.example:8443/start", "valid": true },
+  { "value": "http://127.0.0.1:8787/wake", "valid": true },
+  { "value": "http://[::1]:8787/wake", "valid": true },
+  { "value": "http://localhost/wake", "valid": true },
+  { "value": "http://wake.example/start", "valid": false },
+  { "value": "https://user:pass@wake.example/start", "valid": false },
+  { "value": "https://wake.example/start#fragment", "valid": false },
+  { "value": "https://wake.example:0/start", "valid": false },
+  { "value": "https://wake.example:99999/start", "valid": false },
+  { "value": "https://wake.example/a b", "valid": false },
+  { "value": "https://wake.example/a\\b", "valid": false },
+  { "value": "file:///wake", "valid": false },
+  { "value": null, "valid": false },
+  { "value": 123, "valid": false }
+]

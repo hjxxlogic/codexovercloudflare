@@ -5,8 +5,21 @@ import {
   parseFrame,
   relayUrl,
   webCommandSchema,
+  wakeUrlSchema,
 } from '../packages/protocol/src/index.ts';
+import wakeUrls from './wake-url-fixtures.json';
 describe('protocol boundaries', () => {
+  it('validates wake URLs with the native shared fixtures', () => {
+    for (const fixture of wakeUrls)
+      expect(
+        wakeUrlSchema.safeParse(fixture.value).success,
+        String(fixture.value),
+      ).toBe(fixture.valid);
+    expect(
+      wakeUrlSchema.safeParse('https://wake.example/' + 'x'.repeat(2048))
+        .success,
+    ).toBe(false);
+  });
   it('allows TLS and loopback only', () => {
     expect(relayUrl('https://r.xlogic.cc')).toBe('https://r.xlogic.cc');
     expect(relayUrl('http://127.0.0.1:8787')).toContain('8787');

@@ -9,6 +9,7 @@ import {
   agentBuildSchema,
   controlCommandSchema,
   parseFrame,
+  wakeUrlSchema,
 } from '../../../packages/protocol/src/index.ts';
 import {
   body,
@@ -256,6 +257,44 @@ export class HostRelayDO extends DurableObject<Env> {
     try {
       const u = new URL(req.url),
         s = this.ctx.storage;
+      if (u.pathname === '/wake') {
+        const host = await registryCall(this.env, 'host', {
+          id: req.headers.get('x-host'),
+        });
+        const agent = this.agent();
+        if (
+          agent &&
+          (agent.deserializeAttachment() as Attachment).protocol === 1
+        )
+          return json({ state: 'online' });
+        const url = wakeUrlSchema.parse(
+          host.wakeUrlOverride ?? host.agentWakeUrl ?? '',
+        );
+        if (!url) return json({ state: 'unconfigured' });
+        const retryAfterMs = await s.transaction(async (tx) => {
+          const until = (await tx.get<number>('wakeUntil')) || 0;
+          if (until > Date.now()) return until - Date.now();
+          await tx.put('wakeUntil', Date.now() + 60000);
+          return 0;
+        });
+        if (retryAfterMs) return json({ state: 'cooldown', retryAfterMs });
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(10000),
+          });
+          await response.body?.cancel();
+          if (!response.ok) throw new Error('Wake endpoint failed');
+        } catch {
+          throw new AppError(
+            'WAKE_FAILED',
+            'Wake endpoint failed; retry after one minute',
+            502,
+          );
+        }
+        return json({ state: 'requested', retryAfterMs: 60000 });
+      }
       if (u.pathname === '/status') {
         const agent = this.agent();
         const a = agent?.deserializeAttachment() as Attachment | undefined;
@@ -595,6 +634,11 @@ export class HostRelayDO extends DurableObject<Env> {
             );
           a.protocol = d.protocol;
           a.build = agentBuildSchema.parse(d.build);
+          if (d.wakeUrl !== undefined)
+            await registryCall(this.env, 'agentSetWakeUrl', {
+              agentHash: a.auth.hash,
+              wakeUrl: wakeUrlSchema.parse(d.wakeUrl),
+            });
           ws.serializeAttachment(a);
           return;
         }

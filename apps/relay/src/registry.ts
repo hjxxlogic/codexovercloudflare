@@ -1,6 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
-import { AppError, idSchema } from '../../../packages/protocol/src/index.ts';
+import {
+  AppError,
+  idSchema,
+  wakeUrlSchema,
+} from '../../../packages/protocol/src/index.ts';
 import {
   body,
   digest,
@@ -18,7 +22,14 @@ type ApiKey = {
   hostId?: string;
   created: number;
 };
-type Host = { id: string; name: string; disabled: boolean; version: 2 };
+type Host = {
+  id: string;
+  name: string;
+  disabled: boolean;
+  version: 2;
+  agentWakeUrl?: string;
+  wakeUrlOverride?: string;
+};
 export class RegistryDO extends DurableObject<Env> {
   async fetch(req: Request) {
     try {
@@ -474,6 +485,32 @@ export class RegistryDO extends DurableObject<Env> {
       if (op === 'logout') {
         await s.delete('auth:' + d.hash);
         return json({ ok: true });
+      }
+      if (op === 'setWakeUrl' || op === 'agentSetWakeUrl') {
+        return json(
+          await s.transaction(async (tx) => {
+            const agent =
+              op === 'agentSetWakeUrl'
+                ? await this.approvingAgent(tx, d.agentHash)
+                : undefined;
+            const id = agent ? agent.hostId! : idSchema.parse(d.id);
+            const h = await tx.get<Host>('host:' + id);
+            if (!h || h.version !== 2 || h.disabled)
+              throw new AppError(
+                'HOST_NOT_FOUND',
+                'Unknown or disabled host',
+                404,
+              );
+            if (!agent && d.wakeUrl === null) delete h.wakeUrlOverride;
+            else {
+              const value = wakeUrlSchema.parse(d.wakeUrl);
+              if (agent) h.agentWakeUrl = value;
+              else h.wakeUrlOverride = value;
+            }
+            await tx.put('host:' + id, h);
+            return { ok: true };
+          }),
+        );
       }
       if (op === 'hosts')
         return json(

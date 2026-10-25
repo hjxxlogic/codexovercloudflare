@@ -4,6 +4,28 @@ export const MAX_FRAME = 256 * 1024;
 export const MAX_QUEUE = 8 * 1024 * 1024;
 export const CODEX_VERSION = '0.164.0';
 export const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+export const wakeUrlSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    if (value === '') return true;
+    if (
+      !/^https?:\/\/(\[[0-9a-fA-F:]+\]|[a-zA-Z0-9.-]+)(:[0-9]{1,5})?([/?][^\s\\#]*)?$/.test(
+        value,
+      )
+    )
+      return false;
+    try {
+      const url = new URL(value);
+      return (
+        url.port !== '0' &&
+        (url.protocol === 'https:' ||
+          ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+      );
+    } catch {
+      return false;
+    }
+  }, 'Use an HTTPS wake URL without credentials or fragment (HTTP only on loopback)');
 export const projectSchema = z.object({
   id: idSchema,
   name: z.string().min(1).max(100),
@@ -13,6 +35,7 @@ export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),
   hostId: idSchema,
   token: z.string().min(20),
+  wakeUrl: wakeUrlSchema.optional(),
   autoUpdate: z
     .union([
       z.boolean(),

@@ -292,7 +292,11 @@ public:
         close();
         return;
       }
-      send({{"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}});
+      Json capabilities = {
+          {"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}};
+      if (config_.contains("wakeUrl"))
+        capabilities["wakeUrl"] = config_["wakeUrl"];
+      send(capabilities);
       attempts_ = 0;
       std::cout << "Agent connected\n" << std::flush;
       return;
@@ -1273,7 +1277,8 @@ int main(int argc, char **argv) {
     if (command == "help") {
       std::cout
           << "Usage: coc-agent "
-             "<login|logout|status|requests|approve|reject|doctor|run|update|--version> [--config "
+             "<login|logout|status|wake-url|requests|approve|reject|doctor|run|update|--version> "
+             "[--config "
              "PATH] "
              "[--relay URL] "
              "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
@@ -1283,6 +1288,7 @@ int main(int argc, char **argv) {
              "requests: list CC/CW requests explicitly targeting this Agent.\n"
              "approve REQUEST_ID / reject REQUEST_ID: after checking the pairing code and role, "
              "handle one targeted request with this Agent credential.\n";
+      std::cout << "wake-url URL: save and register wake URL; use an empty URL to clear it.\n";
       return 0;
     }
     if (options.api_key && command != "login")
@@ -1299,7 +1305,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     std::unique_ptr<coc::PrivateLock> config_lock;
-    if (command == "login" || command == "logout")
+    if (command == "login" || command == "logout" || command == "wake-url")
       config_lock = std::make_unique<coc::PrivateLock>(file);
     if (command == "login") {
       if (options.args.size() != 1)
@@ -1340,6 +1346,19 @@ int main(int argc, char **argv) {
       coc::save_private(file, config);
       std::cout << "Local credential removed; stop any running Agent separately. Relay "
                    "authorization is unchanged.\n";
+      return 0;
+    }
+    if (command == "wake-url") {
+      if (options.args.size() != 2)
+        throw coc::Error("USAGE", "wake-url URL (empty URL clears configuration)");
+      auto config = coc::read_json(file);
+      const auto url = coc::wake_url(options.args[1]);
+      coc::http_json(coc::relay_url(config.at("relayUrl")), "/api/v1/agent/wake-url",
+                     {{"wakeUrl", url}}, config.at("token"));
+      config["wakeUrl"] = url;
+      coc::save_private(file, config);
+      std::cout << "Wake URL saved; administrator override takes priority. Restart a running "
+                   "Agent to reload its local configuration.\n";
       return 0;
     }
     if (command == "doctor") {

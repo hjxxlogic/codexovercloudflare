@@ -1,6 +1,6 @@
 # 用户手册
 
-> 0.5.5 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
+> 0.5.6 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
 
 ## 1. 组件与权限
 
@@ -74,7 +74,7 @@ coc-agent update --config ~/.config/coc-agent/agent.json
 
 ## 3. 管理网页
 
-打开 R 网站，进入“功能菜单”，点击底部“切换到管理员模式”，在管理员登录表单输入所有者密钥。管理员模式仅提供设备授权、API Key 和登录后的“退出管理”；未登录时需先认证。设备申请的授权链接直接进入此模式。本地开发密钥在 `.local/owner-secret`；生产使用独立密钥，不能分发给客户端。管理员会话有效 8 小时，与长期设备凭证分开。
+打开 R 网站，进入“功能菜单”，点击底部“切换到管理员模式”，在管理员登录表单输入所有者密钥。管理员模式提供设备授权、服务器唤醒配置、API Key 和登录后的“退出管理”；未登录时需先认证。设备申请的授权链接直接进入此模式。本地开发密钥在 `.local/owner-secret`；生产使用独立密钥，不能分发给客户端。管理员会话有效 8 小时，与长期设备凭证分开。
 
 “设备授权管理”展示待授权请求的设备类型、名称、配对码及有效期；CC / CW 请求还展示申请留言。核对后，管理员为未指定目标的 CC / CW 请求明确选择一台未停用的服务器，再点击批准；未选择时不能批准，没有服务器时需先授权服务器 Agent。可选择已授权但暂时离线的服务器，连接和创建会话仍需等待 Agent 在线。也可直接拒绝申请，无需选择服务器。请求页面会自动刷新。已授权设备列表可单独撤销凭证，不显示秘密凭证。API Key 登录仍校验创建 Key 时绑定的目标。
 
@@ -123,6 +123,28 @@ coc-agent run --config ~/.config/coc-agent/agent.json
 配置示例见 [agent.example.json](../examples/agent.example.json)。可在 `projects` 数组增加项目，每项包含唯一的 `id`、显示名 `name` 和真实绝对路径 `path`；客户端只能选择已配置项目，不能指定任意路径。`codexPath`、`codexArgs` 和 `sandbox` 由服务器配置，客户端不能修改。重启 Agent 后配置生效。
 
 每个 `dataDir` 只能运行一个 Agent。先前台确认运行正常，再参考 [systemd 模板](../examples/coc-agent.service) 设置实际运行用户、HOME、Codex PATH 和配置路径。A 只建立出站 WSS，不要将 Codex app-server 直接暴露到公网。
+
+### 离线自动唤醒（0.5.6 起）
+
+每台 Agent 可关联一个唤醒 URL。URL 应由独立于休眠服务器的服务提供，收到 HTTP GET 后负责开机或启动 Agent；本项目只访问该 URL，不直接发送局域网唤醒包。该地址必须能从 Cloudflare 中继访问。
+
+管理员在“设备授权管理 → 服务器唤醒配置”为服务器填写 URL 并保存，服务器离线时也能配置。管理员设置优先于 Agent 设置；保存空值可禁用该主机唤醒，点击“使用 Agent 配置”恢复使用 Agent 提供的地址。
+
+Agent 持有者也可在登录后执行，无需运行 Agent 服务：
+
+```bash
+coc-agent wake-url 'https://wake.example/start?key=YOUR_SECRET' --config ~/.config/coc-agent/agent.json
+# 清除 Agent 提供的地址；管理员覆盖配置仍然有效
+coc-agent wake-url '' --config ~/.config/coc-agent/agent.json
+```
+
+命令立即更新云端，并保存本地 `wakeUrl`；运行中的 Agent 需重启以重读本地配置。也可直接编辑配置文件的 `wakeUrl`，重启后随连接注册；未配置该字段的旧 Agent 不清除云端地址。URL 可能包含访问密钥，注意命令历史，并优先通过权限为 `0600` 的配置文件设置。
+
+已授权 CW 选中离线主机时自动请求唤醒，每 3 秒检查上线状态；上线后重新加载项目和会话，可继续操作。保持选中且离线时每分钟可重试一次。CC 的 `projects / sessions / connect / attach / stop / request / history` 访问若发现主机离线，会请求唤醒并等待最多 60 秒恢复；明确返回 `HOST_OFFLINE` 的 HTTP 操作恢复后只重试一次，保持请求标识。`status / hosts` 发现已配置的离线主机时也触发唤醒并返回结果，无需等待上线。`history --offline true` 只读本地缓存。
+
+中继通过已授权客户端的 `POST /api/v1/hosts/:id/wake` 代为访问已登记地址；客户端不能指定其他 URL。URL、查询参数和唤醒服务响应正文不下发给 CW / CC；普通主机列表仅返回 `wakeConfigured`。管理员登录本身不能调用客户端唤醒接口。Agent 使用 `POST /api/v1/agent/wake-url`，管理员使用 `POST /api/v1/admin/hosts/:id/wake-url` 配置，JSON 为 `{"wakeUrl":"..."}`；管理员传 `null` 恢复 Agent 配置，传空字符串禁用。
+
+唤醒 URL 最长 2048 字符，要求 HTTPS、无 URL 用户名密码和片段；HTTP 仅允许 `localhost / 127.0.0.1 / [::1]` 本地开发。请求保留 TLS 验证，不携带中继凭证或浏览器 Cookie，不跟随重定向，10 秒超时，只有 2xx 视为成功。每主机一分钟最多访问一次，多个 CW / CC 共用持久化限流，失败也限流；在线时不访问。成功仅表示唤醒服务接受请求，不保证主机一定上线；超时、未配置或唤醒失败会显示错误，可稍后重试。需要更新 Worker、网页及相关原生程序；没有登记 URL 的主机保持原有行为。
 
 ### 批准指定到本机的客户端（0.5.5 起）
 

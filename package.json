@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -25,6 +25,7 @@
     "format:cpp": "find native -type f \\( -name '*.cpp' -o -name '*.hpp' \\) -exec clang-format -i {} +",
     "lint:cpp": "python3 scripts/check-cpp-format.py",
     "test:tls": "tsx tests/native-tls.ts",
+    "test:wake": "tsx tests/native-wake.ts && tsx tests/ui-wake.ts",
     "client": "./build/coc-client",
     "test:ui": "tsx tests/ui-stability.ts",
     "test:cache": "tsx tests/browser-cache.ts",

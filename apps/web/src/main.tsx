@@ -19,6 +19,7 @@ import {
 import { WorkspaceFiles } from './files.tsx';
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
+import { HostWakeSettings } from './host-wake.tsx';
 
 function MenuIcon() {
   return (
@@ -192,6 +193,8 @@ function App() {
   const draft = useRef('');
   draft.current = text;
   const online = hosts.find((h) => h.id === host)?.online === true;
+  const wakeConfigured =
+    hosts.find((h) => h.id === host)?.wakeConfigured === true;
   const remoteTarget = `${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`;
   const projectContext = useRef({ host, project });
   useEffect(() => {
@@ -271,6 +274,71 @@ function App() {
       clearInterval(timer);
     };
   }, [admin]);
+  useEffect(() => {
+    if (mode !== 'cw' || !host || online || !wakeConfigured) return;
+    let disposed = false,
+      running = false,
+      nextWake = 0;
+    const controller = new AbortController();
+    const poll = async () => {
+      if (running) return;
+      running = true;
+      try {
+        if (Date.now() >= nextWake) {
+          nextWake = Date.now() + 60000;
+          const result = await api(
+            `/hosts/${host}/wake`,
+            {},
+            controller.signal,
+          );
+          if (!disposed && result.state !== 'unconfigured')
+            setNotice('服务器离线，已请求唤醒，正在等待上线…');
+        }
+        const available = await api('/hosts', undefined, controller.signal);
+        if (!disposed) setHosts(available);
+      } catch (error) {
+        if (!disposed) report(error);
+      } finally {
+        running = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 3000);
+    return () => {
+      disposed = true;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [host, online, wakeConfigured, mode]);
+  useEffect(() => {
+    if (!host || !online) return;
+    setNotice((current) =>
+      current.startsWith('服务器离线，已请求唤醒') ? '服务器已上线' : current,
+    );
+    const controller = new AbortController();
+    void Promise.all([
+      api(`/hosts/${host}/projects`, undefined, controller.signal),
+      api(`/sessions?paged=true&hostId=${host}`, undefined, controller.signal),
+    ])
+      .then(([available, result]) => {
+        if (controller.signal.aborted) return;
+        setError((current) =>
+          current.startsWith('HOST_OFFLINE:') ? '' : current,
+        );
+        setProjects(available);
+        setProject((current) =>
+          available.some((p: any) => p.id === current)
+            ? current
+            : available[0]?.id || '',
+        );
+        setSessions(result.data);
+        setSessionCursor(result.nextCursor);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) report(error);
+      });
+    return () => controller.abort();
+  }, [host, online]);
   useEffect(() => {
     if (!grant) return;
     let disposed = false;
@@ -1688,6 +1756,21 @@ function App() {
             Codex 会话。
           </p>
           {managing && <p>当前请求：{managing}</p>}
+          <h3>服务器唤醒配置</h3>
+          {keyHosts.map((h) => (
+            <HostWakeSettings
+              key={h.id}
+              host={h}
+              report={report}
+              saved={async () => {
+                setKeyHosts(
+                  (await api('/admin/hosts')).filter((h: any) => !h.disabled),
+                );
+                setNotice('唤醒配置已保存');
+                await refresh();
+              }}
+            />
+          ))}
           <h3>待授权请求</h3>
           {!devices.pending.length && <p>暂无待授权请求</p>}
           {devices.pending.map((d) => (
