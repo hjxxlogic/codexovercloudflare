@@ -1,0 +1,16 @@
+{
+  "origin": "https://r.xlogic.cc",
+  "version": "0.5.5",
+  "tag": "v0.5.5",
+  "commit": "8da4085e7c1e7cf888701e08a05ecd4f1318f4b5",
+  "sourceDigest": "ab05bd5ffa827e187e1d30fe4037477e6fb0020382ae6964fdac6980d02303b1",
+  "deploymentId": "7a23ffc2-d90d-4a24-9c22-4c105e2013ab",
+  "createdOn": "2026-10-25T02:18:34.409669Z",
+  "versions": [
+    {
+      "version_id": "58969fbd-0d20-4bb8-adf7-e52aa68dc53b",
+      "percentage": 100
+    }
+  ],
+  "message": "Release 0.5.5 targeted Agent approval and pending request notices"
+}

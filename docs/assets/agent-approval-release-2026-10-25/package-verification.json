@@ -1,0 +1,23 @@
+{
+  "version": "0.5.5",
+  "commit": "8da4085e7c1e7cf888701e08a05ecd4f1318f4b5",
+  "sourceDigest": "ab05bd5ffa827e187e1d30fe4037477e6fb0020382ae6964fdac6980d02303b1",
+  "archives": [
+    {
+      "file": "coc-0.5.5-linux-x86_64-debian12.tar.gz",
+      "sha256": "4b19448a79613a4644a2185e1a7fa90f8f3ec30111cfab702ec6d9e9b64ef088",
+      "bytes": 2854895
+    },
+    {
+      "file": "coc-0.5.5-linux-x86_64-ubuntu20.04.tar.gz",
+      "sha256": "0962583d219390d63ddf5097b18a6915494f156a747e5222b17e6594f03c258e",
+      "bytes": 2531489
+    },
+    {
+      "file": "codex-over-cloudflare-0.5.5-source.tar.gz",
+      "sha256": "1f8ea58a62df6def5623b8ee36b676e9f67899c4fd22c23f6bc92a775a733a3a",
+      "bytes": 1171809
+    }
+  ],
+  "result": "source archive equals git archive; native members equal verified builds; all checksums match"
+}

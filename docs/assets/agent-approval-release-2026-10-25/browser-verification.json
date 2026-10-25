@@ -1,0 +1,18 @@
+{
+  "time": "2026-10-25T02:20:27.955Z",
+  "origin": "https://r.xlogic.cc",
+  "marker": "agent-approval-smoke-744586d6",
+  "nativeVersion": "0.5.5",
+  "startupCCNotice": "passed",
+  "runningCWNotice": "passed",
+  "manualAgentApproval": "CC/CW passed",
+  "targetedRejection": "passed",
+  "unassignedIsolation": "passed",
+  "targetImmutable": "passed",
+  "scopedCookieAndReload": "passed",
+  "roleAndHostIsolation": "passed",
+  "clientRevocation": "passed",
+  "pageErrors": [],
+  "modelCalls": false,
+  "cleanup": "Only test requests and credentials removed; temporary Agent stopped; admin session revoked"
+}
