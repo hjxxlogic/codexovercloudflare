@@ -162,8 +162,16 @@ export class RegistryDO extends DurableObject<Env> {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
         const hostId =
-          role === 'agent' ? crypto.randomUUID() : idSchema.parse(d.hostId);
-        if (role !== 'agent') {
+          role === 'agent'
+            ? crypto.randomUUID()
+            : role === 'cli'
+              ? idSchema.parse(d.hostId)
+              : undefined;
+        const message =
+          role === 'web'
+            ? z.string().trim().max(1000).default('').parse(d.message)
+            : undefined;
+        if (role === 'cli') {
           const host = await s.get<Host>('host:' + hostId);
           if (!host || host.version !== 2 || host.disabled)
             throw new AppError(
@@ -181,6 +189,7 @@ export class RegistryDO extends DurableObject<Env> {
           role,
           name,
           hostId,
+          message,
           code: id.slice(0, 8).toUpperCase(),
           pollHash: await digest(pollSecret),
           expires: Date.now() + 5 * 60000,
@@ -202,11 +211,12 @@ export class RegistryDO extends DurableObject<Env> {
           (await s.list<any>({ prefix: 'device:' })).values(),
         )
           .filter((v) => v.expires > Date.now() && v.state === 'pending')
-          .map(({ id, role, name, hostId, code, expires }) => ({
+          .map(({ id, role, name, hostId, message, code, expires }) => ({
             id,
             role,
             name,
             hostId,
+            message,
             code,
             expires,
           }));
@@ -239,6 +249,8 @@ export class RegistryDO extends DurableObject<Env> {
             );
           if (op === 'deviceReject') request.state = 'rejected';
           else {
+            if (request.role === 'web')
+              request.hostId = idSchema.parse(d.hostId);
             if (request.role === 'agent') {
               await this.createHost(tx, request.name, request.hostId);
             } else {

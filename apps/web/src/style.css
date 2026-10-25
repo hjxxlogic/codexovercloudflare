@@ -767,6 +767,14 @@ button {
   max-width: 500px;
   margin: 32px auto;
 }
+.login-card textarea {
+  border: 1px solid #393d48;
+  background: #20232b;
+  padding: 10px 13px;
+}
+.request-message {
+  white-space: pre-wrap;
+}
 .header-actions {
   display: flex;
   gap: 8px;

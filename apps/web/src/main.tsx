@@ -111,7 +111,8 @@ function App() {
   }, [menuOpen]);
   const [logged, setLogged] = useState(false),
     [admin, setAdmin] = useState(false),
-    [targetHost, setTargetHost] = useState(''),
+    [deviceMessage, setDeviceMessage] = useState(''),
+    [approvalHosts, setApprovalHosts] = useState<Record<string, string>>({}),
     [deviceName, setDeviceName] = useState('网页客户端'),
     [adding, setAdding] = useState(false),
     [checking, setChecking] = useState(true),
@@ -1090,7 +1091,7 @@ function App() {
         const result = await api('/auth/device/start', {
           role: 'web',
           name: deviceName,
-          hostId: targetHost,
+          message: deviceMessage,
         });
         setGrant(result);
       }
@@ -1120,7 +1121,13 @@ function App() {
     setGenerating(true);
     setError('');
     try {
-      await api('/admin/' + action, { id });
+      await api('/admin/' + action, {
+        id,
+        ...(action === 'approve' &&
+        devices.pending.find((item) => item.id === id)?.role === 'web'
+          ? { hostId: approvalHosts[id] }
+          : {}),
+      });
       setDevices(await api('/admin/devices'));
       await refresh();
     } catch (e) {
@@ -1233,26 +1240,27 @@ function App() {
         </label>
       ) : (
         <>
-          <label>
-            服务器标识
-            <input
-              aria-label="服务器标识"
-              required
-              value={targetHost}
-              onChange={(e) => setTargetHost(e.target.value)}
-            />
-          </label>
-          <small>
-            服务器标识可从服务器登录结果或管理员处获取。设备名称供管理员识别这台浏览器。
-          </small>
+          <small>填写设备名称和留言，管理员批准时为你选择服务器。</small>
           <label>
             设备名称
             <input
               aria-label="设备名称"
               required
               maxLength={100}
+              disabled={!!grant}
               value={deviceName}
               onChange={(e) => setDeviceName(e.target.value)}
+            />
+          </label>
+          <label>
+            给管理员留言
+            <textarea
+              aria-label="给管理员留言"
+              maxLength={1000}
+              disabled={!!grant}
+              placeholder="例如：你的身份、希望访问的服务器或用途（选填）"
+              value={deviceMessage}
+              onChange={(e) => setDeviceMessage(e.target.value)}
             />
           </label>
         </>
@@ -1265,9 +1273,10 @@ function App() {
           <p>
             等待管理员批准，配对码：<strong>{grant.code}</strong>
           </p>
-          <p>
-            服务器：{targetHost} · 设备：{deviceName}
-          </p>
+          <p>设备：{deviceName} · 服务器由管理员选择</p>
+          {deviceMessage && (
+            <p className="request-message">留言：{deviceMessage}</p>
+          )}
           <details>
             <summary>请求标识</summary>
             <p>{grant.id}</p>
@@ -1277,8 +1286,8 @@ function App() {
       )}
       {!adminLogin && (
         <p>
-          填写服务器 → 提交申请 →
-          管理员核对配对码并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
+          填写设备名称和留言 → 提交申请 →
+          管理员核对配对码、选择服务器并批准。每份网页凭证访问一台服务器，长期有效，直到管理员撤销。
         </p>
       )}
     </form>
@@ -1596,8 +1605,8 @@ function App() {
             退出其他管理会话
           </button>
           <p>
-            批准前请与申请方核对配对码、角色和目标 A。管理身份不能直接操作 Codex
-            会话。
+            批准前请与申请方核对配对码和角色；网页申请需查看留言并选择目标服务器。管理身份不能直接操作
+            Codex 会话。
           </p>
           {managing && <p>当前请求：{managing}</p>}
           <h3>待授权请求</h3>
@@ -1617,11 +1626,42 @@ function App() {
                     : '网页客户端'}{' '}
                 · 配对码 {d.code}
               </p>
-              <p>
-                目标服务器：
-                {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                  d.hostId}
-              </p>
+              {d.role === 'web' ? (
+                <>
+                  <p className="request-message">
+                    留言：{d.message || '未填写'}
+                  </p>
+                  <label>
+                    目标服务器
+                    <select
+                      aria-label={`目标服务器 ${d.code}`}
+                      value={approvalHosts[d.id] || ''}
+                      onChange={(e) =>
+                        setApprovalHosts((current) => ({
+                          ...current,
+                          [d.id]: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">请选择服务器</option>
+                      {keyHosts.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.name} · {h.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {!keyHosts.length && (
+                    <p>暂无可授权的服务器，请先授权服务器 Agent。</p>
+                  )}
+                </>
+              ) : (
+                <p>
+                  目标服务器：
+                  {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                    d.hostId}
+                </p>
+              )}
               <details>
                 <summary>请求标识与有效期</summary>
                 <p>
@@ -1629,7 +1669,11 @@ function App() {
                 </p>
               </details>
               <button
-                disabled={generating}
+                disabled={
+                  generating ||
+                  (d.role === 'web' &&
+                    !keyHosts.some((h) => h.id === approvalHosts[d.id]))
+                }
                 onClick={() => void manage('approve', d.id)}
               >
                 批准 {d.code}

@@ -52,9 +52,21 @@ async function op(name: string, data: unknown = {}) {
 }
 async function grant(role: string, hostId?: string) {
   const request = (
-    await op('deviceStart', { role, name: 'test', hostId, ip: 'test' })
+    await op('deviceStart', {
+      role,
+      name: 'test',
+      ...(role === 'cli' ? { hostId } : {}),
+      ip: 'test',
+    })
   ).data;
-  expect((await op('deviceApprove', { id: request.id })).status).toBe(200);
+  expect(
+    (
+      await op('deviceApprove', {
+        id: request.id,
+        ...(role === 'web' ? { hostId } : {}),
+      })
+    ).status,
+  ).toBe(200);
   return (
     await op('devicePoll', {
       id: request.id,
@@ -78,6 +90,94 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('takes a browser message without a host and binds only the administrator-selected host', async () => {
+    const a = await grant('agent'),
+      b = await grant('agent');
+    const started = await op('deviceStart', {
+      role: 'web',
+      name: 'browser',
+      message: '  请授权测试服务器\n用于开发 <script>  ',
+      hostId: a.hostId,
+    });
+    expect(started.status).toBe(200);
+    expect(started.data.hostId).toBeUndefined();
+    const pending = (await op('devices')).data.pending[0];
+    expect(pending).toMatchObject({
+      name: 'browser',
+      role: 'web',
+      message: '请授权测试服务器\n用于开发 <script>',
+    });
+    expect(pending.hostId).toBeUndefined();
+    expect((await op('deviceApprove', { id: pending.id })).status).toBe(400);
+    expect(
+      (await op('deviceApprove', { id: pending.id, hostId: 'unknown' })).status,
+    ).toBe(404);
+    const aAuth = (await op('auth', { token: a.token })).data;
+    await op('credentialRevoke', { id: aAuth.hash });
+    expect(
+      (await op('deviceApprove', { id: pending.id, hostId: a.hostId })).status,
+    ).toBe(404);
+    expect((await op('devices')).data.pending).toHaveLength(1);
+    expect((await op('devices')).data.credentials).toHaveLength(1);
+    expect(
+      (await op('deviceApprove', { id: pending.id, hostId: b.hostId })).status,
+    ).toBe(200);
+    expect(
+      (await op('deviceApprove', { id: pending.id, hostId: a.hostId })).status,
+    ).toBe(409);
+    const result = await op('devicePoll', {
+      id: pending.id,
+      pollSecret: started.data.pollSecret,
+      web: true,
+    });
+    expect(result.data).toMatchObject({
+      state: 'approved',
+      hostId: b.hostId,
+      role: 'web',
+    });
+    expect((await op('auth', { token: result.data.token })).data.hostId).toBe(
+      b.hostId,
+    );
+    expect(
+      (
+        await op('devicePoll', {
+          id: pending.id,
+          pollSecret: started.data.pollSecret,
+          web: true,
+        })
+      ).status,
+    ).toBe(401);
+  });
+  it('bounds browser messages and still requires CLI targets at application time', async () => {
+    for (const message of ['x'.repeat(1001), 123, null])
+      expect(
+        (await op('deviceStart', { role: 'web', name: 'browser', message }))
+          .status,
+      ).toBe(400);
+    expect((await op('deviceStart', { role: 'cli', name: 'CLI' })).status).toBe(
+      400,
+    );
+    const request = (
+      await op('deviceStart', {
+        role: 'web',
+        name: 'browser',
+        message: 'x'.repeat(1000),
+      })
+    ).data;
+    expect((await op('deviceReject', { id: request.id })).status).toBe(200);
+    expect(
+      (
+        await op('devicePoll', {
+          id: request.id,
+          pollSecret: request.pollSecret,
+          web: true,
+        })
+      ).data.state,
+    ).toBe('rejected');
+    expect(
+      (await op('deviceStart', { role: 'web', name: 'no message' })).status,
+    ).toBe(200);
+  });
   it('revokes administrator sessions on logout, other-session logout and owner rotation', async () => {
     const first = (await op('login', { secret: env.OWNER_SECRET })).data;
     const second = (await op('login', { secret: env.OWNER_SECRET })).data;

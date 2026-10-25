@@ -377,12 +377,16 @@ try {
   await cliCommand(['use', '--host', enrolled.hostId]);
   const webStart = await request(
     '/auth/device/start',
-    { role: 'web', name: 'API web', hostId: enrolled.hostId },
+    { role: 'web', name: 'API web', message: 'API browser request' },
     { anonymous: true },
   );
   assert.equal(webStart.b.pollSecret, undefined);
   const pendingCookie = webStart.r.headers.get('set-cookie')!.split(';')[0];
-  await api('/admin/approve', { id: webStart.b.id }, { admin: true });
+  await api(
+    '/admin/approve',
+    { id: webStart.b.id, hostId: enrolled.hostId },
+    { admin: true },
+  );
   const redeemed = await request(
     '/auth/device/poll',
     { id: webStart.b.id },
@@ -1019,11 +1023,39 @@ try {
   const visitor = await browser.newContext();
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
-  await visitorPage.getByLabel('服务器标识').fill(enrolled.hostId);
+  assert.equal(await visitorPage.getByLabel('服务器标识').count(), 0);
+  const browserMessage =
+    '我是测试用户，请授权开发服务器。\n用途：验证 <script>alert(1)</script> 留言按文本显示。';
+  await visitorPage.getByLabel('给管理员留言').fill(browserMessage);
+  await visitorPage.screenshot({
+    path: join(artifacts, 'cw-request-message.png'),
+    fullPage: true,
+  });
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
   const pending = await visitorPage.locator('strong').innerText();
+  const requestCard = page
+    .locator('.card')
+    .filter({
+      has: page.getByRole('button', { name: '批准 ' + pending, exact: true }),
+    })
+    .last();
+  await requestCard
+    .getByText('留言：' + browserMessage, { exact: true })
+    .waitFor();
+  assert(
+    await requestCard
+      .getByRole('button', { name: '批准 ' + pending, exact: true })
+      .isDisabled(),
+  );
+  await page
+    .getByLabel('目标服务器 ' + pending, { exact: true })
+    .selectOption(enrolled.hostId);
+  await page.screenshot({
+    path: join(artifacts, 'cw-admin-select-server.png'),
+    fullPage: true,
+  });
   await page
     .getByRole('button', { name: '批准 ' + pending, exact: true })
     .click();
@@ -1043,11 +1075,14 @@ try {
   // Save another A credential in the same browser, then switch back to the online A.
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
-  await visitorPage.getByLabel('服务器标识').fill(other.hostId);
+  await visitorPage.getByLabel('给管理员留言').fill('请再授权第二台服务器');
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
   const secondCode = await visitorPage.locator('strong').innerText();
+  await page
+    .getByLabel('目标服务器 ' + secondCode, { exact: true })
+    .selectOption(other.hostId);
   await page
     .getByRole('button', { name: '批准 ' + secondCode, exact: true })
     .click();

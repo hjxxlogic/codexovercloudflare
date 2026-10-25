@@ -661,6 +661,35 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('heading', { name: '连接远程服务器' }).waitFor();
   assert((await page.locator('.login-card').boundingBox())!.width <= 520);
+  await expect(page.getByLabel('服务器标识')).toHaveCount(0);
+  await expect(page.getByLabel('给管理员留言')).toHaveAttribute(
+    'maxlength',
+    '1000',
+  );
+  await page
+    .getByLabel('给管理员留言')
+    .fill('请授权开发服务器，用于项目维护。');
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 480 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.getByLabel('给管理员留言')).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: '申请登录', exact: true }),
+    ).toBeVisible();
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      'login form has no horizontal overflow',
+    );
+    await page.screenshot({
+      path: join(artifacts, `cw-request-${viewport.width}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await openMenu(page);
   await expect(menu.getByRole('button', { name: /^登录与授权/ })).toBeVisible();
   await expect(menu.getByRole('button', { name: /^设备授权/ })).toHaveCount(0);
