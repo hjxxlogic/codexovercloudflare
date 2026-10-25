@@ -147,15 +147,27 @@ function peer(path: string, auth?: string) {
     },
   };
 }
-async function web(id: string) {
-  const t = await api(`/sessions/${id}/attach`, {});
+async function web(id: string, takeover = false) {
+  const t = await api(
+    `/sessions/${id}/${takeover ? 'takeover' : 'attach'}`,
+    {},
+  );
   const p = peer('/ws/v1/web/' + id);
   await new Promise<void>((r, j) => {
     p.ws.once('open', r);
     p.ws.once('error', j);
   });
   p.ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
-  await wait(() => p.messages.some((m) => m.type === 'attached'), 'web attach');
+  await wait(
+    () =>
+      p.messages.some((m) => m.type === 'attached' || m.type === 'error') ||
+      p.closeCode !== undefined,
+    'web attach',
+  );
+  assert(
+    p.messages.some((m) => m.type === 'attached'),
+    JSON.stringify(p.messages),
+  );
   return p;
 }
 const pass = (message: string) => console.log('PASS: ' + message);
@@ -2254,7 +2266,8 @@ try {
   const reconnectSession = (
     await api('/sessions?hostId=' + enrolled.hostId)
   ).find((x: any) => x.mode === 'web' && x.state === 'ready');
-  const reconnect = await web(reconnectSession.id);
+  // Browser shutdown and DO close delivery are asynchronous; explicitly acquire the test controller.
+  const reconnect = await web(reconnectSession.id, true);
   reconnect.ws.close();
   await wait(
     () => reconnect.ws.readyState === WebSocket.CLOSED,
@@ -2266,7 +2279,7 @@ try {
     'Agent reconnect',
     15000,
   );
-  const restored = await web(reconnectSession.id);
+  const restored = await web(reconnectSession.id, true);
   restored.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
   await wait(
     () => restored.messages.some((m) => m.type === 'sync'),
