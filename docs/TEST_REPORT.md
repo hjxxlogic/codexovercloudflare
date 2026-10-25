@@ -2,7 +2,15 @@
 
 日期：2026-10-25。0.5.6 已发布，源码标签 `v0.5.6` 指向 `672e5f42120bf1c527fee58b73313190f2d89be3`。最新部署和线上唤醒验收见下文，后文保留各版本历史证据。本轮未调用模型。
 
-## 未发布 · 2026-10-25 · CW 聊天路径下载
+## 网页更新 · 2026-10-25 · CW 聊天路径下载上线验收
+
+- 源码 `3856260` 已提交并推送，Worker 版本 `60d4a34d-5b75-46ce-93b9-a343d99090a8` 于 UTC 03:30:33 部署至 `r.xlogic.cc`，流量 100%。网页及在线手册同步更新；原生程序及源码归档继续提供既有 0.5.6，无需升级 Agent / CLI。
+- 发布前类型、ESLint / Prettier、70 项 Vitest、网页构建、完整 Chromium 界面回归及 Worker dry-run 通过。线上健康 200、未授权业务 401、跨域管理登录 403、安全响应头、JS / CSS / 在线 UTF-8 手册字节和全部归档 SHA256 核对通过。
+- 真实 Chromium、实际下载的 0.5.6 原生 Agent、独立临时项目及确定性 Codex 夹具通过生产中继验证：桌面 1280×900 和手机 390×844，分别单击带行号的绝对 Markdown 文件链接、行内代码文件名、正文相对路径，共六次下载，每次 300003 字节与原始二进制完全一致。空文件、缺失文件错误、项目 ID / 相对路径隔离、后续块版本固定、外部 HTTPS 链接、刷新后从会话记录重新进入及 HttpOnly / Secure Cookie 均通过，浏览器无脚本错误。
+- 仅使用临时测试主机和项目，未调用模型或操作已有用户设备。临时授权、待处理请求、Agent 进程及管理会话均已清理。首次脚本误以为刷新会自动打开原对话，修正为通过会话记录重新选择后完整验收通过，产品代码未改变。
+- 永久证据：[部署身份](assets/chat-download-release-2026-10-25/deployment.json)、[线上资源与归档](assets/chat-download-release-2026-10-25/online-verification.json)、[实际下载交互](assets/chat-download-release-2026-10-25/browser-verification.json)、[桌面截图](assets/chat-download-release-2026-10-25/production-chat-download-1280.png)、[手机截图](assets/chat-download-release-2026-10-25/production-chat-download-390.png)。宿主缺少中文字体，截图中文为方框，只验收布局与交互。脚本和原始日志位于忽略的 `.local/chat-download-release/`；发布证据单独提交，不改写已部署源码。
+
+## 发布前 · 2026-10-25 · CW 聊天路径下载
 
 - 网页构建、TypeScript、ESLint / Prettier 及 70 项 Vitest 通过。新增测试覆盖项目内路径解析、URI 编码、行号定位、项目外与越界拒绝、Markdown / 代码 / 用户消息渲染、超长连续正文、分块二进制完整性和文件版本变化终止下载。
 - Chromium `test:ui` 完整回归通过，新增桌面 1280×900 与手机 390×844 的实际浏览器下载，检查文件名、全部二进制字节、项目 ID 和后续块固定版本；缺失文件显示失败，项目外路径不生成下载链接，普通 HTTPS 链接保持原地址。原有长历史、分页缓存、审批、重连和模式切换回归通过。

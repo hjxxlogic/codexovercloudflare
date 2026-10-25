@@ -1,0 +1,21 @@
+{
+  "time": "2026-10-25T03:34:16.371Z",
+  "origin": "https://r.xlogic.cc",
+  "sourceCommit": "3856260",
+  "nativeVersion": "0.5.6",
+  "desktopAndMobile": "passed",
+  "absoluteMarkdownPathWithLine": "passed",
+  "inlineCodeAndPlainPath": "passed",
+  "binaryIntegrity": "300003 bytes, 6 downloads",
+  "emptyFile": "passed",
+  "missingFileError": "passed",
+  "projectIsolation": "passed",
+  "externalLink": "passed",
+  "reloadPersistence": "passed",
+  "chunkVersion": "passed",
+  "cookieScope": "HttpOnly / Secure",
+  "pageErrors": [],
+  "modelCalls": false,
+  "fixture": "actual downloaded native Agent with deterministic fake Codex; real production relay and file API",
+  "cleanup": "temporary requests and credentials revoked; temporary Agent stopped; admin session logged out"
+}
