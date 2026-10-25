@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <openssl/evp.h>
 #include <sstream>
+#include <winternl.h>
 namespace coc {
 namespace {
 constexpr int64_t file_limit = 20 * 1024 * 1024, chunk_limit = 64 * 1024;
@@ -21,6 +22,26 @@ constexpr int64_t file_limit = 20 * 1024 * 1024, chunk_limit = 64 * 1024;
                 "Workspace path is inaccessible or in use (Windows " + std::to_string(code) + ")");
   throw Error("FILE_IO",
               "Windows workspace file operation failed (Windows " + std::to_string(code) + ")");
+}
+// Win32 SetFileInformationByHandle rejects a non-null RootDirectory on older
+// supported Windows versions. The NT interface accepts the held directory and
+// a single validated filename without reopening the directory by path.
+void rename_relative(HANDLE file, FILE_RENAME_INFO *rename, DWORD size) {
+  using Rename = NTSTATUS(NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+  using ToError = ULONG(NTAPI *)(NTSTATUS);
+  auto module = GetModuleHandleW(L"ntdll.dll");
+  static auto set_information =
+      reinterpret_cast<Rename>(GetProcAddress(module, "NtSetInformationFile"));
+  static auto to_error = reinterpret_cast<ToError>(GetProcAddress(module, "RtlNtStatusToDosError"));
+  if (!set_information || !to_error)
+    throw Error("FILE_IO", "Windows relative rename is unavailable");
+  IO_STATUS_BLOCK result{};
+  const auto status =
+      set_information(file, &result, rename, size, static_cast<FILE_INFORMATION_CLASS>(10));
+  if (status < 0) {
+    SetLastError(to_error(status));
+    failed();
+  }
 }
 std::vector<std::string> components(const std::string &path) {
   if (path.size() > 4096 || path.find('\0') != std::string::npos ||
@@ -410,9 +431,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     rename->RootDirectory = upload.parent->ancestors.back().get();
     rename->FileNameLength = DWORD(target.size() * sizeof(wchar_t));
     std::copy(target.begin(), target.end(), rename->FileName);
-    if (!SetFileInformationByHandle(upload.file.get(), FileRenameInfo, rename,
-                                    DWORD(storage.size())))
-      failed();
+    rename_relative(upload.file.get(), rename, DWORD(storage.size()));
     upload.published = true;
   }
   EVP_MD_CTX *raw = EVP_MD_CTX_new();
