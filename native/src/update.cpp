@@ -341,6 +341,7 @@ void automatic_update(const Json &config, const std::string &relay) {
     log_error(error);
   }
 }
+#ifndef _WIN32
 void restart_updated(int, char **argv) {
   auto path = executable_path();
   // /proc/self/exe still refers to the old unlinked inode after rename.
@@ -356,6 +357,7 @@ void restart_updated(int, char **argv) {
   throw Error("UPDATE_RESTART",
               "Cannot restart updated Agent; previous executable was retained when possible");
 }
+#endif
 bool AgentUpdater::poll(const Json &config, const std::string &relay, bool idle) {
   const auto settings = update_settings(config);
   if (pending_.valid() && pending_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
