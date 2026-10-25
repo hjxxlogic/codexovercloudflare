@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version-string": "0.5.6",
+  "version-string": "0.5.7",
   "dependencies": [
     "boost-asio",
     "boost-beast",

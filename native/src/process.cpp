@@ -251,7 +251,7 @@ void CodexProcess::initialize(Completion done) {
   auto self = shared_from_this();
   request("initialize",
           {{"clientInfo", {{"name", "coc-web"}, {"version", "0.5.2"}}},
-           {"capabilities", {{"experimentalApi", false}}}},
+           {"capabilities", {{"experimentalApi", true}}}},
           [self, done](Json r, Json e) {
             if (e.is_null())
               self->send({{"method", "initialized"}});

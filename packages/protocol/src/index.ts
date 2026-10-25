@@ -48,6 +48,9 @@ export const agentConfigSchema = z.object({
       }),
     ])
     .optional(),
+  externalSessions: z
+    .object({ allowQueue: z.boolean().default(false) })
+    .optional(),
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
   dataDir: z.string().min(1),
@@ -62,6 +65,9 @@ export const sessionSchema = z.object({
   mode: z.enum(['web', 'cli']),
   state: z.enum(['starting', 'ready', 'closing', 'closed', 'failed']),
   threadId: idSchema.optional(),
+  external: z.boolean().optional(),
+  queueEnabled: z.boolean().optional(),
+  externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
   sandbox: z.enum(['read-only', 'workspace-write']).optional(),
   running: z.boolean(),
@@ -219,6 +225,16 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       projectId: idSchema,
       mode: z.enum(['web', 'cli']),
       threadId: idSchema.optional(),
+      external: z.boolean().optional(),
+    }),
+  ),
+  control(
+    'queue',
+    z.object({
+      sessionId: sessionIdSchema,
+      mode: z.enum(['web', 'cli']),
+      requestId: idSchema,
+      text: z.string().trim().min(1).max(64000),
     }),
   ),
   control(

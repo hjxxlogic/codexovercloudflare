@@ -290,6 +290,7 @@ function eventTitle(e: Event) {
         'item/completed': '工具结果',
         'item/commandExecution/outputDelta': '命令输出',
         'item/fileChange/outputDelta': '文件变更',
+        queueAccepted: '已加入原客户端队列 · 等待执行',
         warning: '提示',
         error: '错误',
         approvalResolved: '审批结果',

@@ -410,8 +410,8 @@ export default {
       const files = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/files$/);
       if (files && req.method === 'POST') {
         const auth = await authenticate(req, env, files[1]);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
         const data = await body(req);
         const projectId = idSchema.parse(data.projectId);
         const command = workspaceFileCommandSchema.parse(data);
@@ -426,8 +426,8 @@ export default {
       const threads = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/threads$/);
       if (threads && req.method === 'GET') {
         const auth = await authenticate(req, env, threads[1]);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
         await registryCall(env, 'host', { id: threads[1] });
         return hostStub(env, threads[1]).fetch(
           internal(req, '/control', auth, threads[1], {
@@ -465,9 +465,16 @@ export default {
         if (req.method === 'POST') {
           idSchema.parse(d.projectId);
           z.enum(['web', 'cli']).parse(d.mode);
+          if (d.external !== undefined) z.boolean().parse(d.external);
+          if (d.external === true && d.threadId === undefined)
+            throw new AppError(
+              'INVALID_REQUEST',
+              'External connection requires threadId',
+              400,
+            );
           if (d.threadId !== undefined) {
             idSchema.parse(d.threadId);
-            if (d.mode !== 'web')
+            if (d.mode !== 'web' && d.external !== true)
               throw new AppError(
                 'FORBIDDEN',
                 'Only web sessions support history resume',
@@ -492,6 +499,27 @@ export default {
           internal(req, '/control', auth, hostId, {
             action: req.method === 'POST' ? 'create' : 'list',
             data: d,
+          }),
+        );
+      }
+      const queuedSession = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/queue$/);
+      if (queuedSession && req.method === 'POST') {
+        const hostId = idSchema.parse(queuedSession[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        const input = await body(req);
+        const text = z.string().trim().min(1).max(64000).parse(input.text);
+        const requestId = idSchema.parse(req.headers.get('idempotency-key'));
+        return hostStub(env, hostId).fetch(
+          internal(req, '/control', auth, hostId, {
+            action: 'queue',
+            data: {
+              sessionId: queuedSession[1],
+              mode: auth.role,
+              text,
+              requestId,
+            },
           }),
         );
       }

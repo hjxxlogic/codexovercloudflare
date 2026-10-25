@@ -7,6 +7,7 @@ import {
   statSync,
   mkdirSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -580,6 +581,7 @@ try {
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
     sandbox: 'workspace-write',
+    externalSessions: { allowQueue: true },
     dataDir: join(dir, 'agent'),
     projects: [{ id: 'test-project', name: 'Test project', path: dir }],
   });
@@ -751,7 +753,7 @@ try {
   );
   assert.deepEqual(
     history.data.map((t: any) => t.id),
-    ['local-history'],
+    ['local-history', 'external-history'],
   );
   assert(Buffer.byteLength(history.data[0].preview) <= 500);
   assert(!history.data[0].preview.includes('�'));
@@ -785,6 +787,193 @@ try {
   );
   pass(
     'local thread listing filters project metadata and rejects cross-host/project resume',
+  );
+  for (const threadId of ['external-history', 'external-legacy']) {
+    const session = await api('/sessions', {
+      hostId: enrolled.hostId,
+      projectId: 'test-project',
+      mode: 'web',
+      threadId,
+    });
+    assert.equal(session.external, true);
+    assert.equal(session.running, true);
+    assert.equal(session.queueEnabled, true);
+    const connection = await web(session.id);
+    connection.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+    await wait(
+      () => connection.messages.some((m) => m.type === 'sync'),
+      'external sync',
+    );
+    const queuedId = randomUUID();
+    const queued = await api(
+      `/sessions/${session.id}/queue`,
+      { text: 'queued while owner is running' },
+      { key: queuedId },
+    );
+    const repeated = await api(
+      `/sessions/${session.id}/queue`,
+      { text: 'queued while owner is running' },
+      { key: queuedId },
+    );
+    assert.equal(queued.state, 'queued');
+    assert.equal(queued.queueId, repeated.queueId);
+    if (threadId === 'external-history') {
+      const lostId = randomUUID();
+      const unconfirmed = await request(
+        `/sessions/${session.id}/queue`,
+        { text: 'lost queue reply' },
+        { key: lostId },
+      );
+      assert.equal(unconfirmed.b.error.code, 'RESULT_UNKNOWN');
+      const recovered = await api(
+        `/sessions/${session.id}/queue`,
+        { text: 'lost queue reply' },
+        { key: lostId },
+      );
+      assert.equal(recovered.state, 'queued');
+      const persisted = JSON.parse(
+        readFileSync(join(dir, '.fake-external.json'), 'utf8'),
+      );
+      assert.equal(
+        persisted.queue.filter(
+          (q: any) => q.clientUserMessageId === recovered.clientUserMessageId,
+        ).length,
+        1,
+      );
+    }
+    const file = join(dir, '.fake-external.json');
+    let state = JSON.parse(readFileSync(file, 'utf8'));
+    const count = state.queue.length;
+    assert.equal(
+      state.queue.filter(
+        (q: any) => q.clientUserMessageId === queued.clientUserMessageId,
+      ).length,
+      1,
+    );
+    assert.equal(
+      (
+        await request(
+          `/sessions/${session.id}/queue`,
+          { text: 'changed payload' },
+          { key: queuedId },
+        )
+      ).r.status,
+      409,
+    );
+    const promptId = randomUUID();
+    connection.ws.send(
+      JSON.stringify({
+        action: 'prompt',
+        requestId: promptId,
+        text: 'WebSocket queue',
+      }),
+    );
+    await wait(
+      () =>
+        connection.messages.some(
+          (m) => m.type === 'ack' && m.requestId === promptId,
+        ),
+      'external websocket queue',
+    );
+    state = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(state.queue.length, count + 1);
+    state.items[state.items.length - 1].text = 'External reply grew 你好';
+    writeFileSync(file, JSON.stringify(state));
+    await wait(
+      () =>
+        connection.messages.some(
+          (m) => m.event?.data?.delta === 'External reply grew 你好',
+        ),
+      'external snapshot refresh',
+    );
+    const changed = connection.messages.find(
+      (m) => m.event?.data?.delta === 'External reply grew 你好',
+    ).event;
+    state.items[state.items.length - 1].text += ' again';
+    writeFileSync(file, JSON.stringify(state));
+    await wait(
+      () =>
+        connection.messages.some(
+          (m) => m.event?.data?.delta === 'External reply grew 你好 again',
+        ),
+      'external second refresh',
+    );
+    const updated = connection.messages.find(
+      (m) => m.event?.data?.delta === 'External reply grew 你好 again',
+    ).event;
+    assert.equal(changed.seq, updated.seq);
+    assert(updated.revision > changed.revision);
+    const interruptId = randomUUID();
+    connection.ws.send(
+      JSON.stringify({ action: 'interrupt', requestId: interruptId }),
+    );
+    await wait(
+      () => connection.messages.some((m) => m.requestId === interruptId),
+      'external interrupt refusal',
+    );
+    assert.equal(
+      connection.messages.find((m) => m.requestId === interruptId).error.code,
+      'EXTERNAL_READ_ONLY',
+    );
+    await api(`/sessions/${session.id}/stop`, {});
+    assert.equal(
+      JSON.parse(readFileSync(file, 'utf8')).queue.length,
+      count + 1,
+    );
+    connection.ws.close();
+  }
+  pass(
+    'external active-writer fallback, legacy and paginated snapshots, stable revisions, queue deduplication and safe disconnect',
+  );
+  const observed = JSON.parse(
+    await cliCommand(['observe', 'external-cli', '--project', 'test-project']),
+  );
+  assert.equal(observed.mode, 'cli');
+  assert.equal(observed.external, true);
+  const cliQueue = JSON.parse(
+    await cliCommand([
+      'queue',
+      observed.id,
+      '--message',
+      'CLI external input',
+      '--request-id',
+      'cli-external-request',
+    ]),
+  );
+  assert.equal(cliQueue.state, 'queued');
+  const cliStatus = JSON.parse(
+    await cliCommand([
+      'request',
+      'cli-external-request',
+      '--session',
+      observed.id,
+    ]),
+  );
+  assert.equal(cliStatus.state, 'completed');
+  const cliHistory = JSON.parse(await cliCommand(['history', observed.id]));
+  assert(
+    cliHistory.events.some((e: any) => e.type === 'item/agentMessage/delta'),
+  );
+  await cliCommand(['stop', observed.id]);
+  token = JSON.parse(
+    readFileSync(join(dir, 'credentials.json'), 'utf8'),
+  ).entries.find((e: any) => e.hostId === other.hostId).token;
+  const readonlyObserved = await api('/sessions', {
+    hostId: other.hostId,
+    projectId: 'other-project',
+    mode: 'cli',
+    threadId: 'external-disabled',
+    external: true,
+  });
+  assert.equal(readonlyObserved.queueEnabled, false);
+  const deniedQueue = await request(`/sessions/${readonlyObserved.id}/queue`, {
+    text: 'must not be queued',
+  });
+  assert.equal(deniedQueue.b.error.code, 'EXTERNAL_QUEUE_DISABLED');
+  await api(`/sessions/${readonlyObserved.id}/stop`, {});
+  token = '';
+  pass(
+    'native CLI observe/history/queue/request and queue disabled by default',
   );
   const largeSession = await api('/sessions', {
     hostId: enrolled.hostId,
@@ -1579,6 +1768,38 @@ try {
   pass(
     'browser cookie login, project selection, task submission and streaming',
   );
+  await feature(visitorPage, /^会话记录/);
+  await visitorPage.getByRole('button', { name: /外部运行会话/ }).click();
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await visitorPage
+    .getByText(/外部会话 · 只读同步/)
+    .first()
+    .waitFor();
+  const queuedButton = visitorPage.getByRole('button', {
+    name: '加入队列',
+    exact: true,
+  });
+  await visitorPage
+    .getByRole('textbox', { name: '任务内容' })
+    .fill('browser external queued input');
+  await queuedButton.click();
+  await visitorPage
+    .getByText('已加入原客户端队列，等待原客户端执行；审批仍在原客户端处理。')
+    .waitFor();
+  assert.equal(
+    await visitorPage
+      .getByRole('button', { name: '停止本轮', exact: true })
+      .count(),
+    0,
+  );
+  await visitorPage.screenshot({
+    path: join(artifacts, 'external-session-queue.png'),
+    fullPage: true,
+  });
+  const browserExternal = (
+    await api('/sessions?hostId=' + enrolled.hostId)
+  ).find((s: any) => s.external && s.state === 'ready');
+  await api(`/sessions/${browserExternal.id}/stop`, {});
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });

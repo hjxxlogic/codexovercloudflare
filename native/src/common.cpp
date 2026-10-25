@@ -247,6 +247,10 @@ Json agent_config(Json c) {
   c["relayUrl"] = relay_url(c.value("relayUrl", "https://r.xlogic.cc")).origin;
   if (c.contains("wakeUrl"))
     c["wakeUrl"] = wake_url(c["wakeUrl"]);
+  auto external = c.value("externalSessions", Json::object());
+  if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean())
+    throw Error("CONFIG_ERROR", "externalSessions.allowQueue must be boolean");
+  c["externalSessions"] = {{"allowQueue", external.value("allowQueue", false)}};
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
   c["sandbox"] = c.value("sandbox", "workspace-write");

@@ -238,7 +238,37 @@ coc-client stop A_ID~SESSION_ID
 
 文件操作使用已授权 CW 凭证和 Agent 配置的项目根目录，不依赖活动对话或模型。只读 Agent 允许浏览和下载，禁止上传；路径不能越出项目，也不跟随符号链接。上传先写临时文件，全部完成后才发布，覆盖前重新核对目标是否变化；下载期间文件变化会报错，应重新下载。点击“取消传输”或关闭面板会中止当前传输，已完成的文件保留；断网或 Agent 强制退出时结果可能不明，先刷新目录检查。未完成上传会在 10 分钟无操作后清理；强制终止 Agent 遗留的 `.coc-upload-*` 临时文件需停机后人工清理。浏览和下载会显示项目中运行用户可读的普通文件（含隐藏文件），应只授权可信设备，并谨慎选择包含凭据的项目。此功能需要同时更新网页、Worker 和原生 Agent。
 
-会话列表读取 A 运行用户的同一 Codex home，按更新时间展示当前项目的非归档交互会话，与该用户本地 Codex 共用历史；可搜索已加载的标题 / 摘要并“加载更多”。其他项目、其他系统用户、其他 Codex home 和归档线程不会混入。网页选择已有活动 CW 会话时重新附着；关闭 / 失败或原生 Codex 历史线程会创建新 CW runtime，恢复原 threadId 及对话内容，并强制使用 A 的项目目录、sandbox 和用户审批策略。仍在 CLI runtime 使用的线程须先结束原会话；不要同时在原生 Codex 和 CW 修改同一线程。
+会话列表读取 A 运行用户的同一 Codex home，按更新时间展示当前项目的非归档交互会话，与该用户本地 Codex 共用历史；可搜索已加载的标题 / 摘要并“加载更多”。其他项目、其他系统用户、其他 Codex home 和归档线程不会混入。网页选择已有活动 CW 会话时重新附着；关闭 / 失败或原生 Codex 历史线程会创建新 CW runtime，恢复原 threadId 及对话内容，并强制使用 A 的项目目录、sandbox 和用户审批策略。如果线程正在其他终端或 IDE 中运行，遇到 active writer 锁会自动切换为外部会话：只读同步已有消息，通过队列向原客户端发送后续输入。无需先结束原客户端。
+
+### 操作外部 Codex 会话（0.5.7）
+
+Agent 必须与原客户端使用同一系统用户、同一 `CODEX_HOME`，项目目录必须匹配。CW 在历史记录中选择线程；正常恢复只有在明确的 active writer 错误时降级为外部观察。连接、约两秒一次刷新与历史分页使用只读 API，不获取 writer 锁。显示的是 Codex 已落盘的消息，可能晚于原终端的实时输出；原客户端尚未保存的内容无法读取。兼容 Codex 0.164.0 的 paginated 与 legacy 历史；单个本地 RPC 仍受原有帧大小限制，超限会提示错误。
+
+默认仅可浏览。需要远程入队时，在 Agent 配置中明确开启并重启 Agent：
+
+```json
+{
+  "sandbox": "workspace-write",
+  "externalSessions": { "allowQueue": true }
+}
+```
+
+只读 Agent 即使开启该开关也不能入队。队列输入由原客户端消费、执行和审批，沿用原客户端自身的 sandbox、网络和审批设置；Agent 的策略不能覆盖外部 writer。确认原客户端设置符合预期后再开启。原客户端版本或状态不支持队列时会返回错误；“已加入队列”不表示已执行，也不保证原客户端会立即消费。
+
+外部会话执行中仍可点“加入队列”。消息按稳定 item ID 更新，同一条增长中的回复不会重复追加全文；大内容继续分块读取。停止此连接仅停止 Agent 观察进程，原客户端继续运行，已入队消息保留；中断、审批与接管外部 writer 均不支持。网络故障时保持原 request ID 查询结果，不能将未确认请求换新 ID 自动重发。
+
+CC 可显式连接为观察模式，无需启动本地 TUI：
+
+```bash
+coc-client threads --project PROJECT_ID --host A_ID
+coc-client observe THREAD_ID --project PROJECT_ID --host A_ID
+coc-client history SESSION_ID --host A_ID
+coc-client queue SESSION_ID --host A_ID --message "下一步检查测试" --request-id stable-request-id
+coc-client request stable-request-id --session SESSION_ID --host A_ID
+coc-client stop SESSION_ID --host A_ID
+```
+
+`observe` 返回新的 CLI 观察会话 ID；`history` 读取最新已同步内容，支持已有分页、分块及离线缓存。`queue` 输出请求 ID；同 ID 同内容返回既有结果，不重复入队，同 ID 不同内容被拒绝。若入队应答丢失，同 ID 重试只查询 pending queue 来确认；已被原客户端消费时保留 `RESULT_UNKNOWN`，请核对原客户端历史。CC / CW 会话及请求保持角色隔离。
 
 在“会话记录”顶部的“连接设置”点击“添加 A 授权”可再次留言申请，由管理员选择另一个 A；0.5.5 起也可填写目标 A，由该 Agent 或管理员批准。已有授权保留；下拉列表仅展示本浏览器已授权的 A。刷新或重新打开浏览器后，可选择原 A 与网页会话，恢复保留的历史和当前状态。不同标签页可以选择不同 A，R 根据请求目标选择对应 Cookie，不依赖全局当前凭证。
 

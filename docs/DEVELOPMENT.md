@@ -201,3 +201,7 @@ python scripts/package-release.py --build-dir build-windows/Release --platform w
 ```
 
 结果位于 `dist/web/downloads`，包含 ZIP、源码、SHA256 和构建身份。静态依赖许可证默认取自该构建目录的 `vcpkg_installed/x64-windows-static`；自定义安装目录时为打包命令添加 `--dependency-dir <triplet目录>`。Windows 更新先采用手动整包替换，不能使用 Linux 的 ELF/tar 原地更新流程。不要混用 Windows 与 Linux 构建目录。云端、网页与现有 TypeScript 集成脚本继续使用文档中的 Linux 测试环境。
+
+## 外部会话测试
+
+`python3 tests/external-codex.py` 使用安装的 Codex 0.164.0，临时 CODEX_HOME 和项目，独立 owner / reader app-server 验证两种历史模式、writer 锁、只读双向游标及队列。唯一模型 provider 指向关闭的本机端口，不读取用户凭证，不调用真实模型。默认 E2E 使用确定性 fixture 验证消息增长、队列去重与断开隔离；Windows 构建及测试只在 GitHub Actions 运行。

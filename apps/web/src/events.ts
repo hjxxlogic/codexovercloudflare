@@ -54,6 +54,7 @@ export function visibleEvents(events: Event[]) {
     'item/fileChange/outputDelta',
     'item/started',
     'item/completed',
+    'queueAccepted',
     'warning',
     'error',
     'approvalResolved',

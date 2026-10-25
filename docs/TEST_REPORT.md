@@ -409,3 +409,7 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 - 只使用本次新建的临时设备 / Key 和项目，测试后已撤销临时授权并停止 Agent；未修改用户已有设备或调用模型。截图 `.local/cw-production.png`、`.local/auth-production.png`、`.local/api-key-production.png`。生产验证不代表八小时长稳、真实用户超大对话或 DO 休眠恢复验收。
 
 已有远程主机和 CC 需要安装 0.5.0 原生程序，Agent 重启后才能使用新历史通道；本次未替用户更新已有主机上的服务。本节为发布后的证据补充，另行提交，不改写 `v0.5.0` 标签或已发布源码包。
+
+## 0.5.7 外部会话验收
+
+真实 Codex 0.164.0 的隔离 owner / reader 检查已通过：paginated / legacy、active writer 错误、只读反向游标、独立进程入队与 queue/list 一致。模型 provider 仅指向本地关闭端口，无真实模型调用。其余回归、Windows Actions 和发布验证结果在完成后补充。

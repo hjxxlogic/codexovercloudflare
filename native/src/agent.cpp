@@ -1,5 +1,6 @@
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
+#include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/login.hpp"
 #include "coc/store.hpp"
@@ -19,6 +20,8 @@ struct Approval {
 };
 struct Runtime {
   std::shared_ptr<CodexProcess> process;
+  std::shared_ptr<ExternalThread> reader;
+  std::string observer_error;
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
   bool submitted = false, busy = false, interrupt_pending = false;
   size_t priority = 0;
@@ -527,6 +530,17 @@ public:
       done(info, nullptr);
       return;
     }
+    if (action == "queue") {
+      auto s = store_.get(d.at("sessionId"));
+      if (s["mode"] != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong credential for session mode");
+      queue_external(
+          s.at("id"),
+          web_command(
+              {{"action", "prompt"}, {"requestId", d.at("requestId")}, {"text", d.at("text")}}),
+          done);
+      return;
+    }
     if (action == "stop") {
       stop(d.at("sessionId"));
       done(store_.get(d.at("sessionId")), nullptr);
@@ -557,6 +571,8 @@ public:
         "{\"projectId\":" + d.at("projectId").dump() + ",\"mode\":" + d.at("mode").dump();
     if (d.contains("threadId"))
       fingerprint += ",\"threadId\":" + d.at("threadId").dump();
+    if (d.contains("external"))
+      fingerprint += ",\"external\":" + d.at("external").dump();
     auto original_done = done;
     done = [this, key, original_done](Json result, Json error) {
       if (!error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
@@ -572,22 +588,25 @@ public:
     if (d.at("mode") != "cli" && d.at("mode") != "web")
       throw Error("INVALID_REQUEST", "Invalid session mode");
     if (d.contains("threadId")) {
-      if (d.at("mode") != "web" || !d.at("threadId").is_string() ||
+      if ((d.at("mode") != "web" && !d.value("external", false)) || !d.at("threadId").is_string() ||
           !valid_id(d.at("threadId").get<std::string>()))
         throw Error("INVALID_REQUEST", "Invalid history thread");
       for (auto &o : store_.sessions(true))
         if (o.value("threadId", Json()) == d.at("threadId") && o["state"] == "ready")
           throw Error("SESSION_BUSY", "Thread already has an active session");
     }
+    if (d.value("external", false) && !d.contains("threadId"))
+      throw Error("INVALID_REQUEST", "External sessions require a threadId");
     if (runtimes_.size() >= 4)
       throw Error("CAPACITY", "At most four active sessions");
-    Json s = {{"id", config_["hostId"].get<std::string>() + "~" + uuid()},
-              {"projectId", d.at("projectId")},
-              {"mode", d.at("mode")},
-              {"sandbox", config_["sandbox"]},
-              {"state", d.at("mode") == "cli" ? "ready" : "starting"},
-              {"running", false},
-              {"createdAt", now()}};
+    Json s = {
+        {"id", config_["hostId"].get<std::string>() + "~" + uuid()},
+        {"projectId", d.at("projectId")},
+        {"mode", d.at("mode")},
+        {"sandbox", config_["sandbox"]},
+        {"state", d.at("mode") == "cli" && !d.value("external", false) ? "ready" : "starting"},
+        {"running", false},
+        {"createdAt", now()}};
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
@@ -605,7 +624,7 @@ public:
     }
     runtimes_[id] = rt;
     rt->process->start();
-    if (s["mode"] == "cli") {
+    if (s["mode"] == "cli" && !d.value("external", false)) {
       store_.finish(key, s);
       done(s, nullptr);
       return;
@@ -617,6 +636,10 @@ public:
         return;
       }
       auto s = store_.get(id);
+      if (d.value("external", false)) {
+        observe_external(id, rt, key, done);
+        return;
+      }
       auto launch = [this, id, rt, key, d, done]() {
         auto s = store_.get(id);
         Json params = {{"cwd", project(s["projectId"])["path"]},
@@ -628,14 +651,20 @@ public:
           params["excludeTurns"] = true;
         }
         rt->process->request(d.contains("threadId") ? "thread/resume" : "thread/start", params,
-                             [this, id, key, d, done](Json result, Json error) {
+                             [this, id, rt, key, d, done](Json result, Json error) {
                                if (!error.is_null()) {
+                                 if (d.contains("threadId") && active_writer_error(error)) {
+                                   observe_external(id, rt, key, done);
+                                   return;
+                                 }
                                  stop(id);
                                  done(nullptr, error);
                                  return;
                                }
                                auto current = store_.get(id);
                                current["threadId"] = result.at("thread").at("id");
+                               current["historyMode"] =
+                                   result.at("thread").value("historyMode", "paginated");
                                store_.save(current);
                                if (d.contains("threadId")) {
                                  current["archiveDone"] = false;
@@ -665,72 +694,230 @@ public:
         launch();
         return;
       }
-      rt->process->request(
-          "thread/read", {{"threadId", d.at("threadId")}, {"includeTurns", false}},
-          [this, id, s, launch, done](Json result, Json error) {
-            if (!error.is_null()) {
-              stop(id);
-              done(nullptr, error);
-              return;
-            }
-            if (result.at("thread").value("cwd", "") != project(s["projectId"])["path"]) {
-              stop(id);
-              done(nullptr,
-                   {{"code", "FORBIDDEN"}, {"message", "Thread belongs to another project"}});
-              return;
-            }
-            launch();
-          });
+      rt->process->request("thread/read", {{"threadId", d.at("threadId")}, {"includeTurns", false}},
+                           [this, id, s, launch, done](Json result, Json error) {
+                             if (!error.is_null()) {
+                               stop(id);
+                               done(nullptr, error);
+                               return;
+                             }
+                             if (!same_project_path(result.at("thread").value("cwd", ""),
+                                                    project(s["projectId"])["path"])) {
+                               stop(id);
+                               done(nullptr, {{"code", "FORBIDDEN"},
+                                              {"message", "Thread belongs to another project"}});
+                               return;
+                             }
+                             launch();
+                           });
     });
+  }
+  void observe_external(const std::string &id, std::shared_ptr<Runtime> rt, const std::string &key,
+                        Completion done) {
+    auto s = store_.get(id);
+    s["external"] = true;
+    s["queueEnabled"] =
+        config_.value("externalSessions", Json::object()).value("allowQueue", false) &&
+        config_["sandbox"] == "workspace-write";
+    s["externalStatus"] = "unknown";
+    s["externalSeeded"] = false;
+    store_.save(s);
+    rt->reader = std::make_shared<ExternalThread>(
+        io_, rt->process, s.at("threadId"), project(s["projectId"])["path"],
+        [this, id](std::string turn, Json item, bool historical) {
+          if (!runtimes_.count(id) || stopped_)
+            return;
+          const auto state = store_.get(id).value("state", "");
+          if (state != "ready" && state != "starting")
+            return;
+          auto event = store_.external_item(id, turn, std::move(item), historical);
+          if (!event.is_null())
+            publish(id, event);
+        },
+        [this, id](Json metadata) {
+          if (!runtimes_.count(id) || stopped_)
+            return;
+          auto s = store_.get(id);
+          if (s["state"] != "ready" && s["state"] != "starting")
+            return;
+          if (metadata.contains("seed")) {
+            if (!s.value("externalSeeded", false) && metadata["seed"].value("seeded", false)) {
+              s["externalSeeded"] = true;
+              s["archiveCursor"] = metadata["seed"]["archiveCursor"];
+              s["archiveDone"] = s["archiveCursor"].is_null();
+              s["historyMode"] = metadata["seed"]["historyMode"];
+              store_.save(s);
+            }
+          } else if (s.value("running", false) != metadata.value("running", false) ||
+                     s.value("externalStatus", "unknown") !=
+                         metadata.value("externalStatus", "unknown")) {
+            s["running"] = metadata["running"];
+            s["externalStatus"] = metadata["externalStatus"];
+            store_.save(s);
+            emit(id, "externalState",
+                 {{"running", s["running"]}, {"externalStatus", s["externalStatus"]}});
+          }
+        },
+        [this, id](Json error) {
+          auto it = runtimes_.find(id);
+          if (it != runtimes_.end() && it->second->observer_error != error.dump()) {
+            it->second->observer_error = error.dump();
+            emit(id, "warning",
+                 {{"message",
+                   "External history refresh failed: " + error.value("message", "Read failed")}});
+          }
+        });
+    rt->reader->bootstrap([this, id, key, done](Json result, Json error) {
+      if (!runtimes_.count(id) || store_.get(id)["state"] != "starting") {
+        done(nullptr, {{"code", "SESSION_CLOSED"}, {"message", "Reader closed during connection"}});
+        return;
+      }
+      if (!error.is_null()) {
+        stop(id);
+        done(nullptr, error);
+        return;
+      }
+      auto s = store_.get(id);
+      s["state"] = "ready";
+      s["archiveCursor"] = result["archiveCursor"];
+      s["archiveDone"] = s["archiveCursor"].is_null();
+      s["historyMode"] = result["historyMode"];
+      s["externalSeeded"] = result["seeded"];
+      store_.save(s);
+      store_.finish(key, s);
+      done(s, nullptr);
+    });
+  }
+  void queue_external(const std::string &id, const Json &cmd, Completion done) {
+    auto s = store_.get(id);
+    auto it = runtimes_.find(id);
+    if (!s.value("external", false) || it == runtimes_.end() || !it->second->reader ||
+        s["state"] != "ready")
+      throw Error("SESSION_CLOSED", "An active external reader is required");
+    if (!config_.value("externalSessions", Json::object()).value("allowQueue", false) ||
+        config_["sandbox"] != "workspace-write")
+      throw Error("EXTERNAL_QUEUE_DISABLED",
+                  "Enable externalSessions.allowQueue on a workspace-write Agent to queue input; "
+                  "the original client controls execution and approvals");
+    auto reader = it->second->reader;
+    const auto key = id + ":" + cmd.at("requestId").get<std::string>();
+    const auto marker = "external-submission:" + key;
+    auto complete = [this, key, cmd, id, done](Json result, Json error) {
+      if (!error.is_null()) {
+        if (error.value("code", "") != "RESULT_UNKNOWN")
+          store_.finish(key, {{"requestError", error}});
+        done(nullptr, error);
+        return;
+      }
+      Json queued = {
+          {"state", "queued"},
+          {"queueId", result.at("queuedSubmission").at("id")},
+          {"clientUserMessageId", result.at("queuedSubmission").at("clientUserMessageId")}};
+      store_.finish(key, queued);
+      emit(id, "queueAccepted",
+           {{"requestId", cmd.at("requestId")},
+            {"queueId", queued["queueId"]},
+            {"text", cmd.at("text")},
+            {"message", "Message queued for the original Codex client"}});
+      done(queued, nullptr);
+    };
+    Json cached;
+    try {
+      cached = store_.begin(key, web_fingerprint(cmd));
+    } catch (const Error &error) {
+      if (error.code != "RESULT_UNKNOWN")
+        throw;
+      auto saved = store_.cache_get(marker);
+      if (saved.is_null()) {
+        done(nullptr, error_data(error));
+        return;
+      }
+      reader->find_queued(saved.at("clientUserMessageId"), complete);
+      return;
+    }
+    if (cached["cached"] == true) {
+      done(cached["value"], nullptr);
+      return;
+    }
+    const auto client_id = uuid();
+    store_.cache_put(marker, {{"clientUserMessageId", client_id}});
+    reader->enqueue(
+        cmd.at("text"), client_id, [this, key] { store_.submitted(key); }, complete);
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {
     auto s = store_.get(id);
-    process->request("thread/items/list",
-                     {{"threadId", s.at("threadId")},
-                      {"cursor", s.value("archiveCursor", Json())},
-                      {"sortDirection", "desc"},
-                      {"limit", 1}},
-                     [this, id, process, temporary, remaining, done](Json result, Json error) {
-                       if (!error.is_null()) {
-                         archive_loading_.erase(id);
-                         if (temporary)
-                           process->close();
-                         done(nullptr, error);
-                         return;
-                       }
-                       Json events = Json::array();
-                       for (auto &entry : result.value("data", Json::array())) {
-                         auto item = entry.at("item");
-                         auto type = item.value("type", "");
-                         auto turn = entry.value("turnId", "");
-                         if (type == "userMessage") {
-                           std::string text;
-                           for (auto &content : item.value("content", Json::array()))
-                             if (content.value("type", "") == "text")
-                               text += content.value("text", "");
-                           events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
-                         } else if (type == "agentMessage")
-                           events.push_back({{"type", "item/agentMessage/delta"},
-                                             {"data",
-                                              {{"itemId", item.value("id", "")},
-                                               {"turnId", turn},
-                                               {"delta", item.value("text", "")}}}});
-                         else
-                           events.push_back({{"type", "item/completed"},
-                                             {"data", {{"item", item}, {"turnId", turn}}}});
-                       }
-                       auto cursor = result.value("nextCursor", Json());
-                       store_.archive_page(id, events, cursor);
-                       if (!cursor.is_null() && remaining > 1) {
-                         read_archive(id, process, temporary, remaining - 1, done);
-                         return;
-                       }
-                       archive_loading_.erase(id);
-                       if (temporary)
-                         process->close();
-                       done(nullptr, nullptr);
-                     });
+    const bool legacy = s.value("historyMode", "paginated") == "legacy";
+    Json params = {{"threadId", s.at("threadId")},
+                   {"cursor", s.value("archiveCursor", Json())},
+                   {"sortDirection", "desc"},
+                   {"limit", 1}};
+    if (legacy)
+      params["itemsView"] = "full";
+    process->request(
+        legacy ? "thread/turns/list" : "thread/items/list", params,
+        [this, id, process, temporary, remaining, done, legacy](Json result, Json error) {
+          if (!error.is_null()) {
+            archive_loading_.erase(id);
+            if (temporary)
+              process->close();
+            done(nullptr, error);
+            return;
+          }
+          Json events = Json::array(), entries = Json::array();
+          if (legacy) {
+            for (auto &turn : result.value("data", Json::array())) {
+              auto items = turn.value("items", Json::array());
+              std::reverse(items.begin(), items.end());
+              for (auto &item : items)
+                entries.push_back({{"turnId", turn.at("id")}, {"item", item}});
+            }
+          } else
+            entries = result.value("data", Json::array());
+          const bool external = store_.get(id).value("external", false);
+          for (auto &entry : entries) {
+            if (external) {
+              auto event = store_.external_item(id, entry.at("turnId"), entry.at("item"), true);
+              if (!event.is_null())
+                publish(id, event);
+              continue;
+            }
+            auto item = entry.at("item");
+            auto type = item.value("type", "");
+            auto turn = entry.value("turnId", "");
+            if (type == "userMessage") {
+              std::string text;
+              for (auto &content : item.value("content", Json::array()))
+                if (content.value("type", "") == "text")
+                  text += content.value("text", "");
+              events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
+            } else if (type == "agentMessage")
+              events.push_back({{"type", "item/agentMessage/delta"},
+                                {"data",
+                                 {{"itemId", item.value("id", "")},
+                                  {"turnId", turn},
+                                  {"delta", item.value("text", "")}}}});
+            else
+              events.push_back(
+                  {{"type", "item/completed"}, {"data", {{"item", item}, {"turnId", turn}}}});
+          }
+          auto cursor = result.value("nextCursor", Json());
+          if (external) {
+            auto current = store_.get(id);
+            current["archiveCursor"] = cursor;
+            current["archiveDone"] = cursor.is_null();
+            store_.save(current);
+          } else
+            store_.archive_page(id, events, cursor);
+          if (!cursor.is_null() && remaining > 1) {
+            read_archive(id, process, temporary, remaining - 1, done);
+            return;
+          }
+          archive_loading_.erase(id);
+          if (temporary)
+            process->close();
+          done(nullptr, nullptr);
+        });
   }
   void load_archive(const std::string &id, Completion done) {
     auto s = store_.get(id);
@@ -791,8 +978,8 @@ public:
     auto s = store_.get(id);
     auto rt = runtimes_.at(id);
     try {
-      if (s["mode"] != "cli")
-        throw Error("FORBIDDEN", "Not a CLI session");
+      if (s["mode"] != "cli" || s.value("external", false))
+        throw Error("FORBIDDEN", "External readers use history and queue commands");
       if (!m.is_object())
         throw Error("INVALID_REQUEST", "Invalid RPC");
       if (!m.contains("method")) {
@@ -843,6 +1030,14 @@ public:
     auto rt = it->second;
     auto s = store_.get(id);
     auto method = m.value("method", "");
+    if (s.value("external", false)) {
+      if (!method.empty() && m.contains("id"))
+        rt->process->send(
+            {{"id", m["id"]},
+             {"error",
+              {{"code", -32601}, {"message", "External reader does not handle approvals"}}}});
+      return;
+    }
     if (s["mode"] == "cli" && m.contains("id") && method.empty()) {
       auto key = id_key(m["id"]);
       auto req = rt->requests.find(key);
@@ -953,6 +1148,17 @@ public:
       done(nullptr, nullptr);
       return;
     }
+    if (s.value("external", false)) {
+      if (action != "prompt")
+        throw Error("EXTERNAL_READ_ONLY",
+                    "The original Codex client handles interruption and approvals");
+      queue_external(id, cmd, [this, id, cmd, done](Json result, Json error) {
+        if (error.is_null())
+          notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
+        done(result, error);
+      });
+      return;
+    }
     auto key = id + ":" + cmd["requestId"].get<std::string>();
     auto cached = store_.begin(key, web_fingerprint(cmd));
     if (cached["cached"] == true) {
@@ -1043,6 +1249,8 @@ public:
   void on_exit(const std::string &id) {
     if (!runtimes_.count(id))
       return;
+    if (runtimes_.at(id)->reader)
+      runtimes_.at(id)->reader->close();
     auto s = store_.get(id);
     if (s["state"] == "closing")
       s["state"] = "closed";
@@ -1061,7 +1269,9 @@ public:
     store_.save(s);
     if (it != runtimes_.end()) {
       auto p = it->second->process;
-      if (s.contains("turnId"))
+      if (it->second->reader)
+        it->second->reader->close();
+      if (!s.value("external", false) && s.contains("turnId"))
         p->request("turn/interrupt", {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
                    [](Json, Json) {});
       p->close();

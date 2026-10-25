@@ -375,8 +375,9 @@ public:
     auto command = options_.args.empty() ? "help" : options_.args[0];
     if (options_.api_key && command != "login")
       throw Error("USAGE", "--api-key is only valid for login");
-    if (options_.values.count("message") && (command != "login" || options_.api_key))
-      throw Error("USAGE", "--message is only valid for paired login");
+    if (options_.values.count("message") &&
+        ((command != "login" && command != "queue") || options_.api_key))
+      throw Error("USAGE", "--message is only valid for paired login or queue");
     auto settings = command != "help" && std::filesystem::exists(credentials_)
                         ? read_json(credentials_)
                         : Json::object();
@@ -478,7 +479,35 @@ public:
     } else if (command == "projects")
       std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/projects").dump(2)
                 << '\n';
-    else if (command == "sessions")
+    else if (command == "threads") {
+      if (!valid_id(option("project")))
+        throw Error("USAGE", "threads --project ID");
+      std::cout << api("/hosts/" + host().at("id").get<std::string>() +
+                       "/threads?projectId=" + option("project"))
+                       .dump(2)
+                << '\n';
+    } else if (command == "observe") {
+      if (!valid_id(id) || !valid_id(option("project")))
+        throw Error("USAGE", "observe THREAD_ID --project ID");
+      std::cout << api("/sessions", {{"hostId", host().at("id")},
+                                     {"projectId", option("project")},
+                                     {"mode", "cli"},
+                                     {"threadId", id},
+                                     {"external", true}})
+                       .dump(2)
+                << '\n';
+    } else if (command == "queue") {
+      if (id.empty() || option("message").empty())
+        throw Error("USAGE", "queue SESSION_ID --message TEXT [--request-id ID]");
+      const auto request_id = option("request-id", uuid());
+      if (!valid_id(request_id))
+        throw Error("USAGE", "Invalid --request-id");
+      std::cerr << "Queue request ID: " << request_id << "; query with coc-client request "
+                << request_id << " --session " << id << " if unconfirmed\n";
+      std::cout
+          << api("/sessions/" + id + "/queue", {{"text", option("message")}}, request_id).dump(2)
+          << '\n';
+    } else if (command == "sessions")
       std::cout << api("/sessions?paged=true&hostId=" + host().at("id").get<std::string>() +
                        "&cursor=" + option("cursor"))
                        .dump(2)
@@ -518,7 +547,8 @@ public:
     } else {
       std::cout
           << "Usage: coc-client "
-             "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop|history|cache-"
+             "<login|logout|status|use|hosts|projects|threads|observe|queue|sessions|connect|"
+             "attach|stop|history|cache-"
              "clear|doctor|update> [options]\n"
              "Options: --relay URL --host ID --name NAME --message TEXT --project ID --config PATH "
              "--takeover "
@@ -527,6 +557,8 @@ public:
              "login: send optional --message TEXT; --host ID explicitly targets that Agent "
              "for approval. Without --host the administrator selects the server. "
              "login --api-key: requires --host ID; read COC_API_KEY or prompt securely. "
+             "External sessions: observe THREAD_ID --project ID; history SESSION_ID; queue "
+             "SESSION_ID --message TEXT. "
              "logout only removes "
              "local credentials.\n";
       if (command != "help")

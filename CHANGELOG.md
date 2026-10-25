@@ -1,6 +1,12 @@
 # 更新日志
 
-## 未发布 · Windows x64
+## 0.5.7 · 2026-10-25 · 外部会话只读同步与队列
+
+- 连接其他终端 / IDE 正在运行的 Codex 线程时，active writer 错误自动转为只读观察，兼容 legacy / paginated 历史和增长中的消息。
+- 明确配置 `externalSessions.allowQueue=true` 的 workspace-write Agent 可通过原生 Codex 队列发送输入；保留稳定请求身份、结果查询及未知结果恢复。
+- CW 显示外部状态并支持运行中入队；CC 新增 `threads / observe / queue`，沿用历史分页与离线缓存。执行和审批保留在原客户端，断开观察不停止原任务。
+
+### Windows x64
 
 - 新增 Windows x64 Agent / CLI、MSVC + vcpkg 静态构建、Windows CI 和 ZIP 发行包流程。
 - 使用 Windows 进程与 Job Object、异步管道、受保护 ACL、用户配置目录和系统根证书；工作区文件传输拒绝设备路径、链接和备用数据流。

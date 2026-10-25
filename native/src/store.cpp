@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <fcntl.h>
 #include <memory>
+#include <openssl/sha.h>
 #ifndef _WIN32
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -163,6 +164,9 @@ Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritat
         "KEY(session,key))");
     if (migrate)
       run("INSERT INTO history SELECT seq,session,value,MAX(0,seq) FROM events");
+    run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
+        "TEXT NOT NULL,"
+        "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");
     run("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
@@ -285,6 +289,113 @@ void Store::archive_page(const std::string &id, const Json &events, const Json &
     s["archiveDone"] = cursor.is_null();
     save(s);
     run("COMMIT");
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+Json Store::external_item(const std::string &id, const std::string &turn, Json item,
+                          bool historical) {
+  get(id);
+  item = redact(std::move(item));
+  const auto item_id = item.at("id").get<std::string>();
+  if (item_id.empty() || item_id.size() > 200 || turn.size() > 200)
+    throw Error("INVALID_FRAME", "Invalid external item identity");
+  auto serialized = item.dump();
+  unsigned char hash[SHA256_DIGEST_LENGTH];
+  SHA256(reinterpret_cast<const unsigned char *>(serialized.data()), serialized.size(), hash);
+  std::string fingerprint;
+  for (auto byte : hash) {
+    fingerprint += "0123456789abcdef"[byte >> 4];
+    fingerprint += "0123456789abcdef"[byte & 15];
+  }
+  auto existing =
+      query("SELECT seq,fingerprint FROM external_items WHERE session=? AND turn=? AND item=?",
+            {id, turn, item_id});
+  if (!existing.empty() && existing[0]["fingerprint"] == fingerprint)
+    return nullptr;
+  const auto kind = item.value("type", "");
+  std::string type = "item/completed", text = serialized;
+  Json data = {{"turnId", turn}, {"itemId", item_id}, {"item", item}};
+  if (kind == "agentMessage") {
+    type = "item/agentMessage/delta";
+    text = item.value("text", "");
+    data = {{"turnId", turn}, {"itemId", item_id}, {"delta", text}};
+  } else if (kind == "userMessage") {
+    type = "user";
+    text.clear();
+    for (auto &part : item.value("content", Json::array()))
+      if (part.value("type", "") == "text")
+        text += part.value("text", "");
+    data = {{"turnId", turn}, {"itemId", item_id}, {"text", text}};
+  }
+  run("BEGIN IMMEDIATE");
+  try {
+    int64_t seq = existing.empty() ? 0 : existing[0]["seq"].get<int64_t>();
+    std::string previous;
+    if (!existing.empty())
+      for (auto &part : query("SELECT text FROM chunks WHERE seq=? ORDER BY start", {seq}))
+        previous += part["text"].get<std::string>();
+    const bool append = !existing.empty() && text.compare(0, previous.size(), previous) == 0;
+    Json raw = {{"type", "external/itemUpdate"},
+                {"time", now()},
+                {"data",
+                 {{"turnId", turn},
+                  {"itemId", item_id},
+                  {"itemType", kind},
+                  {"append", append},
+                  {"text", append ? text.substr(previous.size()) : text}}}};
+    run("INSERT INTO events(session,value,time) VALUES(?,?,?)", {id, raw.dump(), raw["time"]});
+    const int64_t revision = sqlite3_last_insert_rowid(db_);
+    if (existing.empty()) {
+      seq = historical
+                ? query("SELECT MIN(0,COALESCE(MIN(seq),0))-1 AS seq FROM "
+                        "(SELECT seq FROM history UNION ALL SELECT seq FROM events)")[0]["seq"]
+                      .get<int64_t>()
+                : revision;
+      if (historical)
+        run("INSERT INTO events(seq,session,value,time) VALUES(?,?,?,?)",
+            {seq, id,
+             Json{{"type", "external/archiveReference"},
+                  {"data", {{"revision", revision}}},
+                  {"time", raw["time"]}}
+                 .dump(),
+             raw["time"]});
+      run("INSERT INTO external_items VALUES(?,?,?,?,?)", {id, turn, item_id, seq, fingerprint});
+    } else
+      run("UPDATE external_items SET fingerprint=? WHERE session=? AND turn=? AND item=?",
+          {fingerprint, id, turn, item_id});
+    if (!append) {
+      run("DELETE FROM chunks WHERE seq=?", {seq});
+      run("INSERT OR REPLACE INTO bodies VALUES(?,length(?),length(CAST(? AS BLOB)))",
+          {seq, text, text});
+      if (!text.empty())
+        run("INSERT INTO chunks VALUES(?,0,?)", {seq, text});
+    } else if (text.size() > previous.size()) {
+      auto suffix = text.substr(previous.size());
+      run("INSERT INTO chunks SELECT seq,size,? FROM bodies WHERE seq=?", {suffix, seq});
+      run("UPDATE bodies SET size=size+length(?),bytes=bytes+length(CAST(? AS BLOB)) WHERE seq=?",
+          {suffix, suffix, seq});
+    }
+    Json event = {{"seq", seq},
+                  {"revision", revision},
+                  {"time", raw["time"]},
+                  {"type", type},
+                  {"data", data}};
+    if (event.dump().size() > 12000) {
+      event["contentSeq"] = seq;
+      event["data"] = {{"turnId", turn},
+                       {"itemId", item_id},
+                       {"message", "Large external message; expand to read"}};
+    }
+    run("INSERT OR REPLACE INTO history VALUES(?,?,?,?)", {seq, id, event.dump(), revision});
+    if (type == "user")
+      run("UPDATE sessions SET "
+          "value=json_set(value,'$.title',COALESCE(json_extract(value,'$.title'),substr(?,1,160))) "
+          "WHERE id=?",
+          {text, id});
+    run("COMMIT");
+    return event;
   } catch (...) {
     run("ROLLBACK");
     throw;

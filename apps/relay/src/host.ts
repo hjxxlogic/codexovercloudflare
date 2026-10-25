@@ -434,7 +434,7 @@ export class HostRelayDO extends DurableObject<Env> {
         });
       if (u.pathname === '/control') {
         const d = await body(req);
-        if (d.action === 'stop') {
+        if (d.action === 'stop' || d.action === 'queue') {
           const info = await this.command('get', {
             sessionId: d.data.sessionId,
           });

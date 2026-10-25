@@ -1,4 +1,5 @@
 #include "coc/common.hpp"
+#include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/network.hpp"
 #include "coc/process.hpp"
@@ -155,6 +156,50 @@ void core() {
   rejects([&] { save_private(file, Json::object(), true); }, "CONFIG_ERROR");
   std::cout << "PASS: URL validation, web schemas, RPC isolation, policy, redaction, SQLite "
                "replay/restart/deduplication, private configuration\n";
+}
+void external_test() {
+  Temp temp;
+  Store store(temp.path);
+  store.save({{"id", "external"}, {"state", "ready"}});
+  Json item = {{"id", "reply"}, {"type", "agentMessage"}, {"text", "你好"}};
+  auto first = store.external_item("external", "turn", item);
+  check(!first.is_null(), "Initial external snapshot");
+  check(store.external_item("external", "turn", item).is_null(), "Identical polls do not journal");
+  item["text"] = "你好 again";
+  auto second = store.external_item("external", "turn", item);
+  check(second["seq"] == first["seq"] && second["revision"] > first["revision"] &&
+            second["data"]["delta"] == "你好 again",
+        "External snapshot replaces stable item");
+  auto changes = store.history("external", 0, first["revision"]);
+  check(changes["events"].size() == 1 && changes["events"][0]["data"]["delta"] == "你好 again",
+        "Reconnect returns revised full snapshot once");
+  item["text"] = std::string(18000, 'x');
+  auto large = store.external_item("external", "turn", item);
+  check(large.contains("contentSeq") && large["seq"] == first["seq"],
+        "Large rewritten snapshot chunked");
+  auto content = store.content("external", large["seq"], 0, large["revision"]);
+  check(content["text"] == std::string(4096, 'x') && content["more"] == true,
+        "Rewritten body is readable");
+  auto older = store.external_item(
+      "external", "older-turn", {{"id", "old"}, {"type", "agentMessage"}, {"text", "older"}}, true);
+  check(older["seq"] < 0, "Archived external item precedes live window");
+  auto normal = store.archive_event("external", "user", {{"text", "normal archive"}});
+  check(normal["seq"] != older["seq"], "External and normal archive sequences cannot collide");
+  check(store
+            .external_item("external", "older-turn",
+                           {{"id", "old"}, {"type", "agentMessage"}, {"text", "older"}})
+            .is_null(),
+        "Archive/live overlap deduplicates");
+  check(active_writer_error(
+            {{"code", "CODEX_ERROR"}, {"message", "thread t already has an active writer"}}),
+        "Exact active writer fallback");
+  check(!active_writer_error({{"code", "CODEX_ERROR"}, {"message", "permission denied"}}) &&
+            !active_writer_error(
+                {{"code", "HTTP_TIMEOUT"}, {"message", "already has an active writer"}}),
+        "Other failures never downgrade");
+  check(same_project_path(temp.path, temp.path + "/."), "Canonical project verification");
+  std::cout << "PASS: external stable snapshots, revisions, rewrite, chunks, archive overlap and "
+               "writer fallback\n";
 }
 void history_test() {
   Temp temp;
@@ -721,6 +766,7 @@ int main(int argc, char **argv) {
     else {
       std::cout << "RUN: core\n";
       core();
+      external_test();
       std::cout << "RUN: history\n";
       history_test();
       std::cout << "RUN: performance invariants\n";

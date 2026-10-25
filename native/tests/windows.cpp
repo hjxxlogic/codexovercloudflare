@@ -66,6 +66,14 @@ int main() {
       store.save({{"id", "session"}, {"state", "closed"}});
       store.event("session", "user", {{"text", "hello"}});
       check(store.history("session").at("events").size() == 1, "Persistent history");
+      Json item = {{"id", "reply"}, {"type", "agentMessage"}, {"text", "hello"}};
+      auto first = store.external_item("session", "turn", item);
+      check(store.external_item("session", "turn", item).is_null(),
+            "External unchanged poll deduplicated");
+      item["text"] = "hello again";
+      auto updated = store.external_item("session", "turn", item);
+      check(updated["seq"] == first["seq"] && updated["revision"] > first["revision"],
+            "External snapshot revision");
       store.begin("request", "fingerprint");
       rejects([&] { store.begin("request", "fingerprint"); }, "RESULT_UNKNOWN");
     }

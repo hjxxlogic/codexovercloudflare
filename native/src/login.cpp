@@ -25,7 +25,8 @@ Options::Options(int argc, char **argv) {
       const auto key = a.substr(2);
       if (key != "relay" && key != "host" && key != "name" && key != "message" && key != "config" &&
           key != "project" && key != "project-id" && key != "before" && key != "seq" &&
-          key != "offset" && key != "offline" && key != "cache-dir")
+          key != "offset" && key != "offline" && key != "cache-dir" && key != "request-id" &&
+          key != "revision" && key != "cursor" && key != "session")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);

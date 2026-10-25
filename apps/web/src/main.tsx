@@ -712,6 +712,18 @@ function App() {
           ),
         );
       }
+      if (e.type === 'externalState') {
+        setBusy(d.running);
+        setSelected((current) =>
+          current?.id === selected.id
+            ? {
+                ...current,
+                running: d.running,
+                externalStatus: d.externalStatus,
+              }
+            : current,
+        );
+      }
       if (e.type === 'approval')
         setApprovals((v) => [
           ...v.filter((a) => a.approvalId !== d.approvalId),
@@ -810,6 +822,11 @@ function App() {
             }
             if (d.type === 'sync') {
               clearTimeout(handshake);
+              setSelected((current) =>
+                current?.id === selected.id
+                  ? { ...current, ...d.session }
+                  : current,
+              );
               setApprovals(d.approvals);
               setBusy(d.session.running);
               for (const e of d.events) add(e);
@@ -829,6 +846,10 @@ function App() {
             }
             if (d.type === 'event') add(d.event);
             if (d.type === 'ack') {
+              if (d.result?.state === 'queued')
+                setNotice(
+                  '已加入原客户端队列，等待原客户端执行；审批仍在原客户端处理。',
+                );
               if (pendingCommand.current?.requestId === d.requestId) {
                 pendingCommand.current = undefined;
                 setUnconfirmed(undefined);
@@ -1749,9 +1770,11 @@ function App() {
           status={
             !online
               ? '服务器离线 · 只读缓存'
-              : approvals.length
-                ? '等待你的确认'
-                : status
+              : selected?.external
+                ? '外部会话 · 只读同步' + (busy ? ' · 原客户端执行中' : '')
+                : approvals.length
+                  ? '等待你的确认'
+                  : status
           }
           onDetails={() => {
             if (selected) setPanel('details');
@@ -2237,8 +2260,9 @@ function App() {
                 {panel === 'details' && selected && (
                   <section className="session-details">
                     <p className="status">
-                      {status} · {busy ? '执行中' : '空闲'} · 远程项目{' '}
-                      {selected.projectId}
+                      {status} ·{' '}
+                      {selected.external ? '外部会话 · 只读同步' : ''} ·{' '}
+                      {busy ? '执行中' : '空闲'} · 远程项目 {selected.projectId}
                     </p>
                     {selected.state !== 'ready' && selected.threadId && (
                       <button
@@ -2280,14 +2304,22 @@ function App() {
                     </details>
                     <div className="row">
                       <button
-                        disabled={!ready || !online || !busy}
+                        disabled={
+                          !ready || !online || !busy || selected.external
+                        }
                         onClick={() => send({ action: 'interrupt' })}
                       >
                         停止本轮
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm('结束会话？已修改文件不会回滚。'))
+                          if (
+                            confirm(
+                              selected.external
+                                ? '断开此只读连接？原客户端继续运行。'
+                                : '结束会话？已修改文件不会回滚。',
+                            )
+                          )
                             void api(`/sessions/${selected.id}/stop`, {})
                               .then((closed: Session) => {
                                 setSessions((v) =>
@@ -2450,7 +2482,8 @@ function App() {
                             text.trim() &&
                             ready &&
                             !pending &&
-                            !busy &&
+                            (!busy || selected.external) &&
+                            (!selected.external || selected.queueEnabled) &&
                             !pendingCommand.current
                           ) {
                             send({ action: 'prompt', text });
@@ -2481,14 +2514,19 @@ function App() {
                             }}
                             maxLength={64000}
                             title="Enter 发送，Shift + Enter 换行"
+                            disabled={
+                              selected.external && !selected.queueEnabled
+                            }
                             placeholder={
-                              busy
-                                ? '可编辑下一条草稿，任务结束后发送…'
-                                : '发送消息给 Codex…'
+                              selected.external
+                                ? '加入原客户端队列…'
+                                : busy
+                                  ? '可编辑下一条草稿，任务结束后发送…'
+                                  : '发送消息给 Codex…'
                             }
                           />
                         </label>
-                        {busy ? (
+                        {busy && !selected.external ? (
                           <button
                             type="button"
                             disabled={!ready || !online}
@@ -2504,13 +2542,18 @@ function App() {
                               !online ||
                               pending ||
                               !!unconfirmed ||
+                              (selected.external && !selected.queueEnabled) ||
                               !text.trim()
                             }
                           >
-                            发送
+                            {selected.external ? '加入队列' : '发送'}
                           </button>
                         )}
                         <small>
+                          {selected.external &&
+                            (selected.queueEnabled
+                              ? '外部会话：已入队不代表已执行，原客户端负责执行与审批。 '
+                              : '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ')}
                           {matchMedia('(pointer: coarse)').matches
                             ? 'Enter 换行，点击发送提交'
                             : 'Enter 发送 · Shift+Enter 换行'}

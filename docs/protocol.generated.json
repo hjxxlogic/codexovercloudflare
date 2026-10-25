@@ -341,6 +341,20 @@
         "type": "string",
         "pattern": "^[a-zA-Z0-9_-]{1,100}$"
       },
+      "external": {
+        "type": "boolean"
+      },
+      "queueEnabled": {
+        "type": "boolean"
+      },
+      "externalStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "idle",
+          "unknown"
+        ]
+      },
       "turnId": {
         "type": "string",
         "maxLength": 200
@@ -670,12 +684,61 @@
               "threadId": {
                 "type": "string",
                 "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "external": {
+                "type": "boolean"
               }
             },
             "required": [
               "key",
               "projectId",
               "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "queue"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "requestId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64000
+              }
+            },
+            "required": [
+              "sessionId",
+              "mode",
+              "requestId",
+              "text"
             ],
             "additionalProperties": false
           }

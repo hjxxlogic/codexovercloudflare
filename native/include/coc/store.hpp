@@ -41,6 +41,8 @@ public:
   Json history(const std::string &id, int64_t before = 0, int64_t after = -1);
   Json content(const std::string &id, int64_t seq, int64_t offset, int64_t revision = -1);
   void archive_page(const std::string &id, const Json &events, const Json &cursor);
+  Json external_item(const std::string &id, const std::string &turn, Json item,
+                     bool historical = false);
   Json archive_event(const std::string &id, const std::string &type, const Json &data);
   Json begin(const std::string &key, const std::string &fingerprint);
   void submitted(const std::string &key);

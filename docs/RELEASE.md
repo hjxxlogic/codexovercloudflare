@@ -113,3 +113,8 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 新增 `coc-<version>-windows-x64.zip`，在 Windows x64 上使用 `x64-windows-static` 构建并执行 `ctest -C Release` 后，以 `--platform windows-x64` 打包。打包拒绝脏源码、来源不匹配及错误目标；清单与 SHA256SUMS 同时识别 `.zip` / `.tar.gz`。Windows ZIP 包含两个 `.exe`、示例配置、手册及静态依赖的许可证通知，无 systemd 单元。默认从 `build-windows/vcpkg_installed/x64-windows-static/share/*/copyright` 收集许可证，使用其他安装目录时传 `--dependency-dir`。第三方库和 MSVC CRT 静态链接；不得将依赖未收齐的动态构建标为官方 ZIP。
 
 合并各平台下载时须核对 version/commit/sourceDigest/protocol 相同，并重新生成最终清单与 SHA256；CI artifact 不等于线上发布。Windows 当前不自动更新或重启升级，也不注册 Windows Service，用户停止 Agent 后校验并整包替换。现有 Linux 自动更新不会选择 Windows ZIP。
+
+
+## 0.5.7：外部会话
+
+配套发布 Worker、网页、三个平台原生包和源码。配置 externalSessions.allowQueue 默认关闭；新表 external_items 自动创建，不修改原 Codex 数据或授权。先更新 Agent / Worker 才能使用观察和队列。原客户端必须支持 Codex 0.164.0 队列 API，执行与审批由其负责。Windows 包只使用 GitHub Actions 已验证的产物，不在本地构建或执行。

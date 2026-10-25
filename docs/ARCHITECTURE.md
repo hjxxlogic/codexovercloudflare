@@ -391,3 +391,10 @@ CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史
 - 同凭证在途鉴权合并，撤销使对应在途结果失效；alarm 按唯一凭证最多四路并发复核。仍保留最长 5 秒缓存与周期复核，不以延迟撤销换取休眠。新版 Web auth 可声明 events=history，使控制连接不再重复接收实时事件；旧客户端不声明时保持兼容。
 - 浏览器按 seq/revision 合并 20 ms 内的实时缓存写入，最多一个写事务和有界待写批次（400 条/192 KiB）。已保存数据不自动淘汰；清理使用当前 scope 范围游标并保留草稿/待确认请求。缓存记录原始分页边界，也能从覆盖当前游标的缓存页读取子范围，避免返回最新后重新下载旧页。服务端回放仍负责补齐缺失修订，checkpoint 不依据未经确认的实时事件提前推进。
 - 纯流式显示按约 16 ms 合并，字节计数按不可变事件对象复用；对话/消息 memo 隔离输入状态变化，折叠工具只在展开后挂载正文。已加载历史完整呈现，已展开正文不再裁掉前文。
+
+
+## 外部 writer 观察与队列（0.5.7）
+
+ExternalThread 独立于原 writer，以 thread/read 验证项目后，使用 thread/items/list 或 legacy thread/turns/list 的双向游标轮询落盘历史。观察进程不 resume、start、interrupt 或处理原客户端审批。正常恢复仅在明确 active writer 错误时转观察。SQLite external_items 保存 thread turn/item 对应的稳定 seq 和内容指纹；同内容不写日志，增长保存后缀，重写替换正文，投影增加 revision，已有历史/分块/重连协议继续工作。归档使用保留的负序号，避免与普通归档冲突。
+
+queue 控制接口同时验证凭证角色、会话角色、项目目录及外部队列配置。每个请求先写持久去重记录和 clientUserMessageId，再标记 submitted 后发送 thread/queue/add。应答确认才记录 queued；未知结果只使用 queue/list 对账，不自动再次添加。原客户端消费后无法从 pending queue 证明结果，保持未知并提示人工核对。实验性队列 API 仅在 Agent 的 Codex 初始化启用，原生 RPC allowlist 继续拒绝直接调用该 API。
