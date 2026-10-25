@@ -79,14 +79,30 @@ try {
     },
   ]) {
     let httpRequests = 0,
+      approvalRequests = 0,
       wsRequests = 0;
+    let resolveApprovals!: () => void;
+    const approvals = new Promise<void>((r) => (resolveApprovals = r));
     const server = createServer(
       {
         key: readFileSync(join(dir, 'leaf.key')),
         cert: readFileSync(join(dir, scenario.cert + '.pem')),
       },
       (req, res) => {
+        if (req.url === '/api/v1/agent/requests') {
+          approvalRequests++;
+          assert.equal(req.method, 'GET');
+          assert.equal(
+            req.headers.authorization,
+            'Bearer local-device-token-placeholder',
+          );
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ hostId: 'tls-host', pending: [] }));
+          resolveApprovals();
+          return;
+        }
         httpRequests++;
+        assert.equal(req.url, '/api/v1/hosts');
         assert.equal(req.headers.authorization, 'Bearer local-test-owner');
         res.setHeader('Content-Type', 'application/json');
         res.end('[]');
@@ -170,7 +186,7 @@ try {
         let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
-            projects,
+            Promise.all([projects, approvals]),
             new Promise((_, reject) => {
               timeout = setTimeout(
                 () => reject(new Error('WSS did not connect')),
@@ -182,10 +198,12 @@ try {
           clearTimeout(timeout);
         }
         assert.equal(httpRequests, 1);
+        assert.equal(approvalRequests, 1);
         assert.equal(wsRequests, 1);
       } else {
         await new Promise((r) => setTimeout(r, 1800));
         assert.equal(httpRequests, 0);
+        assert.equal(approvalRequests, 0);
         assert.equal(wsRequests, 0);
       }
       console.log('PASS: native HTTPS + WSS ' + scenario.name);
