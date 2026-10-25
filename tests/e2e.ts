@@ -1237,6 +1237,7 @@ try {
   });
   const targetedPage = await targetedBrowser.newPage();
   await targetedPage.goto(origin);
+  await targetedPage.getByLabel('设备名称').fill('Agent targeted CW');
   await targetedPage.getByLabel('目标服务器 ID（选填）').fill(enrolled.hostId);
   await targetedPage
     .getByLabel('给管理员留言')

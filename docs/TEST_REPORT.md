@@ -7,7 +7,7 @@
 - CC 使用 `login --host A_ID`、CW 选填目标服务器 ID 发起明确目标申请；Agent 的 `requests / approve / reject` 仅处理自己的客户端申请。未指定目标继续由管理员选择；已有凭证和 API Key 登录兼容。
 - 原生与网页构建、CTest 1/1、六文件 56 项 Vitest、类型 / ESLint / Prettier / clang-format 检查通过。新单元场景覆盖 cli / web 作用域、列表脱敏、目标不可改绑、伪造审批身份、错误角色、到期与拒绝、在途撤销、API Key 撤销和并发审批只签发一次。
 - Chromium 桌面 / 手机 `test:ui` 通过，包含完整历史窗口、本地缓存重复阅读、草稿、菜单和审批布局回归。
-- 0.5.5 发布门禁补充：TLS 夹具原先把全部 HTTPS 请求认作 CC，新增 Agent 启动查询使该断言失败。夹具现按路径校验角色凭证，并等待 Agent 查询与 WSS 同时完成；可信证书通过、未知 CA 与主机名不匹配拒绝三项均通过，产品 TLS 策略保持。
+- 0.5.5 发布门禁补充：TLS 夹具原先把全部 HTTPS 请求认作 CC，新增 Agent 启动查询使该断言失败。夹具现按路径校验角色凭证，并等待 Agent 查询与 WSS 同时完成；可信证书通过、未知 CA 与主机名不匹配拒绝三项均通过，产品 TLS 策略保持。 新增定向 CW 夹具使用独立设备名，避免旧撤销场景按默认名称匹配到已关闭的另一浏览器授权。
 - Agent 运行提示追加回归：宿主原生构建、CTest 1/1、56 项 Vitest、类型 / ESLint / Prettier / clang-format 通过；真实原生程序验证启动立即提示本机 CC 申请、异主机及未指定申请不可见、留言控制字符转义、不泄露轮询秘密且保持待审批。运行中新增 CW 的周期发现、原申请不重复提示，以及查询接口 503 后 Agent 保持在线并自动恢复检查均通过，随后完整端到端回归和进程退出通过。日志 `.local/agent-approval/notice-e2e.log`。
 - 无外网 Bookworm 容器内完整 `test:e2e` 通过：真实 Wrangler、原生 Agent / CC、Chromium 验证服务停止时批准指定 CC、服务运行时批准 / 拒绝指定 CW、管理页目标锁定、HttpOnly Cookie 与刷新保留；原有管理员分配、API Key、多主机隔离、历史 / 文件 / 重连 / 撤销回归通过。Worker dry-run 通过，仅打包。
 - 新增拒绝场景首轮因测试将带“关闭”按钮的提示框作整段文字精确匹配而超时；改为定位 alert 并匹配提示内容后，全量回归通过。截图已目视检查：[CW 指定目标申请](assets/agent-approval-2026-10-25/cw-request.png)。本地详细日志 `.local/agent-approval/e2e.log`。
