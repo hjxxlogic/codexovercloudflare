@@ -1,0 +1,14 @@
+{
+  "version": "0.5.4",
+  "sourceCommit": "ba0f254b2ad93cda8bef7cc36a40a0cf983c8c8a",
+  "tag": "v0.5.4",
+  "createdOn": "2026-10-25T01:38:34.031363Z",
+  "workerVersions": [
+    {
+      "version_id": "db1fb52b-5758-4a5b-b01f-c147b2331e0a",
+      "percentage": 100
+    }
+  ],
+  "origin": "https://r.xlogic.cc",
+  "sourceDigest": "7d346ff032573d9ae09bba2213b8d72ec0132855ec40e86676c816b887f42240"
+}

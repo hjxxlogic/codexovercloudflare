@@ -1,0 +1,15 @@
+{
+  "time": "2026-10-25T01:40:06.709Z",
+  "origin": "https://r.xlogic.cc",
+  "marker": "cw-approval-smoke-55142788",
+  "pendingMessage": "passed",
+  "missingAndInvalidServer": "rejected",
+  "approvalAndScopedCookie": "passed",
+  "downloadedCCLogin": "passed",
+  "manualCharset": "UTF-8",
+  "pageErrors": [],
+  "functionalChecks": "downloaded Agent login, deterministic stream, unique history subscription, IndexedDB persistence, 300003-byte upload/download passed",
+  "controlEvents": 0,
+  "historyEvents": 4,
+  "cleanup": "temporary requests/credentials removed; admin session revoked"
+}
