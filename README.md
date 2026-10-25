@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.2 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.3 开发预览版，完整目标和已验证范围见文档。
 
 ## 本机快速开始
 
@@ -24,10 +24,10 @@ A 自己完成登录与运行，无需安装客户端：
 ./build/coc-agent run --config .local/agent.json
 ```
 
-取得 A 标识后，CC 单独申请访问这个 A：
+CC 填写留言申请访问，由管理员在批准时选择服务器：
 
 ```bash
-./build/coc-client login --relay http://127.0.0.1:8787 --host A_ID
+./build/coc-client login --relay http://127.0.0.1:8787 --message "请授权开发服务器"
 ./build/coc-client projects
 ./build/coc-client connect --project my-project
 ./build/coc-client sessions

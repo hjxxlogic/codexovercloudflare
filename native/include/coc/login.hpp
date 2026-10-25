@@ -12,6 +12,7 @@ struct Options {
 };
 std::filesystem::path config_path(const char *env, const std::string &relative);
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
-                  const std::string &host = "", bool api_key = false);
+                  const std::string &host = "", bool api_key = false,
+                  const std::string &message = "");
 Json credential_status(const Json &credential);
 } // namespace coc

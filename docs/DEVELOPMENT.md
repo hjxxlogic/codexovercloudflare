@@ -100,9 +100,9 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## 0.3.1 API Key
 
-共用 login 接口支持 `login --api-key`，从 `COC_API_KEY` 或隐藏终端 / 标准输入读取，成功后将原 Key 存入现有 token 字段，沿用私有配置与业务接口。终端参数不接受 Key 值。Key 创建 / 绑定 / 撤销由 RegistryDO 负责，CC 目标在创建时校验，A 首次绑定使用事务，重复使用不创建第二个 A。创建响应之外不返回秘密，不增加兑换令牌。
+共用 login 接口支持 `login --api-key`，从 `COC_API_KEY` 或隐藏终端 / 标准输入读取，成功后将原 Key 存入现有 token 字段，沿用私有配置与业务接口。终端参数不接受 Key 值。Key 创建 / 绑定 / 撤销由 RegistryDO 负责，CC API Key 目标在创建时校验，A 首次绑定使用事务，重复使用不创建第二个 A。创建响应之外不返回秘密，不增加兑换令牌。
 
-`tests/device-auth.test.ts` 还覆盖 CW 无目标申请及留言长度、管理员选定服务器、缺失 / 无效 / 撤销目标拒绝、重复审批和单次领取。`tests/e2e.ts` 验证浏览器填写多行留言、管理员按文本查看并选择服务器、未选择不能批准，以及多 A Cookie 和刷新保留。CW 审批由 RegistryDO 在事务内校验 hostId，CLI 的申请目标不变；此流程需同步构建 Worker 与网页。
+`tests/device-auth.test.ts` 还覆盖 CC / CW 无目标申请及留言长度、管理员选定服务器、缺失 / 无效 / 撤销目标拒绝、重复审批和单次领取。`tests/e2e.ts` 验证浏览器填写多行留言、管理员按文本查看并选择服务器、未选择不能批准，以及多 A Cookie 和刷新保留。CW 审批由 RegistryDO 在事务内校验 hostId，CC 同样在审批时指定目标；原生配对登录使用 `--message`，不再要求 `--host`，API Key 登录仍要求该参数。此流程需同步构建 Worker、网页及 CC 下载包；e2e 的原生登录辅助函数在审批时传递 hostId，并校验 CLI 留言与实际保存的目标。
 
 `tests/device-auth.test.ts` 覆盖角色必填、目标固定、直接 Bearer、多年有效、并发绑定和级联撤销；`tests/e2e.ts` 通过管理网页生成两类 Key，实际运行两个原生程序并验证保存的 token 就是 Key、重复登录绑定一致和活动连接撤销。测试截图在忽略目录 `.local/api-key-management.png`。
 

@@ -1124,7 +1124,7 @@ function App() {
       await api('/admin/' + action, {
         id,
         ...(action === 'approve' &&
-        devices.pending.find((item) => item.id === id)?.role === 'web'
+        devices.pending.find((item) => item.id === id)?.role !== 'agent'
           ? { hostId: approvalHosts[id] }
           : {}),
       });
@@ -1605,7 +1605,7 @@ function App() {
             退出其他管理会话
           </button>
           <p>
-            批准前请与申请方核对配对码和角色；网页申请需查看留言并选择目标服务器。管理身份不能直接操作
+            批准前请与申请方核对配对码和角色；客户端申请需查看留言并选择目标服务器。管理身份不能直接操作
             Codex 会话。
           </p>
           {managing && <p>当前请求：{managing}</p>}
@@ -1626,7 +1626,7 @@ function App() {
                     : '网页客户端'}{' '}
                 · 配对码 {d.code}
               </p>
-              {d.role === 'web' ? (
+              {d.role !== 'agent' ? (
                 <>
                   <p className="request-message">
                     留言：{d.message || '未填写'}
@@ -1671,7 +1671,7 @@ function App() {
               <button
                 disabled={
                   generating ||
-                  (d.role === 'web' &&
+                  (d.role !== 'agent' &&
                     !keyHosts.some((h) => h.id === approvalHosts[d.id]))
                 }
                 onClick={() => void manage('approve', d.id)}

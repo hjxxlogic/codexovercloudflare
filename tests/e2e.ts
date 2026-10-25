@@ -220,6 +220,7 @@ async function cliCommand(
   input = '',
   env: NodeJS.ProcessEnv = {},
   binary = process.env.COC_CLI_BINARY || 'build/coc-client',
+  approval?: { hostId: string; message?: string; page?: Page },
 ) {
   const child = spawn(resolve(binary), args, {
     env: {
@@ -238,7 +239,37 @@ async function cliCommand(
     const id = stdout.match(/#authorize=([\w-]+)/)?.[1];
     if (id && !approving) {
       approving = true;
-      void api('/admin/approve', { id }, { admin: true }).catch((e) => {
+      void (async () => {
+        if (approval) {
+          const pending = (
+            await api('/admin/devices', undefined, { admin: true })
+          ).pending.find((d: any) => d.id === id);
+          assert.equal(pending.role, 'cli');
+          assert.equal(pending.hostId, undefined);
+          assert.equal(pending.message, approval.message || '');
+          if (approval.page) {
+            await approval.page
+              .getByLabel('目标服务器 ' + pending.code, { exact: true })
+              .selectOption(approval.hostId);
+            await approval.page.screenshot({
+              path: join(artifacts, 'cc-admin-select-server.png'),
+              fullPage: true,
+            });
+            await approval.page
+              .getByRole('button', {
+                name: '批准 ' + pending.code,
+                exact: true,
+              })
+              .click();
+            return;
+          }
+        }
+        await api(
+          '/admin/approve',
+          { id, ...(approval ? { hostId: approval.hostId } : {}) },
+          { admin: true },
+        );
+      })().catch((e) => {
         stderr += String(e);
         child.kill();
       });
@@ -338,7 +369,13 @@ try {
   pass('real static resource routing applies security response headers');
   const enrolled = { hostId: config.hostId, token: config.token };
   assert.equal(statSync(configFile).mode & 0o777, 0o600);
-  await cliCommand(['login', '--relay', origin, '--host', enrolled.hostId]);
+  await cliCommand(
+    ['login', '--relay', origin, '--message', '请授权开发服务器'],
+    '',
+    {},
+    undefined,
+    { hostId: enrolled.hostId, message: '请授权开发服务器' },
+  );
   const clientCredentials = JSON.parse(
     readFileSync(join(dir, 'credentials.json'), 'utf8'),
   ).entries[0];
@@ -368,7 +405,15 @@ try {
     (await request('/sessions?hostId=' + other.hostId)).r.status,
     403,
   );
-  await cliCommand(['login', '--relay', origin, '--host', other.hostId]);
+  await cliCommand(
+    ['login', '--relay', origin, '--host', enrolled.hostId],
+    '',
+    {},
+    undefined,
+    {
+      hostId: other.hostId,
+    },
+  );
   assert.equal(
     JSON.parse(readFileSync(join(dir, 'credentials.json'), 'utf8')).entries
       .length,
@@ -1020,7 +1065,35 @@ try {
   );
   await page.getByRole('button', { name: '功能菜单' }).click();
   await page.getByRole('button', { name: /设备授权 审批/ }).click();
-  const visitor = await browser.newContext();
+  const pairedCliFile = join(dir, 'ui-paired-client.json');
+  await cliCommand(
+    [
+      'login',
+      '--relay',
+      origin,
+      '--config',
+      pairedCliFile,
+      '--name',
+      'UI paired CLI',
+      '--message',
+      '请管理员选择开发服务器',
+    ],
+    '',
+    {},
+    undefined,
+    { hostId: enrolled.hostId, message: '请管理员选择开发服务器', page },
+  );
+  const pairedCli = JSON.parse(readFileSync(pairedCliFile, 'utf8'));
+  assert.equal(pairedCli.entries[0].hostId, enrolled.hostId);
+  assert.equal(pairedCli.entries[0].role, 'cli');
+  assert.equal(statSync(pairedCliFile).mode & 0o777, 0o600);
+  pass(
+    'CC paired login without host sends a message and persists the administrator UI-selected server',
+  );
+  // Give this simulated browser its own IP rate budget, separate from native setup.
+  const visitor = await browser.newContext({
+    extraHTTPHeaders: { 'CF-Connecting-IP': '192.0.2.20' },
+  });
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
   assert.equal(await visitorPage.getByLabel('服务器标识').count(), 0);

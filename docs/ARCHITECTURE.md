@@ -2,7 +2,7 @@
 
 > 实现进展：本文件保留初始目标基线；当前开发版本的实际能力与测试结果见 [README](../README.md) 和 [测试记录](TEST_REPORT.md)。
 
-> 状态：0.5.2 已发布的稳定化与自动更新实现；目标与实际状态对照见文末。日期：2026-10-24。
+> 状态：0.5.3 在稳定化与自动更新基础上统一 CC / CW 配对申请；目标与实际状态对照见文末。日期：2026-10-25。
 > 对应 [项目需求](REQUIREMENTS.md)，保留 [原始构想](IDEARS.md) 作为背景记录。
 
 ## 1. 架构结论
@@ -72,7 +72,7 @@ flowchart LR
 
 R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。
 
-A / CC / CW 共用 deviceStart → 管理员 approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。CW 的 deviceStart 接受 name 和选填 message（trim 后最多 1000 字符），忽略申请端 hostId，不提前绑定或公开服务器目录。管理员列表返回留言；deviceApprove 对 web 角色强制接收 hostId，在事务内校验目标为 version 2 且未停用，再签发绑定该 A 的凭证。CC 仍在申请时指定并验证 hostId，A 仍在批准时创建主机。留言仅在临时申请中保存，审批页以纯文本显示，不写入长期凭证。旧网页发起的 web 申请也需管理员明确选择服务器；需要同步更新 Worker 与网页，现有授权无需重办。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
+A / CC / CW 共用 deviceStart → 管理员 approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。CC / CW 的 deviceStart 接受 name 和选填 message（trim 后最多 1000 字符），忽略申请端 hostId，不提前绑定或公开服务器目录。管理员列表返回留言；deviceApprove 对 cli / web 角色强制接收 hostId，在事务内校验目标为 version 2 且未停用，再签发绑定该 A 的凭证。A 仍在批准时创建主机。CC 使用 `--message` 提交留言，收到批准结果中的 hostId 后按原多授权格式存储，配对登录无需 `--host`；API Key 的绑定及校验流程独立保持。留言仅在临时申请中保存，审批页以纯文本显示，不写入长期凭证。旧 CC / 网页发起的申请也需管理员明确选择服务器；0.5.3 需同步更新 Worker、网页和 CC 下载包，已有 Agent 与授权无需重办。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
 
 Auth version 2 使用 agent / cli / web 三种独立角色，hostId 固定绑定，设备凭证 expires 使用安全整数最大值表示无固定到期。管理身份 owner 独立，仍为 8 小时。旧认证记录拒绝使用，不自动提升为新授权。CC / CW 的 HTTP、会话票据、WebSocket 都按角色和目标 A 校验，不能调用管理接口。CC 仅控制 cli 模式，CW 仅控制 web 模式。管理员身份不能直接操作会话。
 

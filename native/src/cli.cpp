@@ -317,6 +317,8 @@ public:
     auto command = options_.args.empty() ? "help" : options_.args[0];
     if (options_.api_key && command != "login")
       throw Error("USAGE", "--api-key is only valid for login");
+    if (options_.values.count("message") && (command != "login" || options_.api_key))
+      throw Error("USAGE", "--message is only valid for paired login");
     auto settings = command != "help" && std::filesystem::exists(credentials_)
                         ? read_json(credentials_)
                         : Json::object();
@@ -345,11 +347,12 @@ public:
     if (command == "login") {
       if (options_.args.size() != 1)
         throw Error("USAGE", "Unexpected login argument");
-      if (!valid_id(option("host")))
-        throw Error("USAGE", "login requires --host <A-ID>");
+      if (options_.api_key && !valid_id(option("host")))
+        throw Error("USAGE", "API key login requires --host <A-ID>");
       store();
-      auto result = device_login(option("relay", "https://r.xlogic.cc"), "cli",
-                                 option("name", "CLI client"), option("host"), options_.api_key);
+      auto result =
+          device_login(option("relay", "https://r.xlogic.cc"), "cli", option("name", "CLI client"),
+                       option("host"), options_.api_key, option("message"));
       auto hosts = credential_status(result);
       result["name"] = hosts.at(0).at("name");
       auto data = store();
@@ -453,11 +456,13 @@ public:
           << "Usage: coc-client "
              "<login|logout|status|use|hosts|projects|sessions|connect|attach|stop|history|cache-"
              "clear|doctor|update> [options]\n"
-             "Options: --relay URL --host ID --name NAME --project ID --config PATH --takeover "
+             "Options: --relay URL --host ID --name NAME --message TEXT --project ID --config PATH "
+             "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
              "--session ID --offline true --cache-dir PATH\n"
-             "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
-             "displayed request in the management website. logout only removes "
+             "login: send optional --message TEXT; the administrator selects the server. "
+             "login --api-key: requires --host ID; read COC_API_KEY or prompt securely. "
+             "logout only removes "
              "local credentials.\n";
       if (command != "help")
         throw Error("USAGE", "Unknown command");

@@ -19,9 +19,9 @@ Options::Options(int argc, char **argv) {
       break;
     } else if (a.rfind("--", 0) == 0) {
       const auto key = a.substr(2);
-      if (key != "relay" && key != "host" && key != "name" && key != "config" && key != "project" &&
-          key != "project-id" && key != "before" && key != "seq" && key != "offset" &&
-          key != "offline" && key != "cache-dir")
+      if (key != "relay" && key != "host" && key != "name" && key != "message" && key != "config" &&
+          key != "project" && key != "project-id" && key != "before" && key != "seq" &&
+          key != "offset" && key != "offline" && key != "cache-dir")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);
@@ -43,7 +43,7 @@ std::filesystem::path config_path(const char *env, const std::string &relative) 
   return std::filesystem::path(home) / ".config" / relative;
 }
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
-                  const std::string &host, bool api_key) {
+                  const std::string &host, bool api_key, const std::string &message) {
   auto url = relay_url(relay);
   if (api_key) {
     std::string value;
@@ -81,8 +81,12 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     result["relay"] = url.origin;
     return result;
   }
-  auto request = http_json(url, "/api/v1/auth/device/start",
-                           {{"role", role}, {"name", name}, {"hostId", host}});
+  Json input = {{"role", role}, {"name", name}};
+  if (role == "cli")
+    input["message"] = message;
+  auto request = http_json(url, "/api/v1/auth/device/start", input);
+  if (role == "cli")
+    std::cout << "The administrator will select the server for this request.\n";
   std::cout << "Authorize in browser: " << url.origin << request.at("url").get<std::string>()
             << "\nPairing code: " << request.at("code").get<std::string>()
             << "\nWaiting for administrator approval (5 minutes)...\n"

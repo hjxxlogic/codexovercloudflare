@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
         'Install: mkdir -p ~/.local/bin && install -m 0755 coc-client coc-agent ~/.local/bin/\n'
         'Auto-update: enabled by default; set autoUpdate: false in the configuration to disable.\n'
         'Configure Codex under the Agent user before agent login.\n'
-        'Login: coc-client login --relay https://r.xlogic.cc --host <A-ID>\n'
+        'Login: coc-client login --relay https://r.xlogic.cc --message "Please grant development server access"\n'
         'Manual: https://r.xlogic.cc/downloads/USER_GUIDE.md\n'
         'Source and checksums: https://r.xlogic.cc/downloads/\n', encoding='utf-8')
     with tarfile.open(output / (name + '.tar.gz'), 'w:gz') as archive:

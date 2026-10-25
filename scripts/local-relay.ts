@@ -95,7 +95,7 @@ export async function localRelay(dir: string) {
         name: 'native-smoke',
         hostId,
       });
-      await api('/admin/approve', { id: request.id });
+      await api('/admin/approve', { id: request.id, hostId });
       return api('/auth/device/poll', {
         id: request.id,
         pollSecret: request.pollSecret,

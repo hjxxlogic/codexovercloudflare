@@ -161,25 +161,11 @@ export class RegistryDO extends DurableObject<Env> {
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
-        const hostId =
-          role === 'agent'
-            ? crypto.randomUUID()
-            : role === 'cli'
-              ? idSchema.parse(d.hostId)
-              : undefined;
+        const hostId = role === 'agent' ? crypto.randomUUID() : undefined;
         const message =
-          role === 'web'
+          role !== 'agent'
             ? z.string().trim().max(1000).default('').parse(d.message)
             : undefined;
-        if (role === 'cli') {
-          const host = await s.get<Host>('host:' + hostId);
-          if (!host || host.version !== 2 || host.disabled)
-            throw new AppError(
-              'HOST_NOT_FOUND',
-              'Unknown or disabled host',
-              404,
-            );
-        }
         if ((await s.list({ prefix: 'device:' })).size >= 200)
           throw new AppError('CAPACITY', 'Too many pending requests', 429);
         const id = crypto.randomUUID(),
@@ -249,7 +235,7 @@ export class RegistryDO extends DurableObject<Env> {
             );
           if (op === 'deviceReject') request.state = 'rejected';
           else {
-            if (request.role === 'web')
+            if (request.role !== 'agent')
               request.hostId = idSchema.parse(d.hostId);
             if (request.role === 'agent') {
               await this.createHost(tx, request.name, request.hostId);

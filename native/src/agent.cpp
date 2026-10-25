@@ -1074,6 +1074,8 @@ int main(int argc, char **argv) {
       return 0;
     }
     coc::Options options(argc, argv);
+    if (options.values.count("message"))
+      throw coc::Error("USAGE", "--message is only supported by coc-client paired login");
     auto command = options.args.empty() ? "help" : options.args[0];
     auto file = std::filesystem::path(options.get(
         "config", coc::config_path("COC_AGENT_CONFIG", "coc-agent/agent.json").string()));
