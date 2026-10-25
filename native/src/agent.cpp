@@ -518,7 +518,27 @@ public:
       if (d.contains("sessionId") && store_.get(d.at("sessionId"))["mode"] != d.at("mode"))
         throw Error("FORBIDDEN", "Wrong credential for session mode");
       auto key = d.contains("sessionId") ? d.at("sessionId").get<std::string>() + ":" : "create:";
-      done(store_.request_status(key + d.at("requestId").get<std::string>()), nullptr);
+      key += d.at("requestId").get<std::string>();
+      auto status = store_.request_status(key);
+      if (d.contains("sessionId") && status.value("state", "") == "submitted") {
+        auto id = d.at("sessionId").get<std::string>();
+        auto rt = runtimes_.find(id);
+        auto marker = store_.cache_get("external-submission:" + key);
+        if (rt != runtimes_.end() && rt->second->reader && !marker.is_null()) {
+          rt->second->reader->find_queued(
+              marker.at("clientUserMessageId"), [this, key, done](Json result, Json error) {
+                if (error.is_null()) {
+                  const auto &entry = result.at("queuedSubmission");
+                  store_.finish(key, {{"state", "queued"},
+                                      {"queueId", entry.at("id")},
+                                      {"clientUserMessageId", entry.at("clientUserMessageId")}});
+                }
+                done(store_.request_status(key), nullptr);
+              });
+          return;
+        }
+      }
+      done(status, nullptr);
       return;
     }
     if (action == "get") {
@@ -841,8 +861,8 @@ public:
     }
     const auto client_id = uuid();
     store_.cache_put(marker, {{"clientUserMessageId", client_id}});
-    reader->enqueue(
-        cmd.at("text"), client_id, [this, key] { store_.submitted(key); }, complete);
+    auto submitted = [this, key] { store_.submitted(key); };
+    reader->enqueue(cmd.at("text"), client_id, submitted, complete);
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {
@@ -934,7 +954,29 @@ public:
       throw Error("BACKPRESSURE", "Archive page is already loading");
     archive_loading_.insert(id);
     auto read = [this, id, process, temporary, done]() {
-      read_archive(id, process, temporary, 10, done);
+      auto s = store_.get(id);
+      if (!s.value("external", false)) {
+        read_archive(id, process, temporary, 10, done);
+        return;
+      }
+      process->request("thread/read", {{"threadId", s.at("threadId")}, {"includeTurns", false}},
+                       [this, id, process, temporary, done](Json result, Json error) {
+                         try {
+                           if (!error.is_null())
+                             throw Error(error.at("code"), error.at("message"));
+                           auto s = store_.get(id);
+                           if (result.at("thread").at("id") != s.at("threadId") ||
+                               !same_project_path(result.at("thread").value("cwd", ""),
+                                                  project(s.at("projectId")).at("path")))
+                             throw Error("FORBIDDEN", "External thread belongs to another project");
+                           read_archive(id, process, temporary, 10, done);
+                         } catch (const std::exception &error) {
+                           archive_loading_.erase(id);
+                           if (temporary)
+                             process->close();
+                           done(nullptr, error_data(error));
+                         }
+                       });
     };
     if (temporary) {
       process->start();

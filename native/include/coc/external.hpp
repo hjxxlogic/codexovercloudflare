@@ -19,6 +19,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   void forward(Json, Completion);
   void latest(Completion);
   void schedule(int);
+  void queue_page(const std::string &, Completion, Json, int);
   void deliver(const Json &, bool, bool);
 
 public:
@@ -29,6 +30,6 @@ public:
   void close();
   void enqueue(const std::string &text, const std::string &client_id,
                std::function<void()> submitted, Completion);
-  void find_queued(const std::string &client_id, Completion, Json cursor = nullptr, int pages = 20);
+  void find_queued(const std::string &client_id, Completion);
 };
 } // namespace coc

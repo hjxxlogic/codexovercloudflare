@@ -1796,10 +1796,13 @@ try {
     path: join(artifacts, 'external-session-queue.png'),
     fullPage: true,
   });
+  const beforeExternalToken = token;
+  token = '';
   const browserExternal = (
     await api('/sessions?hostId=' + enrolled.hostId)
   ).find((s: any) => s.external && s.state === 'ready');
   await api(`/sessions/${browserExternal.id}/stop`, {});
+  token = beforeExternalToken;
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });

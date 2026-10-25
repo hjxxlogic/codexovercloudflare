@@ -765,6 +765,8 @@ function App() {
           setUnconfirmed(undefined);
           setPending(false);
           void cache?.record('pending', null);
+          if (result.result?.state === 'queued')
+            setNotice('已确认加入原客户端队列，等待原客户端执行。');
           if (result.state === 'failed') {
             setText((text) => text || command.text || '');
             setError(result.result.requestError.message);

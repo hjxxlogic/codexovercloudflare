@@ -127,7 +127,7 @@ void ExternalThread::forward(Json cursor, Completion done) {
 }
 void ExternalThread::latest(Completion done) {
   auto self = shared_from_this();
-  validate([self, done](Json metadata, Json error) {
+  validate([self, done](Json, Json error) {
     if (!error.is_null()) {
       done(nullptr, error);
       return;
@@ -241,8 +241,17 @@ void ExternalThread::enqueue(const std::string &text, const std::string &client_
     }
   });
 }
-void ExternalThread::find_queued(const std::string &client_id, Completion done, Json cursor,
-                                 int pages) {
+void ExternalThread::find_queued(const std::string &client_id, Completion done) {
+  auto self = shared_from_this();
+  validate([self, client_id, done](Json, Json error) {
+    if (!error.is_null())
+      done(nullptr, error);
+    else
+      self->queue_page(client_id, done, nullptr, 20);
+  });
+}
+void ExternalThread::queue_page(const std::string &client_id, Completion done, Json cursor,
+                                int pages) {
   auto self = shared_from_this();
   process_->request(
       "thread/queue/list", {{"threadId", thread_}, {"cursor", cursor}, {"limit", 100}},
@@ -258,7 +267,7 @@ void ExternalThread::find_queued(const std::string &client_id, Completion done, 
           }
         auto next = result.value("nextCursor", Json());
         if (!next.is_null() && pages > 1 && next != cursor)
-          self->find_queued(client_id, done, next, pages - 1);
+          self->queue_page(client_id, done, next, pages - 1);
         else
           done(nullptr, {{"code", "RESULT_UNKNOWN"},
                          {"message", "Submission is absent from the pending queue; it may already "

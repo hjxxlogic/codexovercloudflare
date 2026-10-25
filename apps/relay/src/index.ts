@@ -410,8 +410,8 @@ export default {
       const files = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/files$/);
       if (files && req.method === 'POST') {
         const auth = await authenticate(req, env, files[1]);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
         const data = await body(req);
         const projectId = idSchema.parse(data.projectId);
         const command = workspaceFileCommandSchema.parse(data);
