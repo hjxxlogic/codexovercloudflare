@@ -103,11 +103,10 @@ int main() {
     check(request({{"operation", "finish"}, {"uploadId", "test"}}) == done, "Finish deduplicated");
     auto read = request({{"operation", "read"}, {"path", "hello.txt"}});
     check(read.at("data") == "aGVsbG8=", "File read roundtrip");
-    rejects(
-        [&] {
-          request({{"operation", "read"}, {"path", "hello.txt"}, {"version", "stale"}});
-        },
-        "FILE_CHANGED");
+    const auto stale_read = [&] {
+      request({{"operation", "read"}, {"path", "hello.txt"}, {"version", "stale"}});
+    };
+    rejects(stale_read, "FILE_CHANGED");
     check(request({{"operation", "list"}}).at("entries").size() == 1, "Directory listing");
     request({{"operation", "begin"},
              {"uploadId", "replace"},
@@ -156,8 +155,9 @@ int main() {
     verify_codex(settings);
     boost::asio::io_context io;
     bool initialized = false, exited = false;
-    auto process = std::make_shared<CodexProcess>(
-        io, settings, path, [](Json) {}, [&] { exited = true; });
+    const auto on_exit = [&] { exited = true; };
+    const auto on_message = [](Json) {};
+    auto process = std::make_shared<CodexProcess>(io, settings, path, on_message, on_exit);
     process->start();
     process->initialize([&](Json result, Json error) {
       initialized = error.is_null() && result.at("ok");

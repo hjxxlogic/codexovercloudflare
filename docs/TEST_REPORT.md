@@ -7,6 +7,7 @@
 - Linux Release 构建、原生 CTest、77 项 Vitest、TypeScript、ESLint / Prettier、C++ 格式、协议文档一致性及网页构建通过。新增 Windows 聊天路径回归覆盖盘符、反斜杠、file URI、行号、大小写、跨盘符和目录越界。
 - `tests/release-provenance.py` 通过来源绑定、脏源码/陈旧二进制拒绝、错误平台和 LF 校验和检查；`test:update` 通过 Linux 实际升级、原子替换、旧版本、损坏归档、候选身份/协议错误、禁用与并发锁测试；`test:tls` 通过受信任 HTTPS/WSS、不可信 CA 和错误主机名测试。
 - Windows 本地构建已按用户要求停止，未完成主程序编译或原生 CTest，不计为通过。依赖准备期间发现 WSL UNC 工作目录限制；正式 Windows 构建与测试改在 GitHub Actions 的本地 NTFS 工作目录执行。Windows 打包保护已在临时仓库中用模拟 PE 程序验证通过。新增 CI 生成静态 ZIP 并上传 artifact，不执行部署。
+- 首次 GitHub Actions 的 sanitizer 作业通过；Linux 静态检查发现 clang-format 10 / 18 对短 lambda 的格式差异，已改写对应测试并在两个版本下检查一致。Windows 构建继续只在 Actions 验证；失败输出附到检查注释，依赖二进制缓存供后续修复重跑使用。
 - 本机已有 Windows Codex 为 0.130.0，与固定的 0.164.0 不匹配，未用于会话验收。未调用模型、未升级该 Codex、未发布生产包；Windows 真实 Codex TUI、沙箱设置、系统重启/休眠及长期压力仍待对应环境验收。Windows 使用手动整包升级，不宣称 Linux 自动更新流程可用于 PE 程序。
 
 ## 网页更新 · 2026-10-25 · CW 刷新恢复会话上线验收
