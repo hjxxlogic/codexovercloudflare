@@ -32,6 +32,7 @@ int main() {
   auto root = std::filesystem::temp_directory_path() / wide("coc-windows-" + uuid());
   std::filesystem::create_directories(root);
   try {
+    std::cout << "RUN: private credentials and ACL" << std::endl;
     auto config = root / L"配置.json";
     save_private(config, {{"token", "secret"}}, true);
     check(read_json(config).at("token") == "secret", "Private Unicode configuration roundtrip");
@@ -55,6 +56,7 @@ int main() {
       rejects([&] { PrivateLock duplicate(config); }, "CONFIG_BUSY");
     }
     { PrivateLock lock(config); }
+    std::cout << "RUN: SQLite state and exclusive lock" << std::endl;
     auto data = (root / "data").u8string();
     {
       Store store(data);
@@ -67,6 +69,7 @@ int main() {
       store.begin("request", "fingerprint");
       rejects([&] { store.begin("request", "fingerprint"); }, "RESULT_UNKNOWN");
     }
+    std::cout << "RUN: workspace files and directory locks" << std::endl;
     auto project = root / L"项目";
     std::filesystem::create_directory(project);
     auto validated = agent_config({{"hostId", "windows"},
@@ -129,6 +132,7 @@ int main() {
     std::filesystem::create_directory_symlink(root, project / "escape", ec);
     if (!ec)
       rejects([&] { request({{"operation", "list"}, {"path", "escape"}}); }, "FORBIDDEN");
+    std::cout << "RUN: process arguments, jobs and RPC" << std::endl;
     auto child = (executable_path().parent_path() / "coc-test-child.exe").u8string();
     Json arguments =
         Json::array({"", "a b", "quote\"here", "trailing\\", "space \\", "x&echo unsafe"});
@@ -166,6 +170,7 @@ int main() {
     io.run();
     check(initialized && exited, "Async Codex RPC and process exit");
     {
+      std::cout << "RUN: Windows trust, DNS and HTTP" << std::endl;
       boost::asio::ssl::context trust(boost::asio::ssl::context::tls_client);
       configure_trust(trust);
       check(sk_X509_OBJECT_num(

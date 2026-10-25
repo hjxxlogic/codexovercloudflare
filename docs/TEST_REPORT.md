@@ -9,6 +9,7 @@
 - Windows 本地构建已按用户要求停止，未完成主程序编译或原生 CTest，不计为通过。依赖准备期间发现 WSL UNC 工作目录限制；正式 Windows 构建与测试改在 GitHub Actions 的本地 NTFS 工作目录执行。Windows 打包保护已在临时仓库中用模拟 PE 程序验证通过。新增 CI 生成静态 ZIP 并上传 artifact，不执行部署。
 - 首次 GitHub Actions 的 sanitizer 作业通过；Linux 静态检查发现 clang-format 10 / 18 对短 lambda 的格式差异，已改写对应测试并在两个版本下检查一致。Windows 构建继续只在 Actions 验证；失败输出附到检查注释，依赖二进制缓存供后续修复重跑使用。
 - 首轮 Windows 编译发现 Linux 的 `restart_updated` 位于条件编译范围之外，与 Windows 实现重复；已将原地重启实现限定为 Linux，继续通过 Actions 编译和测试。
+- 缓存命中后 Actions 的依赖配置约 47 秒完成，Windows 两个主程序均编译成功；原生 CTest 首次在文件访问阶段失败，正在修正系统祖先目录的共享锁范围，项目目录继续阻止写入/替换和 junction 越界。
 - 本机已有 Windows Codex 为 0.130.0，与固定的 0.164.0 不匹配，未用于会话验收。未调用模型、未升级该 Codex、未发布生产包；Windows 真实 Codex TUI、沙箱设置、系统重启/休眠及长期压力仍待对应环境验收。Windows 使用手动整包升级，不宣称 Linux 自动更新流程可用于 PE 程序。
 
 ## 网页更新 · 2026-10-25 · CW 刷新恢复会话上线验收

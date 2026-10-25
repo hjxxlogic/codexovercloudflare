@@ -17,8 +17,10 @@ constexpr int64_t file_limit = 20 * 1024 * 1024, chunk_limit = 64 * 1024;
   if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
     throw Error("FILE_NOT_FOUND", "File or directory not found");
   if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION)
-    throw Error("FORBIDDEN", "Workspace path is inaccessible or in use");
-  throw Error("FILE_IO", "Windows workspace file operation failed");
+    throw Error("FORBIDDEN",
+                "Workspace path is inaccessible or in use (Windows " + std::to_string(code) + ")");
+  throw Error("FILE_IO",
+              "Windows workspace file operation failed (Windows " + std::to_string(code) + ")");
 }
 std::vector<std::string> components(const std::string &path) {
   if (path.size() > 4096 || path.find('\0') != std::string::npos ||
@@ -73,8 +75,8 @@ std::string version(HANDLE file) {
          std::to_string(basic.LastWriteTime.QuadPart) + ":" +
          std::to_string(basic.ChangeTime.QuadPart);
 }
-// Hold every ancestor without write/delete sharing for the entire operation or
-// upload, preventing a checked directory from becoming a junction or moving.
+// Inspect canonical ancestors and lock project directories against writes and
+// moves for the entire operation or upload. System ancestors remain shareable.
 struct Directory {
   std::filesystem::path path;
   std::vector<WinHandle> ancestors;
@@ -83,24 +85,27 @@ struct Directory {
     if (!absolute.has_root_name() || absolute.root_name().wstring().size() != 2)
       throw Error("FORBIDDEN", "Windows workspace requires a local drive");
     path = absolute.root_path();
-    auto hold = [&] {
-      WinHandle handle(CreateFileW(
-          path.c_str(), FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY, FILE_SHARE_READ, nullptr,
-          OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    auto hold = [&](bool project_directory) {
+      auto access = FILE_READ_ATTRIBUTES | (project_directory ? FILE_LIST_DIRECTORY : 0);
+      auto share = project_directory ? FILE_SHARE_READ
+                                     : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+      WinHandle handle(CreateFileW(path.c_str(), access, share, nullptr, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                                   nullptr));
       if (!handle)
         failed();
       if (!(information(handle.get()).dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         throw Error("FORBIDDEN", "Expected directory");
       ancestors.push_back(std::move(handle));
     };
-    hold();
+    hold(path == absolute);
     for (auto &part : absolute.relative_path()) {
       path /= part;
-      hold();
+      hold(path == absolute);
     }
     for (size_t i = 0; i < count; ++i) {
       path /= wide(parts[i]);
-      hold();
+      hold(true);
     }
   }
 };
