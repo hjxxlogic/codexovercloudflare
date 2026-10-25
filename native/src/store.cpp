@@ -40,11 +40,23 @@ Store::Lock::~Lock() {
 }
 
 Json Store::query(const std::string &sql, const Json &args) {
+  auto found = statements_.find(sql);
   sqlite3_stmt *raw = nullptr;
-  const auto prepared = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
-  if (prepared != SQLITE_OK)
-    fail(prepared);
-  std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> s(raw, sqlite3_finalize);
+  if (found == statements_.end()) {
+    if (statements_.size() >= 64)
+      clear_statements();
+    const auto prepared = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw, nullptr);
+    if (prepared != SQLITE_OK)
+      fail(prepared);
+    statements_.emplace(sql, raw);
+  } else
+    raw = found->second;
+  // Reset on success and on exceptions; cached bindings must never leak to a later call.
+  const auto reset = [](sqlite3_stmt *statement) {
+    sqlite3_reset(statement);
+    sqlite3_clear_bindings(statement);
+  };
+  std::unique_ptr<sqlite3_stmt, decltype(reset)> guard(raw, reset);
   int i = 0;
   for (auto &a : args) {
     ++i;
@@ -78,6 +90,11 @@ Json Store::query(const std::string &sql, const Json &args) {
   if (rc != SQLITE_DONE)
     fail(rc);
   return rows;
+}
+void Store::clear_statements() {
+  for (auto &[sql, statement] : statements_)
+    sqlite3_finalize(statement);
+  statements_.clear();
 }
 void Store::run(const std::string &s, const Json &a) { query(s, a); }
 Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritative) {
@@ -119,6 +136,8 @@ Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritat
     if (migrate)
       run("INSERT INTO history SELECT seq,session,value,MAX(0,seq) FROM events");
     run("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
+    run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
+        "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
     run("COMMIT");
     for (auto &s : authoritative ? sessions(true) : Json::array())
       if (s["state"] == "ready" || s["state"] == "starting" || s["state"] == "closing") {
@@ -127,12 +146,14 @@ Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritat
         save(s);
       }
   } catch (...) {
+    clear_statements();
     sqlite3_close(db_);
     db_ = nullptr;
     throw;
   }
 }
 Store::~Store() {
+  clear_statements();
   if (db_)
     sqlite3_close(db_);
 }
@@ -194,19 +215,33 @@ Json Store::get(const std::string &id) {
   return Json::parse(r[0]["value"].get<std::string>());
 }
 Json Store::event(const std::string &id, const std::string &type, const Json &data) {
-  Json e = {{"type", type}, {"data", data}, {"time", now()}};
+  return event_batch(Json::array({{{"session", id}, {"type", type}, {"data", data}}}))[0];
+}
+Json Store::event_batch(const Json &entries) {
+  if (!entries.is_array() || entries.size() > 128)
+    throw Error("INVALID_REQUEST", "Event batch exceeds 128 entries");
+  Json results = Json::array();
+  if (entries.empty())
+    return results;
   run("BEGIN IMMEDIATE");
   try {
-    run("INSERT INTO events(session,value,time) VALUES(?,?,?)", {id, e.dump(), e["time"]});
-    e["seq"] = sqlite3_last_insert_rowid(db_);
-    if (type == "user")
-      run("UPDATE sessions SET "
-          "value=json_set(value,'$.title',COALESCE(json_extract(value,'$.title'),substr(?,1,160)),'"
-          "$.updatedAt',?) WHERE id=?",
-          {data.value("text", ""), now(), id});
-    auto result = project(id, e);
+    for (const auto &entry : entries) {
+      const auto id = entry.at("session").get<std::string>();
+      const auto type = entry.at("type").get<std::string>();
+      const auto &data = entry.at("data");
+      Json e = {{"type", type}, {"data", data}, {"time", entry.value("time", now())}};
+      run("INSERT INTO events(session,value,time) VALUES(?,?,?)", {id, e.dump(), e["time"]});
+      e["seq"] = sqlite3_last_insert_rowid(db_);
+      if (type == "user")
+        run("UPDATE sessions SET "
+            "value=json_set(value,'$.title',COALESCE(json_extract(value,'$.title'),substr(?,1,160))"
+            ",'"
+            "$.updatedAt',?) WHERE id=?",
+            {data.value("text", ""), now(), id});
+      results.push_back(project(id, e));
+    }
     run("COMMIT");
-    return result;
+    return results;
   } catch (...) {
     run("ROLLBACK");
     throw;
@@ -274,10 +309,9 @@ Json Store::project(const std::string &id, Json e) {
     // only bounded metadata is rewritten for each subsequent delta.
     if (body[0]["bytes"].get<int64_t>() + int64_t(text.size()) <= 12000)
       run("UPDATE history SET value=json_set(value,'$.data.delta',"
-          "(SELECT group_concat(text,'') FROM (SELECT text FROM chunks WHERE seq=? ORDER BY "
-          "start)),"
+          "COALESCE(json_extract(value,'$.data.delta'),'') || ?,"
           "'$.revision',?),revision=? WHERE seq=?",
-          {seq, revision, revision, seq});
+          {text, revision, revision, seq});
     else
       run("UPDATE history SET value=json_set(json_remove(value,'$.data.delta'),'$.contentSeq',seq,"
           "'$.revision',?),revision=? WHERE seq=?",
@@ -449,7 +483,10 @@ Json Store::cache_get(const std::string &key) {
 }
 void Store::cache_clear() { run("DELETE FROM cache"); }
 void Store::cleanup() {
-  run("DELETE FROM request_states WHERE key NOT IN (SELECT key FROM requests)");
+  run("DELETE FROM cache WHERE key IN (SELECT key FROM cache WHERE key GLOB 'upload:*' AND "
+      "json_extract(value,'$.completedAt')<=? ORDER BY json_extract(value,'$.completedAt') LIMIT "
+      "100)",
+      {now() - 86400000});
   // Retain request identities, including unconfirmed side effects. Expiry could
   // turn a delayed retry into a second execution. Cleanup is explicit/offline.
 }

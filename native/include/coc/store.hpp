@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include <functional>
+#include <map>
 #include <sqlite3.h>
 namespace coc {
 class Store {
@@ -11,6 +12,8 @@ class Store {
   };
   Lock lock_;
   sqlite3 *db_ = nullptr;
+  std::map<std::string, sqlite3_stmt *> statements_;
+  void clear_statements();
   std::function<void()> storage_failure_;
   [[noreturn]] void fail(int code);
   Json project(const std::string &id, Json event);
@@ -29,6 +32,7 @@ public:
   Json request_status(const std::string &key);
   Json get(const std::string &id);
   Json event(const std::string &id, const std::string &type, const Json &data);
+  Json event_batch(const Json &entries);
   Json replay(const std::string &id, int64_t after);
   Json history(const std::string &id, int64_t before = 0, int64_t after = -1);
   Json content(const std::string &id, int64_t seq, int64_t offset, int64_t revision = -1);

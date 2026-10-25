@@ -1,3 +1,4 @@
+import { eventBytes } from './events.ts';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
 export type HistoryPage = {
@@ -12,7 +13,84 @@ export type HistoryPage = {
 export class HistoryCache {
   private db: Promise<IDBDatabase>;
   private generation = 0;
-  private nextPrune = 0;
+  private live = new Map<number, Event>();
+  private liveBytes = 0;
+  private liveTimer?: ReturnType<typeof setTimeout>;
+  private liveJob?: Promise<void>;
+  private liveError: (error: unknown) => void = () => {};
+  private closed = false;
+  private draftTimer?: ReturnType<typeof setTimeout>;
+  private draftValue?: string;
+  saveDraft(value: string): Promise<void> {
+    this.draftValue = value;
+    clearTimeout(this.draftTimer);
+    // A shared, bounded timer; callers observe errors when it flushes.
+    return this.recordDraftLater();
+  }
+  private draftWait?: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  };
+  private recordDraftLater() {
+    if (!this.draftWait) {
+      let resolve!: () => void, reject!: (error: unknown) => void;
+      const promise = new Promise<void>((ok, fail) => {
+        resolve = ok;
+        reject = fail;
+      });
+      this.draftWait = { promise, resolve, reject };
+    }
+    this.draftTimer = setTimeout(() => {
+      void this.record('draft', this.draftValue).catch(() => {});
+    }, 150);
+    return this.draftWait.promise;
+  }
+  private range() {
+    return IDBKeyRange.bound([this.scope], [this.scope, []], false, true);
+  }
+  writeLive(event: Event, onError: (error: unknown) => void) {
+    if (this.closed) return;
+    const old = this.live.get(event.seq);
+    if (old && (old.revision ?? old.seq) >= (event.revision ?? event.seq))
+      return;
+    const bytes =
+      this.liveBytes - (old ? eventBytes(old) : 0) + eventBytes(event);
+    if (bytes > 192 * 1024 || (!old && this.live.size >= 400)) {
+      onError(
+        new Error(
+          'Local cache write budget exhausted; replay remains available',
+        ),
+      );
+      return;
+    }
+    this.live.set(event.seq, event);
+    this.liveBytes = bytes;
+    this.liveError = onError;
+    if (!this.liveTimer && !this.liveJob) {
+      this.liveTimer = setTimeout(() => {
+        this.liveTimer = undefined;
+        void this.flushLive();
+      }, 20);
+    }
+  }
+  private async flushLive(): Promise<void> {
+    if (this.liveJob) await this.liveJob;
+    if (!this.live.size) return;
+    const events = [...this.live.values()];
+    this.live.clear();
+    this.liveBytes = 0;
+    const job = this.write(events).catch((error) => this.liveError(error));
+    this.liveJob = job;
+    await job;
+    if (this.liveJob === job) this.liveJob = undefined;
+    if (this.live.size && !this.closed && !this.liveTimer) {
+      this.liveTimer = setTimeout(() => {
+        this.liveTimer = undefined;
+        void this.flushLive();
+      }, 20);
+    }
+  }
   constructor(private scope: string) {
     this.db = new Promise((resolve, reject) => {
       const request = indexedDB.open('coc-history', 2);
@@ -32,45 +110,18 @@ export class HistoryCache {
     });
   }
   close() {
-    void this.db.then((db) => db.close()).catch(() => {});
-  }
-  private async prune() {
-    if (Date.now() < this.nextPrune) return;
-    this.nextPrune = Date.now() + 5000;
-    const db = await this.db;
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(['events', 'pages'], 'readwrite');
-      for (const name of ['events', 'pages']) {
-        let bytes = 0,
-          count = 0;
-        const cursor = tx.objectStore(name).openCursor(undefined, 'prev');
-        cursor.onsuccess = () => {
-          const row = cursor.result;
-          if (!row) return;
-          const scope =
-            name === 'events' ? row.value.scope : (row.key as IDBValidKey[])[0];
-          const key = (row.key as IDBValidKey[])[1];
-          if (
-            scope === this.scope &&
-            (name === 'events' ||
-              typeof key === 'number' ||
-              String(key).startsWith('content:'))
-          ) {
-            bytes += new TextEncoder().encode(JSON.stringify(row.value)).length;
-            if (
-              ++count > (name === 'events' ? 2000 : 512) ||
-              bytes > 4 * 1024 * 1024
-            )
-              row.delete();
-          }
-          row.continue();
-        };
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+    this.closed = true;
+    clearTimeout(this.liveTimer);
+    const draft = this.draftValue;
+    void Promise.allSettled([
+      this.flushLive(),
+      draft === undefined ? Promise.resolve() : this.record('draft', draft),
+    ]).finally(() => {
+      void this.db.then((db) => db.close()).catch(() => {});
     });
   }
   async latest(): Promise<{ events: Event[]; checkpoint?: number }> {
+    await this.flushLive();
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['events', 'pages']);
@@ -143,22 +194,71 @@ export class HistoryCache {
         reject(tx.error || new Error('Local history write aborted'));
       tx.onerror = () => reject(tx.error);
     });
-    await this.prune();
+  }
+  async recent(): Promise<HistoryPage | undefined> {
+    const latest = await this.latest();
+    const page = await this.page(0);
+    if (page && page.events.at(-1)?.seq === latest.events.at(-1)?.seq)
+      return page;
+    if (!latest.events.length) return undefined;
+    return {
+      events: latest.events,
+      more: true,
+      cursor: latest.events[0].seq,
+      snapshotSeq: latest.checkpoint ?? 0,
+      direction: 'before',
+    };
   }
   async page(before: number): Promise<HistoryPage | undefined> {
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['events', 'pages']);
       let page: HistoryPage | undefined;
-      const request = tx.objectStore('pages').get([this.scope, before]);
-      request.onsuccess = () => {
-        page = request.result;
-        page?.events.forEach((event, index) => {
+      const use = (stored: HistoryPage, exact: boolean) => {
+        const events = exact
+          ? stored.events
+          : stored.events.filter((event) => event.seq < before);
+        if (!events.length && !exact) return false;
+        page = { ...stored, events, cursor: events[0]?.seq ?? stored.cursor };
+        page.events.forEach((event, index) => {
           const updated = tx.objectStore('events').get([this.scope, event.seq]);
           updated.onsuccess = () => {
             if (updated.result) page!.events[index] = updated.result.event;
           };
         });
+        return true;
+      };
+      const findCovering = () => {
+        const cursor = tx
+          .objectStore('pages')
+          .openCursor(
+            IDBKeyRange.bound(
+              [this.scope, before],
+              [this.scope, Number.MAX_SAFE_INTEGER],
+            ),
+          );
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) return;
+          if (!use(row.value, false)) row.continue();
+        };
+      };
+      const request = tx.objectStore('pages').get([this.scope, before]);
+      request.onsuccess = () => {
+        if (request.result) {
+          use(request.result, true);
+          return;
+        }
+        if (!before) return;
+        const recent = tx.objectStore('pages').get([this.scope, 0]);
+        recent.onsuccess = () => {
+          if (
+            !recent.result ||
+            before > (recent.result.events.at(-1)?.seq ?? -Infinity) + 1 ||
+            !use(recent.result, false)
+          )
+            findCovering();
+        };
       };
       tx.oncomplete = () => resolve(page);
       tx.onerror = () => reject(tx.error);
@@ -186,10 +286,26 @@ export class HistoryCache {
       tx.oncomplete = () => resolve(value ?? request.result);
       tx.onerror = () => reject(tx.error);
     });
-    if (value !== undefined) await this.prune();
     return result;
   }
   async record(key: string, value?: unknown): Promise<any> {
+    const waiting =
+      key === 'draft' && value !== undefined ? this.draftWait : undefined;
+    if (key === 'draft' && value !== undefined) {
+      clearTimeout(this.draftTimer);
+      this.draftValue = undefined;
+      this.draftWait = undefined;
+    }
+    try {
+      const result = await this.recordValue(key, value);
+      waiting?.resolve();
+      return result;
+    } catch (error) {
+      waiting?.reject(error);
+      throw error;
+    }
+  }
+  private async recordValue(key: string, value?: unknown): Promise<any> {
     if (
       value !== undefined &&
       new TextEncoder().encode(JSON.stringify(value)).length > 4 * 1024 * 1024
@@ -211,11 +327,16 @@ export class HistoryCache {
   }
   async clear() {
     this.generation++;
+    clearTimeout(this.liveTimer);
+    this.liveTimer = undefined;
+    this.live.clear();
+    this.liveBytes = 0;
+    if (this.liveJob) await this.liveJob;
     const db = await this.db;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
       for (const name of ['events', 'pages']) {
-        const request = tx.objectStore(name).openCursor();
+        const request = tx.objectStore(name).openCursor(this.range());
         request.onsuccess = () => {
           const row = request.result;
           if (!row) return;

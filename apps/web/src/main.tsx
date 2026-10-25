@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Event, Session } from '../../../packages/protocol/src/index.ts';
 import './style.css';
@@ -79,6 +85,12 @@ function App() {
     (seq: number, offset: number, revision: number) => void
   >(() => {});
   const loadHistory = useRef<(before?: number) => void>(() => {});
+  const readContent = useCallback(
+    (seq: number, offset: number, revision: number) => {
+      loadContent.current(seq, offset, revision);
+    },
+    [],
+  );
   const [olderCursor, setOlderCursor] = useState(0);
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -512,19 +524,36 @@ function App() {
     setBusy(selected.state === 'ready' && selected.running);
     const seen = new Map<number, number>();
     let stateSeq = 0;
+    const displayEvents = new Map<number, Event>();
+    let displayTimer: ReturnType<typeof setTimeout> | undefined;
+    const flushDisplay = () => {
+      clearTimeout(displayTimer);
+      displayTimer = undefined;
+      const pending = [...displayEvents.values()];
+      displayEvents.clear();
+      if (disposed || olderView.current || !pending.length) return;
+      setEvents((v) => {
+        const merged = eventWindow([...v, ...pending]);
+        if (v.length && merged[0]?.seq > v[0].seq) setHasOlder(true);
+        setOlderCursor(merged[0]?.seq ?? 0);
+        return merged;
+      });
+    };
     const add = (e: Event, live = true) => {
       const revision = e.revision ?? e.seq;
       if ((seen.get(e.seq) ?? -1) >= revision) return;
       seen.set(e.seq, revision);
       if (seen.size > 2000) seen.delete(seen.keys().next().value!);
       after.current = Math.max(after.current, e.seq);
-      if (!olderView.current)
-        setEvents((v) => {
-          const merged = eventWindow([...v, e]);
-          if (v.length && merged[0]?.seq > v[0].seq) setHasOlder(true);
-          setOlderCursor(merged[0]?.seq ?? 0);
-          return merged;
-        });
+      if (!olderView.current) {
+        displayEvents.set(e.seq, e);
+        if (
+          displayEvents.size >= 200 ||
+          (live && !e.type.endsWith('delta') && !e.type.endsWith('Delta'))
+        )
+          flushDisplay();
+        else if (!displayTimer) displayTimer = setTimeout(flushDisplay, 16);
+      }
       if (!live) return;
       const d = e.data as any;
       if (e.type === 'sessionClosed') {
@@ -612,7 +641,13 @@ function App() {
         handshake = setTimeout(() => ws.close(), 15000);
         ws.onopen = () => {
           if (!disposed)
-            ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
+            ws.send(
+              JSON.stringify({
+                type: 'auth',
+                ticket: t.ticket,
+                events: 'history',
+              }),
+            );
         };
         ws.onmessage = (message) => {
           if (disposed) return;
@@ -773,8 +808,10 @@ function App() {
         if (!disposed) setError('历史读取超时，可重试加载更早内容。');
       }, 15000);
       void (async () => {
-        if (before && cache) {
-          const stored = await cache.page(before).catch(() => undefined);
+        if (cache) {
+          const stored = before
+            ? await cache.page(before).catch(() => undefined)
+            : await cache.recent().catch(() => undefined);
           if (disposed || generation !== pageGeneration) return;
           if (stored) {
             showPage(stored);
@@ -816,13 +853,9 @@ function App() {
             ...v,
             [seq]: {
               ...stored,
-              truncated:
-                !!offset &&
-                (!!v[seq]?.truncated ||
-                  (v[seq]?.text.length || 0) + stored.text.length > 131072),
               text:
                 offset && v[seq]?.revision === revision
-                  ? (v[seq].text + stored.text).slice(-131072)
+                  ? v[seq].text + stored.text
                   : stored.text,
             },
           }));
@@ -909,7 +942,7 @@ function App() {
             }
             if (d.type === 'event') {
               add(d.event);
-              void cache?.write([d.event]).catch(cacheError);
+              cache?.writeLive(d.event, cacheError);
               return;
             }
             if (d.type === 'error') {
@@ -946,13 +979,9 @@ function App() {
               setContentChunks((v) => ({
                 ...v,
                 [d.seq]: {
-                  truncated:
-                    !!d.offset &&
-                    (!!v[d.seq]?.truncated ||
-                      (v[d.seq]?.text.length || 0) + d.text.length > 131072),
                   text:
                     d.offset && v[d.seq]?.revision === d.revision
-                      ? (v[d.seq].text + d.text).slice(-131072)
+                      ? v[d.seq].text + d.text
                       : d.text,
                   revision: d.revision,
                   nextOffset: d.nextOffset,
@@ -967,7 +996,14 @@ function App() {
               // Advance only from the replay response, never from interleaved live events.
               checkpoint = d.direction === 'before' ? d.snapshotSeq : d.cursor;
               for (const e of d.events) add(e, false);
-              void cache?.write(d.events, checkpoint).catch(cacheError);
+              void cache
+                ?.write(
+                  d.events,
+                  checkpoint,
+                  d.direction === 'before' ? 0 : undefined,
+                  d.direction === 'before' ? d : undefined,
+                )
+                .catch(cacheError);
               if (d.direction === 'before') {
                 if (!olderView.current) {
                   setOlderCursor(d.events[0]?.seq ?? 0);
@@ -1006,6 +1042,8 @@ function App() {
     else setStatus('查看已结束会话的历史');
     return () => {
       disposed = true;
+      clearTimeout(displayTimer);
+      displayEvents.clear();
       controller.abort();
       void cache
         ?.record('draft', draft.current)
@@ -2118,7 +2156,8 @@ function App() {
                     >
                       {olderView.current && (
                         <p className="status">
-                          正在浏览较早内容 · 已加载的消息全部保留，可返回最新。
+                          正在浏览较早内容 ·
+                          已加载的消息全部保留，优先读取本地历史。
                         </p>
                       )}
                       <div className="row">
@@ -2151,9 +2190,7 @@ function App() {
                         events={events}
                         chunks={contentChunks}
                         reading={readingContent}
-                        onRead={(seq, offset, revision) =>
-                          loadContent.current(seq, offset, revision)
-                        }
+                        onRead={readContent}
                       />
                       {busy && (
                         <p className="thinking" role="status">
@@ -2236,7 +2273,7 @@ function App() {
                             onChange={(e) => {
                               setText(e.target.value);
                               void localHistory.current
-                                ?.record('draft', e.target.value)
+                                ?.saveDraft(e.target.value)
                                 .catch(report);
                             }}
                             maxLength={64000}

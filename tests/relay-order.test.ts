@@ -5,7 +5,10 @@ vi.mock('cloudflare:workers', () => ({
     constructor(
       public ctx: unknown,
       public env: unknown,
-    ) {}
+    ) {
+      (ctx as { waitUntil?: (task: Promise<unknown>) => void }).waitUntil ??=
+        () => {};
+    }
   },
 }));
 vi.mock('../apps/relay/src/common.ts', async (original) => ({
@@ -67,12 +70,17 @@ describe('relay stream ordering', () => {
     const beforeRelease = output.slice();
     // A different connection must still deliver replies while this one waits.
     const otherAgent = {
-      deserializeAttachment: () => attachment,
+      deserializeAttachment: () => ({
+        ...attachment,
+        auth: { hash: 'other-agent' },
+      }),
     } as unknown as WebSocket;
     await relay.webSocketMessage(otherAgent, frame(99));
+    await vi.waitFor(() => expect(output).toContain(99));
     const independentOutput = output.slice();
     releaseFirst();
     await Promise.all([first, second]);
+    await vi.waitFor(() => expect(output).toHaveLength(3));
     expect(beforeRelease).toEqual([]);
     expect(independentOutput).toEqual([99]);
     expect(output).toEqual([99, 1, 2]);
@@ -175,6 +183,7 @@ describe('read-only history transport', () => {
           payload: { type, event: { seq: 5, revision: 9 } },
         }),
       );
+    await vi.waitFor(() => expect(output).toHaveLength(1));
     expect(output).toMatchObject([
       { type: 'event', event: { seq: 5, revision: 9 } },
     ]);
@@ -325,5 +334,128 @@ describe('relay capacity and negotiation', () => {
     relay.send(healthy as unknown as WebSocket, { type: 'event' });
     expect(healthy.send).toHaveBeenCalledOnce();
     expect(healthy.close).not.toHaveBeenCalled();
+  });
+});
+
+describe('relay performance isolation', () => {
+  it('shares an in-flight credential check and invalidates it on revocation', async () => {
+    let release!: (value: unknown) => void;
+    vi.mocked(registryCall)
+      .mockReset()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+    const relay = new HostRelayDO(
+      { getWebSockets: () => [] } as unknown as DurableObjectState,
+      {} as never,
+    );
+    const first = relay.authorized('shared');
+    const second = relay.authorized('shared');
+    const outcomes = Promise.allSettled([first, second]);
+    expect(registryCall).toHaveBeenCalledTimes(1);
+    await relay.fetch(
+      new Request('https://internal/revoke-auth', {
+        method: 'POST',
+        body: JSON.stringify({ hash: 'shared' }),
+      }),
+    );
+    release({ expires: Date.now() + 60000 });
+    expect(
+      (await outcomes).every((result) => result.status === 'rejected'),
+    ).toBe(true);
+    vi.mocked(registryCall).mockResolvedValue({ expires: Date.now() + 60000 });
+    await relay.authorized('shared');
+    expect(registryCall).toHaveBeenCalledTimes(2);
+  });
+  it('isolates a slow reader check and sends negotiated events only on history', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(registryCall)
+      .mockReset()
+      .mockImplementation(async (_env, _op, data: any) => {
+        if (data.hash === 'slow') await blocked;
+        return { expires: Date.now() + 60000 };
+      });
+    const reader = (hash: string, historyEvents = false, history = true) => ({
+      readyState: 1,
+      deserializeAttachment: () => ({
+        history,
+        historyEvents,
+        authenticated: true,
+        role: 'web',
+        epoch: 1,
+        deadline: Date.now() + 60000,
+        auth: { hash },
+      }),
+      send: vi.fn(),
+      close: vi.fn(),
+    });
+    const slow = reader('slow'),
+      fast = reader('fast'),
+      control = reader('fast', true, false);
+    const waiting: Promise<unknown>[] = [];
+    const relay = new HostRelayDO(
+      {
+        storage: { get: async () => 1 },
+        getWebSockets: () => [slow, fast, control],
+        waitUntil: (task: Promise<unknown>) => waiting.push(task),
+      } as unknown as DurableObjectState,
+      {} as never,
+    );
+    const agent = {
+      deserializeAttachment: () => ({
+        role: 'agent',
+        epoch: 1,
+        deadline: Date.now() + 60000,
+        auth: { hash: 'agent' },
+      }),
+    } as unknown as WebSocket;
+    for (const seq of [1, 2])
+      await relay.webSocketMessage(
+        agent,
+        JSON.stringify({
+          type: 'event',
+          epoch: 1,
+          sessionId: 'session',
+          payload: { type: 'event', event: { seq } },
+        }),
+      );
+    await vi.waitFor(() => expect(fast.send).toHaveBeenCalledTimes(2));
+    expect(slow.send).not.toHaveBeenCalled();
+    expect(control.send).not.toHaveBeenCalled();
+    release();
+    await Promise.all(waiting);
+    expect(
+      slow.send.mock.calls.map(([text]) => JSON.parse(text).event.seq),
+    ).toEqual([1, 2]);
+  });
+  it('validates each unique credential once per alarm', async () => {
+    vi.mocked(registryCall)
+      .mockReset()
+      .mockResolvedValue({ expires: Date.now() + 60000 });
+    const sockets = Array.from({ length: 8 }, (_, i) => ({
+      deserializeAttachment: () => ({
+        deadline: Date.now() + 60000,
+        auth: { hash: String(i % 2) },
+      }),
+      close: vi.fn(),
+    }));
+    const relay = new HostRelayDO(
+      {
+        getWebSockets: () => sockets,
+        storage: { list: async () => new Map(), setAlarm: vi.fn() },
+      } as unknown as DurableObjectState,
+      {} as never,
+    );
+    await relay.alarm();
+    expect(registryCall).toHaveBeenCalledTimes(2);
+    expect(
+      sockets.every((socket) => socket.close.mock.calls.length === 0),
+    ).toBe(true);
   });
 });

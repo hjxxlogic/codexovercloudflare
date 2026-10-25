@@ -1,4 +1,10 @@
-import { useState, Children, isValidElement, type ReactNode } from 'react';
+import {
+  memo,
+  useState,
+  Children,
+  isValidElement,
+  type ReactNode,
+} from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Event } from '../../../packages/protocol/src/index.ts';
@@ -60,27 +66,36 @@ export type ContentChunk = {
   nextOffset: number;
   more: boolean;
   revision: number;
-  truncated?: boolean;
 };
-export function ConversationView({
-  events,
-  chunks,
-  onRead,
-  reading = {},
-}: {
+type ConversationProps = {
   events: Event[];
   chunks: Record<number, ContentChunk>;
   onRead: (seq: number, offset: number, revision: number) => void;
   reading?: Record<number, boolean>;
-}) {
-  const render = (event: Event) => {
+};
+const EventView = memo(
+  function EventView({
+    event,
+    cached,
+    onRead,
+    reading,
+  }: {
+    event: Event;
+    cached?: ContentChunk;
+    onRead: ConversationProps['onRead'];
+    reading?: boolean;
+  }) {
+    const [expanded, setExpanded] = useState(false);
     const chat =
       event.type === 'user' || event.type === 'item/agentMessage/delta';
-    const cached = chunks[event.seq];
     const chunk =
       cached?.revision === (event.revision ?? 0) ? cached : undefined;
     const content =
-      event.contentSeq === undefined ? eventText(event) : chunk?.text;
+      !chat && !expanded
+        ? undefined
+        : event.contentSeq === undefined
+          ? eventText(event)
+          : chunk?.text;
     const body = (
       <>
         {chat ? (
@@ -121,18 +136,6 @@ export function ConversationView({
         )}
         {event.contentSeq !== undefined && (
           <>
-            {chunk?.truncated && (
-              <small role="status">
-                当前仅保留最近 128 Ki 字符。
-                <button
-                  onClick={() =>
-                    onRead(event.contentSeq!, 0, event.revision ?? 0)
-                  }
-                >
-                  从开头重新读取
-                </button>
-              </small>
-            )}
             <button
               onClick={() =>
                 onRead(
@@ -141,9 +144,9 @@ export function ConversationView({
                   event.revision ?? 0,
                 )
               }
-              disabled={reading[event.seq] || (!!chunk && !chunk.more)}
+              disabled={reading || (!!chunk && !chunk.more)}
             >
-              {reading[event.seq]
+              {reading
                 ? '正在读取…'
                 : chunk
                   ? chunk.more
@@ -165,12 +168,42 @@ export function ConversationView({
         {body}
       </article>
     ) : (
-      <details className="tool-output" key={event.seq}>
+      <details
+        className="tool-output"
+        key={event.seq}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+      >
         <summary>{eventTitle(event)}</summary>
-        {body}
+        {expanded ? body : null}
       </details>
     );
-  };
+  },
+  (previous, next) =>
+    previous.cached === next.cached &&
+    previous.reading === next.reading &&
+    previous.onRead === next.onRead &&
+    previous.event.seq === next.event.seq &&
+    previous.event.revision === next.event.revision &&
+    previous.event.type === next.event.type &&
+    previous.event.contentSeq === next.event.contentSeq &&
+    previous.event.data === next.event.data,
+);
+
+export const ConversationView = memo(function ConversationView({
+  events,
+  chunks,
+  onRead,
+  reading = {},
+}: ConversationProps) {
+  const render = (event: Event) => (
+    <EventView
+      key={event.seq}
+      event={event}
+      cached={chunks[event.seq]}
+      onRead={onRead}
+      reading={reading[event.seq]}
+    />
+  );
   return groupToolEvents(
     visibleEvents(events).filter(
       (e) =>
@@ -198,7 +231,7 @@ export function ConversationView({
       render(group.events[0])
     ),
   );
-}
+});
 function toolFailed(e: Event) {
   const d = e.data as { item?: { exitCode?: number; status?: string } };
   return (

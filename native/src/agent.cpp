@@ -5,6 +5,7 @@
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include <atomic>
+#include <boost/asio/thread_pool.hpp>
 #include <csignal>
 #include <iostream>
 #include <map>
@@ -26,8 +27,8 @@ struct Runtime {
   std::deque<Json> commands;
 };
 class Agent {
-  // One serial executor owns runtime state, SQLite and project files. The relay
-  // executor never waits for disk; bounded handoffs preserve frame ordering.
+  // The business executor owns runtimes and the journal; a bounded file worker
+  // owns project files. The relay executor never waits for disk.
   asio::io_context io_;
   asio::io_context &relay_io_;
   asio::executor_work_guard<asio::io_context::executor_type> relay_work_;
@@ -38,10 +39,18 @@ class Agent {
   AgentUpdater &updater_;
   std::atomic<bool> update_restart_{false};
   Store store_;
+  Store file_store_;
   WorkspaceFiles files_;
+  asio::thread_pool file_pool_{1};
+  size_t file_requests_ = 0, file_bytes_ = 0;
+  bool file_cleanup_pending_ = false;
+  Json buffered_events_ = Json::array();
+  size_t buffered_bytes_ = 0;
+  size_t event_batches_ = 0, event_count_ = 0;
+  int64_t event_batch_max_us_ = 0;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
   std::shared_ptr<Socket> socket_;
-  asio::steady_timer retry_, maintenance_, heartbeat_;
+  asio::steady_timer retry_, maintenance_, heartbeat_, event_timer_;
   asio::signal_set signals_;
   std::atomic<bool> stopped_{false};
   bool listing_threads_ = false;
@@ -53,14 +62,15 @@ public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
         config_file_(std::move(config_file)), updater_(updater), store_(config_["dataDir"]),
-        files_(&store_), retry_(io_), maintenance_(io_), heartbeat_(io),
-        signals_(io_, SIGINT, SIGTERM) {}
+        file_store_(config_["dataDir"], false), files_(&file_store_), retry_(io_),
+        maintenance_(io_), heartbeat_(io), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
   bool update_restart() const { return update_restart_; }
   ~Agent() {
     if (worker_.joinable()) {
       asio::post(io_, [this] { close(); });
       worker_.join();
     }
+    file_pool_.join();
   }
   void start() {
     store_.on_failure([this] {
@@ -70,6 +80,7 @@ public:
         close();
       });
     });
+    file_store_.on_failure([this] { asio::post(io_, [this] { close(); }); });
     asio::post(io_, [this] {
       signals_.async_wait([this](auto ec, int) {
         if (!ec)
@@ -175,7 +186,8 @@ public:
   void send(const Json &d) {
     auto envelope = d;
     envelope["v"] = 1;
-    const auto bytes = envelope.dump().size();
+    auto encoded = envelope.dump();
+    const auto bytes = encoded.size();
     if (bytes > max_frame)
       throw Error("MESSAGE_TOO_LARGE", "Outgoing frame exceeds transport budget");
     if (outbound_.fetch_add(bytes) + bytes > max_queue) {
@@ -186,10 +198,10 @@ public:
       });
       return;
     }
-    asio::post(relay_io_, [this, envelope = std::move(envelope), bytes] {
+    asio::post(relay_io_, [this, encoded = std::move(encoded), bytes]() mutable {
       outbound_.fetch_sub(bytes);
       if (socket_ && !stopped_)
-        socket_->send(envelope);
+        socket_->send_text(std::move(encoded));
     });
   }
   void notice(const std::string &id, const Json &p) {
@@ -197,14 +209,63 @@ public:
     if (r != runtimes_.end())
       send({{"type", "notice"}, {"sessionId", id}, {"epoch", r->second->epoch}, {"payload", p}});
   }
-  void emit(const std::string &id, const std::string &type, const Json &data) {
-    auto event = store_.event(id, type, redact(data));
+  void publish(const std::string &id, const Json &event) {
     auto r = runtimes_.find(id);
     if (r != runtimes_.end())
       send({{"type", "event"},
             {"sessionId", id},
             {"epoch", r->second->epoch},
             {"payload", {{"type", "event"}, {"event", event}}}});
+  }
+  void flush_events() {
+    if (buffered_events_.empty())
+      return;
+    event_timer_.cancel();
+    auto entries = std::move(buffered_events_);
+    buffered_events_ = Json::array();
+    buffered_bytes_ = 0;
+    const auto began = std::chrono::steady_clock::now();
+    const auto results = store_.event_batch(entries);
+    ++event_batches_;
+    event_count_ += entries.size();
+    event_batch_max_us_ =
+        std::max(event_batch_max_us_, int64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                  std::chrono::steady_clock::now() - began)
+                                                  .count()));
+    // Projections are cumulative. Publish only the latest committed revision of
+    // each stream, in revision order; every original delta remains in the journal.
+    std::map<int64_t, size_t> latest;
+    for (size_t i = 0; i < results.size(); ++i)
+      latest[results[i]["seq"].get<int64_t>()] = i;
+    for (size_t i = 0; i < results.size(); ++i)
+      if (latest.at(results[i]["seq"].get<int64_t>()) == i)
+        publish(entries[i]["session"], results[i]);
+  }
+  void emit(const std::string &id, const std::string &type, const Json &data) {
+    const bool delta = type == "item/agentMessage/delta" ||
+                       type == "item/commandExecution/outputDelta" ||
+                       type == "item/fileChange/outputDelta";
+    auto safe = redact(data);
+    if (!delta) {
+      flush_events();
+      publish(id, store_.event(id, type, safe));
+      return;
+    }
+    const auto bytes = safe.dump().size();
+    if (buffered_bytes_ + bytes > 128 * 1024)
+      flush_events();
+    if (buffered_events_.empty()) {
+      event_timer_.expires_after(std::chrono::milliseconds(10));
+      event_timer_.async_wait([this](auto ec) {
+        if (!ec)
+          flush_events();
+      });
+    }
+    buffered_events_.push_back(
+        {{"session", id}, {"type", type}, {"data", std::move(safe)}, {"time", now()}});
+    buffered_bytes_ += bytes;
+    if (buffered_events_.size() >= 128 || buffered_bytes_ >= 128 * 1024)
+      flush_events();
   }
   Json project(const std::string &id) {
     for (auto &p : config_["projects"])
@@ -217,6 +278,7 @@ public:
     throw Error("PROJECT_NOT_FOUND", "Project not registered");
   }
   void receive(const Json &d) {
+    flush_events();
     if (d.value("v", 1) != 1)
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
@@ -358,7 +420,29 @@ public:
     }
     if (action == "files") {
       auto p = project(d.at("projectId"));
-      done(files_.request(p["path"], config_["sandbox"], d.at("owner"), d), nullptr);
+      const auto bytes = d.dump().size();
+      if (file_requests_ >= 8 || file_bytes_ + bytes > 512 * 1024)
+        throw Error("BACKPRESSURE", "File worker queue full");
+      ++file_requests_;
+      file_bytes_ += bytes;
+      auto work = asio::make_work_guard(io_);
+      asio::post(file_pool_, [this, p, sandbox = config_["sandbox"], d, done, bytes,
+                              work = std::move(work)]() mutable {
+        Json result, error;
+        try {
+          if (stopped_)
+            throw Error("HOST_OFFLINE", "Agent is stopping");
+          result = files_.request(p["path"], sandbox, d.at("owner"), d);
+        } catch (const std::exception &failure) {
+          error = error_data(failure);
+        }
+        asio::post(io_, [this, done, bytes, result = std::move(result), error = std::move(error),
+                         work = std::move(work)]() mutable {
+          --file_requests_;
+          file_bytes_ -= bytes;
+          done(std::move(result), std::move(error));
+        });
+      });
       return;
     }
     if (action == "projects") {
@@ -979,7 +1063,8 @@ public:
       // Only this setting is hot-reloaded; project/policy changes still need restart.
       config_["autoUpdate"] = read_json(config_file_).value("autoUpdate", Json(true));
       if (updater_.poll(config_, config_.at("relayUrl"),
-                        runtimes_.empty() && archive_loading_.empty() && !listing_threads_)) {
+                        runtimes_.empty() && archive_loading_.empty() && !listing_threads_ &&
+                            file_requests_ == 0)) {
         std::cerr << Json{{"event", "auto_update_restarting"}, {"time", now()}}.dump() << '\n';
         update_restart_ = true;
         close();
@@ -1019,12 +1104,39 @@ public:
                           {"archiveReaders", archive_loading_.size()},
                           {"approvals", approvals},
                           {"queuedCommands", commands},
+                          {"fileRequests", file_requests_},
+                          {"fileQueueBytes", file_bytes_},
+                          {"bufferedEvents", buffered_events_.size()},
+                          {"eventBatches", event_batches_},
+                          {"batchedEvents", event_count_},
+                          {"eventBatchMaxUs", event_batch_max_us_},
                           {"storageIngressBytes", inbound_.load()},
                           {"relayEgressBytes", outbound_.load()}}
                          .dump()
                   << '\n';
+        event_batches_ = event_count_ = 0;
+        event_batch_max_us_ = 0;
         store_.cleanup();
-        files_.cleanup();
+        if (!file_cleanup_pending_) {
+          file_cleanup_pending_ = true;
+          auto work = asio::make_work_guard(io_);
+          asio::post(file_pool_, [this, work = std::move(work)]() mutable {
+            Json failure;
+            try {
+              files_.cleanup();
+            } catch (const std::exception &error) {
+              failure = error_data(error);
+            }
+            asio::post(io_, [this, failure = std::move(failure), work = std::move(work)] {
+              file_cleanup_pending_ = false;
+              if (!failure.is_null()) {
+                std::cerr << Json{{"event", "file_maintenance_failure"}, {"error", failure}}.dump()
+                          << '\n';
+                close();
+              }
+            });
+          });
+        }
       } catch (const std::exception &error) {
         std::cerr << Json{{"event", "maintenance_failure"},
                           {"error", error_data(error)},
@@ -1040,8 +1152,15 @@ public:
   void close() {
     if (stopped_)
       return;
+    try {
+      flush_events();
+    } catch (const std::exception &error) {
+      std::cerr << Json{{"event", "shutdown_flush_failure"}, {"error", error_data(error)}}.dump()
+                << '\n';
+    }
     stopped_ = true;
-    files_.clear();
+    event_timer_.cancel();
+    asio::post(file_pool_, [this] { files_.clear(); });
     retry_.cancel();
     maintenance_.cancel();
     signals_.cancel();

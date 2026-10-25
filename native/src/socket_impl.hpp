@@ -116,10 +116,9 @@ public:
       }
     });
   }
-  void send(const Json &data) override {
+  void send_text(std::string text) override {
     if (!open_ || ended_)
       return;
-    auto text = data.dump();
     if (text.size() > max_frame)
       throw Error("MESSAGE_TOO_LARGE", "Outgoing message exceeds frame budget");
     if (queued_ + text.size() > max_queue) {

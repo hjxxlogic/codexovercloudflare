@@ -145,7 +145,7 @@ export function WorkspaceFiles({
     let publishing = false;
     try {
       setProgress('正在准备上传…');
-      await call(
+      const begun = await call(
         {
           operation: 'begin',
           uploadId,
@@ -155,21 +155,34 @@ export function WorkspaceFiles({
         },
         controller.signal,
       );
-      for (let offset = 0; offset < file.size; offset += chunkSize) {
-        const bytes = new Uint8Array(
-          await file.slice(offset, offset + chunkSize).arrayBuffer(),
+      const window = begun.window === 4 ? 4 : 1;
+      for (let base = 0; base < file.size; base += chunkSize * window) {
+        const offsets = Array.from(
+          { length: window },
+          (_, i) => base + i * chunkSize,
+        ).filter((offset) => offset < file.size);
+        // The Agent advertises a bounded reorder buffer. Older Agents stay sequential.
+        const results = await Promise.allSettled(
+          offsets.map(async (offset) => {
+            const bytes = new Uint8Array(
+              await file.slice(offset, offset + chunkSize).arrayBuffer(),
+            );
+            controller.signal.throwIfAborted();
+            let binary = '';
+            for (const byte of bytes) binary += String.fromCharCode(byte);
+            return call(
+              { operation: 'chunk', uploadId, offset, data: btoa(binary) },
+              controller.signal,
+            );
+          }),
         );
-        controller.signal.throwIfAborted();
-        let binary = '';
-        for (const byte of bytes) binary += String.fromCharCode(byte);
-        await call(
-          { operation: 'chunk', uploadId, offset, data: btoa(binary) },
-          controller.signal,
-        );
+        for (const result of results)
+          if (result.status === 'rejected') throw result.reason;
+        const sent = Math.min(base + chunkSize * window, file.size);
         if (mounted.current) {
-          setFraction(Math.min(offset + chunkSize, file.size) / file.size);
+          setFraction(sent / file.size);
           setProgress(
-            `${name} · ${sizeLabel(Math.min(offset + chunkSize, file.size))} / ${sizeLabel(file.size)} · 正在上传 ${Math.round((Math.min(offset + chunkSize, file.size) / file.size) * 100)}%`,
+            `${name} · ${sizeLabel(sent)} / ${sizeLabel(file.size)} · 正在上传 ${Math.round((sent / file.size) * 100)}%`,
           );
         }
       }
@@ -208,29 +221,49 @@ export function WorkspaceFiles({
     const controller = start();
     try {
       const parts: BlobPart[] = [];
-      let offset = 0,
-        version: string | undefined;
-      while (true) {
-        setProgress(`正在下载 ${entry.name}…`);
-        const result = await call(
-          {
-            operation: 'read',
-            path: path ? `${path}/${entry.name}` : entry.name,
-            offset,
-            ...(version ? { version } : {}),
-          },
-          controller.signal,
-        );
+      const remotePath = path ? `${path}/${entry.name}` : entry.name;
+      const first = await call(
+        { operation: 'read', path: remotePath, offset: 0 },
+        controller.signal,
+      );
+      const size = first.size as number;
+      const version = first.version as string;
+      let offset = 0;
+      const append = (result: any, requested: number) => {
         const bytes = Uint8Array.from(atob(result.data), (c) =>
           c.charCodeAt(0),
         );
+        if (
+          result.version !== version ||
+          result.size !== size ||
+          result.offset !== requested + bytes.length ||
+          bytes.length !== Math.min(chunkSize, size - requested)
+        )
+          throw new Error('下载内容发生变化或不完整，请重试。');
         parts.push(bytes);
-        if (result.offset <= offset && result.offset < result.size)
-          throw new Error('下载未能继续，请重试。');
         offset = result.offset;
-        setFraction(result.size ? offset / result.size : 1);
-        version = result.version;
-        if (offset >= result.size) break;
+      };
+      append(first, 0);
+      while (offset < size) {
+        setProgress(`正在下载 ${entry.name}…`);
+        const offsets = Array.from(
+          { length: 4 },
+          (_, i) => offset + i * chunkSize,
+        ).filter((at) => at < size);
+        const results = await Promise.allSettled(
+          offsets.map((at) =>
+            call(
+              { operation: 'read', path: remotePath, offset: at, version },
+              controller.signal,
+            ),
+          ),
+        );
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          if (result.status === 'rejected') throw result.reason;
+          append(result.value, offsets[i]);
+        }
+        setFraction(size ? offset / size : 1);
       }
       controller.signal.throwIfAborted();
       const url = URL.createObjectURL(

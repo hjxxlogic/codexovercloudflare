@@ -1,5 +1,6 @@
 #include "coc/files.hpp"
 #include "coc/store.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <dirent.h>
 #include <fcntl.h>
@@ -108,6 +109,7 @@ struct WorkspaceFiles::Upload {
   int64_t size = 0, offset = 0, touched = now();
   mode_t mode = 0600;
   bool published = false;
+  std::map<int64_t, std::string> pending;
   ~Upload() {
     if (fd >= 0)
       ::close(fd);
@@ -150,23 +152,60 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     std::unique_ptr<DIR, decltype(close_directory)> entries(raw, close_directory);
     std::map<std::string, Json> page;
     auto after = d.value("after", "");
-    while (auto *entry = readdir(raw)) {
-      std::string name = entry->d_name;
-      if (name == "." || name == ".." || name <= after || name.rfind(".coc-upload-", 0) == 0)
-        continue;
-      try {
-        Json(name).dump(); // Ignore filesystem names that are not UTF-8.
-      } catch (...) {
-        continue;
-      }
+    struct stat directory_stat;
+    if (fstat(fd, &directory_stat) < 0)
+      failed();
+    const auto key = root + "/" + path;
+    const auto stamp = version(directory_stat);
+    const auto add = [&](const std::string &name) {
+      if (name <= after)
+        return;
       struct stat st;
       if (fstatat(fd, name.c_str(), &st, AT_SYMLINK_NOFOLLOW) < 0 ||
           (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)))
-        continue;
+        return;
       page[name] = {{"name", name}, {"directory", S_ISDIR(st.st_mode)}, {"size", st.st_size}};
       if (page.size() > 101)
         page.erase(std::prev(page.end()));
+    };
+    if (directory_key_ != key || directory_version_ != stamp || now() - directory_cached_ > 30000) {
+      directory_names_.clear();
+      directory_key_.clear();
+      size_t bytes = 0;
+      bool bounded = true;
+      while (auto *entry = readdir(raw)) {
+        std::string name = entry->d_name;
+        if (name == "." || name == ".." || name.rfind(".coc-upload-", 0) == 0)
+          continue;
+        try {
+          Json(name).dump();
+        } catch (...) {
+          continue;
+        }
+        bytes += sizeof(std::string) + name.size() + 1;
+        if (bounded && bytes > 4 * 1024 * 1024) {
+          // Huge directories retain the bounded streaming fallback.
+          for (const auto &prior : directory_names_)
+            add(prior);
+          directory_names_.clear();
+          bounded = false;
+        }
+        if (bounded)
+          directory_names_.push_back(std::move(name));
+        else
+          add(name);
+      }
+      if (bounded) {
+        std::sort(directory_names_.begin(), directory_names_.end());
+        directory_key_ = key;
+        directory_version_ = stamp;
+        directory_cached_ = now();
+      }
     }
+    if (directory_key_ == key)
+      for (auto name = std::upper_bound(directory_names_.begin(), directory_names_.end(), after);
+           name != directory_names_.end() && page.size() < 101; ++name)
+        add(*name);
     bool more = page.size() > 100;
     if (more)
       page.erase(std::prev(page.end()));
@@ -279,7 +318,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       failed();
     upload->temporary = temporary;
     uploads_[id] = std::move(upload);
-    return {{"offset", 0}};
+    return {{"offset", 0}, {"window", 4}};
   }
   auto it = uploads_.find(id);
   if (it == uploads_.end() || it->second->root != root || it->second->owner != owner)
@@ -302,19 +341,37 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
         throw Error("UPLOAD_CONFLICT", "Upload retry does not match stored bytes");
       return {{"offset", upload.offset}};
     }
-    if (offset != upload.offset || (bytes.empty() && upload.size > 0))
-      throw Error("UPLOAD_CONFLICT", "Upload chunks must arrive in order");
-    size_t written = 0;
-    while (written < bytes.size()) {
-      auto count =
-          pwrite(upload.fd, bytes.data() + written, bytes.size() - written, offset + written);
-      if (count < 0 && errno == EINTR)
-        continue;
-      if (count <= 0)
-        failed();
-      written += count;
+    if (offset < upload.offset || (bytes.empty() && upload.size > 0))
+      throw Error("UPLOAD_CONFLICT", "Upload overlaps committed bytes");
+    if (offset > upload.offset + 4 * chunk_limit)
+      throw Error("BACKPRESSURE", "Upload exceeds the four-chunk reorder window");
+    const auto duplicate = upload.pending.find(offset);
+    if (duplicate != upload.pending.end()) {
+      if (duplicate->second != bytes)
+        throw Error("UPLOAD_CONFLICT", "Upload retry does not match pending bytes");
+      return {{"offset", upload.offset}};
     }
-    upload.offset += bytes.size();
+    for (const auto &[start, value] : upload.pending)
+      if (offset < start + int64_t(value.size()) && start < offset + int64_t(bytes.size()))
+        throw Error("UPLOAD_CONFLICT", "Upload chunks overlap");
+    if (upload.pending.size() >= 4)
+      throw Error("BACKPRESSURE", "Upload reorder buffer full");
+    upload.pending.emplace(offset, std::move(bytes));
+    while (!upload.pending.empty() && upload.pending.begin()->first == upload.offset) {
+      const auto &next = upload.pending.begin()->second;
+      size_t written = 0;
+      while (written < next.size()) {
+        auto count = pwrite(upload.fd, next.data() + written, next.size() - written,
+                            upload.offset + written);
+        if (count < 0 && errno == EINTR)
+          continue;
+        if (count <= 0)
+          failed();
+        written += count;
+      }
+      upload.offset += next.size();
+      upload.pending.erase(upload.pending.begin());
+    }
     return {{"offset", upload.offset}};
   }
   if (operation != "finish")

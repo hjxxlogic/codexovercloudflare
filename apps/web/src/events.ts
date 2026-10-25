@@ -13,22 +13,33 @@ export function mergeEvents(events: Event[]) {
   return [...latest.values()].sort((a, b) => a.seq - b.seq);
 }
 
+const sizes = new WeakMap<Event, number>();
+const encoder = new TextEncoder();
+export function eventBytes(event: Event) {
+  let size = sizes.get(event);
+  if (size === undefined) {
+    size = encoder.encode(JSON.stringify(event)).length;
+    sizes.set(event, size);
+  }
+  return size;
+}
+
 export function eventWindow(
   events: Event[],
   limit = 400,
   maxBytes = 192 * 1024,
 ) {
   const merged = mergeEvents(events);
-  const encoder = new TextEncoder();
   let bytes = 0;
-  let start = merged.length;
-  while (start > 0 && merged.length - start < limit) {
-    const size = encoder.encode(JSON.stringify(merged[start - 1])).length;
-    if (bytes + size > maxBytes) break;
+  const result: Event[] = [];
+  const ordered = merged.reverse();
+  for (const event of ordered) {
+    const size = eventBytes(event);
+    if (result.length >= limit || bytes + size > maxBytes) break;
+    result.push(event);
     bytes += size;
-    start--;
   }
-  return merged.slice(start);
+  return result.reverse();
 }
 
 export function visibleEvents(events: Event[]) {

@@ -387,7 +387,7 @@ void storage_failure_test() {
   check(store.cache_get("blocked").is_null(), "Failed write never appears committed");
   std::cout << "PASS: bounded SQLite contention, fault callback and no partial commit\n";
 }
-void stream_benchmark(int delta_size, int bytes, int seconds) {
+void stream_benchmark(int delta_size, int bytes, int seconds, int batch = 1) {
   if (delta_size < 1 || delta_size > 1000 || bytes < 1 || bytes > 16 * 1024 * 1024 || seconds < 1 ||
       seconds > 28800)
     throw Error("USAGE", "--benchmark DELTA(1..1000) BYTES(1..16MiB) MAX_SECONDS(1..28800)");
@@ -407,17 +407,32 @@ void stream_benchmark(int delta_size, int bytes, int seconds) {
   int characters = 0;
   int64_t wal_peak = 0;
   Json last[4];
+  Json pending = Json::array();
+  const auto flush = [&] {
+    if (pending.empty())
+      return;
+    const auto began = std::chrono::steady_clock::now();
+    const auto results = store.event_batch(pending);
+    const auto duration =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - began).count();
+    if (events % 16 == 0)
+      durations.push_back(duration);
+    for (size_t i = 0; i < results.size(); ++i) {
+      const auto session = pending[i]["session"].get<std::string>();
+      last[session.back() - '0'] = results[i];
+    }
+    events += results.size();
+    pending = Json::array();
+  };
   while (characters < bytes &&
          std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
     const std::string delta(std::min(delta_size, bytes - characters), 'x');
     for (int i = 0; i < 4; ++i) {
-      const auto began = std::chrono::steady_clock::now();
-      last[i] = store.event("bench-" + std::to_string(i), "item/agentMessage/delta",
-                            {{"itemId", "stream"}, {"delta", delta}});
-      if (events++ % 16 == 0)
-        durations.push_back(
-            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - began)
-                .count());
+      pending.push_back({{"session", "bench-" + std::to_string(i)},
+                         {"type", "item/agentMessage/delta"},
+                         {"data", {{"itemId", "stream"}, {"delta", delta}}}});
+      if (int(pending.size()) >= batch)
+        flush();
     }
     characters += delta.size();
     if (events % 4096 == 0) {
@@ -426,6 +441,7 @@ void stream_benchmark(int delta_size, int bytes, int seconds) {
           wal_peak, int64_t(std::filesystem::file_size(temp.path + "/agent.db-wal", ignored)));
     }
   }
+  flush();
   for (int i = 0; i < 4; ++i) {
     const auto offset = std::max(0, characters - 4096);
     auto part =
@@ -448,12 +464,54 @@ void stream_benchmark(int delta_size, int bytes, int seconds) {
               {"elapsedSeconds",
                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count()},
               {"cpuSeconds", double(std::clock() - cpu_start) / CLOCKS_PER_SEC},
-              {"eventP95MicrosecondsSampled", durations[durations.size() * 95 / 100]},
+              {"batchSize", batch},
+              {batch == 1 ? "eventP95MicrosecondsSampled" : "batchP95MicrosecondsSampled",
+               durations[durations.size() * 95 / 100]},
               {"peakRssKiB", usage.ru_maxrss},
               {"databaseBytes", std::filesystem::file_size(temp.path + "/agent.db")},
               {"walPeakBytes", std::max(wal_peak, int64_t(wal))}}
              .dump()
       << '\n';
+}
+void performance_test() {
+  Temp temp;
+  Store store(temp.path);
+  store.save({{"id", "a"}, {"state", "ready"}});
+  store.save({{"id", "b"}, {"state", "ready"}});
+  Json entries = Json::array();
+  for (int i = 0; i < 128; ++i)
+    entries.push_back({{"session", i % 2 ? "a" : "b"},
+                       {"type", "item/agentMessage/delta"},
+                       {"data", {{"itemId", "reply"}, {"delta", "你好"}}}});
+  auto result = store.event_batch(entries);
+  check(result.size() == 128, "Batch returns every committed projection");
+  const auto before = store.history("a");
+  const auto body = store.content("a", result.back()["seq"], 0, result.back()["revision"]);
+  std::string expected;
+  for (int i = 0; i < 64; ++i)
+    expected += "你好";
+  check(body["text"] == expected, "Batched interleaved Unicode streams reconstruct exactly");
+  entries = Json::array(
+      {{{"session", "a"}, {"type", "user"}, {"data", {{"text", "rollback"}}}}, {{"session", "a"}}});
+  try {
+    store.event_batch(entries);
+    throw std::runtime_error("Expected malformed batch rejection");
+  } catch (const Json::exception &) {
+  }
+  check(store.history("a") == before && !store.get("a").contains("title"),
+        "A failed batch rolls back events, projection and session changes");
+  store.event("a", "user", {{"text", "after rollback"}});
+  check(store.get("a")["title"] == "after rollback", "Cached statements reset after rollback");
+  store.cache_put("upload:expired", {{"completedAt", now() - 86400001}});
+  store.cache_put("upload:recent", {{"completedAt", now()}});
+  store.cache_put("other", {{"completedAt", 0}});
+  store.begin("identity", "fingerprint");
+  store.cleanup();
+  check(store.cache_get("upload:expired").is_null() &&
+            !store.cache_get("upload:recent").is_null() && !store.cache_get("other").is_null() &&
+            store.request_status("identity")["state"] == "received",
+        "Expiry only removes completed uploads, preserving durable request identities");
+  std::cout << "PASS: batched journal atomicity, Unicode, statement reuse and indexed expiry\n";
 }
 void files_test() {
   Temp t, outside;
@@ -509,6 +567,28 @@ void files_test() {
         call(request);
       },
       "FILE_CHANGED");
+  call({{"operation", "begin"}, {"uploadId", "pipeline"}, {"path", "pipeline.bin"}, {"size", 6}});
+  auto later =
+      Json{{"operation", "chunk"}, {"uploadId", "pipeline"}, {"offset", 3}, {"data", "ZGVm"}};
+  check(call(later)["offset"] == 0 && call(later)["offset"] == 0,
+        "Out-of-order chunk and retry wait for the missing prefix");
+  later["data"] = "YWJj";
+  rejects([&] { call(later); }, "UPLOAD_CONFLICT");
+  rejects(
+      [&] {
+        call({{"operation", "chunk"}, {"uploadId", "pipeline"}, {"offset", 2}, {"data", "YWJj"}});
+      },
+      "UPLOAD_CONFLICT");
+  rejects([&] { call({{"operation", "finish"}, {"uploadId", "pipeline"}}); }, "UPLOAD_INCOMPLETE");
+  check(call({{"operation", "chunk"},
+              {"uploadId", "pipeline"},
+              {"offset", 0},
+              {"data", "YWJj"}})["offset"] == 6,
+        "Missing prefix drains the reorder buffer");
+  call({{"operation", "finish"}, {"uploadId", "pipeline"}});
+  check(call({{"operation", "read"}, {"path", "pipeline.bin"}})["data"] == "YWJjZGVm",
+        "Pipelined upload publishes exact ordered bytes");
+  std::filesystem::remove(t.path + "/pipeline.bin");
   files.clear();
   check(call({{"operation", "list"}})["entries"].size() == 1, "Staging files cleaned up");
   std::cout << "PASS: workspace file isolation, binary transfer, retry, read-only, cancellation "
@@ -624,10 +704,11 @@ int main(int argc, char **argv) {
     std::cerr.setf(std::ios::unitbuf);
     signal(SIGPIPE, SIG_IGN);
     std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "--benchmark") {
+    if (mode == "--benchmark" || mode == "--benchmark-batch") {
       if (argc != 5)
         throw Error("USAGE", "--benchmark DELTA BYTES MAX_SECONDS");
-      stream_benchmark(std::stoi(argv[2]), std::stoi(argv[3]), std::stoi(argv[4]));
+      stream_benchmark(std::stoi(argv[2]), std::stoi(argv[3]), std::stoi(argv[4]),
+                       mode == "--benchmark-batch" ? 128 : 1);
     } else if (mode == "--codex" || mode == "--task")
       process_test(true, mode == "--task");
     else {
@@ -635,6 +716,8 @@ int main(int argc, char **argv) {
       core();
       std::cout << "RUN: history\n";
       history_test();
+      std::cout << "RUN: performance invariants\n";
+      performance_test();
       std::cout << "RUN: files\n";
       files_test();
       std::cout << "RUN: stabilization\n";

@@ -4,7 +4,7 @@
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前发布 0.5.3 开发预览版。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
+当前版本 0.5.4 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、源码包、提交 ID 和 SHA256 校验和。
 
 2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
 
@@ -45,7 +45,7 @@ python3 scripts/package-release.py --build-dir .local/build-container --platform
 
 ```bash
 node node_modules/wrangler/bin/wrangler.js deploy \
-  --tag v0.5.3 --message 'Release 0.5.3 administrator-selected client servers'
+  --tag v0.5.4 --message 'Release 0.5.4 performance and persistent local history'
 ```
 
 只有初始化或明确轮换密钥时才追加 `--secrets-file .local/production/secrets.json`。
@@ -56,7 +56,7 @@ node node_modules/wrangler/bin/wrangler.js deploy \
 
 生产授权冒烟只使用明确标记的临时设备和独立凭证文件：申请临时 A，在真实管理网页核对并批准，验证下载的 A 登录；再为该 A 授权 CC / CW，验证各自作用域及管理员接口拒绝。测试后只撤销本次创建的临时授权，不能操作用户真实设备。测试不调用模型；不宣称覆盖生产 Codex 会话与长期负载。
 
-记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.3` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
+记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.4` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
 
 DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
 
@@ -77,3 +77,9 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 ### 0.5.2 原生自动更新发布要求
 
 两个平台包都必须重新生成，清单 version/commit/sourceDigest/protocol 必须与实际程序一致；SHA256SUMS 保持标准双空格文件名格式。更新器只接受比当前版本新的稳定三段版本及相同协议，不从旧版本自动引导到 0.5.2。发布前运行 `test:update`，干净构建另运行 `tests/native-update.py --automatic` 验证实际安装和 Agent 重启；发布后核对线上三个归档与手册。安装目录需运行用户可写，systemd 模板已改为 `/home/coc/.local/bin`。显式 `update` 可越过自动开关；普通自动失败不影响原业务结果。
+
+### 0.5.4 性能与完整本地历史
+
+同步发布 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 Agent/CLI 及源码包。完整历史窗口和已展开正文不截断，浏览器长期缓存已读页/正文并优先从本地读取。Agent 批量事务和文件执行器、新版网页的四块传输、Relay 去重订阅与鉴权优化需配套升级。上传窗口为可选能力，旧 Agent 继续串行上传；原授权、配置、SQLite 与 IndexedDB 数据兼容，无需重新登录。
+
+已有 Agent/CLI 沿用自动更新配置；发布不直接改动远程主机服务。上传完成记录新增部分表达式索引，首次打开较大缓存库可能花费更多时间。升级前按用户手册备份权威数据库；去重身份和完整历史不自动删除。继续保留八小时长稳、真实平台休眠/升级、慢盘控制延迟及原生 CLI 平台发送缓冲的验收边界，详情见 [性能修复记录](perf-fixes-2026-10-25.md)。

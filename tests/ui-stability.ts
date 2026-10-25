@@ -155,6 +155,13 @@ wss.on('connection', (ws, request) => {
     if (data.type === 'receipt') return;
     if (history && data.operation === 'content') {
       contentCalls++;
+      const text =
+        data.offset === 0
+          ? '第一段'
+          : data.offset === 3
+            ? '第二段'
+            : '完整正文'.repeat(1024);
+      const nextOffset = data.offset + text.length;
       setTimeout(() => {
         if (ws.readyState === WebSocket.OPEN)
           ws.send(
@@ -164,9 +171,9 @@ wss.on('connection', (ws, request) => {
               seq: 6,
               revision: 6,
               offset: data.offset,
-              text: data.offset ? '第二段' : '第一段',
-              nextOffset: data.offset ? 6 : 3,
-              more: !data.offset,
+              text,
+              nextOffset,
+              more: nextOffset < 6 + 32 * 4096,
             }),
           );
       }, 200);
@@ -268,6 +275,21 @@ try {
   await page.getByRole('button', { name: '展开更多' }).click();
   await page.getByText('第一段第二段', { exact: true }).waitFor();
   assert.equal(contentCalls, 2, 'content chunks accumulate once per offset');
+  for (let i = 0; i < 32; i++) {
+    await page.getByRole('button', { name: '展开更多' }).click();
+    await expect(
+      page.getByRole('button', { name: i === 31 ? '已读完' : '展开更多' }),
+    ).toBeVisible();
+  }
+  const fullBody = await page
+    .locator('[data-event-seq="6"] .markdown')
+    .innerText();
+  assert.equal(
+    fullBody,
+    '第一段第二段' + '完整正文'.repeat(32 * 1024),
+    'expanded content beyond 128 Ki characters retains its entire prefix',
+  );
+  assert.equal(contentCalls, 34);
   await page.getByLabel('任务内容').fill('切换后仍应保留的草稿');
   const callsBeforeModeSwitch = attachCalls;
   await openMenu(page);
@@ -708,7 +730,7 @@ try {
   await expect(menu.getByRole('button', { name: /^CW 对话/ })).toHaveCount(0);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

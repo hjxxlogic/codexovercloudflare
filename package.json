@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "type": "module",
   "engines": {
@@ -27,6 +27,7 @@
     "test:tls": "tsx tests/native-tls.ts",
     "client": "./build/coc-client",
     "test:ui": "tsx tests/ui-stability.ts",
+    "test:cache": "tsx tests/browser-cache.ts",
     "test:backup": "python3 tests/state-backup.py",
     "test:release": "python3 tests/release-provenance.py",
     "protocol:generate": "tsx scripts/gen-protocol.ts",

@@ -29,6 +29,7 @@ type Attachment = {
   epoch: number;
   authenticated: boolean;
   history?: boolean;
+  historyEvents?: boolean;
   deadline: number;
   build?: unknown;
   protocol?: number;
@@ -50,8 +51,60 @@ export class HostRelayDO extends DurableObject<Env> {
     string,
     { expires: number; checked: number }
   >();
-  private outbound = new WeakMap<WebSocket, Map<string, number>>();
+  private outbound = new WeakMap<
+    WebSocket,
+    { receipts: Map<string, number>; bytes: number }
+  >();
+  private authorizing = new Map<
+    string,
+    { promise: Promise<void>; token: object }
+  >();
+  private authorizationVersion = 0;
   private incomingBytes = 0;
+  private forwardingBytes = 0;
+  private outboundBytes = 0;
+  private forwards = new WeakMap<
+    WebSocket,
+    { tail: Promise<void>; bytes: number; count: number }
+  >();
+  private forward(client: WebSocket, payload: unknown, bytes: number) {
+    let queue = this.forwards.get(client);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), bytes: 0, count: 0 };
+      this.forwards.set(client, queue);
+    }
+    if (
+      queue.bytes + bytes > MAX_QUEUE ||
+      queue.count >= 1000 ||
+      this.forwardingBytes + bytes > MAX_QUEUE * 2
+    ) {
+      client.close(4008, 'Forwarding budget exhausted');
+      return;
+    }
+    queue.bytes += bytes;
+    queue.count++;
+    this.forwardingBytes += bytes;
+    const current = queue.tail
+      .then(async () => {
+        const attachment = client.deserializeAttachment() as Attachment;
+        if (client.readyState >= 2) return;
+        if (attachment.deadline <= Date.now()) throw new Error('expired');
+        await this.authorized(attachment.auth.hash);
+        if (client.readyState < 2 || client.readyState === undefined)
+          this.send(client, payload);
+      })
+      .catch(() => {
+        client.close(4001, 'Authorization or forwarding failed');
+      })
+      .finally(() => {
+        queue!.bytes -= bytes;
+        queue!.count--;
+        this.forwardingBytes -= bytes;
+        if (queue!.tail === current) this.forwards.delete(client);
+      });
+    queue.tail = current;
+    this.ctx.waitUntil(current);
+  }
   async authorized(hash: string) {
     const cached = this.authorization.get(hash);
     if (
@@ -60,13 +113,35 @@ export class HostRelayDO extends DurableObject<Env> {
       cached.expires > Date.now()
     )
       return;
-    const auth: Auth = await registryCall(this.env, 'authHash', { hash });
-    if (this.authorization.size >= 128)
-      this.authorization.delete(this.authorization.keys().next().value!);
-    this.authorization.set(hash, {
-      expires: auth.expires,
-      checked: Date.now(),
-    });
+    const active = this.authorizing.get(hash);
+    if (active) return active.promise;
+    const version = this.authorizationVersion;
+    const token = {};
+    const check = (async () => {
+      const auth: Auth = await registryCall(this.env, 'authHash', { hash });
+      if (
+        version !== this.authorizationVersion ||
+        this.authorizing.get(hash)?.token !== token
+      )
+        throw new AppError(
+          'UNAUTHORIZED',
+          'Authorization changed during validation',
+          401,
+        );
+      if (this.authorization.size >= 128)
+        this.authorization.delete(this.authorization.keys().next().value!);
+      this.authorization.set(hash, {
+        expires: auth.expires,
+        checked: Date.now(),
+      });
+    })();
+    this.authorizing.set(hash, { promise: check, token });
+    try {
+      await check;
+    } finally {
+      if (this.authorizing.get(hash)?.promise === check)
+        this.authorizing.delete(hash);
+    }
   }
   private messages = new WeakMap<
     WebSocket,
@@ -102,16 +177,20 @@ export class HostRelayDO extends DurableObject<Env> {
     if (receiptId) {
       let queue = this.outbound.get(ws);
       if (!queue) {
-        queue = new Map();
+        queue = { receipts: new Map(), bytes: 0 };
         this.outbound.set(ws, queue);
       }
-      let total = bytes;
-      for (const size of queue.values()) total += size;
-      if (total > MAX_QUEUE || queue.size >= 1000) {
+      if (
+        queue.bytes + bytes > MAX_QUEUE ||
+        this.outboundBytes + bytes > MAX_QUEUE * 2 ||
+        queue.receipts.size >= 1000
+      ) {
         ws.close(4008, 'Reader acknowledgement budget exhausted');
         return;
       }
-      queue.set(receiptId, bytes);
+      queue.receipts.set(receiptId, bytes);
+      queue.bytes += bytes;
+      this.outboundBytes += bytes;
     }
     ws.send(value);
   }
@@ -188,7 +267,14 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       if (u.pathname === '/revoke-auth') {
         const d = await body(req);
-        this.authorization.clear();
+        if (d.agent) {
+          this.authorizationVersion++;
+          this.authorization.clear();
+          this.authorizing.clear();
+        } else {
+          this.authorization.delete(d.hash);
+          this.authorizing.delete(d.hash);
+        }
         for (const ws of this.ctx.getWebSockets())
           if (
             d.agent ||
@@ -488,7 +574,13 @@ export class HostRelayDO extends DurableObject<Env> {
       if (typeof d.requestId === 'string' && d.requestId.length <= 100)
         requestId = d.requestId;
       if (d.type === 'receipt' && typeof d.receiptId === 'string') {
-        this.outbound.get(ws)?.delete(d.receiptId);
+        const queue = this.outbound.get(ws);
+        const bytes = queue?.receipts.get(d.receiptId);
+        if (queue && bytes !== undefined) {
+          queue.bytes -= bytes;
+          this.outboundBytes -= bytes;
+          queue.receipts.delete(d.receiptId);
+        }
         return;
       }
       if (a.role === 'agent') {
@@ -530,26 +622,27 @@ export class HostRelayDO extends DurableObject<Env> {
           return;
         }
         if (['rpc', 'event', 'notice'].includes(d.type)) {
+          const bytes = new TextEncoder().encode(
+            JSON.stringify(d.payload),
+          ).length;
           for (const client of this.ctx.getWebSockets(
             'session:' + d.sessionId,
           )) {
             const ca = client.deserializeAttachment() as Attachment;
-            if (!ca.authenticated || (!ca.history && ca.epoch !== d.epoch))
+            if (
+              !ca.authenticated ||
+              (!ca.history && ca.epoch !== d.epoch) ||
+              (d.type === 'event' && ca.historyEvents && !ca.history)
+            )
               continue;
-            try {
-              await this.authorized(ca.auth.hash);
-            } catch {
-              client.close(4001, 'Authorization revoked');
-              continue;
-            }
             if (ca.history) {
-              if (d.type === 'event') this.send(client, d.payload);
+              if (d.type === 'event') this.forward(client, d.payload, bytes);
               continue;
             }
             if (d.type === 'rpc' && ca.role === 'cli')
-              this.send(client, d.payload);
+              this.forward(client, d.payload, bytes);
             if (d.type !== 'rpc' && ca.role === 'web')
-              this.send(client, d.payload);
+              this.forward(client, d.payload, bytes);
           }
         }
         return;
@@ -574,6 +667,7 @@ export class HostRelayDO extends DurableObject<Env> {
         );
         a.epoch = await this.acquire(a.sessionId!, t.takeover);
         a.authenticated = true;
+        a.historyEvents = d.events === 'history';
         a.deadline = a.auth.expires;
         ws.serializeAttachment(a);
         this.send(ws, { type: 'attached', epoch: a.epoch });
@@ -620,6 +714,11 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   async webSocketClose(ws: WebSocket) {
+    const queue = this.outbound.get(ws);
+    if (queue) {
+      this.outboundBytes -= queue.bytes;
+      this.outbound.delete(ws);
+    }
     if ((ws.deserializeAttachment() as Attachment)?.history) return;
     const a = ws.deserializeAttachment() as Attachment;
     if (a.role === 'agent') {
@@ -657,14 +756,30 @@ export class HostRelayDO extends DurableObject<Env> {
     if (!current || current > at) await this.ctx.storage.setAlarm(at);
   }
   async alarm() {
-    for (const ws of this.ctx.getWebSockets()) {
+    const sockets = this.ctx.getWebSockets();
+    const hashes = [
+      ...new Set(
+        sockets.map(
+          (ws) => (ws.deserializeAttachment() as Attachment).auth.hash,
+        ),
+      ),
+    ];
+    const rejected = new Set<string>();
+    // Keep the existing revocation bound; deduplicate credentials and cap concurrency.
+    for (let i = 0; i < hashes.length; i += 4)
+      await Promise.all(
+        hashes.slice(i, i + 4).map(async (hash) => {
+          try {
+            await this.authorized(hash);
+          } catch {
+            rejected.add(hash);
+          }
+        }),
+      );
+    for (const ws of sockets) {
       const a = ws.deserializeAttachment() as Attachment;
-      try {
-        if (a.deadline <= Date.now()) throw new Error('expired');
-        await registryCall(this.env, 'authHash', { hash: a.auth.hash });
-      } catch {
+      if (a.deadline <= Date.now() || rejected.has(a.auth.hash))
         ws.close(4001, 'Authorization expired or revoked');
-      }
     }
     for (const [k, t] of await this.ctx.storage.list<Ticket>({
       prefix: 'ticket:',

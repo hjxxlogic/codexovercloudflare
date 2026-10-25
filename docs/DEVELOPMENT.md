@@ -152,3 +152,18 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 `npm run test:update` 使用回环 HTTP 发行目录与本机编译的最小 ELF，验证实际 Agent/CLI 的检查、SHA256、构建身份、协议、降级拒绝、目录穿越归档隔离、更新锁、关闭配置、原子替换及旧文件保留；不访问生产或调用模型。`python3 tests/native-update.py --automatic` 另验证干净 Release CLI 自动安装和空闲 Agent 释放数据库后 exec；该模式须先提交源码并重新构建，不对脏开发构建开启自动更新。增加 `--busy` 可验证候选已准备但现有 runtime 存活时不会切换，停止会话后下一次空闲检查才重启。Agent/CLI 路径可用 COC_AGENT_BINARY / COC_CLI_BINARY 指定。
 
 TLS 专用夹具显式配置 `autoUpdate: false`，确保带业务凭据的 TLS 请求计数不混入公开更新下载。自动更新的无凭据下载、超时及安装由 `test:update` 与干净构建扩展场景独立验证；CI 将各回归命令分步运行以明确失败来源。
+
+## 性能回归（2026-10-25）
+
+在原生/网页构建后执行 `npm test`、`npm run test:ui` 和 `npm run test:cache`。后两项需要已安装 Playwright Chromium；`test:cache` 使用独立浏览器 context 和本地拦截页面，不访问外部服务器，覆盖历史长期保留、修订合并写入、按 scope 清理和草稿落盘。`test:ui` 覆盖完整历史窗口与重复翻页不增加历史网络请求。
+
+Store 基准：
+
+```bash
+./build/coc-tests --benchmark 1 1048576 10
+./build/coc-tests --benchmark-batch 1 1048576 10
+```
+
+两者在独立临时库中交错写入四个会话，分别每次提交 1 条和最多 128 条。批量模式的 P95 是整批调用延迟，不能直接与单事件 P95 比较；未模拟 Agent 的 10 ms 收集定时器，也不能代替端到端延迟和慢盘压测。不要并行运行基准。Agent 每 30 秒日志增加 eventBatches、batchedEvents、eventBatchMaxUs，以及 fileRequests、fileQueueBytes、bufferedEvents；前三项在每次采样后清零，最大耗时不是 P95。
+
+实现和实测边界见 [性能修复记录](perf-fixes-2026-10-25.md)。完整端到端仍使用上述 Bookworm 容器方案，Worker dry-run 只打包，不发布。
