@@ -15,8 +15,21 @@ const session = {
   state: 'ready',
   running: false,
   createdAt: Date.now(),
+  updatedAt: Date.now(),
   threadId: 'thread',
 };
+const otherSession = {
+  ...session,
+  id: 'sample~other',
+  projectId: 'other-project',
+  title: '第二项目对话',
+  threadId: 'other-thread',
+};
+let availableProjects = [
+  { id: 'project', name: '示例项目', path: '/workspace/example' },
+  { id: 'other-project', name: '第二项目', path: '/workspace/other' },
+];
+let identity = 'synthetic-ui-identity';
 let online = true,
   logged = true,
   admin = false,
@@ -78,20 +91,18 @@ const server = createServer((req, res) => {
     else if (path === '/admin/api-keys' || path === '/admin/hosts') body = [];
     else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
-    else if (path === '/client/identity')
-      body = { identity: 'synthetic-ui-identity' };
-    else if (path === '/hosts/sample/projects')
-      body = [{ id: 'project', name: '示例项目', path: '/workspace/example' }];
+    else if (path === '/client/identity') body = { identity };
+    else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
-          ? { data: [session], nextCursor: null }
-          : [session];
+          ? { data: [session, otherSession], nextCursor: null }
+          : [session, otherSession];
     else if (path === '/hosts/sample/threads')
       body = { data: [], nextCursor: null };
     else if (path.startsWith('/hosts/sample/requests/'))
       body = { state: 'submitted' };
-    else if (path === '/sessions/sample~session/attach') {
+    else if (/^\/sessions\/sample~[\w-]+\/attach$/.test(path)) {
       attachCalls++;
       if (attachFailures-- > 0) {
         res.statusCode = 503;
@@ -454,12 +465,8 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByRole('button', { name: /进行中的对话/ }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.getByText('任务已完成。', { exact: true }).waitFor();
   await page.waitForFunction(
     () =>
       (document.querySelector('textarea') as HTMLTextAreaElement)?.value ===
@@ -471,12 +478,8 @@ try {
     () => document.querySelector('textarea')?.value === '',
   );
   await page.reload();
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByRole('button', { name: /进行中的对话/ }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.getByText('任务已完成。', { exact: true }).waitFor();
   await page.getByText('任务提交结果待确认', { exact: true }).waitFor();
   assert.equal(
     submitted.size,
@@ -589,19 +592,6 @@ try {
   await expect(page.getByRole('button', { name: '功能菜单' })).toBeFocused();
   online = false;
   await page.reload();
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  assert.equal(
-    await page
-      .getByLabel('主机', { exact: true })
-      .locator('option[value="sample"]')
-      .isDisabled(),
-    false,
-  );
-  await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await openMenu(page);
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByRole('button', { name: /进行中的对话/ }).click();
   await page.getByText('任务已完成。', { exact: true }).waitFor();
   assert(
     await page.getByRole('button', { name: '发送', exact: true }).isDisabled(),
@@ -744,7 +734,112 @@ try {
     await historyPage.close();
   }
   pagedHistory = undefined;
+  const restoredContext = await browser.newContext();
+  const restoredPage = await restoredContext.newPage();
+  await restoredPage.goto(origin);
+  await openMenu(restoredPage);
+  await restoredPage.getByRole('button', { name: /^会话记录/ }).click();
+  await restoredPage.getByLabel('主机', { exact: true }).selectOption('sample');
+  await expect(restoredPage.getByLabel('项目', { exact: true })).toHaveValue(
+    'project',
+  );
+  await restoredPage
+    .getByLabel('项目', { exact: true })
+    .selectOption('other-project');
+  await restoredPage.getByRole('button', { name: /第二项目对话/ }).click();
+  await restoredPage.getByText('任务已完成。', { exact: true }).waitFor();
+  await restoredPage.getByLabel('任务内容').fill('第二项目的独立草稿');
+  await restoredPage.waitForTimeout(200);
+  await restoredPage.reload();
+  await expect(restoredPage.getByLabel('任务内容')).toHaveValue(
+    '第二项目的独立草稿',
+  );
+  await expect(restoredPage.locator('.workspace-context')).toContainText(
+    '第二项目',
+  );
+  await expect(restoredPage.getByRole('dialog')).not.toBeVisible();
+  await restoredPage.screenshot({
+    path: join(artifacts, 'cw-restored-session.png'),
+  });
+
+  // The navigation record also works when its cached directory is absent.
+  await restoredPage.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('coc-history', 2);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction('pages', 'readwrite');
+          const cursor = tx.objectStore('pages').openCursor();
+          cursor.onsuccess = () => {
+            const row = cursor.result;
+            if (!row) return;
+            if (Array.isArray(row.key) && row.key[1] === 'catalog')
+              row.delete();
+            row.continue();
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        };
+      }),
+  );
+  await restoredPage.reload();
+  await expect(restoredPage.getByLabel('任务内容')).toHaveValue(
+    '第二项目的独立草稿',
+  );
+  await expect(restoredPage.locator('.workspace-context')).toContainText(
+    '第二项目',
+  );
+
+  // Removing a configured project invalidates its remembered conversation.
+  availableProjects = availableProjects.slice(0, 1);
+  await restoredPage.reload();
+  await openMenu(restoredPage);
+  await restoredPage.getByRole('button', { name: /^会话记录/ }).click();
+  await expect(restoredPage.getByLabel('项目', { exact: true })).toHaveValue(
+    'project',
+  );
+  await restoredPage.getByRole('button', { name: /进行中的对话/ }).click();
+  await restoredPage.getByLabel('任务内容').fill('旧凭证下的草稿');
+  await restoredPage.waitForTimeout(200);
+  identity = 'replacement-credential-identity';
+  await restoredPage.reload();
+  await openMenu(restoredPage);
+  await restoredPage.getByRole('button', { name: /^会话记录/ }).click();
+  await expect(restoredPage.getByLabel('主机', { exact: true })).toHaveValue(
+    'sample',
+  );
+  await expect(restoredPage.getByLabel('项目', { exact: true })).toHaveValue(
+    'project',
+  );
+  await restoredPage.keyboard.press('Escape');
+  await expect(restoredPage.locator('.message')).toHaveCount(0);
+  await expect(restoredPage.getByLabel('任务内容')).toHaveCount(0);
+  // An untrusted host hint never bypasses the authorized host list.
+  await restoredPage.evaluate(() =>
+    localStorage.setItem('coc:last-host', 'unauthorized-host'),
+  );
+  await restoredPage.reload();
+  await openMenu(restoredPage);
+  await restoredPage.getByRole('button', { name: /^会话记录/ }).click();
+  await expect(restoredPage.getByLabel('主机', { exact: true })).toHaveValue(
+    '',
+  );
+  assert.equal(
+    await restoredPage.evaluate(() => localStorage.getItem('coc:last-host')),
+    null,
+  );
+  await restoredContext.close();
+  identity = 'synthetic-ui-identity';
   logged = false;
+
   await page.goto(origin);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('heading', { name: '连接远程服务器' }).waitFor();
@@ -796,7 +891,7 @@ try {
   await expect(menu.getByRole('button', { name: /^CW 对话/ })).toHaveCount(0);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

@@ -19,6 +19,12 @@ import {
 } from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
 import { FileContext } from './file-links.tsx';
+import {
+  lastHost,
+  rememberHost,
+  restoreWorkspace,
+  type WorkspaceState,
+} from './workspace-state.ts';
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
@@ -83,6 +89,9 @@ function App() {
   const historySocket = useRef<WebSocket | null>(null);
   const localHistory = useRef<HistoryCache | null>(null);
   const catalog = useRef<HistoryCache | null>(null);
+  const [catalogHost, setCatalogHost] = useState('');
+  const catalogScope = useRef('');
+  const savedWorkspace = useRef<WorkspaceState | undefined>(undefined);
   const olderView = useRef(false);
   const loadContent = useRef<
     (seq: number, offset: number, revision: number) => void
@@ -230,8 +239,15 @@ function App() {
       const available = results[0].value;
       setHosts(available);
       setLogged(true);
+      const remembered = lastHost();
+      if (remembered && !available.some((h: any) => h.id === remembered))
+        rememberHost('');
       setHost((current) =>
-        available.some((h: any) => h.id === current) ? current : '',
+        available.some((h: any) => h.id === current)
+          ? current
+          : available.some((h: any) => h.id === remembered)
+            ? remembered
+            : '',
       );
     } else {
       if (retryable(results[0].reason)) {
@@ -321,7 +337,7 @@ function App() {
     };
   }, [host, online, wakeConfigured, mode]);
   useEffect(() => {
-    if (!host || !online) return;
+    if (!host || !online || catalogHost !== host) return;
     setNotice((current) =>
       current.startsWith('服务器离线，已请求唤醒') ? '服务器已上线' : current,
     );
@@ -335,12 +351,31 @@ function App() {
         setError((current) =>
           current.startsWith('HOST_OFFLINE:') ? '' : current,
         );
+        const restored = restoreWorkspace(
+          savedWorkspace.current,
+          host,
+          available,
+          result.data,
+        );
+        const currentProject = projectContext.current.project;
         setProjects(available);
         setProject((current) =>
           available.some((p: any) => p.id === current)
             ? current
-            : available[0]?.id || '',
+            : restored.projectId,
         );
+        setSelected((current) => {
+          if (current) {
+            if (!available.some((p: any) => p.id === current.projectId))
+              return undefined;
+            return (
+              result.data.find((s: Session) => s.id === current.id) || current
+            );
+          }
+          // Restore once if the local catalog was empty. A deliberate project
+          // selection or closing a conversation must not reopen the old session.
+          return !currentProject ? restored.session : undefined;
+        });
         setSessions(result.data);
         setSessionCursor(result.nextCursor);
       })
@@ -348,7 +383,7 @@ function App() {
         if (!controller.signal.aborted) report(error);
       });
     return () => controller.abort();
-  }, [host, online]);
+  }, [host, online, catalogHost]);
   useEffect(() => {
     if (!grant) return;
     let disposed = false;
@@ -393,57 +428,78 @@ function App() {
   }, [grant]);
   useEffect(() => {
     let disposed = false;
+    const controller = new AbortController();
+    setCatalogHost('');
+    catalogScope.current = '';
+    savedWorkspace.current = undefined;
     setProjects([]);
     setProject('');
     setSessions([]);
     setSelected(undefined);
-    if (!host) return;
+    setTakeover(false);
     catalog.current?.close();
     catalog.current = null;
+    if (!host) return;
+    rememberHost(host);
+    let cache: HistoryCache | undefined;
     void (async () => {
       try {
         const { identity } = await api(
           `/client/identity?hostId=${encodeURIComponent(host)}`,
+          undefined,
+          controller.signal,
         );
         if (disposed) return;
-        const cache = new HistoryCache(
+        cache = new HistoryCache(
           JSON.stringify([location.origin, identity, host]),
         );
-        const stored = await cache.record('catalog').catch(() => undefined);
-        if (disposed) return;
-        if (stored) {
-          setProjects(stored.projects);
-          setProject(stored.projects[0]?.id || '');
-          setSessions(stored.sessions);
-        }
-        catalog.current = cache;
-        const operation = await cache
-          .record(`create:${stored?.projects[0]?.id || ''}`)
-          .catch(() => undefined);
-        if (!disposed && operation) setCreateOperation(operation);
-        const [p, result] = await Promise.all([
-          api(`/hosts/${host}/projects`),
-          api('/sessions?paged=true&hostId=' + host),
+        const [stored, navigation] = await Promise.all([
+          cache.record('catalog').catch(() => undefined),
+          cache.record('workspace').catch(() => undefined),
         ]);
         if (disposed) return;
-        setProjects(p);
-        setProject(p[0]?.id || '');
-        setSessions(result.data);
-        setSessionCursor(result.nextCursor);
+        const restored = restoreWorkspace(
+          navigation,
+          host,
+          stored?.projects || [],
+          stored?.sessions || [],
+        );
+        savedWorkspace.current = navigation;
+        setProjects(stored?.projects || []);
+        setProject(restored.projectId);
+        setSessions(stored?.sessions || []);
+        setSelected(restored.session);
+        catalog.current = cache;
+        catalogScope.current = host;
+        setCatalogHost(host);
       } catch (e) {
         if (!disposed) report(e);
       }
     })();
     return () => {
       disposed = true;
+      controller.abort();
+      cache?.close();
     };
   }, [host]);
   useEffect(() => {
-    if (projects.length && catalog.current)
+    if (catalogHost !== host || catalogScope.current !== host || !project)
+      return;
+    const navigation: WorkspaceState = {
+      projectId: project,
+      ...(selected?.projectId === project ? { session: selected } : {}),
+    };
+    savedWorkspace.current = navigation;
+    void catalog.current?.record('workspace', navigation).catch(() => {
+      setNotice('本机浏览状态未能保存，刷新后可能无法恢复当前会话。');
+    });
+  }, [host, catalogHost, project, selected]);
+  useEffect(() => {
+    if (projects.length && catalog.current && catalogScope.current === host)
       void catalog.current
         .record('catalog', { projects, sessions })
         .catch(() => {});
-  }, [projects, sessions]);
+  }, [host, projects, sessions]);
   useEffect(() => {
     let disposed = false;
     setCreateOperation(undefined);
@@ -456,7 +512,7 @@ function App() {
     return () => {
       disposed = true;
     };
-  }, [host, project]);
+  }, [host, project, catalogHost]);
   useEffect(() => {
     if (!createOperation || !host || !project) return;
     let disposed = false;
@@ -1460,6 +1516,7 @@ function App() {
             value={host}
             onChange={(e) => {
               setSelected(undefined);
+              rememberHost(e.target.value);
               setHost(e.target.value);
             }}
           >
@@ -1499,6 +1556,7 @@ function App() {
             )
               void api('/auth/forget', { hostId: host })
                 .then(() => {
+                  rememberHost('');
                   socket.current?.close();
                   setSelected(undefined);
                   return refresh();
