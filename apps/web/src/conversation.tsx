@@ -1,11 +1,19 @@
 import {
   memo,
   useState,
+  useContext,
   Children,
   isValidElement,
   type ReactNode,
 } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
+import {
+  FileContext,
+  FileLink,
+  FileText,
+  projectFilePath,
+  remarkFileLinks,
+} from './file-links.tsx';
 import remarkGfm from 'remark-gfm';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
@@ -86,6 +94,7 @@ const EventView = memo(
     reading?: boolean;
   }) {
     const [expanded, setExpanded] = useState(false);
+    const fileContext = useContext(FileContext);
     const chat =
       event.type === 'user' || event.type === 'item/agentMessage/delta';
     const chunk =
@@ -101,21 +110,29 @@ const EventView = memo(
         {chat ? (
           <div className={event.type === 'user' ? 'user-text' : 'markdown'}>
             {event.type === 'user' ? (
-              content
+              <FileText text={content || ''} />
             ) : (
               <Markdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkFileLinks]}
+                urlTransform={(url) =>
+                  fileContext && projectFilePath(url, fileContext.root)
+                    ? url
+                    : defaultUrlTransform(url)
+                }
                 components={{
+                  code: ({ children, className }) => (
+                    <code className={className}>
+                      <FileText text={plainText(children)} />
+                    </code>
+                  ),
                   pre: ({ children }) => (
                     <div className="code-block">
                       <CopyText text={plainText(children)} />
                       <pre>{children}</pre>
                     </div>
                   ),
-                  a: ({ children, ...props }) => (
-                    <a {...props} target="_blank" rel="noopener noreferrer">
-                      {children}
-                    </a>
+                  a: ({ children, href }) => (
+                    <FileLink href={href}>{children}</FileLink>
                   ),
                   img: ({ alt }) => <span>[图片：{alt}]</span>,
                 }}
@@ -130,7 +147,9 @@ const EventView = memo(
             {event.type === 'turn/diff/updated' ? (
               <Diff text={content || ''} />
             ) : (
-              <pre tabIndex={0}>{content}</pre>
+              <pre tabIndex={0}>
+                <FileText text={content || ''} />
+              </pre>
             )}
           </>
         )}

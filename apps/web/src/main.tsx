@@ -4,6 +4,7 @@ import React, {
   useRef,
   useState,
   useCallback,
+  useMemo,
 } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Event, Session } from '../../../packages/protocol/src/index.ts';
@@ -17,6 +18,7 @@ import {
   type ContentChunk,
 } from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
+import { FileContext } from './file-links.tsx';
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
@@ -196,6 +198,14 @@ function App() {
   const wakeConfigured =
     hosts.find((h) => h.id === host)?.wakeConfigured === true;
   const remoteTarget = `${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`;
+  const fileProject = projects.find((p) => p.id === selected?.projectId);
+  const fileContext = useMemo(
+    () =>
+      fileProject
+        ? { host, project: fileProject.id, root: fileProject.path }
+        : null,
+    [host, fileProject?.id, fileProject?.path],
+  );
   const projectContext = useRef({ host, project });
   useEffect(() => {
     projectContext.current = { host, project };
@@ -2319,12 +2329,14 @@ function App() {
                         )}
                       </div>
                       {historyNotice && <p role="status">{historyNotice}</p>}
-                      <ConversationView
-                        events={events}
-                        chunks={contentChunks}
-                        reading={readingContent}
-                        onRead={readContent}
-                      />
+                      <FileContext.Provider value={fileContext}>
+                        <ConversationView
+                          events={events}
+                          chunks={contentChunks}
+                          reading={readingContent}
+                          onRead={readContent}
+                        />
+                      </FileContext.Provider>
                       {busy && (
                         <p className="thinking" role="status">
                           ●{' '}

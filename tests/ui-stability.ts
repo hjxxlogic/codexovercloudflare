@@ -48,7 +48,10 @@ const events = [
   {
     seq: 5,
     type: 'item/agentMessage/delta',
-    data: { delta: '任务已完成。' },
+    data: {
+      delta:
+        '任务已完成。\n\n[下载报告](/workspace/example/docs/report.bin:12) · `docs/report.bin` · docs/missing.txt · [项目外文件](/etc/passwd) · [外部网站](https://example.com/)',
+    },
     time: 5,
   },
   {
@@ -270,6 +273,69 @@ try {
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);
   assert.match(await group.locator(':scope > summary').innerText(), /3 项/);
+  const downloadBytes = Buffer.alloc(65539, 255);
+  const fileReads: {
+    projectId: string;
+    path: string;
+    offset: number;
+    version?: string;
+  }[] = [];
+  await page.route('**/api/v1/hosts/sample/files', async (route) => {
+    const data = route.request().postDataJSON();
+    if (data.operation !== 'read') return route.continue();
+    fileReads.push(data);
+    if (data.path === 'docs/missing.txt')
+      return route.fulfill({
+        status: 404,
+        json: { error: { code: 'NOT_FOUND', message: 'File not found' } },
+      });
+    const chunk = downloadBytes.subarray(data.offset, data.offset + 65536);
+    await route.fulfill({
+      json: {
+        data: chunk.toString('base64'),
+        size: downloadBytes.length,
+        offset: data.offset + chunk.length,
+        version: 'report-v1',
+      },
+    });
+  });
+  await page
+    .getByRole('link', { name: '下载 docs/missing.txt', exact: true })
+    .click();
+  await expect(page.getByText(/下载失败：NOT_FOUND/)).toBeVisible();
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const saved = page.waitForEvent('download');
+    await page
+      .getByRole('link', { name: '下载 docs/report.bin', exact: true })
+      .first()
+      .click();
+    const download = await saved;
+    assert.equal(download.suggestedFilename(), 'report.bin');
+    assert.deepEqual(readFileSync((await download.path())!), downloadBytes);
+    await expect(
+      page
+        .getByRole('link', { name: '下载 docs/report.bin', exact: true })
+        .first(),
+    ).toHaveAttribute('aria-disabled', 'false');
+    await page.screenshot({
+      path: join(artifacts, `chat-download-${viewport.width}.png`),
+    });
+  }
+  assert(fileReads.every((read) => read.projectId === 'project'));
+  assert.equal(
+    fileReads.filter(
+      (read) => read.offset === 65536 && read.version === 'report-v1',
+    ).length,
+    2,
+  );
+  await expect(page.locator('a[href="/etc/passwd"]')).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: '外部网站', exact: true }),
+  ).toHaveAttribute('href', 'https://example.com/');
   await page.getByRole('button', { name: '展开内容' }).click();
   await page.getByText('第一段', { exact: true }).waitFor();
   await page.getByRole('button', { name: '展开更多' }).click();
@@ -730,7 +796,7 @@ try {
   await expect(menu.getByRole('button', { name: /^CW 对话/ })).toHaveCount(0);
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

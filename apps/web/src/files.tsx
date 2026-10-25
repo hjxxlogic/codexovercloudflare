@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryCache } from './history.ts';
 import { api, ApiError } from './api.ts';
+import { downloadFile } from './download.ts';
 
 type Entry = { name: string; directory: boolean; size: number };
 const chunkSize = 64 * 1024;
@@ -220,63 +221,17 @@ export function WorkspaceFiles({
     if (busy) return;
     const controller = start();
     try {
-      const parts: BlobPart[] = [];
-      const remotePath = path ? `${path}/${entry.name}` : entry.name;
-      const first = await call(
-        { operation: 'read', path: remotePath, offset: 0 },
+      await downloadFile(
+        host,
+        project,
+        path ? `${path}/${entry.name}` : entry.name,
         controller.signal,
+        (offset, size) => {
+          setFraction(size ? offset / size : 1);
+          setProgress(`正在下载 ${entry.name}…`);
+        },
       );
-      const size = first.size as number;
-      const version = first.version as string;
-      let offset = 0;
-      const append = (result: any, requested: number) => {
-        const bytes = Uint8Array.from(atob(result.data), (c) =>
-          c.charCodeAt(0),
-        );
-        if (
-          result.version !== version ||
-          result.size !== size ||
-          result.offset !== requested + bytes.length ||
-          bytes.length !== Math.min(chunkSize, size - requested)
-        )
-          throw new Error('下载内容发生变化或不完整，请重试。');
-        parts.push(bytes);
-        offset = result.offset;
-      };
-      append(first, 0);
-      while (offset < size) {
-        setProgress(`正在下载 ${entry.name}…`);
-        const offsets = Array.from(
-          { length: 4 },
-          (_, i) => offset + i * chunkSize,
-        ).filter((at) => at < size);
-        const results = await Promise.allSettled(
-          offsets.map((at) =>
-            call(
-              { operation: 'read', path: remotePath, offset: at, version },
-              controller.signal,
-            ),
-          ),
-        );
-        for (let i = 0; i < results.length; i++) {
-          const result = results[i];
-          if (result.status === 'rejected') throw result.reason;
-          append(result.value, offsets[i]);
-        }
-        setFraction(size ? offset / size : 1);
-      }
-      controller.signal.throwIfAborted();
-      const url = URL.createObjectURL(
-        new Blob(parts, { type: 'application/octet-stream' }),
-      );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = entry.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setProgress(`已交给浏览器下载 ${entry.name} · ${sizeLabel(offset)}`);
+      setProgress(`已交给浏览器下载 ${entry.name}`);
       finish(controller);
     } catch (e) {
       finish(controller, e);
