@@ -2,6 +2,14 @@
 
 更新时间：2026-10-26。本轮按用户要求保存进度，下次从本文继续。
 
+## 测试续修进展 · 2026-10-26
+
+- `1855bfa` 的 [Actions 40303440332](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40303440332) 已结束：Windows 登录测试及整个 Windows 作业通过，两个 Linux 平台和 sanitizers 通过；regression 仍在 E2E / UI 组合步骤失败。
+- 本机当前原生与网页构建下完整 E2E 通过；此前跨主机新建会话的 `chat ready` 超时未复现，根因仍未知。独立 UI 回归找到英文管理员登录后仍等待旧标题的确定性失败，更新为待授权 Tab 标题并检查中英文选中状态后，全量 UI 通过。
+- 新增 E2E 失败截图 / 状态输出，并将 CI 浏览器命令接入 UTF-8 错误注释包装器。原生构建、网页构建、CTest、86 项 Vitest、5 项登录、TLS、类型 / 格式 / 协议检查通过，详见 [测试记录](TEST_REPORT.md)。本轮尚未提交推送或执行新 CI，未创建发行版或部署。
+- 旧 `coc-release-check-059` 容器及 `.local/release-0.5.9/` 在当前环境不存在，下文为上次环境的历史记录。本轮使用现有 `coc-release-test` 镜像、宿主 `~/.cache/ms-playwright` 浏览器缓存，挂载仓库至 `/workspace`，设置 `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`；宿主 OpenSSL 1.1 运行库只读挂入 `/opt/coc-libs` 并加入 `LD_LIBRARY_PATH`。日志在 `/tmp/coc-current-e2e.log`、`/tmp/coc-resume-ui-fixed.log` 与 `/tmp/coc-resume-*.log`，截图在 `.local/resume-tests/`。
+- 后续先提交测试修复并验证新 CI；全部门禁通过后再按下文发行流程准备 0.5.10。不要移动已有 `v0.5.9` 标签。
+
 ## 已提交与线上状态
 
 - 功能源码提交：`9002f525401ae11f901357ba095d877f145bcc93`（`feat: add native proxies, instance names and admin tabs`），已推送 `origin/master`，标签 `v0.5.9` 指向该提交。

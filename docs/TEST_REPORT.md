@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## 0.5.9 测试续修 · 2026-10-26 · 未发布
+
+- 已核对提交 `1855bfa` 的 [Actions 40303440332](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40303440332)：Windows x64（含登录恢复与默认配置）、两个 Linux 平台及 sanitizers 全通过，regression 仍在 E2E / UI 组合步骤失败。没有获取该次完整 job 日志，不能断言与本机失败完全相同。
+- 当前源码重新构建原生程序与网页后，在现有 Bookworm 测试镜像运行完整 `test:e2e` 通过，包含双 Cookie、跨主机新建会话、各标签页独立控制、审批、历史、文件、撤销与重连。上次 `chat ready` 超时本轮未复现，未放宽超时或宣称已找到其根因。
+- 独立 `test:ui` 复现英文管理员登录后等待旧标题 `Device access management` 失败；实际界面为 `Pending access requests` Tab。更新标题断言，并检查英文待授权 / API Key Tab 与切换中文后的选中状态；完整 UI 回归重跑通过。
+- E2E 失败时新增各页面截图与对话状态输出，单页截图最多等待五秒；CI 的 E2E / UI 命令使用现有 UTF-8 包装器输出错误注释，截图继续作为 browser-evidence 上传。
+- 本机原生 Release 构建、网页构建、CTest 1/1、Vitest 9 文件 / 86 项、原生登录 5 项、TLS 六组、TypeScript、ESLint / Prettier、C++ 格式及协议生成一致性检查通过。日志保存在 `/tmp/coc-current-e2e.log`、`/tmp/coc-resume-ui-fixed.log` 与 `/tmp/coc-resume-*.log`，浏览器产物位于 `.local/resume-tests/`。无模型调用或生产操作；本轮改动尚未推送或在新 CI 上验证。
+
 ## 0.5.9 发布候选受阻与交接 · 2026-10-26
 
 - 功能源码 `9002f52` 与 `v0.5.9` 已推送。Actions `40300123744` 的两个 Linux 平台和 sanitizers 通过；Windows 编译 / CTest 通过，但原生登录配置测试失败，regression 的完整 E2E / UI 步骤也失败，发布作业跳过。线上没有部署，仍为 0.5.8。

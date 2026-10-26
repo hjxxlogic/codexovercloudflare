@@ -61,6 +61,8 @@ npm run test:native -- --task
 
 先执行 `npm run build:web`，再用 `npx tsx tests/ui-wake.ts` 检查管理员五个 Tab、键盘切换、唤醒配置及手机布局；`COC_ARTIFACT_DIR` 指定截图目录。需要可用的 Playwright Chromium；这些测试需允许监听本机端口。
 
+`npm run test:ui` 同时检查英文管理员登录后的“Pending access requests”面板、菜单进入 API Key Tab，以及切换中文后仍保留选中状态。界面改为 Tab 后，不再等待旧的“Device access management”标题。完整 `test:e2e` 失败时会在 `COC_ARTIFACT_DIR` 保存各页面的 `e2e-failure-*.png`，并输出对话连接状态与错误；CI 通过 UTF-8 包装器将失败尾部日志附加到检查注释。原生与网页构建完成后再启动 E2E，避免 Wrangler 使用旧资源快照。
+
 ## 3. Ubuntu 20.04 容器方案
 
 新版 workerd 需要更新的 glibc；用 Bookworm 容器运行中转和浏览器，不替换宿主系统库：

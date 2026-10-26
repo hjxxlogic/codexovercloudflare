@@ -1039,19 +1039,29 @@ try {
   await page.getByLabel('Owner secret').fill('synthetic-owner-secret');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Device access management' }),
+    page.getByRole('heading', { name: 'Pending access requests' }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('tab', { name: 'Pending access requests' }),
+  ).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Feature menu' }).click();
   await englishMenu.getByRole('button', { name: /^API Key/ }).click();
   await expect(
     page.getByRole('heading', { name: 'API Key management' }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('tab', { name: 'API Key management' }),
+  ).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByLabel('Key name')).toBeVisible();
   await page.getByRole('button', { name: 'Feature menu' }).click();
   await page.getByLabel('语言 / Language').selectOption('zh-CN');
   await expect(
     page.getByRole('heading', { name: 'API Key 管理' }),
   ).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'API Key 管理' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   assert.deepEqual(failures, []);
   console.log(
     'PASS: Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',

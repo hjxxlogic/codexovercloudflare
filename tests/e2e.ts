@@ -2339,6 +2339,29 @@ try {
     'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
   );
 } catch (e) {
+  if (browser) {
+    mkdirSync(artifacts, { recursive: true });
+    let index = 0;
+    for (const context of browser.contexts()) {
+      for (const page of context.pages()) {
+        const name = `e2e-failure-${index++}`;
+        await page
+          .screenshot({
+            path: join(artifacts, name + '.png'),
+            fullPage: true,
+            timeout: 5000,
+          })
+          .catch(() => {});
+        console.error(
+          name,
+          await page
+            .locator('.composer, .error, .conversation .status, .chat-welcome')
+            .allTextContents()
+            .catch(() => []),
+        );
+      }
+    }
+  }
   console.error(logs.replaceAll(secret, '[test-secret]'));
   throw e;
 } finally {

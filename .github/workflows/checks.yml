@@ -39,7 +39,7 @@ jobs:
       - run: npm run test:release
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e && npm run test:ui
+      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui
         env:
           COC_ARTIFACT_DIR: .local/screenshots
       - uses: actions/upload-artifact@v4
