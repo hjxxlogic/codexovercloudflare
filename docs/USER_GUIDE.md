@@ -1,6 +1,6 @@
 # 用户手册
 
-> 0.5.9 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
+> 0.5.10 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
 
 ## 1. 组件与权限
 
