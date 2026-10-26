@@ -17,6 +17,10 @@
 
 0.5.8 已发布：源码 `caca2b8`、标签 `v0.5.8`，Worker `3925ec98-8742-4b73-bab4-dc97e71ceb16`。三个平台包、源码、网页和在线手册已同步更新；Actions 全部门禁及线上资源字节校验通过，详细证据与验收边界见 [测试记录](TEST_REPORT.md)。
 
+## 后续网页更新：管理表格与会话自动批准
+
+待授权、已授权设备、唤醒配置和 API Key 使用原生表格，手机端局部横向滚动；按行保留审批、目标锁定、保存及撤销操作。CW 同时增加显式开启、仅当前会话有效的自动批准，包含命令、文件及本轮额外权限；服务器审批策略保持权威。此更新属于网页 / 在线手册更新，完成类型、格式、单元、UI、唤醒及真实中继 E2E 回归后提交，等待 Actions 门禁通过再部署；发布结果另记测试记录。
+
 ## Actions 发布流程
 
 推送干净提交后由 `.github/workflows/checks.yml` 执行构建测试，包括常规回归、ASan/UBSan、Ubuntu 20.04 / Debian 12、Linux musl 全静态版和 Windows x64。推送匹配 package.json 的 `v` 版本标签后，只有全部作业通过才运行发布作业；`scripts/assemble-release.py` 核对各平台版本、提交、源码摘要、协议与归档 SHA256，组装网页和下载目录并上传 GitHub Release。下载 Release 的 `coc-VERSION-site.tar.gz` 后，用已认证的 Wrangler 将该站点与同一提交的 Worker 部署；Actions 不持有 Cloudflare 凭据，也不自动部署生产。

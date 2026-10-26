@@ -35,7 +35,20 @@ let online = true,
   admin = false,
   attachFailures = 0,
   attachCalls = 0;
-let approvals: unknown[] = [];
+let approvals: {
+  approvalId: string;
+  method: string;
+  params: Record<string, unknown>;
+  submitted?: boolean;
+  unsupported?: boolean;
+}[] = [];
+const approvalAnswers: {
+  approvalId: string;
+  requestId: string;
+  allow: boolean;
+  sessionId: string;
+}[] = [];
+let dropApprovalAck = false;
 const submitted = new Set<string>();
 let contentCalls = 0;
 let pagedHistory:
@@ -43,6 +56,29 @@ let pagedHistory:
   | undefined;
 let olderPageCalls = 0;
 let failOlderPageOnce = false;
+let adminSamples = false;
+const adminMessage =
+  '申请说明：<script>alert(1)</script>\n' + '长留言'.repeat(100);
+const adminHost = { id: 'sample', name: '示例服务器', disabled: false };
+const adminPending = [
+  {
+    id: 'request-unbound',
+    name: '待授权设备-' + 'long-name-'.repeat(12),
+    role: 'web',
+    code: 'TABLE001',
+    message: adminMessage,
+    expires: Date.now() + 300000,
+  },
+  {
+    id: 'request-targeted',
+    name: '指定目标的客户端',
+    role: 'cli',
+    code: 'TABLE002',
+    requestedHostId: 'sample',
+    message: '目标不可改绑',
+    expires: Date.now() + 300000,
+  },
+];
 const events = [
   { seq: 1, type: 'user', data: { text: '示例任务' }, time: 1 },
   ...[2, 3, 4].map((seq) => ({
@@ -87,8 +123,34 @@ const server = createServer((req, res) => {
       body = { error: { code: 'UNAUTHORIZED', message: 'Login required' } };
     } else if (path === '/auth/login') admin = true;
     else if (path === '/auth/logout') admin = false;
-    else if (path === '/admin/devices') body = { pending: [], credentials: [] };
-    else if (path === '/admin/api-keys' || path === '/admin/hosts') body = [];
+    else if (path === '/admin/devices')
+      body = {
+        pending: adminSamples ? adminPending : [],
+        credentials: adminSamples
+          ? [
+              {
+                id: 'credential-table',
+                name: '已授权设备-' + '长名称'.repeat(20),
+                role: 'cli',
+                hostId: 'sample',
+                created: 1700000000000,
+              },
+            ]
+          : [],
+      };
+    else if (path === '/admin/api-keys')
+      body = adminSamples
+        ? [
+            {
+              id: 'key-table',
+              name: '表格测试 Key',
+              role: 'cli',
+              hostId: 'sample',
+              created: 1700000000000,
+            },
+          ]
+        : [];
+    else if (path === '/admin/hosts') body = adminSamples ? [adminHost] : [];
     else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
     else if (path === '/client/identity') body = { identity };
@@ -251,6 +313,28 @@ wss.on('connection', (ws, request) => {
       ws.send(JSON.stringify({ type: 'attached', epoch: 1 }));
     else if (data.action === 'sync') sync(ws);
     else if (data.action === 'prompt') submitted.add(data.requestId);
+    else if (data.action === 'approval') {
+      approvalAnswers.push({
+        approvalId: data.approvalId,
+        requestId: data.requestId,
+        allow: data.allow,
+        sessionId: controlSessions.get(ws)!.id,
+      });
+      if (dropApprovalAck) {
+        dropApprovalAck = false;
+        ws.close();
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: 'ack',
+            requestId: data.requestId,
+            result: { state: 'approval-submitted' },
+          }),
+        );
+        // Leave the request in sync snapshots to exercise deduplication after acknowledgement.
+        sync(ws);
+      }
+    }
   });
 });
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
@@ -682,6 +766,115 @@ try {
   );
   approvals = [];
   for (const ws of controls) sync(ws);
+  const autoApprove = page.getByRole('checkbox', {
+    name: '自动批准当前会话',
+    exact: true,
+  });
+  await expect(autoApprove).not.toBeChecked();
+  approvals = [
+    {
+      approvalId: 'auto-command',
+      method: 'item/commandExecution/requestApproval',
+      params: { command: 'echo automatic' },
+    },
+    {
+      approvalId: 'auto-file',
+      method: 'item/fileChange/requestApproval',
+      params: { grantRoot: '/workspace/example' },
+    },
+    {
+      approvalId: 'auto-permissions',
+      method: 'item/permissions/requestApproval',
+      params: { permissions: { network: { enabled: true } } },
+    },
+    {
+      approvalId: 'auto-submitted',
+      method: 'item/commandExecution/requestApproval',
+      params: {},
+      submitted: true,
+    },
+    {
+      approvalId: 'auto-unsupported',
+      method: 'item/tool/requestUserInput',
+      params: {},
+      unsupported: true,
+    },
+  ];
+  for (const ws of controls) sync(ws);
+  await expect(page.getByText('等待你的确认 · 1 / 5')).toBeVisible();
+  assert.equal(approvalAnswers.length, 0, 'automatic approval defaults to off');
+  await autoApprove.check();
+  await expect.poll(() => approvalAnswers.length).toBe(3);
+  assert.deepEqual(
+    approvalAnswers.map((answer) => answer.approvalId),
+    ['auto-command', 'auto-file', 'auto-permissions'],
+  );
+  assert(
+    approvalAnswers.every(
+      (answer) => answer.allow && answer.sessionId === session.id,
+    ),
+  );
+  assert.equal(
+    new Set(approvalAnswers.map((answer) => answer.requestId)).size,
+    3,
+  );
+  for (const ws of controls) sync(ws);
+  await autoApprove.uncheck();
+  await autoApprove.check();
+  await page.waitForTimeout(100);
+  assert.equal(
+    approvalAnswers.length,
+    3,
+    'sync replay and toggling do not repeat a decision',
+  );
+  await autoApprove.uncheck();
+  approvals = [
+    {
+      approvalId: 'auto-lost-ack',
+      method: 'item/commandExecution/requestApproval',
+      params: { command: 'echo once' },
+    },
+  ];
+  for (const ws of controls) sync(ws);
+  await expect(page.getByText('等待你的确认 · 1 / 1')).toBeVisible();
+  assert.equal(
+    approvalAnswers.length,
+    3,
+    'disabled switch does not approve new requests',
+  );
+  const beforeReconnect = attachCalls;
+  dropApprovalAck = true;
+  await autoApprove.check();
+  await expect.poll(() => attachCalls).toBeGreaterThan(beforeReconnect);
+  await page.locator('.auto-approval summary').click();
+  await expect(
+    page.getByText('已自动提交 4 项审批', { exact: true }),
+  ).toBeVisible();
+  const approvalDetails = (await page
+    .locator('.auto-approval-details')
+    .boundingBox())!;
+  assert(
+    approvalDetails.x >= 0 && approvalDetails.x + approvalDetails.width <= 390,
+    'auto-approval scope stays inside the mobile viewport',
+  );
+  for (const ws of controls) sync(ws);
+  await page.waitForTimeout(100);
+  assert.equal(
+    approvalAnswers.length,
+    4,
+    'lost acknowledgement and reconnect do not resubmit approval',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'cw-auto-approval-390.png'),
+    animations: 'disabled',
+  });
+  await page.locator('.auto-approval summary').click();
+  await page.reload();
+  await expect(autoApprove).not.toBeChecked();
+  await expect(page.getByText('等待你的确认 · 1 / 1')).toBeVisible();
+  assert.equal(approvalAnswers.length, 4, 'reload resets automatic approval');
+  approvals = [];
+  for (const ws of controls) sync(ws);
   await page.setViewportSize({ width: 390, height: 844 });
   await openMenu(page);
   await page.waitForTimeout(4500);
@@ -1036,6 +1229,7 @@ try {
   await englishMenu
     .getByRole('button', { name: 'Switch to Administrator mode', exact: true })
     .click();
+  adminSamples = true;
   await page.getByLabel('Owner secret').fill('synthetic-owner-secret');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
@@ -1044,6 +1238,30 @@ try {
   await expect(
     page.getByRole('tab', { name: 'Pending access requests' }),
   ).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('table', { name: 'Pending access requests', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Actions', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Approve TABLE001', exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByLabel('Target server TABLE001', { exact: true })
+    .selectOption('sample');
+  await expect(
+    page.getByRole('button', { name: 'Approve TABLE001', exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByLabel('Target server TABLE002', { exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByLabel('Target server TABLE002', { exact: true }),
+  ).toHaveValue('sample');
+  await expect(page.locator('.request-message').first()).toHaveText(
+    adminMessage,
+  );
   await page.getByRole('button', { name: 'Feature menu' }).click();
   await englishMenu.getByRole('button', { name: /^API Key/ }).click();
   await expect(
@@ -1062,6 +1280,43 @@ try {
     'aria-selected',
     'true',
   );
+  await page.keyboard.press('Escape');
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const [tab, name] of [
+      ['pending', '待授权请求'],
+      ['authorized', '已授权设备'],
+      ['wake', '服务器唤醒配置'],
+      ['keys', 'API Key 管理'],
+    ]) {
+      await page.getByRole('tab', { name, exact: true }).click();
+      await expect(
+        page.getByRole('tab', { name, exact: true }),
+      ).toHaveAttribute('aria-selected', 'true');
+      await expect(
+        page.getByRole('table', { name, exact: true }),
+      ).toBeVisible();
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `${name}: no page overflow at ${width}px`,
+      );
+      await page.screenshot({
+        path: join(artifacts, `admin-table-${tab}-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+      if (width === 390) {
+        const region = page.getByRole('region', { name, exact: true });
+        await region.focus();
+        await region.press('ArrowRight');
+        await expect
+          .poll(() => region.evaluate((element) => element.scrollLeft))
+          .toBeGreaterThan(0);
+      }
+    }
+  }
   assert.deepEqual(failures, []);
   console.log(
     'PASS: Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',

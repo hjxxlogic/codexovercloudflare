@@ -1753,17 +1753,15 @@ try {
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
   const pending = await visitorPage.locator('strong').innerText();
-  const requestCard = page
-    .locator('.card')
+  const requestRow = page
+    .getByRole('row')
     .filter({
       has: page.getByRole('button', { name: '批准 ' + pending, exact: true }),
     })
     .last();
-  await requestCard
-    .getByText('留言：' + browserMessage, { exact: true })
-    .waitFor();
+  await requestRow.getByText(browserMessage, { exact: true }).waitFor();
   assert(
-    await requestCard
+    await requestRow
       .getByRole('button', { name: '批准 ' + pending, exact: true })
       .isDisabled(),
   );
@@ -1994,6 +1992,37 @@ try {
   await visitorPage
     .getByRole('region', { name: '待确认请求' })
     .waitFor({ state: 'hidden' });
+  const autoApprove = visitorPage.getByRole('checkbox', {
+    name: '自动批准当前会话',
+    exact: true,
+  });
+  assert.equal(await autoApprove.isChecked(), false);
+  await autoApprove.check();
+  const automaticRequests = [
+    sharedApprovals.add('external-history'),
+    sharedApprovals.add('external-history', 'item/fileChange/requestApproval'),
+    sharedApprovals.add('external-history', 'item/permissions/requestApproval'),
+  ];
+  await wait(
+    () => automaticRequests.every((id) => sharedApprovals.decisions.has(id)),
+    'CW automatic command, file and per-turn permission decisions',
+  );
+  for (const id of automaticRequests.slice(0, 2))
+    assert.deepEqual(sharedApprovals.decisions.get(id), { decision: 'accept' });
+  assert.deepEqual(sharedApprovals.decisions.get(automaticRequests[2]), {
+    permissions: { network: { enabled: true } },
+    scope: 'turn',
+  });
+  await visitorPage.locator('.auto-approval summary').click();
+  await visitorPage.screenshot({
+    path: join(artifacts, 'cw-auto-approval-desktop.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await visitorPage.locator('.auto-approval summary').click();
+  pass(
+    'CW explicit opt-in automatically answers command, file and turn permission approvals through the original server',
+  );
   if (await visitorPage.locator('.notice').isVisible())
     await visitorPage
       .locator('.notice')
@@ -2010,6 +2039,13 @@ try {
   await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage.getByRole('heading', { name: 'Restored reply' }).waitFor();
+  assert.equal(
+    await visitorPage
+      .getByRole('checkbox', { name: '自动批准当前会话', exact: true })
+      .isChecked(),
+    false,
+    'switching sessions resets automatic approval',
+  );
   assert.equal(await visitorPage.locator('.markdown table').count(), 1);
   assert.equal(
     await visitorPage.locator('.markdown pre code').innerText(),

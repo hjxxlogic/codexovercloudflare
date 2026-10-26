@@ -517,6 +517,7 @@ pre {
   overflow-y: auto;
 }
 .composer {
+  position: relative;
   background: #282d37;
   border: 1px solid #4a5364;
   border-radius: 16px;
@@ -881,6 +882,61 @@ button {
   background: #38301f;
   font-size: 13px;
 }
+.auto-approval {
+  flex: 0 1 auto;
+  max-width: calc(100% - 76px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+}
+.composer .auto-approval.is-enabled label {
+  color: var(--accent);
+}
+.auto-approval details {
+  position: static;
+  flex-shrink: 0;
+}
+.auto-approval summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.auto-approval-details {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 25;
+  width: min(320px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px #0006;
+}
+.auto-approval-details [role='status'] {
+  display: block;
+  margin-top: 8px;
+}
+.composer .auto-approval label {
+  width: auto;
+  font-size: 13px;
+  color: inherit;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.auto-approval input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.auto-approval small,
+.auto-approval [role='status'] {
+  font-size: 12px;
+}
 .approval-heading,
 .approval-actions {
   flex-shrink: 0;
@@ -951,6 +1007,9 @@ button {
   padding: 6px;
 }
 @media (max-width: 760px) {
+  .composer .auto-approval ~ .composer-help {
+    display: none;
+  }
   .chat-workspace .topbar {
     padding: 0 8px;
   }
@@ -1035,7 +1094,106 @@ progress {
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.admin-tabs [aria-selected='true'] {
+.admin-tabs [role='tab'][aria-selected='true'] {
   background: var(--accent, #2563eb);
-  color: white;
+  color: #15243e;
+}
+
+.admin-table-container {
+  margin-top: 16px;
+}
+.admin-table-hint {
+  display: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #30343f;
+  border-radius: 10px;
+  overscroll-behavior-x: contain;
+}
+.admin-table-scroll:focus-visible {
+  outline: 2px solid #91b9f8;
+  outline-offset: 3px;
+}
+.admin-table {
+  width: 100%;
+  min-width: 800px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+}
+.admin-table-wide {
+  min-width: 1120px;
+}
+.admin-table th,
+.admin-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #30343f;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.admin-table thead th {
+  background: #242831;
+  color: #b9c2d1;
+  font-weight: 600;
+}
+.admin-table tbody th {
+  font-weight: 600;
+}
+.admin-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.admin-table tbody tr:hover {
+  background: #22262e;
+}
+.admin-table small {
+  display: block;
+  margin-top: 6px;
+}
+.admin-table p {
+  margin: 6px 0;
+}
+.admin-table details {
+  margin-top: 8px;
+  font-weight: 400;
+  font-size: 12px;
+}
+.admin-table summary {
+  cursor: pointer;
+  color: #aeb6c5;
+}
+.admin-table .request-message {
+  max-height: 8rem;
+  overflow: auto;
+}
+.admin-table input,
+.admin-table select {
+  width: 100%;
+}
+.admin-table form {
+  gap: 8px;
+}
+.admin-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-table button {
+  padding: 8px 10px;
+}
+.admin-table-empty {
+  text-align: left;
+  color: #989fac;
+}
+.admin-table .highlight-request {
+  outline-offset: -2px;
+  background: #353020;
+}
+@media (max-width: 760px) {
+  .admin-table-hint {
+    display: block;
+  }
 }

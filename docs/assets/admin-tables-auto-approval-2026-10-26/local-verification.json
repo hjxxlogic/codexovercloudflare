@@ -1,0 +1,28 @@
+{
+  "verifiedAt": "2026-10-26T12:53:21.643433+00:00",
+  "environment": "local deterministic relay / native Agent / simulated original app-server / Chromium",
+  "checks": [
+    "TypeScript",
+    "ESLint",
+    "Prettier",
+    "Vitest: 9 files / 86 tests",
+    "web build",
+    "complete UI stability",
+    "wake save/disable/restore",
+    "complete real Worker/DO/native Agent E2E",
+    "admin tables at 1280 and 390 widths, keyboard region scrolling and no page overflow",
+    "unselected approval target blocked and selected target locked",
+    "literal long messages and names",
+    "automatic command, file and per-turn permissions through original server",
+    "auto-approval defaults off, ignores submitted/unsupported, no duplicate on replay/toggle/lost ack/reconnect",
+    "auto-approval reset on reload and session switch",
+    "short viewport approval body and actions accessible"
+  ],
+  "modelCalls": false,
+  "productionCredentialsUsed": false,
+  "logs": [
+    "/tmp/coc-admin-tables-ui.log",
+    "/tmp/coc-admin-tables-e2e.log",
+    "/tmp/coc-ui-vitest.log"
+  ]
+}

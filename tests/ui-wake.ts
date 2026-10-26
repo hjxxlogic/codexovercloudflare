@@ -122,8 +122,9 @@ try {
     page.getByRole('tab', { name: '服务器唤醒配置', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   const settings = page
-    .locator('form')
-    .filter({ has: page.getByRole('heading', { name: '开发服务器' }) });
+    .getByRole('table', { name: '服务器唤醒配置', exact: true })
+    .getByRole('row')
+    .filter({ has: page.getByRole('rowheader', { name: /^开发服务器/ }) });
   await expect(
     settings.getByText('使用 Agent 配置', { exact: true }).first(),
   ).toBeVisible();

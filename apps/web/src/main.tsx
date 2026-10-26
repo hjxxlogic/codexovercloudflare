@@ -35,6 +35,8 @@ import {
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
+import { AdminTable } from './admin-table.tsx';
+import { AutoApproval } from './auto-approval.tsx';
 
 function MenuIcon() {
   return (
@@ -1260,7 +1262,7 @@ function App() {
     [key: string]: unknown;
   }) => {
     if (socket.current?.readyState !== WebSocket.OPEN || !ready || !online)
-      return;
+      return false;
     if (data.action === 'prompt' && pendingCommand.current) return;
     const command = { ...data, requestId: crypto.randomUUID() };
     const targetSocket = socket.current;
@@ -1299,8 +1301,15 @@ function App() {
         }
       })();
     } else {
-      setPending(true);
-      socket.current.send(JSON.stringify(command));
+      try {
+        socket.current.send(JSON.stringify(command));
+        setPending(true);
+        return true;
+      } catch (error) {
+        report(error);
+        setPending(false);
+        return false;
+      }
     }
   };
   async function login(e: React.FormEvent) {
@@ -1981,152 +1990,208 @@ function App() {
                   {managing}
                 </p>
               )}
-              {!devices.pending.length && <p>{t('暂无待授权请求')}</p>}
-              {devices.pending.map((d) => (
-                <div
-                  className={`card ${d.id === managing ? 'highlight-request' : ''}`}
-                  id={`request-${d.id}`}
-                  key={d.id}
-                >
-                  <p>
-                    {d.name} ·{' '}
-                    {d.role === 'agent'
-                      ? t('服务器 Agent')
-                      : d.role === 'cli'
-                        ? t('命令行客户端')
-                        : t('网页客户端')}{' '}
-                    {t('· 配对码')} {d.code}
-                  </p>
-                  {d.role !== 'agent' ? (
-                    <>
-                      <p className="request-message">
-                        {t('留言：')}
+              <AdminTable
+                label={t('待授权请求')}
+                columns={[
+                  '设备名称',
+                  '角色',
+                  '配对码',
+                  '留言',
+                  '目标服务器',
+                  '有效期',
+                  '操作',
+                ].map((label) => t(label))}
+                empty={!devices.pending.length}
+                emptyText={t('暂无待授权请求')}
+              >
+                {devices.pending.map((d) => (
+                  <tr
+                    className={
+                      d.id === managing ? 'highlight-request' : undefined
+                    }
+                    id={`request-${d.id}`}
+                    key={d.id}
+                  >
+                    <th scope="row">
+                      {d.name}
+                      <details>
+                        <summary>{t('请求标识')}</summary>
+                        <p className="id">{d.id}</p>
+                      </details>
+                    </th>
+                    <td>
+                      {d.role === 'agent'
+                        ? t('服务器 Agent')
+                        : d.role === 'cli'
+                          ? t('命令行客户端')
+                          : t('网页客户端')}
+                    </td>
+                    <td>
+                      <code>{d.code}</code>
+                    </td>
+                    <td>
+                      <p className="request-message" tabIndex={0}>
                         {d.message || t('未填写')}
                       </p>
-                      <label>
-                        {t('目标服务器')}
-                        <select
-                          aria-label={t('目标服务器 {0}', d.code)}
-                          value={d.requestedHostId || approvalHosts[d.id] || ''}
-                          disabled={!!d.requestedHostId}
-                          onChange={(e) =>
-                            setApprovalHosts((current) => ({
-                              ...current,
-                              [d.id]: e.target.value,
-                            }))
+                    </td>
+                    <td>
+                      {d.role !== 'agent' ? (
+                        <>
+                          <select
+                            aria-label={t('目标服务器 {0}', d.code)}
+                            value={
+                              d.requestedHostId || approvalHosts[d.id] || ''
+                            }
+                            disabled={!!d.requestedHostId}
+                            onChange={(e) =>
+                              setApprovalHosts((current) => ({
+                                ...current,
+                                [d.id]: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">{t('请选择服务器')}</option>
+                            {keyHosts.map((h) => (
+                              <option key={h.id} value={h.id}>
+                                {h.name} · {h.id}
+                              </option>
+                            ))}
+                          </select>
+                          {d.requestedHostId && (
+                            <p className="id">
+                              {t('申请方指定：')}
+                              {d.requestedHostId}
+                              {t('；该 Agent 也可批准或拒绝。')}
+                            </p>
+                          )}
+                          {!keyHosts.length && (
+                            <p>
+                              {t('暂无可授权的服务器，请先授权服务器 Agent。')}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        keyHosts.find((host) => host.id === d.hostId)?.name ||
+                        d.hostId
+                      )}
+                    </td>
+                    <td>
+                      <time dateTime={new Date(d.expires).toISOString()}>
+                        {new Date(d.expires).toLocaleString(localeTag())}
+                      </time>
+                    </td>
+                    <td>
+                      <div className="admin-table-actions">
+                        <button
+                          disabled={
+                            generating ||
+                            (d.role !== 'agent' &&
+                              !keyHosts.some(
+                                (h) =>
+                                  h.id ===
+                                  (d.requestedHostId || approvalHosts[d.id]),
+                              ))
                           }
+                          onClick={() => void manage('approve', d.id)}
                         >
-                          <option value="">{t('请选择服务器')}</option>
-                          {keyHosts.map((h) => (
-                            <option key={h.id} value={h.id}>
-                              {h.name} · {h.id}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {d.requestedHostId && (
-                        <p>
-                          {t('申请方指定：')}
-                          {d.requestedHostId}
-                          {t('；该 Agent 也可批准或拒绝。')}
-                        </p>
-                      )}
-                      {!keyHosts.length && (
-                        <p>{t('暂无可授权的服务器，请先授权服务器 Agent。')}</p>
-                      )}
-                    </>
-                  ) : (
-                    <p>
-                      {t('目标服务器：')}
-                      {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                        d.hostId}
-                    </p>
-                  )}
-                  <details>
-                    <summary>{t('请求标识与有效期')}</summary>
-                    <p>
-                      {d.id} {t('· 有效期至')}{' '}
-                      {new Date(d.expires).toLocaleString(localeTag())}
-                    </p>
-                  </details>
-                  <button
-                    disabled={
-                      generating ||
-                      (d.role !== 'agent' &&
-                        !keyHosts.some(
-                          (h) =>
-                            h.id === (d.requestedHostId || approvalHosts[d.id]),
-                        ))
-                    }
-                    onClick={() => void manage('approve', d.id)}
-                  >
-                    {t('批准')} {d.code}
-                  </button>
-                  <button
-                    disabled={generating}
-                    onClick={() => void manage('reject', d.id)}
-                  >
-                    {t('拒绝')} {d.code}
-                  </button>
-                </div>
-              ))}
+                          {t('批准')} {d.code}
+                        </button>
+                        <button
+                          disabled={generating}
+                          onClick={() => void manage('reject', d.id)}
+                        >
+                          {t('拒绝')} {d.code}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </AdminTable>
             </>
           )}
           {adminTab === 'authorized' && (
             <>
-              {devices.credentials.map((d) => (
-                <div className="card" key={d.id} data-credential-id={d.id}>
-                  <p>
-                    {d.name} ·{' '}
-                    {d.role === 'agent'
-                      ? t('服务器 Agent')
-                      : d.role === 'cli'
-                        ? t('命令行客户端')
-                        : t('网页客户端')}{' '}
-                    {t('· 服务器：')}
-                    {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                      d.hostId}
-                  </p>
-                  <p>
-                    {t('授权时间：')}
-                    {new Date(d.created).toLocaleString(localeTag())}{' '}
-                    {t('· 长期有效')}
-                  </p>
-                  <details>
-                    <summary>{t('授权标识与服务器')}</summary>
-                    <p className="id">
-                      {d.id} · {d.hostId}
-                    </p>
-                    <CopyText text={d.id} />
-                  </details>
-                  <button
-                    disabled={generating}
-                    onClick={() => void manage('revoke', d.id)}
-                  >
-                    {t('撤销')} {d.name}
-                  </button>
-                </div>
-              ))}
+              <AdminTable
+                label={t('已授权设备')}
+                columns={[
+                  '设备名称',
+                  '角色',
+                  '目标服务器',
+                  '授权时间',
+                  '操作',
+                ].map((label) => t(label))}
+                empty={!devices.credentials.length}
+                emptyText={t('暂无已授权设备')}
+              >
+                {devices.credentials.map((d) => (
+                  <tr key={d.id} data-credential-id={d.id}>
+                    <th scope="row">
+                      {d.name}
+                      <details>
+                        <summary>{t('授权标识与服务器')}</summary>
+                        <p className="id">
+                          {d.id} · {d.hostId}
+                        </p>
+                        <CopyText text={d.id} />
+                      </details>
+                    </th>
+                    <td>
+                      {d.role === 'agent'
+                        ? t('服务器 Agent')
+                        : d.role === 'cli'
+                          ? t('命令行客户端')
+                          : t('网页客户端')}
+                    </td>
+                    <td>
+                      {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                        d.hostId}
+                    </td>
+                    <td>
+                      <time dateTime={new Date(d.created).toISOString()}>
+                        {new Date(d.created).toLocaleString(localeTag())}
+                      </time>
+                      <small>{t('长期有效')}</small>
+                    </td>
+                    <td>
+                      <button
+                        disabled={generating}
+                        onClick={() => void manage('revoke', d.id)}
+                      >
+                        {t('撤销')} {d.name}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </AdminTable>
             </>
           )}
           {adminTab === 'wake' && (
             <>
-              {keyHosts.map((h) => (
-                <HostWakeSettings
-                  key={h.id}
-                  host={h}
-                  report={report}
-                  saved={async () => {
-                    setKeyHosts(
-                      (await api('/admin/hosts')).filter(
-                        (h: any) => !h.disabled,
-                      ),
-                    );
-                    setNotice('唤醒配置已保存');
-                    await refresh();
-                  }}
-                />
-              ))}
+              <AdminTable
+                label={t('服务器唤醒配置')}
+                columns={['服务器', '配置来源', '唤醒 URL', '操作'].map(
+                  (label) => t(label),
+                )}
+                empty={!keyHosts.length}
+                emptyText={t('暂无服务器')}
+              >
+                {keyHosts.map((h) => (
+                  <HostWakeSettings
+                    key={h.id}
+                    host={h}
+                    report={report}
+                    saved={async () => {
+                      setKeyHosts(
+                        (await api('/admin/hosts')).filter(
+                          (h: any) => !h.disabled,
+                        ),
+                      );
+                      setNotice('唤醒配置已保存');
+                      await refresh();
+                    }}
+                  />
+                ))}
+              </AdminTable>
             </>
           )}
           {adminTab === 'sessions' && (
@@ -2242,47 +2307,64 @@ function App() {
               <button onClick={() => setNewKey('')}>{t('隐藏 API_KEY')}</button>
             </div>
           )}
-          {apiKeys.map((k) => (
-            <div className="card" key={k.id}>
-              <p>
-                {k.name} · {k.role === 'agent' ? 'coc-agent' : 'coc-client'}{' '}
-                {t('· 服务器：')}
-                {keyHosts.find((host) => host.id === k.hostId)?.name ||
-                  k.hostId ||
-                  t('等待首次使用绑定')}
-              </p>
-              <p>
-                {t('创建于')} {new Date(k.created).toLocaleString(localeTag())}{' '}
-                {t('· 长期有效')}
-              </p>
-              <button
-                disabled={generating}
-                onClick={() => {
-                  if (
-                    !confirm(
-                      k.role === 'agent' && k.hostId
-                        ? t(
-                            '撤销此 A Key 将停用 A，并撤销其全部客户端授权。继续？',
-                          )
-                        : t('撤销此 API Key？'),
-                    )
-                  )
-                    return;
-                  setGenerating(true);
-                  void api('/admin/api-keys/revoke', { id: k.id })
-                    .then(async () => {
-                      setNewKey('');
-                      setApiKeys(await api('/admin/api-keys'));
-                      setDevices(await api('/admin/devices'));
-                    })
-                    .catch(report)
-                    .finally(() => setGenerating(false));
-                }}
-              >
-                {t('撤销 Key')} {k.name}
-              </button>
-            </div>
-          ))}
+          <AdminTable
+            label={t('API Key 管理')}
+            columns={[
+              'Key 名称',
+              '使用程序',
+              '目标服务器',
+              '创建时间',
+              '操作',
+            ].map((label) => t(label))}
+            empty={!apiKeys.length}
+            emptyText={t('暂无 API Key')}
+          >
+            {apiKeys.map((k) => (
+              <tr key={k.id}>
+                <th scope="row">{k.name}</th>
+                <td>{k.role === 'agent' ? 'coc-agent' : 'coc-client'}</td>
+                <td>
+                  {keyHosts.find((host) => host.id === k.hostId)?.name ||
+                    k.hostId ||
+                    t('等待首次使用绑定')}
+                </td>
+                <td>
+                  <time dateTime={new Date(k.created).toISOString()}>
+                    {new Date(k.created).toLocaleString(localeTag())}
+                  </time>
+                  <small>{t('长期有效')}</small>
+                </td>
+                <td>
+                  <button
+                    disabled={generating}
+                    onClick={() => {
+                      if (
+                        !confirm(
+                          k.role === 'agent' && k.hostId
+                            ? t(
+                                '撤销此 A Key 将停用 A，并撤销其全部客户端授权。继续？',
+                              )
+                            : t('撤销此 API Key？'),
+                        )
+                      )
+                        return;
+                      setGenerating(true);
+                      void api('/admin/api-keys/revoke', { id: k.id })
+                        .then(async () => {
+                          setNewKey('');
+                          setApiKeys(await api('/admin/api-keys'));
+                          setDevices(await api('/admin/devices'));
+                        })
+                        .catch(report)
+                        .finally(() => setGenerating(false));
+                    }}
+                  >
+                    {t('撤销 Key')} {k.name}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
         </section>
       )}
       {logged && view === 'chat' && (
@@ -2762,7 +2844,31 @@ function App() {
                             {selected.external ? t('加入队列') : t('发送')}
                           </button>
                         )}
-                        <small>
+                        <AutoApproval
+                          key={`${host}:${selected.id}`}
+                          approvals={approvals}
+                          ready={
+                            ready &&
+                            online &&
+                            (!selected.external ||
+                              !!selected.approvalForwarding)
+                          }
+                          pending={pending}
+                          onApprove={(approvalId) =>
+                            send({
+                              action: 'approval',
+                              approvalId,
+                              allow: true,
+                            }) === true
+                          }
+                        />
+                        <small
+                          className={
+                            selected.external
+                              ? 'composer-external-help'
+                              : 'composer-help'
+                          }
+                        >
                           {selected.external &&
                             (selected.queueEnabled
                               ? selected.approvalForwarding

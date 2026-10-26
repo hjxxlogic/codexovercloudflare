@@ -1,10 +1,18 @@
 # 本机测试记录
 
-## Actions 构建缓存 · 2026-10-26 · 首次远端验证通过
+## 管理表格与 CW 会话自动批准 · 2026-10-26 · 本地回归通过
+
+- 待授权、已授权设备、唤醒配置和 API Key 改为原生表格，具有列 / 行标题、空状态及局部键盘 / 触摸横向滚动。1280 / 390 宽度验证长名称和留言、中英文表头、目标选择与锁定、页面无横向溢出。
+- CW 显式勾选后自动允许当前会话的命令、文件和本轮额外权限；默认关闭，切换 / 刷新关闭。真实 Worker / DO / 原生 Agent / 原共享 app-server 夹具验证三类自动决定和权限 `scope: turn`；不改变后端策略或调用模型。
+- UI 验证重复同步、反复开关、丢失 ack 后重连不重复提交；跳过已提交 / 未支持请求；关闭后停止自动答复。开关位于输入区，范围说明展开显示；390×480 审批详情与按钮仍可操作，展开说明不超出视口。
+- 完整 `test:ui`、`tests/ui-wake.ts` 与 `test:e2e` 通过；TypeScript、ESLint / Prettier、网页构建和 Vitest 9 文件 / 86 项通过。早期测试发现独立开关栏压缩聊天面积，已移入输入区，保留原聊天几何断言。完整 E2E 在固定构建产物上重跑通过；未将并发覆盖构建目录造成的中间失败记为成功。
+- [本地验证](assets/admin-tables-auto-approval-2026-10-26/local-verification.json)、[桌面管理表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-pending-1280.png)、[手机表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-keys-390.png)、[桌面自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-desktop.png)、[手机自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-390.png)。Actions 与部署结果将在完成后追加。
+
+## Actions 构建缓存 · 2026-10-26 · 两轮远端验证通过
 
 - Linux regression、Ubuntu / Debian 发行包、musl 和 sanitizers 启用按目标隔离的 ccache；musl 工具链通过 Buildx 的 GitHub Actions 后端缓存 Docker 层。构建失败后的缓存保存及命中统计独立于后续测试结果。
 - 在 Alpine 3.23 / GCC 15.2 的隔离 CMake 夹具中验证：首次编译 0/2 命中，清理构建输出后重新编译 2/2 命中；修改版本头后 1/2 命中，实际程序输出由 `first:42` 更新为 `second:42`。证明复用编译结果不会保留过期版本头。详细日志位于 `/tmp/coc-ccache-smoke.log`；夹具只验证缓存机制，不代替项目测试。
-- actionlint 1.7.12、Workflow 和变更文档的 Prettier、`git diff --check` 通过；[首次 Actions 40320593609](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40320593609) 六个构建 / 回归作业全部通过，分支发布作业按预期跳过；五份编译缓存及 musl 工具链缓存索引已通过 GitHub API 核实存在。编译缓存压缩归档总计约 84 MiB。后续恢复仍待下一次运行验证；[缓存证据](assets/ci-cache-2026-10-26/verification.json)。
+- actionlint 1.7.12、Workflow 和变更文档的 Prettier、`git diff --check` 通过；[首次 Actions 40320593609](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40320593609) 六个构建 / 回归作业全部通过，分支发布作业按预期跳过；五份编译缓存及 musl 工具链缓存索引已通过 GitHub API 核实存在。编译缓存压缩归档总计约 84 MiB。[第二轮 Actions 40322209521](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40322209521) 六个构建 / 回归作业也全部通过，GitHub API 显示五份旧缓存的访问时间均已更新。观察到 regression 构建步骤 175→45 秒、Ubuntu 发行构建 / 测试 226→115 秒、Debian 206→113 秒、musl 工具链 58→22 秒、musl 构建 / 测试 328→146 秒、sanitizer 构建 208→46 秒。包含测试的步骤与纯构建分开记录，不将两次测量当作固定提速保证；[缓存证据](assets/ci-cache-2026-10-26/verification.json)。
 
 ## 0.5.11 正式发布与 musl 线上验证 · 2026-10-26
 

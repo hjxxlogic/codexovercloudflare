@@ -204,5 +204,107 @@
       "last_accessed_at": "2026-10-26T12:12:20.932396Z"
     }
   ],
-  "warmValidation": "pending"
+  "warmValidation": "passed",
+  "warmRun": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40322209521",
+  "warmCommit": "78f19fefaca076d6494a6997c1dd9b7652e5fb84",
+  "warmJobs": [
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped"
+    }
+  ],
+  "restoredColdCacheEntries": [
+    {
+      "key": "native-Linux-X64-debian12-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 5864813,
+      "created_at": "2026-10-26T12:15:20.322790Z",
+      "last_accessed_at": "2026-10-26T12:24:30.632559Z"
+    },
+    {
+      "key": "native-Linux-X64-ubuntu20.04-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 5104465,
+      "created_at": "2026-10-26T12:15:47.903195Z",
+      "last_accessed_at": "2026-10-26T12:24:28.629990Z"
+    },
+    {
+      "key": "native-Linux-X64-regression-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 6286101,
+      "created_at": "2026-10-26T12:19:02.028641Z",
+      "last_accessed_at": "2026-10-26T12:24:13.323379Z"
+    },
+    {
+      "key": "native-Linux-X64-sanitizers-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 64577912,
+      "created_at": "2026-10-26T12:15:34.227800Z",
+      "last_accessed_at": "2026-10-26T12:24:08.632267Z"
+    },
+    {
+      "key": "native-Linux-X64-musl-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 6610132,
+      "created_at": "2026-10-26T12:17:53.862468Z",
+      "last_accessed_at": "2026-10-26T12:23:54.673448Z"
+    }
+  ],
+  "stepTimingsSeconds": [
+    {
+      "job": "regression",
+      "step": "Build with compiler cache",
+      "cold": 175.0,
+      "warm": 45.0
+    },
+    {
+      "job": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "step": "Build and test target binaries",
+      "cold": 226.0,
+      "warm": 115.0
+    },
+    {
+      "job": "linux-musl",
+      "step": "Prepare Alpine musl toolchain",
+      "cold": 58.0,
+      "warm": 22.0
+    },
+    {
+      "job": "linux-musl",
+      "step": "Build, test and package fully static Linux x86_64 binaries",
+      "cold": 328.0,
+      "warm": 146.0
+    },
+    {
+      "job": "linux-release (debian12, debian:12)",
+      "step": "Build and test target binaries",
+      "cold": 206.0,
+      "warm": 113.0
+    },
+    {
+      "job": "sanitizers",
+      "step": "Run ccache --zero-stats && cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake --build build-sanitize -j 2",
+      "cold": 208.0,
+      "warm": 46.0
+    }
+  ]
 }

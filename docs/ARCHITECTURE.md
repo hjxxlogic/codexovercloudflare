@@ -4,7 +4,7 @@
 
 原生 `proxy.cpp` 共享 HTTP CONNECT / SOCKS5 异步隧道，HTTP 和 WebSocket 在目标 DNS 分类后选择直连或代理；私网与本地结果直连。HTTP 沿用同一可取消 DNS / 请求总期限，代理握手使用最低层 tcp_stream 超时，TLS 保留目标主机验证。进程启动前设置代理配置，网络线程只读，不修改环境。`tui_bridge.cpp` 在启用代理时提供 loopback 随机端口和远程票据鉴权，双向转发有界 WebSocket 消息，让独立 Codex TUI 使用同一网络策略；本机 app-server 独立连接保持直连。
 
-`displayName` 与客户端条目的目标主机 `name` 分离。`POST /api/v1/instance/name` 只接受 agent/cli Bearer，Worker 从已验证身份注入 hash；Registry 事务复核凭证、API Key 与主机状态，仅更新自身 auth，Agent 同时更新其 host.name。Agent capabilities 可登记 displayName，API Key 登录更新实例名并保留 Key 管理名称。管理员视图按五个 Tab 展示既有功能，不改变管理权限范围。
+`displayName` 与客户端条目的目标主机 `name` 分离。`POST /api/v1/instance/name` 只接受 agent/cli Bearer，Worker 从已验证身份注入 hash；Registry 事务复核凭证、API Key 与主机状态，仅更新自身 auth，Agent 同时更新其 host.name。Agent capabilities 可登记 displayName，API Key 登录更新实例名并保留 Key 管理名称。管理员视图按五个 Tab 展示功能；待授权、设备、唤醒和 API Key 使用共用原生表格、行标题和局部滚动区域，不改变管理权限范围。
 
 ## 离线唤醒补充（2026-10-25）
 
@@ -330,7 +330,7 @@ C++ 使用 2 空格、clang-format 和 snake_case；类名 PascalCase。TypeScri
 
 `POST /api/v1/sessions` 新增可选 `threadId`（仅 web 模式）。Agent 先检查项目、线程 ID 和活动 runtime，初始化 app-server 后用 `thread/read` 的元数据核对原 cwd，然后以固定项目目录、服务器 sandbox、`on-request` 和 `approvalsReviewer=user` 调用 `thread/resume`。恢复时使用 `excludeTurns=true` 跳过完整历史，用户 / 助手消息和工具结果随后按需分页导入本地日志，重连使用消息版本排序与去重。恢复不自动执行新轮次；错误会关闭新 runtime。CLI RPC 白名单与原有线程隔离不放宽。
 
-聊天文本通过 react-markdown / remark-gfm 渲染，不启用原始 HTML；链接保留 URL 协议过滤并隔离新窗口，图片显示替代文字，避免历史内容自动请求远程图片。工具详情默认使用原生 details 折叠，审批单独显示且必须明确操作。256 KiB 单帧限制继续适用；历史总量不再触发自动清理。
+聊天文本通过 react-markdown / remark-gfm 渲染，不启用原始 HTML；链接保留 URL 协议过滤并隔离新窗口，图片显示替代文字，避免历史内容自动请求远程图片。工具详情默认使用原生 details 折叠，审批单独显示，默认逐项明确操作。CW 用户可显式开启仅当前会话有效的自动批准，包含命令、文件及本轮额外权限；开关和已尝试审批 ID 只存在于该主机 / 会话组件内存中，切换或刷新时重置。它复用已有带 requestId 的审批消息，不增加 RPC 或放宽服务器权限；断线暂停，重放与重连不自动重复决定，未知 / 不支持 / 已提交请求跳过。256 KiB 单帧限制继续适用；历史总量不再触发自动清理。
 
 ### 专注聊天布局
 

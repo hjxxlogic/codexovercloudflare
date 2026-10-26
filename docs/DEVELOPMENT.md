@@ -254,3 +254,15 @@ python scripts/package-release.py --build-dir build-windows/Release --platform w
 外部输出回归可单独运行 `./build/coc-tests --external-refresh`，也包含在 Linux CTest 中：模拟原生 Codex 读取进程，在同轮新增 40 项并完成一次刷新后，补全一个早期消息，验证下一轮同步仍能读取。共享审批配置夹具验证初始化错误包含具体原因；Windows CTest 另检查空审批 endpoint 明确提示 WebSocket。`tests/native-login.py` 新增完整默认配置及已有自定义配置补全检查。
 
 Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原生登录故障恢复测试与打包；新增 `linux-musl` 作业在 Alpine 容器中执行相同原生门禁，并在打包时拒绝包含动态加载器或共享库依赖的 ELF（允许静态 PIE 自重定位）。`npm run test:release` 另覆盖动态 ELF 误标拒绝、静态打包说明及四平台组装身份校验（合成产物）；Windows 同样运行 `tests/native-login.py`，通过环境变量选择 Release EXE。Ubuntu 20.04 使用 `cmake -E chdir build ctest` 兼容 CMake 3.16。
+
+## 管理页面表格
+
+`admin-table.tsx` 统一管理列表的原生 table、列标题、行标题和空状态；滚动限制在可聚焦的 region 内，窄屏显示横向滚动提示。待授权请求、已授权设备、唤醒配置和 API Key 共用此结构。`HostWakeSettings` 每台服务器返回一行，URL 表单位于单元格内，保存按钮通过 `form` 关联，避免跨单元格嵌套无效表单。
+
+`test:ui` 使用含长名称、长留言及指定目标的本地数据，检查中英文表头、目标未选择时禁止批准、目标锁定、纯文本留言，以及 1280 / 390 宽度的四个列表、区域键盘滚动和页面无横向溢出。`tests/ui-wake.ts` 检查行内保存 / 禁用 / 恢复 Agent 配置；E2E 按表格行定位请求，继续验证真实中继下的批准、拒绝、Key 和设备撤销。截图位于测试的 `COC_ARTIFACT_DIR`。
+
+## CW 会话自动批准
+
+`auto-approval.tsx` 在会话组件内维护默认关闭的开关和已提交审批 ID 集合，按主机 / 会话 key 挂载；不使用 localStorage 或 IndexedDB。开启后按原审批通道串行发送命令、文件及本轮权限的 `allow: true`，仅在控制连接和审批转发可用、没有待提交操作时发送。跳过 submitted、unsupported 和未知方法；发送成功后保留尝试 ID，避免重连或重放时用新 requestId 重复决定。服务器仍按原策略检查，不新增 RPC 或放宽权限。
+
+`test:ui` 检查默认关闭、三类审批、关闭后暂停、未知 / 已提交请求跳过、重复快照与开关去重、丢失 ack 后重连不重复、刷新重置，以及 390×480 审批详情与操作可达。E2E 使用共享 app-server 夹具验证真实 Relay / Agent 转发下的三类自动决定和本轮权限 scope，并检查切换会话后开关关闭；不调用模型。自动批准范围说明采用展开层，不占用短屏审批详情的滚动空间。
