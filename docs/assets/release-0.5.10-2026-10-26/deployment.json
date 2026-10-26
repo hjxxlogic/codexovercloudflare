@@ -1,0 +1,40 @@
+{
+  "version": "0.5.10",
+  "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+  "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+  "tag": "v0.5.10",
+  "workerVersion": "44ee79fc-ec0a-4f6e-98c5-5163e16a26ec",
+  "deployedAt": "2026-10-26T11:25:48.168822Z",
+  "trafficPercentage": 100,
+  "verifiedAt": "2026-10-26T11:29:24.019881+00:00",
+  "site": "https://r.xlogic.cc",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40313956429",
+  "release": "https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.10",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "success"
+    }
+  ]
+}

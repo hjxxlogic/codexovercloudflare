@@ -1,0 +1,80 @@
+{
+  "/api/v1/healthz": {
+    "status": 200,
+    "sha256": "67b5f836121ad6074a0af7707e8e73843b9a108273df480dd32968c3762ab40d"
+  },
+  "/assets/index-Ba_zlIkS.js": {
+    "status": 200,
+    "bytes": 569295,
+    "sha256": "810c0c50ffd208bfc272afdbe875ad5ee2960f58e5063c4040cdebd4fecd23b9",
+    "comparison": "exact bytes"
+  },
+  "/assets/index-KQ812oC2.css": {
+    "status": 200,
+    "bytes": 13831,
+    "sha256": "711b0613f89fdc690638f7a089742d496695182c29cc9e03eea07cc902f703ce",
+    "comparison": "exact bytes"
+  },
+  "/downloads/codex-over-cloudflare-0.5.10-source.tar.gz": {
+    "status": 200,
+    "bytes": 2179354,
+    "sha256": "f1acb1444a13f9449e6899499281d4ba487a0c5c89a5d000cc71494237fa27d3",
+    "comparison": "exact bytes"
+  },
+  "/downloads/index.json": {
+    "status": 200,
+    "bytes": 441,
+    "sha256": "521007af74902a8eb19a35dd9f488daaf0ca428d150d0a4fb6d9c8ab57f1b96c",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.10-linux-x86_64-ubuntu20.04.tar.gz": {
+    "status": 200,
+    "bytes": 3079073,
+    "sha256": "32121caa11907916ce88cacedf256a7b75db0a5186fe7f9079fb51948f8f8025",
+    "comparison": "exact bytes"
+  },
+  "/downloads/USER_GUIDE.md": {
+    "status": 200,
+    "bytes": 58285,
+    "sha256": "9941a34142411f515124371b025da9a4b49f1c054983cbe53a68218a2f071231",
+    "comparison": "exact bytes"
+  },
+  "/downloads/SHA256SUMS": {
+    "status": 200,
+    "bytes": 417,
+    "sha256": "aa74c5a88f279c7a44f94366508f2717ad87fda7602246790e30edd828bf872e",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.10-linux-x86_64-debian12.tar.gz": {
+    "status": 200,
+    "bytes": 3524967,
+    "sha256": "53a73f8ec9e011d41688ba7216a35555d90196f9489f2aebc7087b7694076a06",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.10-windows-x64.zip": {
+    "status": 200,
+    "bytes": 7997843,
+    "sha256": "51e78ab127b931bb3867ec8510bc9acb3e4b2becf420ff90a412253a924a18a5",
+    "comparison": "exact bytes"
+  },
+  "/downloads/index.html": {
+    "status": 200,
+    "bytes": 1026,
+    "sha256": "70d1de03952323ec49a568c99e714d678497990c3c7a8a528e948b7aaabace02",
+    "comparison": "HTML excluding Cloudflare analytics injection"
+  },
+  "/": {
+    "status": 200,
+    "bytes": 765,
+    "assetReferences": [
+      "/assets/index-Ba_zlIkS.js",
+      "/assets/index-KQ812oC2.css"
+    ]
+  },
+  "unauthenticated-hosts": {
+    "status": 401
+  },
+  "cross-origin-admin-login": {
+    "status": 403
+  }
+}

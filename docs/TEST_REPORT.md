@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## 0.5.10 · 2026-10-26 · Actions 发布与线上验收
+
+- 测试修复提交 `4dae2e0`；发布源码 `ccc3a28347b045c90856ddbcb982ab0000c2008e`、标签 `v0.5.10` 已推送。[Actions 40313956429](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40313956429) 的 Ubuntu 20.04、Debian 12、Windows x64、ASan/UBSan、完整 regression 和发布作业全部通过，包含本轮英文 Tab 断言修复、Windows 中文配置、完整 E2E / UI。上次本机跨主机 `chat ready` 超时本轮及该次 CI 未复现，未以放宽超时处理。
+- [GitHub Release v0.5.10](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.10) 提供三平台原生包、源码、校验和及站点包。下载后核对 GitHub site asset digest、下载清单 version / commit / sourceDigest / protocol、四个归档 SHA256 与独立 Release asset digest；源码归档与该提交的 `git archive` 字节一致，UTF-8 手册与源码一致。实际解包的四个 Linux 程序在兼容容器运行版本和帮助，构建身份相同且 dirty=false；Windows ZIP 的两个 EXE 为 PE x64，其运行测试由 Windows CI 完成。
+- 使用同一提交的 Worker 与完整 CI 站点部署到 `r.xlogic.cc`，Worker 版本 `44ee79fc-ec0a-4f6e-98c5-5163e16a26ec`，UTC 11:25:48 上线，流量 100%。保留生产 secrets、vars、DO 数据与已有授权。线上 health 200 / 0.5.10、未授权 hosts 401、跨域管理员登录 403、安全响应头与手册 UTF-8 通过；JS / CSS、手册、清单、校验文件和四个归档与 CI 产物逐字节一致，首页及下载页排除 Cloudflare 自动注入的统计脚本与标签间空白后与构建一致。
+- 生产 Chromium 通过中文初始页、English 切换与刷新保留、1280 / 390 像素菜单无横向溢出、管理员登录入口及无页面脚本错误；人工核对 [桌面](assets/release-0.5.10-2026-10-26/english-1280.png) / [手机](assets/release-0.5.10-2026-10-26/english-390.png) 截图。未提交生产登录或授权申请，未操作既有主机、会话或调用模型；管理员 Tab 及已授权会话行为由完整本地 / CI 回归验证。
+- 永久证据：[部署与 CI](assets/release-0.5.10-2026-10-26/deployment.json)、[产物身份](assets/release-0.5.10-2026-10-26/package-verification.json)、[实际 Linux 二进制](assets/release-0.5.10-2026-10-26/binary-verification.json)、[线上字节核对](assets/release-0.5.10-2026-10-26/online-verification.json)、[浏览器](assets/release-0.5.10-2026-10-26/browser-verification.json)。本机脚本与详细日志位于 `.local/release-0.5.10/`；下文为发布前历史记录。
+
 ## 0.5.9 测试续修 · 2026-10-26 · 未发布
 
 - 已核对提交 `1855bfa` 的 [Actions 40303440332](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40303440332)：Windows x64（含登录恢复与默认配置）、两个 Linux 平台及 sanitizers 全通过，regression 仍在 E2E / UI 组合步骤失败。没有获取该次完整 job 日志，不能断言与本机失败完全相同。

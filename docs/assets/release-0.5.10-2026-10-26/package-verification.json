@@ -1,0 +1,56 @@
+{
+  "identity": {
+    "version": "0.5.10",
+    "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+    "target": "linux-x86_64",
+    "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals"
+    ]
+  },
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40313956429",
+  "jobs": [
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "success"
+    }
+  ],
+  "release": "https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.10",
+  "siteAsset": {
+    "id": 677945904,
+    "sha256": "c84545659b311bd5be1aaa491851239749fa64dc2eb7f10b8759302c59b4f991"
+  },
+  "archives": {
+    "coc-0.5.10-linux-x86_64-debian12.tar.gz": "53a73f8ec9e011d41688ba7216a35555d90196f9489f2aebc7087b7694076a06",
+    "coc-0.5.10-linux-x86_64-ubuntu20.04.tar.gz": "32121caa11907916ce88cacedf256a7b75db0a5186fe7f9079fb51948f8f8025",
+    "coc-0.5.10-windows-x64.zip": "51e78ab127b931bb3867ec8510bc9acb3e4b2becf420ff90a412253a924a18a5",
+    "codex-over-cloudflare-0.5.10-source.tar.gz": "f1acb1444a13f9449e6899499281d4ba487a0c5c89a5d000cc71494237fa27d3"
+  }
+}

@@ -1,0 +1,78 @@
+[
+  {
+    "path": ".local/release-0.5.10/unpacked/coc-0.5.10-linux-x86_64-debian12/coc-0.5.10-linux-x86_64-debian12/coc-agent",
+    "metadata": {
+      "version": "0.5.10",
+      "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+      "target": "linux-x86_64",
+      "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "path": ".local/release-0.5.10/unpacked/coc-0.5.10-linux-x86_64-debian12/coc-0.5.10-linux-x86_64-debian12/coc-client",
+    "metadata": {
+      "version": "0.5.10",
+      "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+      "target": "linux-x86_64",
+      "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "path": ".local/release-0.5.10/unpacked/coc-0.5.10-linux-x86_64-ubuntu20.04/coc-0.5.10-linux-x86_64-ubuntu20.04/coc-agent",
+    "metadata": {
+      "version": "0.5.10",
+      "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+      "target": "linux-x86_64",
+      "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "path": ".local/release-0.5.10/unpacked/coc-0.5.10-linux-x86_64-ubuntu20.04/coc-0.5.10-linux-x86_64-ubuntu20.04/coc-client",
+    "metadata": {
+      "version": "0.5.10",
+      "commit": "ccc3a28347b045c90856ddbcb982ab0000c2008e",
+      "target": "linux-x86_64",
+      "sourceDigest": "625949428c9890b4dd4f064f6086bf556bb82e7f63c862ad9ee527a09d9460c0",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  }
+]
