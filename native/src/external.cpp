@@ -100,7 +100,7 @@ void ExternalThread::probe(Json cursor, int remaining, size_t bytes, Json entrie
                       }
                     });
 }
-void ExternalThread::forward(Json cursor, Completion done) {
+void ExternalThread::forward(Json cursor, const std::string &turn, Json anchor, Completion done) {
   if (stopped_) {
     done(nullptr, {{"code", "SESSION_CLOSED"}, {"message", "Reader closed"}});
     return;
@@ -110,21 +110,27 @@ void ExternalThread::forward(Json cursor, Completion done) {
   if (legacy_)
     params["itemsView"] = "full";
   process_->request(legacy_ ? "thread/turns/list" : "thread/items/list", params,
-                    [self, cursor, done](Json result, Json error) {
+                    [self, cursor, turn, anchor, done](Json result, Json error) mutable {
                       if (!error.is_null()) {
                         done(nullptr, error);
                         return;
                       }
                       try {
-                        for (auto &entry : result.at("data"))
+                        for (auto &entry : result.at("data")) {
+                          const auto entry_turn = entry.at(self->legacy_ ? "id" : "turnId");
+                          // Revisit the whole observed current turn: items older than
+                          // the rolling tail can still grow or finish asynchronously.
+                          if (anchor.is_null() && entry_turn == turn)
+                            anchor = cursor;
                           self->deliver(entry, false, false);
+                        }
                         auto next = result.value("nextCursor", Json());
                         if (!next.is_null()) {
                           if (next == cursor)
                             throw Error("INVALID_FRAME", "History cursor did not advance");
-                          self->forward(next, done);
+                          self->forward(next, turn, anchor, done);
                         } else
-                          done(nullptr, nullptr);
+                          done(anchor, nullptr);
                       } catch (const std::exception &error) {
                         done(nullptr, error_data(error));
                       }
@@ -151,19 +157,20 @@ void ExternalThread::latest(Completion done) {
           try {
             const auto data = turns.value("data", Json::array());
             const bool known = !data.empty();
+            const auto turn = known ? data[0].value("id", "") : "";
             const bool running = known && data[0].value("status", "") == "inProgress";
             self->state_({{"running", running},
                           {"externalStatus", known ? (running ? "active" : "idle") : "unknown"}});
             self->probe(nullptr, self->legacy_ ? 1 : 16, 0, Json::array(), nullptr,
-                        [self, done](Json result, Json error) {
+                        [self, turn, done](Json result, Json error) {
                           if (!error.is_null()) {
                             done(nullptr, error);
                             return;
                           }
                           try {
-                            auto finish = [self, result, done](Json, Json error) {
-                              if (error.is_null())
-                                self->anchor_ = result.at("anchor");
+                            auto finish = [self, result, done](Json anchor, Json error) {
+                              if (error.is_null() && !anchor.is_null())
+                                self->anchor_ = anchor;
                               done({{"archiveCursor", result.at("older")},
                                     {"historyMode", self->legacy_ ? "legacy" : "paginated"},
                                     {"seeded", !result.at("entries").empty()}},
@@ -174,9 +181,9 @@ void ExternalThread::latest(Completion done) {
                               std::reverse(entries.begin(), entries.end());
                               for (auto &entry : entries)
                                 self->deliver(entry, false, false);
-                              finish(nullptr, nullptr);
+                              finish(result.at("anchor"), nullptr);
                             } else
-                              self->forward(self->anchor_, finish);
+                              self->forward(self->anchor_, turn, nullptr, finish);
                           } catch (const std::exception &error) {
                             done(nullptr, error_data(error));
                           }

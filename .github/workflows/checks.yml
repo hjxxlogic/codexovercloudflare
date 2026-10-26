@@ -3,6 +3,8 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   regression:
     runs-on: ubuntu-24.04
@@ -32,6 +34,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run test:tls
+      - run: python3 tests/native-login.py
       - run: npm run test:backup
       - run: npm run test:release
       - run: npm run test:update
@@ -44,6 +47,46 @@ jobs:
         with:
           name: browser-evidence
           path: .local/screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-web
+          path: dist/web
+          if-no-files-found: error
+  linux-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu20.04
+            image: ubuntu:20.04
+          - platform: debian12
+            image: debian:12
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install target build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev python3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17.0
+      - name: Build and test target binaries
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 2
+          cmake -E chdir build ctest --output-on-failure
+          python3 tests/native-login.py
+      - name: Package verified Linux binaries
+        run: python3 scripts/package-release.py --build-dir build --platform ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.platform }}
+          path: dist/web/downloads
+          if-no-files-found: error
   sanitizers:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -88,6 +131,11 @@ jobs:
           -DVCPKG_TARGET_TRIPLET=x64-windows-static
       - run: python scripts/ci-command.py cmake --build build-windows --config Release --parallel 2
       - run: python scripts/ci-command.py ctest --test-dir build-windows -C Release --output-on-failure
+      - name: Verify native Windows login recovery and generated defaults
+        run: python scripts/ci-command.py python tests/native-login.py
+        env:
+          COC_AGENT_BINARY: build-windows/Release/coc-agent.exe
+          COC_CLI_BINARY: build-windows/Release/coc-client.exe
       - name: Validate executable metadata and startup
         shell: pwsh
         run: |
@@ -121,3 +169,34 @@ jobs:
             dist/web/downloads/*source.tar.gz
             dist/web/downloads/SHA256SUMS
             dist/web/downloads/index.json
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [regression, sanitizers, linux-release, windows-x64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*
+          path: .local/release-artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: .local/release-artifacts/windows-x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-web
+          path: .local/release-artifacts/verified-web
+      - name: Assemble and verify release identity and checksums
+        run: python3 scripts/assemble-release.py --artifacts .local/release-artifacts --tag "$GITHUB_REF_NAME"
+      - name: Bundle verified site and downloads
+        run: tar -czf ".local/coc-${GITHUB_REF_NAME#v}-site.tar.gz" -C dist/web .
+      - name: Publish verified release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/web/downloads/* .local/*-site.tar.gz
+          --verify-tag --title "$GITHUB_REF_NAME"
+          --notes 'Native login recovery, external output synchronization, Windows approval diagnostics and complete generated Agent defaults. All platform packages and site assets passed GitHub Actions.'

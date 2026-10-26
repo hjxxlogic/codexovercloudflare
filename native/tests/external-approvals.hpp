@@ -2,6 +2,28 @@
 #include "coc/approvals.hpp"
 #include <boost/beast.hpp>
 #include <thread>
+inline void approval_configuration_fixture(const std::string &cwd) {
+  using namespace coc;
+  asio::io_context io;
+  auto verify = [&](Json config, const std::string &expected) {
+    std::string failure;
+    auto bridge = std::make_shared<ExternalApprovals>(
+        io, config, "thread", cwd, [](Json) {}, [](Json) {},
+        [&](bool connected, std::string message) {
+          if (!connected)
+            failure = std::move(message);
+        });
+    bridge->start();
+    bridge->close();
+    if (failure.find(expected) == std::string::npos)
+      throw std::runtime_error("Approval configuration diagnostic missing: " + failure);
+  };
+  verify({{"approvalEndpoint", "https://127.0.0.1"}},
+         "Approval endpoint must be a private Unix socket or loopback ws:// URL");
+#ifdef _WIN32
+  verify(Json::object(), "Windows requires externalSessions.approvalEndpoint=ws://");
+#endif
+}
 // Cross-platform loopback contract: no Codex installation, model or process execution.
 inline void shared_approval_fixture(const std::string &cwd) {
   using namespace coc;

@@ -1,5 +1,20 @@
 # 本机测试记录
 
+## 外部输出补全、Windows 审批诊断与配置默认值 · 2026-10-26 · 未部署
+
+- Release 原生构建、CTest（包含外部输出补全与审批配置诊断）、全量 Vitest 84 项、TypeScript、ESLint / Prettier、C++ 格式检查通过。
+- 外部输出夹具先让当前轮增加 40 项并刷新，再补全一个已移出最近 16 项窗口的旧消息，下一次同步仍收到完整内容；保持稳定条目去重与分页。
+- `python3 tests/native-login.py` 全部四项通过：真实 Agent / CLI 网络失败恢复，拒绝 / 鉴权失败 / 到期停止，以及生成全部默认字段、保留已有自定义配置。Linux 自动更新默认开启，Windows 默认关闭由对应原生默认设置决定。
+- `python3 tests/external-approvals.py` 在本机 Codex 0.164.0 与隔离模拟 Responses 服务上通过，远程拒绝不会执行命令，允许只执行无害 echo，原所有者保持连接。
+- Windows 空审批 endpoint 的提示分支已加入 Windows 原生测试；本轮运行环境是 WSL / Linux，未编译或执行 Windows 二进制，未访问用户的 Windows Codex 服务、未部署或调用真实模型。
+
+## 原生配对登录超时恢复 · 2026-10-26 · 未部署
+
+- Release 原生构建、CTest（native-core）、Vitest 全量 84 项、TypeScript、ESLint / Prettier 和 C++ 格式检查通过。
+- `python3 tests/native-login.py` 的三个用例分别运行通过：真实 Agent / CLI 连续遭遇连接中断、30 秒 HTTP 超时、批准响应丢失后，用同一请求和轮询秘密完成登录并保存凭证；拒绝、鉴权失败、原申请到期均停止且不保存凭证。夹具补充 CLI 登录后的主机查询响应后，CLI 恢复用例重跑通过。
+- Relay 回归验证同一原生批准结果可重取但不重复签发，错误秘密、凭证撤销、目标 Agent 撤销和到期均拒绝；到期清理保留已领取凭证，撤销未领取批准结果；网页保持单次交付。新增原生回归已接入 Linux CI。
+- 测试仅访问本机临时 HTTP 夹具，不访问线上、不调用模型；本轮未验证 Windows 二进制或线上网络超时的具体来源。
+
 ## 网页中英文与顶部滚轮加载 · 2026-10-25 · 上线验收
 
 - 发布源码 `c74a06c` 已提交并推送至 master。Worker 版本 `3c3ad45a-6c5d-4fe2-9485-1ab550bcc1eb` 于 UTC 14:39:48 部署至 `r.xlogic.cc`，流量 100%，部署标签 `cw-i18n-c74a06c`。仅更新网页与在线手册，既有 0.5.7 原生包及源码归档不变。

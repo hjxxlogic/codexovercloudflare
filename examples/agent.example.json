@@ -6,7 +6,12 @@
   "codexPath": "codex",
   "codexArgs": [],
   "sandbox": "workspace-write",
-  "externalSessions": { "allowQueue": false, "allowApprovals": false },
+  "externalSessions": {
+    "allowQueue": false,
+    "allowApprovals": false,
+    "approvalEndpoint": "",
+    "approvalTokenFile": ""
+  },
   "dataDir": "/home/coc/.local/share/coc",
   "projects": [
     {
@@ -17,6 +22,7 @@
   ],
   "autoUpdate": {
     "enabled": true,
-    "intervalHours": 1
+    "intervalHours": 1,
+    "platform": ""
   }
 }

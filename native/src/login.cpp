@@ -1,4 +1,5 @@
 #include "coc/login.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #ifndef _WIN32
@@ -138,8 +139,23 @@ Json device_login(const std::string &relay, const std::string &role, const std::
             << "\nWaiting for approval (5 minutes)...\n"
             << std::flush;
   while (now() < request.at("expires").get<int64_t>()) {
-    auto result = http_json(url, "/api/v1/auth/device/poll",
-                            {{"id", request.at("id")}, {"pollSecret", request.at("pollSecret")}});
+    Json result;
+    try {
+      // Retry only this secret-bound lookup, never deviceStart or API-key login.
+      const auto remaining = request.at("expires").get<int64_t>() - now();
+      if (remaining <= 0)
+        break;
+      result = http_json(url, "/api/v1/auth/device/poll",
+                         {{"id", request.at("id")}, {"pollSecret", request.at("pollSecret")}}, "",
+                         "", std::chrono::milliseconds(std::min<int64_t>(30000, remaining)));
+    } catch (const Error &error) {
+      if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK")
+        throw;
+      std::cerr << "Login approval check temporarily unavailable (" << error.code
+                << "); retrying the same request until it expires.\n";
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      continue;
+    }
     if (result.at("state") == "approved") {
       if (role == "cli" && !host.empty() && result.value("hostId", "") != host)
         throw Error("FORBIDDEN", "Approved server differs from the requested server");

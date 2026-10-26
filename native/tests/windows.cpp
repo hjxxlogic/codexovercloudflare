@@ -88,6 +88,7 @@ int main() {
                                                               {"name", "Windows project"},
                                                               {"path", project.u8string()}}})}});
     auto path = validated.at("projects").at(0).at("path").get<std::string>();
+    approval_configuration_fixture(path);
     shared_approval_fixture(path);
     auto duplicate = validated;
     auto upper_path = path;

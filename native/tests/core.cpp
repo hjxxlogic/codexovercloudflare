@@ -264,9 +264,85 @@ void external_test() {
         "Large pending patch retains readable tool context");
   check(same_project_path(temp.path, temp.path + "/."), "Canonical project verification");
   check(!same_project_path(temp.path, temp.path + "/missing"), "Missing project rejected safely");
+  approval_configuration_fixture(temp.path);
   shared_approval_fixture(temp.path);
   std::cout << "PASS: external stable snapshots, revisions, rewrite, chunks, archive overlap and "
                "writer fallback\n";
+}
+void external_refresh_test() {
+  Temp temp;
+  asio::io_context io;
+  Json items = Json::array();
+  for (int i = 0; i < 25; ++i)
+    items.push_back(
+        {{"id", "external-" + std::to_string(i)}, {"type", "agentMessage"}, {"text", "partial"}});
+  const auto state_file = temp.path + "/.fake-external.json";
+  auto save = [&] { save_private(state_file, {{"items", items}, {"running", true}}); };
+  save();
+  bool finished = false, success = false;
+  int phase = 0;
+  std::string failure;
+  std::shared_ptr<CodexProcess> process;
+  std::shared_ptr<ExternalThread> reader;
+  asio::steady_timer deadline(io, std::chrono::seconds(12));
+  auto end = [&](bool ok, std::string error) {
+    if (finished)
+      return;
+    finished = true;
+    success = ok;
+    failure = std::move(error);
+    deadline.cancel();
+    reader->close();
+    process->close();
+  };
+  process = std::make_shared<CodexProcess>(
+      io,
+      Json{{"codexPath", "node"},
+           {"codexArgs",
+            Json::array({std::string(COC_SOURCE_DIR) + "/tests/fixtures/fake-codex.mjs"})},
+           {"sandbox", "read-only"}},
+      temp.path, [](Json) {}, [&] { end(false, "External fixture exited"); });
+  reader = std::make_shared<ExternalThread>(
+      io, process, "external-history", temp.path,
+      [&](std::string, Json item, bool) {
+        if (phase == 2 && item.at("id") == "external-10" && item.value("text", "") == "final")
+          end(true, "");
+      },
+      [&](Json state) {
+        if (phase == 1 && state.contains("seed")) {
+          // Let the tail advance first, then finish an item now more than 16 entries old.
+          phase = 2;
+          items[10]["text"] = "final";
+          save();
+        }
+      },
+      [&](Json error) { end(false, error.dump()); });
+  deadline.async_wait([&](auto error) {
+    if (!error)
+      end(false, "Older growing output was lost after the tail advanced");
+  });
+  process->start();
+  process->initialize([&](Json, Json error) {
+    if (!error.is_null()) {
+      end(false, error.dump());
+      return;
+    }
+    reader->bootstrap([&](Json, Json error) {
+      if (!error.is_null()) {
+        end(false, error.dump());
+        return;
+      }
+      phase = 1;
+      for (int i = 25; i < 65; ++i)
+        items.push_back({{"id", "external-" + std::to_string(i)},
+                         {"type", "agentMessage"},
+                         {"text", "newer output"}});
+      save();
+    });
+  });
+  io.run();
+  check(success, failure.c_str());
+  std::cout << "PASS: external output finalization survives more than 16 newer items\n";
 }
 void history_test() {
   Temp temp;
@@ -823,7 +899,9 @@ int main(int argc, char **argv) {
     std::cerr.setf(std::ios::unitbuf);
     signal(SIGPIPE, SIG_IGN);
     std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "--external-approval") {
+    if (mode == "--external-refresh") {
+      external_refresh_test();
+    } else if (mode == "--external-approval") {
       if (argc != 5 && argc != 6)
         throw Error("USAGE", "--external-approval ENDPOINT THREAD CWD [--allow]");
       external_approval_contract(argv[2], argv[3], argv[4],
@@ -839,6 +917,7 @@ int main(int argc, char **argv) {
       std::cout << "RUN: core\n";
       core();
       external_test();
+      external_refresh_test();
       std::cout << "RUN: history\n";
       history_test();
       std::cout << "RUN: performance invariants\n";

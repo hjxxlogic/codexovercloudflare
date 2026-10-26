@@ -82,7 +82,7 @@ Web UI 的中文 / English 语言状态独立于认证与会话，默认中文�
 
 R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。
 
-A / CC / CW 共用 deviceStart → approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后原子消费请求，向发起方单次交付角色专用凭证。CC / CW 接受 name 和选填 message（trim 后最多 1000 字符），留言仅在临时申请中保存，以纯文本显示，不写入长期凭证。A 仍由管理员批准并创建主机。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，交付后删除。
+A / CC / CW 共用 deviceStart → approve/reject → devicePoll 协议。申请有 5 分钟期限及独立高熵轮询秘密；配对码和公开请求 ID 仅用于核对。原生程序在终端显示授权地址，不自动启动 GUI。CW 的轮询秘密存入 HttpOnly 临时 Cookie；批准后以事务交付角色专用凭证：CW 原子消费请求并单次交付；A / CC 凭原轮询秘密可在原申请期限内重取同一结果，每次复核授权和主机状态，不重复签发。CC / CW 接受 name 和选填 message（trim 后最多 1000 字符），留言仅在临时申请中保存，以纯文本显示，不写入长期凭证。A 仍由管理员批准并创建主机。未领取请求到期清理。R 仅保存持久凭证的摘要；交付前的短期请求暂存待领取令牌，CW 交付后删除；原生请求记录 delivered 标记并保留至原申请到期，alarm 仅清理已交付请求，不撤销已领取凭证；从未领取的批准结果仍按原规则撤销。
 
 0.5.5 的指定目标审批增加 `requestedHostId`：仅 cli / web 可提交，deviceStart 校验为有效、未停用的 version 2 主机并原样返回。旧 `hostId` 输入继续忽略，未指定的新旧申请均由管理员选择目标。新 CC 的 `login --host` 与 CW 的选填目标输入发送新字段，并核对申请响应及领取结果，不支持的旧 Relay 不会静默降级。指定目标只允许对应 Agent 或管理员批准，任何审批方均不能改绑；未指定时 deviceApprove 仍强制接收管理员的 hostId。原有凭证、Auth version 2 与 API Key 登录兼容。
 
@@ -406,3 +406,9 @@ ExternalApprovals 单独连接原共享 app-server，Linux 使用原生 Unix Web
 原请求 ID 保留在桥接器内，CC / CW 只能提交本会话已收到的审批 ID。写持久请求身份后转发一次，结果标为 approval-submitted，不推断最终决策归属；待解决通知才清除待办。断开不发送拒绝，不复用普通会话的十分钟审批超时。HTTP 审批及 WebSocket 审批均复核角色、会话、明确开关和活动桥接，仍不暴露任意原 app-server RPC。
 
 审批桥接同时把原服务的命令 / 文件 item 上下文写入稳定历史投影，供审批界面展示差异。原服务本机连接允许读取至 8 MiB，Relay 连接仍保持原有 256 KiB 单帧限制；大工具内容保留有界类型元数据并使用既有正文分块。
+
+### 外部观察游标与默认配置补全
+
+ExternalThread 的增量起点绑定最近一次摘要查询所标识轮次的最早已观察条目，而非每轮刷新都滑动到最近 16 项窗口。forward 从保留起点读取，跨轮时先补全旧轮再记录新轮起点；每个 RPC 仍 limit=1，避免整轮装入内存。同一稳定 item 的更新由 Store 指纹去重和 revision 合并。初始窗口与更早历史的按需分页保持原有规则。
+
+Agent 登录成功后调用既有 agent_config 补齐并规范化配置，补出 wakeUrl 及完整 autoUpdate 对象（平台默认空字符串）。保留用户配置的选项值；不在运行时重写用户文件。Windows 审批入口未配置时直接报告需要显式 loopback WebSocket，不再尝试构造 Unix socket 路径。连接初始化异常保留底层诊断，仍不打印凭据。

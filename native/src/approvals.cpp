@@ -18,21 +18,23 @@ void ExternalApprovals::start() {
   try {
     auto endpoint = config_.value("approvalEndpoint", "");
     if (endpoint.empty()) {
+#ifdef _WIN32
+      throw Error("CONFIG_ERROR",
+                  "Windows requires externalSessions.approvalEndpoint=ws://127.0.0.1:PORT; "
+                  "connect the original Codex client to that same app-server");
+#else
       auto home = std::getenv("CODEX_HOME");
       std::filesystem::path root;
       if (home && *home)
         root = std::filesystem::u8path(home);
       else {
-#ifdef _WIN32
-        home = std::getenv("USERPROFILE");
-#else
         home = std::getenv("HOME");
-#endif
         if (!home || !*home)
           throw Error("CONFIG_ERROR", "Set externalSessions.approvalEndpoint");
         root = std::filesystem::u8path(home) / ".codex";
       }
       endpoint = "unix://" + (root / "app-server-control/app-server-control.sock").u8string();
+#endif
     }
     auto message = [self](Json value) { self->receive(std::move(value)); };
     auto closed = [self](unsigned) { self->failed("Original approval server disconnected"); };
@@ -67,9 +69,10 @@ void ExternalApprovals::start() {
     socket_->read_limit(max_queue);
     socket_->start();
     wait_ready();
-  } catch (const std::exception &) {
+  } catch (const std::exception &error) {
     failed("Cannot connect to original approval server; check externalSessions.approvalEndpoint "
-           "and its permissions");
+           "and its permissions: " +
+           std::string(error.what()));
   }
 }
 void ExternalApprovals::wait_ready() {

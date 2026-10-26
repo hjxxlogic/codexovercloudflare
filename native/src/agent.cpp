@@ -1722,11 +1722,7 @@ int coc_main(int argc, char **argv) {
         auto id = options.get("project-id", "my-project");
         if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
           throw coc::Error("CONFIG_ERROR", "Invalid project");
-        config = {{"autoUpdate", coc::UpdateSettings{}.enabled},
-                  {"codexPath", "codex"},
-                  {"codexArgs", coc::Json::array()},
-                  {"sandbox", "workspace-write"},
-                  {"dataDir", (std::filesystem::absolute(file).parent_path() / "data").u8string()},
+        config = {{"dataDir", (std::filesystem::absolute(file).parent_path() / "data").u8string()},
                   {"projects",
                    coc::Json::array({{{"id", id}, {"name", id}, {"path", path.u8string()}}})}};
       }
@@ -1735,6 +1731,12 @@ int coc_main(int argc, char **argv) {
       config["relayUrl"] = grant.at("relay");
       config["hostId"] = grant.at("hostId");
       config["token"] = grant.at("token");
+      config["wakeUrl"] = config.value("wakeUrl", "");
+      config = coc::agent_config(std::move(config));
+      const auto updates = coc::update_settings(config);
+      config["autoUpdate"] = {{"enabled", updates.enabled},
+                              {"intervalHours", updates.interval_hours},
+                              {"platform", updates.platform}};
       coc::save_private(file, config);
       std::cout << "Agent authorized: " << grant.at("hostId") << "\nConfig: " << file << '\n';
       return 0;

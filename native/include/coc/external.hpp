@@ -16,7 +16,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   std::function<void(Json)> failure_;
   void validate(Completion);
   void probe(Json, int, size_t, Json, Json, Completion);
-  void forward(Json, Completion);
+  void forward(Json, const std::string &, Json, Completion);
   void latest(Completion);
   void schedule(int);
   void queue_page(const std::string &, Completion, Json, int);

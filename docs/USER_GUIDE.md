@@ -20,6 +20,8 @@
 
 CC 在本地文件保存多份凭证；CW 为每个 A 保存独立的持久化 HttpOnly Cookie，可切换 A 及其会话。浏览器对 Cookie 有存储期限限制，网站在使用时续写；浏览器清理、隐私模式退出或长期未访问导致 Cookie 丢失时仍需重新申请。R 不会因设备离线、程序重启或关闭页面自动撤销授权。
 
+原生 Agent / CLI 在等待配对批准时，HTTP 超时或断连会在原五分钟申请期限内重试同一轮询，不重新申请。新版 Relay 允许凭原轮询秘密重取同一批准结果，解决批准响应丢失；网页保持单次交付。拒绝、撤销和其他服务端错误立即停止。需同时升级 Relay 和原生程序；旧 Relay 已消费且丢失的结果无法恢复，须在管理网页核对并撤销未使用授权后重新登录。
+
 ## 2. 安装与前置条件
 
 当前原生发行包支持 Linux x86_64，分别提供 Ubuntu 20.04 和 Debian 12 动态链接包。选择匹配的发行版，下载并核对 `SHA256SUMS`，解压后安装：
@@ -64,6 +66,8 @@ npm run dev
 Windows 支持授权、审批、Agent 会话、CC 历史和工作区文件传输；CW 聊天下载同时识别项目内的 Windows 盘符和反斜杠路径。文件接口使用 `/` 分隔项目相对路径，拒绝盘符、UNC、设备名、备用数据流、符号链接及 junction；项目必须位于本地磁盘。上传期间目录和目标可能因文件共享锁而无法移动或写入。TLS 同时加载 OpenSSL 默认信任路径和 Windows ROOT 证书库，保留主机名校验。
 
 Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配置与状态，校验新版 ZIP 后替换两个程序，再重新运行；不改变凭据或数据库。Windows 不执行自动替换，`update` 返回手动升级提示。后台常驻可由任务计划程序以同一普通用户身份运行 `coc-agent.exe run`；当前不提供 Windows Service 注册命令。源码构建和测试见 [开发说明](DEVELOPMENT.md)。
+
+`coc-agent login` 保存 `agent.json` 时会写出全部默认选项，包括 `wakeUrl`、`codexPath`、`codexArgs`、`sandbox`、`externalSessions` 的四个字段及 `autoUpdate` 的 enabled / intervalHours / platform。默认外部入队和审批均关闭；审批地址和令牌文件为空，平台为空表示自动匹配；自动更新 Linux 默认开启、Windows 默认关闭。使用已有无令牌配置登录时，补齐缺失项并保留自定义值；不会在 Agent 运行时重写配置。完整字段示例见 `examples/agent.example.json`。
 
 ### 原生程序自动更新
 
@@ -272,6 +276,8 @@ coc-client request stable-request-id --session SESSION_ID --host A_ID
 coc-client stop SESSION_ID --host A_ID
 ```
 
+外部输出按当前轮已观察内容的起点持续回读，避免较早消息在新增超过 16 项后漏掉补全内容；新轮出现后才推进起点。每次本地 RPC 仍只读取一个分页条目，不缓存整轮历史。输出仍取决于原 Codex 的落盘时机，不能把历史观察当作原服务的实时通知流。
+
 `observe` 返回新的 CLI 观察会话 ID；`history` 读取最新已同步内容，支持已有分页、分块及离线缓存。`queue` 输出请求 ID；同 ID 同内容返回既有结果，不重复入队，同 ID 不同内容被拒绝。若入队应答丢失，同 ID 重试只查询 pending queue 来确认；已被原客户端消费时保留 `RESULT_UNKNOWN`，请核对原客户端历史。CC / CW 会话及请求保持角色隔离。
 
 ### 无人值守外部会话的远程审批
@@ -300,6 +306,8 @@ Windows 使用显式的本机 WebSocket endpoint；Linux 也支持此方式。�
 codex app-server --listen ws://127.0.0.1:4500
 codex --remote ws://127.0.0.1:4500
 ```
+
+上述命令须在运行原生 Codex 的同一台 Windows 主机上执行，不能用另一个 WSL 实例中的服务代替。Windows 不能使用空 endpoint 或 Unix socket；仅开启 `allowApprovals` 不会自动给既有原生 Codex 增加 WebSocket 监听。若现有线程未在该 WebSocket 服务中加载，需先在原客户端妥善结束本轮，再规划切换；仅启动另一个 app-server 并改地址不能接入旧服务中的审批。
 
 然后把 Agent 的 `externalSessions.approvalEndpoint` 设为 `ws://127.0.0.1:4500`。只接受本机 loopback 地址或私有 Unix socket；不会自动暴露公网端口。共享服务启用 capability-token 鉴权时，给服务配置 `--ws-auth capability-token --ws-token-file PATH`，Agent 的 `approvalTokenFile` 填同一令牌文件路径，本地终端用 `--remote-auth-token-env ENV_NAME` 提供令牌。令牌不发送给 Relay / CC / CW。
 

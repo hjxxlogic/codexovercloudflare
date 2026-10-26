@@ -134,7 +134,7 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 构建生成的 build.hpp 含提交与源码摘要；运行二进制 `--version` 可检查。Python/Git 仅为构建依赖，本机运行不需要 Node.js。旧容器没有 Git 时可显式设置 `COC_TEST_BUILD_METADATA` 指向本机生成的测试元数据；它强制 dirty=true/verified=false，禁止作为发行包来源。更新 Dockerfile.test 的镜像后无需此兼容选项。
 
-网页构建保留下载目录，防止重新构建意外删除已准备的原生包。发布仍须校验版本/摘要一致、干净源码及完整目标平台产物；CI 成功不自动发布。Observability 采样 10%，应用日志只包含元数据；不记录正文、令牌和 Key。实际日志的访问与保留期限由自托管者配置。
+网页构建保留下载目录，防止重新构建意外删除已准备的原生包。发布仍须校验版本/摘要一致、干净源码及完整目标平台产物；普通分支 CI 成功不自动发布。版本标签在所有门禁通过后，用 `scripts/assemble-release.py` 校验三个平台产物的身份与校验和，发布 GitHub Release 及可部署站点包；生产部署仍单独进行，见 [发布操作](RELEASE.md)。Observability 采样 10%，应用日志只包含元数据；不记录正文、令牌和 Key。实际日志的访问与保留期限由自托管者配置。
 
 ### 流式存储基准
 
@@ -211,3 +211,11 @@ python scripts/package-release.py --build-dir build-windows/Release --platform w
 ### 外部审批测试
 
 `python3 tests/external-approvals.py` 使用真实 Codex 0.164.0、隔离 home / 共享 Unix socket 和本机 Responses stub 产生实际审批，再由原生 `coc-tests --external-approval` 分别拒绝 / 批准，验证原客户端收到解决通知且仍存活。无真实模型或用户凭据；拒绝时命令不执行，批准时仅执行临时项目中的无副作用 echo；Node WebSocket 适配器仅为测试 fixture，发行二进制直接使用 C++ WebSocket。E2E 的 SharedApprovals fixture 覆盖 CC / CW、精确本轮权限、已解决请求、错项目 / 未加载线程拒绝及安全断开。
+
+## 原生登录故障恢复回归
+
+构建后执行 `python3 tests/native-login.py`，可用 COC_AGENT_BINARY / COC_CLI_BINARY 指定程序路径。本地 HTTP 夹具验证真实 Agent / CLI 的轮询超时、断连和批准响应丢失后使用同一申请恢复，拒绝、鉴权失败和到期立即结束；不访问生产、不调用模型。`tests/device-auth.test.ts` 验证 Relay 同一凭证重取、秘密验证、撤销、到期清理不撤销已领取凭证及网页单次交付。
+
+外部输出回归可单独运行 `./build/coc-tests --external-refresh`，也包含在 Linux CTest 中：模拟原生 Codex 读取进程，在同轮新增 40 项并完成一次刷新后，补全一个早期消息，验证下一轮同步仍能读取。共享审批配置夹具验证初始化错误包含具体原因；Windows CTest 另检查空审批 endpoint 明确提示 WebSocket。`tests/native-login.py` 新增完整默认配置及已有自定义配置补全检查。
+
+Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原生登录故障恢复测试与打包；Windows 同样运行 `tests/native-login.py`，通过环境变量选择 Release EXE。Ubuntu 20.04 使用 `cmake -E chdir build ctest` 兼容 CMake 3.16。

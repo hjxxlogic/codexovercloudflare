@@ -188,7 +188,7 @@ describe('scoped persistent device authorization', () => {
             web: role === 'web',
           })
         ).status,
-      ).toBe(401);
+      ).toBe(role === 'web' ? 401 : 200);
     },
   );
   it('requires live Agent credentials at the route and inside the approval transaction', async () => {
@@ -403,7 +403,7 @@ describe('scoped persistent device authorization', () => {
             web: role === 'web',
           })
         ).status,
-      ).toBe(401);
+      ).toBe(role === 'web' ? 401 : 200);
     },
   );
   it.each(['web', 'cli'])(
@@ -480,7 +480,7 @@ describe('scoped persistent device authorization', () => {
     delete record[1].version;
     expect((await op('auth', { token: cc.token })).status).toBe(401);
   });
-  it('requires the polling secret and permits exactly one approval and credential delivery', async () => {
+  it('requires the polling secret, approves once and recovers the same native grant', async () => {
     const request = (await op('deviceStart', { role: 'agent', name: 'test' }))
       .data;
     expect(
@@ -509,7 +509,64 @@ describe('scoped persistent device authorization', () => {
         web: false,
       }),
     ]);
-    expect(deliveries.map((r) => r.status).sort()).toEqual([200, 401]);
+    expect(deliveries.map((r) => r.status)).toEqual([200, 200]);
+    expect(deliveries[0].data).toEqual(deliveries[1].data);
+    expect((await op('devices')).data.pending).toEqual([]);
+    expect((await op('devices')).data.credentials).toHaveLength(1);
+    const poll = (pollSecret = request.pollSecret) =>
+      op('devicePoll', { id: request.id, pollSecret, web: false });
+    expect((await poll('wrong')).status).toBe(401);
+    const auth = (await op('auth', { token: deliveries[0].data.token })).data;
+    await op('credentialRevoke', { id: auth.hash });
+    expect((await poll()).status).toBe(401);
+  });
+  it('bounds native grant recovery by expiry and keeps web delivery single-use', async () => {
+    const a = await grant('agent');
+    for (const role of ['agent', 'cli', 'web']) {
+      const request = (await op('deviceStart', { role, name: 'recovery' }))
+        .data;
+      await op('deviceApprove', { id: request.id, hostId: a.hostId });
+      const poll = () =>
+        op('devicePoll', {
+          id: request.id,
+          pollSecret: request.pollSecret,
+          web: role === 'web',
+        });
+      const first = await poll();
+      expect(first.status).toBe(200);
+      const second = await poll();
+      if (role === 'web') expect(second.status).toBe(401);
+      else {
+        expect(second.data).toEqual(first.data);
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(request.expires);
+        try {
+          expect((await poll()).status).toBe(401);
+          await registry.alarm();
+          expect((await op('auth', { token: first.data.token })).status).toBe(
+            200,
+          );
+          expect(storage.values.has('device:' + request.id)).toBe(false);
+        } finally {
+          clock.mockRestore();
+        }
+      }
+    }
+  });
+  it('rejects native grant recovery after its target Agent is revoked', async () => {
+    const a = await grant('agent');
+    const request = (await op('deviceStart', { role: 'cli', name: 'recovery' }))
+      .data;
+    await op('deviceApprove', { id: request.id, hostId: a.hostId });
+    const poll = () =>
+      op('devicePoll', {
+        id: request.id,
+        pollSecret: request.pollSecret,
+        web: false,
+      });
+    expect((await poll()).status).toBe(200);
+    const auth = (await op('auth', { token: a.token })).data;
+    await op('credentialRevoke', { id: auth.hash });
+    expect((await poll()).status).toBe(401);
   });
   it('expires requests, supports rejection and hides polling secrets from administrators', async () => {
     const request = (await op('deviceStart', { role: 'agent', name: 'test' }))

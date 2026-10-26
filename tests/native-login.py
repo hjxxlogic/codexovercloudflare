@@ -1,0 +1,149 @@
+"""Exercise real native login against a local fault-injecting relay; no model calls."""
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class LoginRecovery(unittest.TestCase):
+    def run_login(self, scenario, binary='coc-agent'):
+        polls = []
+        stopped = threading.Event()
+        expires = int(time.time() * 1000) + (300 if scenario == 'expired' else 60000)
+        grant = {'state': 'approved', 'hostId': 'login-host',
+                 'token': 'local-test-token-for-login-only',
+                 'role': 'agent' if binary == 'coc-agent' else 'cli',
+                 'name': 'local-test'}
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = json.dumps([{'id': grant['hostId'], 'name': grant['name']}]).encode()
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                status = 200
+                if self.path == '/api/v1/auth/device/start':
+                    result = {'id': 'login-request', 'pollSecret': 'local-poll-secret',
+                              'code': 'TESTCODE', 'url': '/#authorize=login-request',
+                              'expires': expires}
+                elif self.path == '/api/v1/auth/device/poll':
+                    polls.append(data)
+                    if (scenario == 'recovery' and len(polls) == 2) or scenario == 'expired':
+                        # Simulate a response that never arrives, bounded by the client deadline.
+                        stopped.wait(40)
+                        return
+                    if scenario == 'recovery' and len(polls) in (1, 3):
+                        # Poll 3 represents an approved grant committed before response loss.
+                        self.connection.shutdown(socket.SHUT_RDWR)
+                        self.connection.close()
+                        return
+                    if scenario == 'rejected':
+                        result = {'state': 'rejected'}
+                    elif scenario == 'unauthorized':
+                        status, result = 401, {'error': {'code': 'UNAUTHORIZED', 'message': 'revoked'}}
+                    else:
+                        result = grant
+                else:
+                    status, result = 404, {}
+                body = json.dumps(result).encode()
+                self.send_response(status)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix='coc-login-') as tmp:
+                config = Path(tmp) / 'credential.json'
+                if scenario == 'custom':
+                    config.write_text(json.dumps({
+                        'dataDir': str(Path(tmp) / 'custom-data'),
+                        'projects': [{'id': 'test', 'name': 'Test', 'path': tmp}],
+                        'sandbox': 'read-only', 'codexPath': 'custom-codex',
+                        'wakeUrl': 'http://127.0.0.1:9',
+                        'externalSessions': {'allowQueue': True},
+                        'autoUpdate': {'enabled': False, 'intervalHours': 24},
+                    }))
+                executable = os.environ.get('COC_AGENT_BINARY' if binary == 'coc-agent'
+                                            else 'COC_CLI_BINARY', 'build/' + binary)
+                args = [str(Path(executable).resolve()), 'login', '--relay',
+                        'http://127.0.0.1:' + str(server.server_port), '--config', str(config)]
+                if binary == 'coc-agent':
+                    args += ['--project', tmp]
+                result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+                if scenario in ('recovery', 'defaults', 'custom'):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    saved = json.loads(config.read_text())
+                    credential = saved if binary == 'coc-agent' else saved['entries'][0]
+                    self.assertEqual(credential['token'], grant['token'])
+                    self.assertEqual(len(polls), 4 if scenario == 'recovery' else 1)
+                    if scenario == 'recovery':
+                        self.assertIn('HTTP_TIMEOUT', result.stderr)
+                        self.assertIn('HTTP_NETWORK', result.stderr)
+                    if binary == 'coc-agent':
+                        self.assertEqual(set(saved), {
+                            'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
+                            'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
+                        })
+                        self.assertEqual(saved['externalSessions'], {
+                            'allowQueue': scenario == 'custom', 'allowApprovals': False,
+                            'approvalEndpoint': '', 'approvalTokenFile': '',
+                        })
+                        self.assertEqual(saved['autoUpdate'], {
+                            'enabled': scenario != 'custom' and os.name != 'nt',
+                            'intervalHours': 24 if scenario == 'custom' else 1, 'platform': '',
+                        })
+                        if scenario == 'custom':
+                            self.assertEqual(saved['sandbox'], 'read-only')
+                            self.assertEqual(saved['codexPath'], 'custom-codex')
+                            self.assertEqual(saved['wakeUrl'], 'http://127.0.0.1:9')
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    code = {'rejected': 'LOGIN_REJECTED', 'unauthorized': 'UNAUTHORIZED',
+                            'expired': 'LOGIN_EXPIRED'}[scenario]
+                    self.assertIn(code, result.stderr)
+                    self.assertFalse(config.exists())
+                    self.assertEqual(len(polls), 1)
+                self.assertTrue(all(p == polls[0] for p in polls))
+                self.assertNotIn(grant['token'], result.stdout + result.stderr)
+                self.assertNotIn('local-poll-secret', result.stdout + result.stderr)
+        finally:
+            stopped.set()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_agent_recovers_transport_failures(self):
+        self.run_login('recovery')
+
+    def test_cli_recovers_transport_failures(self):
+        self.run_login('recovery', 'coc-client')
+
+    def test_terminal_errors_and_expiry(self):
+        for scenario in ('rejected', 'unauthorized', 'expired'):
+            with self.subTest(scenario=scenario):
+                self.run_login(scenario)
+
+    def test_generated_defaults_and_custom_configuration(self):
+        for scenario in ('defaults', 'custom'):
+            with self.subTest(scenario=scenario):
+                self.run_login(scenario)
+
+
+if __name__ == '__main__':
+    unittest.main()

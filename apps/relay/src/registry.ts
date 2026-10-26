@@ -400,7 +400,10 @@ export class RegistryDO extends DurableObject<Env> {
             if (d.web !== (request.role === 'web'))
               throw new AppError('FORBIDDEN', 'Wrong login transport', 403);
             if (request.state === 'pending') return { state: 'pending' };
-            await tx.delete(key);
+            // Native polls can lose a successful response. Keep the same grant
+            // recoverable with its secret until the original request expires.
+            // Browser cookie delivery retains its single-use semantics.
+            if (request.role === 'web') await tx.delete(key);
             if (request.state === 'rejected') return { state: 'rejected' };
             const auth = await tx.get<Auth>(
               'auth:' + (await digest(request.result.token)),
@@ -408,6 +411,10 @@ export class RegistryDO extends DurableObject<Env> {
             const host = await tx.get<Host>('host:' + request.hostId);
             if (!auth || !host || host.version !== 2 || host.disabled)
               throw new AppError('UNAUTHORIZED', 'Authorization revoked', 401);
+            if (request.role !== 'web') {
+              request.delivered = true;
+              await tx.put(key, request);
+            }
             return { state: 'approved', ...request.result };
           }),
         );
@@ -597,7 +604,7 @@ export class RegistryDO extends DurableObject<Env> {
           const value = await tx.get<any>(key);
           if (!value) return;
           if ((value.expires ?? value.until) <= Date.now()) {
-            if (value.result) {
+            if (value.result && !value.delivered) {
               await tx.delete('auth:' + (await digest(value.result.token)));
               if (value.role === 'agent') {
                 const host = await tx.get<Host>('host:' + value.hostId);
