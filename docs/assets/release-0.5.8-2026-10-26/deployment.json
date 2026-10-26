@@ -1,0 +1,36 @@
+{
+  "version": "0.5.8",
+  "commit": "caca2b82d6108a645fb1fc9d9904b2d74b143392",
+  "tag": "v0.5.8",
+  "workerVersion": "3925ec98-8742-4b73-bab4-dc97e71ceb16",
+  "verifiedAt": "2026-10-26T03:09:00Z",
+  "site": "https://r.xlogic.cc",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40261492201",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "success"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # 发布操作
 
+0.5.8 已发布：源码 `caca2b8`、标签 `v0.5.8`，Worker `3925ec98-8742-4b73-bab4-dc97e71ceb16`。三个平台包、源码、网页和在线手册已同步更新；Actions 全部门禁及线上资源字节校验通过，详细证据与验收边界见 [测试记录](TEST_REPORT.md)。
+
 ## 0.5.8 的 Actions 发布流程
 
 推送干净提交后由 `.github/workflows/checks.yml` 执行构建测试，包括常规回归、ASan/UBSan、Ubuntu 20.04 / Debian 12 和 Windows x64。推送匹配 package.json 的 `v` 版本标签后，只有全部作业通过才运行发布作业；`scripts/assemble-release.py` 核对各平台版本、提交、源码摘要、协议与归档 SHA256，组装网页和下载目录并上传 GitHub Release。下载 Release 的 `coc-VERSION-site.tar.gz` 后，用已认证的 Wrangler 将该站点与同一提交的 Worker 部署；Actions 不持有 Cloudflare 凭据，也不自动部署生产。
@@ -10,7 +12,7 @@
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前候选版本 0.5.8 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
+当前版本 0.5.8 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
 
 2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
 

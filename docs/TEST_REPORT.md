@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## 0.5.8 · 2026-10-26 · Actions 发布与线上验收
+
+- 发布源码 `caca2b8`、标签 `v0.5.8`；[GitHub Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40261492201) 的常规回归、ASan/UBSan、Ubuntu 20.04、Debian 12、Windows x64 及发布作业全部通过，包含登录故障恢复、默认配置、端到端与浏览器回归。原生包与网页均取自该轮 Actions，没有在 WSL 交叉构建 Windows 包。
+- [GitHub Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.8) 提供三个平台包、源码、校验和及完整站点包。组装时核对平台来源身份与归档校验和；下载站点包后核对 GitHub asset digest、源码身份及全部归档 SHA256。独立合成夹具验证损坏归档会被组装脚本拒绝。
+- Worker `3925ec98-8742-4b73-bab4-dc97e71ceb16` 已部署至 `r.xlogic.cc`。线上健康接口 200 / 0.5.8、未授权主机列表 401；JS / CSS、UTF-8 手册、下载清单、校验文件及全部四个归档与 CI 产物逐字节一致。未操作生产用户设备或会话，未在生产调用模型。
+- 首次本机解包使用了旧 Python 不支持的参数，后续部署命令仍继续执行，产生没有上传网页资源的中间 Worker 版本 `e3f9cb25-62e8-49a9-9b8a-287c8465c5ae`。修正解包后立即重新部署完整产物并通过上述验收；发布标签与 CI 归档未改写。后续校验与部署分步执行。
+- Windows runner 验证原生程序与模拟协议；本次没有访问用户 Windows 上的真实 Codex 会话，不将 CI 结果视为已复现用户现场。远程审批仍须连接原客户端共享的 app-server。
+- 永久证据：[发布身份与 CI](assets/release-0.5.8-2026-10-26/deployment.json)、[线上字节校验](assets/release-0.5.8-2026-10-26/online-verification.json)。下方“未部署”段落保留为发布前本机验证记录。
+
 ## 外部输出补全、Windows 审批诊断与配置默认值 · 2026-10-26 · 未部署
 
 - Release 原生构建、CTest（包含外部输出补全与审批配置诊断）、全量 Vitest 84 项、TypeScript、ESLint / Prettier、C++ 格式检查通过。

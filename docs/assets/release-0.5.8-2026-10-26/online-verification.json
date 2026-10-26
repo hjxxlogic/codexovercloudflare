@@ -1,0 +1,65 @@
+{
+  "/api/v1/healthz": {
+    "status": 200,
+    "bytes": 42,
+    "sha256": "6e7139e71645ffe72a81e62868b3330892e40fb61e5f9754f6e39bd826b4c971"
+  },
+  "/assets/index-B7nFt31E.css": {
+    "status": 200,
+    "bytes": 13615,
+    "sha256": "a642b2d118da8bd3e92746c6c8c41e9920d37858c80ff94a8abefd9fda1136f0"
+  },
+  "/assets/index-DF9R_np2.js": {
+    "status": 200,
+    "bytes": 568098,
+    "sha256": "425f6dfb708a44cbe86c2accef622776221502f3a6b608ea0a44e7ddf789e1da"
+  },
+  "/downloads/SHA256SUMS": {
+    "status": 200,
+    "bytes": 413,
+    "sha256": "2e250b4f8dc24c916668f40b542ea0b816449e25ab8272e7c9dbd2b7a17abcd9"
+  },
+  "/downloads/USER_GUIDE.md": {
+    "status": 200,
+    "bytes": 54409,
+    "sha256": "d8bb863332b214b6c41dbce2a94b4834951c85b61e61c9339e48ddd7166aa1f6"
+  },
+  "/downloads/coc-0.5.8-linux-x86_64-debian12.tar.gz": {
+    "status": 200,
+    "bytes": 3179034,
+    "sha256": "05f46e7713be1578de6f03f1c919b6ba5355c6abe1fe58f68c977899055ed68a"
+  },
+  "/downloads/coc-0.5.8-linux-x86_64-ubuntu20.04.tar.gz": {
+    "status": 200,
+    "bytes": 2793255,
+    "sha256": "3b74f708a851587b3220a27312c46f694fb0461881fad06e9f67e246c3d2e111"
+  },
+  "/downloads/coc-0.5.8-windows-x64.zip": {
+    "status": 200,
+    "bytes": 7742305,
+    "sha256": "4d8595a66ed1c079bbd3c2ab65f0bec39fa604cb1a2369ae3326b4951bd53ee0"
+  },
+  "/downloads/codex-over-cloudflare-0.5.8-source.tar.gz": {
+    "status": 200,
+    "bytes": 1991304,
+    "sha256": "25538e2abc661034eb376f078990775fd78d4778ffea28638e9b0d1008544d2a"
+  },
+  "/downloads/index.html": {
+    "status": 200,
+    "bytes": 650,
+    "sha256": "b4c4f0ea76283ff5f98af66366ff27922b33331af8b53addd62e33b5505955ad"
+  },
+  "/downloads/index.json": {
+    "status": 200,
+    "bytes": 436,
+    "sha256": "73857c5944d71f2fb32725d3808ecd111583fce4be45ddedc73f772659247273"
+  },
+  "/": {
+    "status": 200,
+    "bytes": 398,
+    "sha256": "4ab9e1cd7e86df8134a40f5bae6687acf5f47c0235633cd8b63887322818a80e"
+  },
+  "unauthenticated-hosts": {
+    "status": 401
+  }
+}
