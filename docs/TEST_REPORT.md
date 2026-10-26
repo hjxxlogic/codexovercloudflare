@@ -1,5 +1,16 @@
 # 本机测试记录
 
+## 0.5.11 正式发布与 musl 线上验证 · 2026-10-26
+
+- 发布源码 `59bb0debfd2d7c7d34acb286a744be9820e0c187`，标签 `v0.5.11`；[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 七个作业全部通过：Ubuntu 20.04、Debian 12、Linux musl、Windows x64、sanitizers、完整 regression（含 E2E / UI）和发布。
+- [GitHub Release v0.5.11](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.11) 提供四平台原生包、源码与站点包。核对站点 GitHub asset digest、五个归档 SHA256、清单身份及源码与该提交 `git archive` 完全一致。六个 Linux 程序均在匹配环境完成版本、来源及帮助命令检查；Windows 运行与打包由 Actions 验证。
+- musl 归档为 24,743,413 字节。两个程序是静态 PIE，无 PT_INTERP 和 DT_NEEDED，可直接在 Ubuntu 20.04 宿主执行；CI 另在 Ubuntu 24.04 验证默认 musl 更新选择。线上实际 musl CLI 使用隔离空凭据配置成功完成 HTTPS 更新检查，返回 `Already up to date`，未替换程序。
+- Worker `7fff05b9-5611-478d-8529-050295520b66` 于 UTC 11:59:04 上线，流量 100%，部署同一标签 Worker 和 Actions 站点。使用 `--keep-vars`，不轮换 secrets、不改变 DO 迁移、不创建授权或操作已有主机 / 会话，无真实模型调用。
+- 线上 health 200 / 0.5.11，未授权 hosts 401，跨域管理员登录 403，安全头与手册 UTF-8 通过。所有 JS / CSS、手册、清单、SHA256 及五个归档与 CI 逐字节一致；HTML 排除 Cloudflare 统计脚本及标签间空白后相同。
+- 生产 Chromium 验证中英文切换、刷新保留、1280 / 390 宽度菜单无溢出、管理员登录入口和无页面脚本错误；没有提交生产凭据。实际 Codex 模型任务、长期压力及硬件唤醒不属于本次验证。
+
+永久证据：[部署](assets/release-0.5.11-2026-10-26/deployment.json)、[发行校验](assets/release-0.5.11-2026-10-26/package-verification.json)、[二进制](assets/release-0.5.11-2026-10-26/binary-verification.json)、[线上字节](assets/release-0.5.11-2026-10-26/online-verification.json)、[浏览器](assets/release-0.5.11-2026-10-26/browser-verification.json)、[musl TLS](assets/release-0.5.11-2026-10-26/musl-tls-verification.json)。本机完整下载、校验脚本和部署日志保存在 `.local/release-0.5.11/`。以下为发布前及历史记录。
+
 ## Linux musl 全静态构建 · 2026-10-26 · 本地验证，未发布
 
 - 使用新增 `Dockerfile.musl` 的 Alpine 3.23 / GCC 15.2 工具链完成 Release 构建，静态链接 Boost.System、OpenSSL、SQLite、musl 和 C++ 运行库。实际产物为静态 PIE：没有 PT_INTERP 或 DT_NEEDED；允许用于自重定位的 PT_DYNAMIC。

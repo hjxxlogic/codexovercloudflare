@@ -1,0 +1,13 @@
+{
+  "verifiedAt": "2026-10-26T11:59:53.671Z",
+  "origin": "https://r.xlogic.cc",
+  "checks": [
+    "Chinese landing page",
+    "English switching and persistence",
+    "desktop and mobile menus without overflow",
+    "administrator login entry",
+    "no page errors"
+  ],
+  "productionLoginSubmitted": false,
+  "modelCalls": false
+}

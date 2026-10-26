@@ -1,0 +1,19 @@
+{
+  "version": "0.5.11",
+  "tag": "v0.5.11",
+  "sourceCommit": "59bb0debfd2d7c7d34acb286a744be9820e0c187",
+  "sourceDigest": "bd6e678e39a463789fed4b7da7f1b9031a87ebc062d16238e6b55df60ba930f3",
+  "origin": "https://r.xlogic.cc",
+  "workerVersionId": "7fff05b9-5611-478d-8529-050295520b66",
+  "deploymentId": "68363326-c12b-4e46-9183-e5e7ddead878",
+  "createdOn": "2026-10-26T11:59:04.499694Z",
+  "percentage": 100,
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673",
+  "release": "https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.11",
+  "assets": "GitHub Actions verified site archive",
+  "keepVars": true,
+  "secretsRotated": false,
+  "durableObjectMigrationChanged": false,
+  "existingDeviceOrSessionOperations": false,
+  "modelCalls": false
+}

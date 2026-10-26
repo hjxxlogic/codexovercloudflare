@@ -1,8 +1,10 @@
 # 发布操作
 
-## 0.5.11 发布候选：Linux musl 全静态版
+## 0.5.11 已发布：Linux musl 全静态版
 
-本次新增 Linux x86_64 musl 静态 PIE 发行包，保留 Ubuntu 20.04 / Debian 12 动态包及 Windows x64 ZIP。版本统一为 0.5.11；提交并推送 `v0.5.11` 后，等待四平台、sanitizers 和完整 regression 门禁通过，再部署 Actions 生成的站点与同一提交的 Worker。保留现有生产配置、secrets 和 Durable Object 数据。实际 Actions、发布与部署身份在发布后记录，不覆盖旧标签或旧包。
+源码 `59bb0de`、标签 `v0.5.11`；[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 四平台、sanitizers、完整 regression 和发布门禁全部通过。Worker `7fff05b9-5611-478d-8529-050295520b66` 于 2026-10-26 UTC 11:59:04 上线，流量 100%。新增 `coc-0.5.11-linux-x86_64-musl.tar.gz`，保留 Ubuntu 20.04 / Debian 12 动态包及 Windows x64 ZIP；站点、Worker、四平台包、源码和在线手册来自同一标签。
+
+五个归档、线上资源、实际 musl TLS 与浏览器验证通过；保留生产 vars、secrets 和 Durable Object 数据，未操作既有主机会话。发布后证据另行提交，不改写源码标签或归档；详情见 [测试记录](TEST_REPORT.md)。
 
 > 0.5.10 已发布并部署：源码 `ccc3a28`、标签 `v0.5.10`，GitHub Actions 三平台、sanitizers 和完整浏览器回归全部通过。Worker `44ee79fc-ec0a-4f6e-98c5-5163e16a26ec` 于 2026-10-26 UTC 11:25:48 上线，流量 100%。产物身份、归档、线上资源与浏览器验证见 [测试记录](TEST_REPORT.md)。此前 0.5.9 因 CI 门禁失败未正式发布。
 
@@ -27,7 +29,7 @@
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前版本 0.5.10 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
+当前版本 0.5.11 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Linux x86_64 musl 全静态包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
 
 2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
 
