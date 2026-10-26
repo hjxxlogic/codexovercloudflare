@@ -27,7 +27,7 @@ export const json = (
 ) =>
   Response.json(data, {
     status,
-    headers: { 'Cache-Control': 'no-store', ...headers },
+    headers: { 'Cache-Control': 'no-store', 'X-CoC-Demand': '1', ...headers },
   });
 export async function body(req: Request): Promise<any> {
   if (Number(req.headers.get('content-length') || 0) > MAX_FRAME)
@@ -76,11 +76,22 @@ export async function registryCall(
   env: Env,
   op: string,
   data: unknown = {},
+  source: 'worker' | 'host' = 'worker',
 ): Promise<any> {
+  const started = Date.now();
   const r = await registry(env).fetch('https://internal/' + op, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+  console.log(
+    JSON.stringify({
+      event: 'registry_call',
+      source,
+      operation: op,
+      durationMs: Date.now() - started,
+      status: r.status,
+    }),
+  );
   const b: any = await r.json();
   if (!r.ok) throw new AppError(b.error.code, b.error.message, r.status);
   return b;

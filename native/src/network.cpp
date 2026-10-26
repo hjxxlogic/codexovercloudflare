@@ -183,7 +183,8 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
   req.set(http::field::host, u.authority);
   req.set(http::field::content_type, "application/json");
   req.set(http::field::origin, u.origin);
-  req.set(http::field::user_agent, "coc/0.5.2");
+  req.set(http::field::user_agent, "coc/demand-v1");
+  req.set("X-CoC-Async", "1");
   if (!token.empty())
     req.set(http::field::authorization, "Bearer " + token);
   if (!body.is_null()) {
@@ -287,11 +288,15 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
     auto error = data.value("error", Json::object());
     throw Error(error.value("code", "HTTP_ERROR"), error.value("message", "Relay request failed"));
   }
+  if ((path.rfind("/api/v1/hosts", 0) == 0 || path.rfind("/api/v1/sessions", 0) == 0) &&
+      response["X-CoC-Demand"] != "1")
+    throw Error("UPGRADE_REQUIRED", "Upgrade Relay for demand-v1 asynchronous requests");
   return response.body();
 }
 } // namespace
-Json http_json(const Url &u, const std::string &path, const Json &body, const std::string &token,
-               const std::string &request_id, std::chrono::milliseconds timeout) {
+static Json http_json_once(const Url &u, const std::string &path, const Json &body,
+                           const std::string &token, const std::string &request_id,
+                           std::chrono::milliseconds timeout) {
   asio::io_context io;
   if (u.tls) {
     ssl::context ctx(ssl::context::tls_client);
@@ -303,6 +308,98 @@ Json http_json(const Url &u, const std::string &path, const Json &body, const st
   }
   beast::tcp_stream stream(io);
   return Json::parse(exchange(io, stream, u, path, body, token, request_id, timeout));
+}
+Json http_json(const Url &u, const std::string &path, const Json &body, const std::string &token,
+               const std::string &request_id, std::chrono::milliseconds timeout) {
+  const auto end = std::chrono::steady_clock::now() + timeout;
+  auto accepted = http_json_once(u, path, body, token, request_id, timeout);
+  if (!accepted.is_object() || !accepted.value("accepted", false))
+    return accepted;
+  const auto host = accepted.at("hostId").get<std::string>();
+  const auto operation = accepted.at("operationId").get<std::string>();
+  if (!valid_id(host) || !valid_id(operation))
+    throw Error("PROTOCOL_MISMATCH", "Invalid receipt identity");
+  asio::io_context io;
+  asio::steady_timer deadline(io), refresh(io);
+  std::shared_ptr<Socket> socket;
+  Json result, failure;
+  bool ended = false;
+  const auto finish = [&] {
+    if (ended)
+      return;
+    ended = true;
+    deadline.cancel();
+    refresh.cancel();
+    if (socket)
+      socket->close();
+  };
+  auto read = [&] {
+    if (ended)
+      return;
+    try {
+      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+          end - std::chrono::steady_clock::now());
+      if (remaining.count() <= 0)
+        return;
+      auto receipt =
+          http_json_once(u, "/api/v1/hosts/" + host + "/operations/" + operation, nullptr, token,
+                         "", std::min(remaining, std::chrono::milliseconds(5000)));
+      if (receipt.at("state") != "completed")
+        return;
+      try {
+        http_json_once(u, "/api/v1/hosts/" + host + "/operations/" + operation, Json::object(),
+                       token, "", std::chrono::seconds(2));
+      } catch (...) {
+      }
+      if (receipt.contains("error"))
+        failure = receipt.at("error");
+      else
+        result = receipt.at("result");
+      finish();
+    } catch (const Error &error) {
+      if (error.code == "HTTP_TIMEOUT" || error.code == "HTTP_NETWORK")
+        return;
+      failure = error_data(error);
+      finish();
+    }
+  };
+  std::function<void()> tick;
+  tick = [&] {
+    if (ended)
+      return;
+    refresh.expires_after(std::chrono::seconds(10));
+    refresh.async_wait([&](auto ec) {
+      if (!ec) {
+        read();
+        tick();
+      }
+    });
+  };
+  socket = connect_socket(
+      io, u, token,
+      [&](Json event) {
+        const auto type = event.value("type", "");
+        if (type == "subscribed" ||
+            (type == "change" && event.value("operationId", "") == operation))
+          read();
+      },
+      [](unsigned) {}, "/ws/v1/hosts/" + host);
+  deadline.expires_at(end);
+  deadline.async_wait([&](auto ec) {
+    if (!ec)
+      finish();
+  });
+  socket->start();
+  read();
+  tick();
+  io.run();
+  if (!failure.is_null())
+    throw Error(failure.value("code", "RESULT_UNKNOWN"),
+                failure.value("message", "Result unknown"));
+  if (result.is_null())
+    throw Error("RESULT_UNKNOWN", "No confirmation for operation " + operation +
+                                      "; query the original request identity before retrying");
+  return result;
 }
 std::string http_download(const Url &u, const std::string &path, size_t limit,
                           std::chrono::milliseconds timeout) {

@@ -35,9 +35,10 @@ void restart_updated(int argc, char **argv);
 class AgentUpdater {
   std::future<std::unique_ptr<PreparedUpdate>> pending_;
   std::unique_ptr<PreparedUpdate> ready_;
-  int64_t next_ = 0;
+  bool requested_ = false;
 
 public:
+  void request() { requested_ = true; }
   bool poll(const Json &config, const std::string &relay, bool idle);
   bool install();
 };

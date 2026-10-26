@@ -100,6 +100,7 @@ try {
               'Bearer local-device-token-placeholder',
             );
             res.setHeader('Content-Type', 'application/json');
+            res.setHeader('X-CoC-Demand', '1');
             res.end(JSON.stringify({ hostId: 'tls-host', pending: [] }));
             resolveApprovals();
             return;
@@ -108,6 +109,7 @@ try {
           assert.equal(req.url, '/api/v1/hosts');
           assert.equal(req.headers.authorization, 'Bearer local-test-owner');
           res.setHeader('Content-Type', 'application/json');
+          res.setHeader('X-CoC-Demand', '1');
           res.end('[]');
         },
       );
@@ -120,7 +122,7 @@ try {
           req.headers.authorization,
           'Bearer local-device-token-placeholder',
         );
-        ws.send(JSON.stringify({ type: 'hello', epoch: 1 }));
+        ws.send(JSON.stringify({ type: 'hello', demand: 1, epoch: 1 }));
         ws.send(
           JSON.stringify({
             type: 'control',

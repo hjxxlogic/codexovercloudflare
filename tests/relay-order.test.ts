@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryStorage } from './helpers/do-state.ts';
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {
     constructor(
-      public ctx: unknown,
+      public ctx: any,
       public env: unknown,
     ) {
-      (ctx as { waitUntil?: (task: Promise<unknown>) => void }).waitUntil ??=
-        () => {};
+      ctx.getWebSockets ??= () => [];
+      ctx.waitUntil ??= () => {};
     }
   },
 }));
@@ -15,447 +15,365 @@ vi.mock('../apps/relay/src/common.ts', async (original) => ({
   ...(await original<typeof import('../apps/relay/src/common.ts')>()),
   registryCall: vi.fn(),
 }));
-
 import { HostRelayDO } from '../apps/relay/src/host.ts';
 import { registryCall } from '../apps/relay/src/common.ts';
-
-describe('relay stream ordering', () => {
-  it('preserves Agent frame order when authorization checks finish out of order', async () => {
-    let releaseFirst!: () => void;
-    const firstCheck = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
+const auth = {
+  hash: 'client',
+  role: 'web',
+  hostId: 'host',
+  expires: Number.MAX_SAFE_INTEGER,
+  version: 2,
+  name: 'test',
+  created: 0,
+};
+function socket(initial: any) {
+  let attachment = structuredClone(initial);
+  return {
+    readyState: 1,
+    deserializeAttachment: () => structuredClone(attachment),
+    serializeAttachment: (a: any) => {
+      attachment = structuredClone(a);
+    },
+    send: vi.fn(),
+    close: vi.fn(),
+  };
+}
+function harness() {
+  const storage = new MemoryStorage();
+  storage.values.set('agentEpoch', 1);
+  storage.values.set('expiryMigration', { prefix: 1 });
+  const agent = socket({
+    id: 'agent',
+    role: 'agent',
+    auth: { ...auth, role: 'agent', hash: 'agent' },
+    epoch: 1,
+    protocol: 1,
+    deadline: Number.MAX_SAFE_INTEGER,
+  });
+  const sockets = [agent];
+  const waiting: Promise<unknown>[] = [];
+  const ctx = {
+    storage,
+    getWebSockets: (tag?: string) =>
+      sockets.filter(
+        (s) =>
+          !tag ||
+          (tag === 'agent'
+            ? s.deserializeAttachment().role === 'agent'
+            : tag === 'session:' + s.deserializeAttachment().sessionId),
+      ),
+    waitUntil: (p: Promise<unknown>) => waiting.push(p),
+  };
+  const create = () =>
+    new HostRelayDO(ctx as unknown as DurableObjectState, {} as never);
+  let relay = create();
+  const headers = {
+    'x-auth': encodeURIComponent(JSON.stringify(auth)),
+    'x-host': 'host',
+    'x-coc-async': '1',
+  };
+  const start = async (action = 'projects', data: any = {}) => {
+    const response = await relay.fetch(
+      new Request('https://internal/control', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action, data }),
+      }),
+    );
+    return { response, data: (await response.json()) as any };
+  };
+  const read = async (id: string, as = auth) => {
+    const response = await relay.fetch(
+      new Request('https://internal/operation/' + id, {
+        headers: {
+          ...headers,
+          'x-auth': encodeURIComponent(JSON.stringify(as)),
+        },
+      }),
+    );
+    return { response, data: (await response.json()) as any };
+  };
+  const reply = async (frame: any, data: any, error?: any) =>
+    relay.webSocketMessage(
+      agent as unknown as WebSocket,
+      JSON.stringify({
+        v: 1,
+        type: 'result',
+        requestId: frame.requestId,
+        ...(error ? { error } : { data }),
+      }),
+    );
+  const frames = () => agent.send.mock.calls.map(([raw]) => JSON.parse(raw));
+  return {
+    storage,
+    agent,
+    sockets,
+    ctx,
+    waiting,
+    start,
+    read,
+    reply,
+    frames,
+    get relay() {
+      return relay;
+    },
+    recreate() {
+      relay = create();
+    },
+  };
+}
+beforeEach(() => {
+  vi.mocked(registryCall)
+    .mockReset()
+    .mockResolvedValue({ expires: Number.MAX_SAFE_INTEGER });
+});
+afterEach(() => vi.useRealTimers());
+describe('recoverable asynchronous controls', () => {
+  it('ends the handler before Agent responds and restores a scoped result after hibernation', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const { response, data } = await h.start();
+    expect(response.status).toBe(202);
+    expect(vi.getTimerCount()).toBe(0);
+    expect((await h.read(data.operationId)).data.state).toBe('pending');
+    h.recreate();
+    await h.reply(h.frames()[0], [{ id: 'project' }]);
+    h.recreate();
+    expect((await h.read(data.operationId)).data).toEqual({
+      state: 'completed',
+      result: [{ id: 'project' }],
     });
-    let checks = 0;
-    vi.mocked(registryCall).mockImplementation(async () => {
-      if (++checks === 1) await firstCheck;
+    expect(
+      (await h.read(data.operationId, { ...auth, hash: 'foreign' })).response
+        .status,
+    ).toBe(404);
+  });
+  it('does not deliver an old Agent epoch result to a replacement request', async () => {
+    const h = harness();
+    const { data } = await h.start();
+    h.storage.values.set('agentEpoch', 2);
+    await h.reply(h.frames()[0], { old: true });
+    expect((await h.read(data.operationId)).data.state).toBe('pending');
+    expect(h.agent.close).toHaveBeenCalled();
+  });
+  it('validates Agent identity before sending and preserves explicit rejection', async () => {
+    const h = harness();
+    vi.mocked(registryCall).mockImplementation(async (_env, _op, d: any) => {
+      if (d.hash === 'agent') throw new Error('revoked');
       return {};
     });
-    const output: unknown[] = [];
-    const attachment = {
-      role: 'agent',
-      auth: { hash: 'agent-hash' },
-      epoch: 1,
-      deadline: Date.now() + 60000,
-    };
-    const agent = {
-      deserializeAttachment: () => attachment,
-    } as unknown as WebSocket;
-    const client = {
-      deserializeAttachment: () => ({
-        role: 'web',
-        auth: { hash: 'client-hash' },
-        authenticated: true,
-        epoch: 1,
-      }),
-      send: (value: string) => output.push(JSON.parse(value).event.seq),
-    };
-    const ctx = {
-      storage: { get: async () => 1 },
-      getWebSockets: () => [client],
-    };
-    const relay = new HostRelayDO(
-      ctx as unknown as DurableObjectState,
-      {} as never,
+    const failed = await h.start();
+    expect(h.frames()).toHaveLength(0);
+    expect((await h.read(failed.data.operationId)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
     );
-    const frame = (seq: number) =>
-      JSON.stringify({
-        type: 'event',
-        sessionId: 'host~session',
-        epoch: 1,
-        payload: { type: 'event', event: { seq } },
-      });
-    const first = relay.webSocketMessage(agent, frame(1));
-    const second = relay.webSocketMessage(agent, frame(2));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const beforeRelease = output.slice();
-    // A different connection must still deliver replies while this one waits.
-    const otherAgent = {
-      deserializeAttachment: () => ({
-        ...attachment,
-        auth: { hash: 'other-agent' },
-      }),
-    } as unknown as WebSocket;
-    await relay.webSocketMessage(otherAgent, frame(99));
-    await vi.waitFor(() => expect(output).toContain(99));
-    const independentOutput = output.slice();
-    releaseFirst();
-    await Promise.all([first, second]);
-    await vi.waitFor(() => expect(output).toHaveLength(3));
-    expect(beforeRelease).toEqual([]);
-    expect(independentOutput).toEqual([99]);
-    expect(output).toEqual([99, 1, 2]);
-  });
-});
-
-describe('read-only history transport', () => {
-  it('binds reads to the authenticated session and never acquires a control lease', async () => {
-    vi.mocked(registryCall).mockResolvedValue({});
-    const output: any[] = [];
-    const ws = {
-      deserializeAttachment: () => ({
-        history: true,
-        authenticated: true,
-        sessionId: 'host~own',
-        role: 'web',
-        auth: { hash: 'reader' },
-        deadline: Date.now() + 60000,
-      }),
-      send: (data: string) => output.push(JSON.parse(data)),
-      close: vi.fn(),
-    } as unknown as WebSocket;
-    const storage = { get: vi.fn(), put: vi.fn() };
-    const relay = new HostRelayDO(
-      { storage } as unknown as DurableObjectState,
-      {} as never,
-    );
-    const command = vi
-      .spyOn(relay, 'command')
-      .mockResolvedValue({ events: [], more: false });
-    await relay.webSocketMessage(
-      ws,
-      JSON.stringify({
-        operation: 'page',
-        before: -42,
-        requestId: 'read',
-        sessionId: 'host~foreign',
-        action: 'prompt',
-      }),
-    );
-    expect(command).toHaveBeenCalledWith('history', {
-      operation: 'page',
-      before: -42,
-      sessionId: 'host~own',
+    vi.mocked(registryCall).mockResolvedValue({
+      expires: Number.MAX_SAFE_INTEGER,
     });
-    expect(storage.get).not.toHaveBeenCalled();
-    expect(storage.put).not.toHaveBeenCalled();
-    expect(output[0]).toMatchObject({
-      type: 'history',
-      requestId: 'read',
-      events: [],
+    const started = await h.start();
+    await h.reply(h.frames()[0], undefined, {
+      code: 'FORBIDDEN',
+      message: 'Wrong mode',
     });
-    await relay.webSocketMessage(
-      ws,
-      JSON.stringify({
-        operation: 'prompt',
-        requestId: 'execute',
-        text: 'run something',
-      }),
+    expect((await h.read(started.data.operationId)).data.error.code).toBe(
+      'FORBIDDEN',
     );
-    expect(command).toHaveBeenCalledTimes(1);
-    expect(ws.close).toHaveBeenCalled();
   });
-
-  it('pushes events to readers independently of the controller epoch and excludes RPC traffic', async () => {
-    vi.mocked(registryCall).mockResolvedValue({});
-    const output: any[] = [];
-    const reader = {
-      deserializeAttachment: () => ({
-        history: true,
-        authenticated: true,
-        role: 'cli',
-        epoch: 0,
-        auth: { hash: 'reader' },
-      }),
-      send: (data: string) => output.push(JSON.parse(data)),
-    };
-    const agent = {
-      deserializeAttachment: () => ({
-        role: 'agent',
-        epoch: 7,
-        auth: { hash: 'agent' },
-        deadline: Date.now() + 60000,
-      }),
-    } as unknown as WebSocket;
-    const relay = new HostRelayDO(
-      {
-        storage: { get: async () => 7 },
-        getWebSockets: () => [reader],
-      } as unknown as DurableObjectState,
-      {} as never,
+  it('coalesces concurrent status probes within one credential scope', async () => {
+    const h = harness();
+    const accepted = await Promise.all(
+      Array.from({ length: 20 }, () => h.start('probe')),
     );
-    for (const type of ['event', 'rpc'])
-      await relay.webSocketMessage(
-        agent,
-        JSON.stringify({
-          type,
-          epoch: 7,
-          sessionId: 'host~session',
-          payload: { type, event: { seq: 5, revision: 9 } },
-        }),
-      );
-    await vi.waitFor(() => expect(output).toHaveLength(1));
-    expect(output).toMatchObject([
-      { type: 'event', event: { seq: 5, revision: 9 } },
-    ]);
-    await relay.webSocketClose(reader as unknown as WebSocket);
-    expect(output).toHaveLength(1);
+    expect(
+      new Set(accepted.map((result) => result.data.operationId)).size,
+    ).toBe(1);
+    expect(h.frames()).toHaveLength(1);
+    await h.reply(h.frames()[0], { online: true });
+    expect(
+      (await h.read(accepted[0].data.operationId)).data.result.online,
+    ).toBe(true);
   });
-});
-
-function leaseHarness(initial = { epoch: 0, active: false }) {
-  const records = new Map<string, unknown>([['lease:session', initial]]);
-  const tx = {
-    get: async (key: string) => structuredClone(records.get(key)),
-    put: async (key: string, value: unknown) => {
-      records.set(key, structuredClone(value));
-    },
-  };
-  let tail = Promise.resolve();
-  const storage = {
-    ...tx,
-    transaction: (callback: (tx: unknown) => Promise<unknown>) => {
-      const next = tail.then(() => callback(tx));
-      tail = next.then(
-        () => {},
-        () => {},
-      );
-      return next;
-    },
-  };
-  const old = {
-    close: vi.fn(),
-    deserializeAttachment: () => ({
-      authenticated: true,
-      epoch: initial.epoch,
-      role: 'web',
-      sessionId: 'session',
-    }),
-  };
-  const relay = new HostRelayDO(
-    {
-      storage,
-      getWebSockets: () => (initial.active ? [old] : []),
-    } as unknown as DurableObjectState,
-    {} as never,
-  );
-  return { relay, records, old };
-}
-describe('attach lease reservations', () => {
-  it('allows exactly one concurrent attach while Agent confirmation is pending', async () => {
-    const { relay, records } = leaseHarness();
-    let confirm!: (value: unknown) => void;
-    vi.spyOn(relay, 'command').mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          confirm = resolve;
-        }),
+  it('stores large Unicode control data in bounded parts without losing its identity', async () => {
+    const h = harness();
+    const text = '测'.repeat(60000);
+    const request = await h.start('queue', {
+      sessionId: 'host~session',
+      requestId: 'same-request',
+      mode: 'web',
+      text,
+    });
+    await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
+    expect(h.frames()[1].data.text).toBe(text);
+    h.recreate();
+    await h.reply(h.frames()[1], { state: 'queued' });
+    expect((await h.read(request.data.operationId)).data.result.state).toBe(
+      'queued',
     );
-    const first = relay.acquire('session', false);
-    await vi.waitFor(() => expect(confirm).toBeTypeOf('function'));
-    await expect(relay.acquire('session', false)).rejects.toMatchObject({
+    for (const [key, value] of h.storage.values)
+      if (key.startsWith('part:') || key.startsWith('operation:'))
+        expect(
+          new TextEncoder().encode(JSON.stringify(value)).length,
+        ).toBeLessThan(128 * 1024);
+  });
+  it('keeps the host capacity bound across recreation', async () => {
+    const h = harness();
+    for (let i = 0; i < 64; i++)
+      expect((await h.start()).response.status).toBe(202);
+    h.recreate();
+    expect((await h.start()).response.status).toBe(429);
+    expect(h.frames()).toHaveLength(64);
+  });
+  it('fences concurrent takeovers without replacing the old active controller', async () => {
+    const h = harness();
+    h.storage.values.set('lease:host~session', { epoch: 4, active: true });
+    const first = await h.relay.reserve('host~session', true);
+    expect(first.epoch).toBe(5);
+    await expect(h.relay.reserve('host~session', true)).rejects.toMatchObject({
       code: 'SESSION_BUSY',
     });
-    confirm({ ok: true });
-    await expect(first).resolves.toBe(1);
-    expect(records.get('lease:session')).toMatchObject({
-      epoch: 1,
+    expect(h.storage.values.get('lease:host~session')).toMatchObject({
+      epoch: 4,
       active: true,
+      pending: { epoch: 5 },
     });
-  });
-  it('preserves the old controller when the Agent rejects takeover', async () => {
-    const { relay, records, old } = leaseHarness({ epoch: 4, active: true });
-    vi.spyOn(relay, 'command').mockRejectedValue(new Error('unsupported'));
-    await expect(relay.acquire('session', true)).rejects.toThrow('unsupported');
-    expect(old.close).not.toHaveBeenCalled();
-    expect(records.get('lease:session')).toEqual({ epoch: 4, active: true });
-  });
-  it('ignores a late close from the replaced controller', async () => {
-    const { relay, records, old } = leaseHarness({ epoch: 4, active: true });
-    vi.spyOn(relay, 'command').mockResolvedValue({ ok: true });
-    await relay.acquire('session', true);
-    await relay.webSocketClose(old as unknown as WebSocket);
-    expect(records.get('lease:session')).toMatchObject({
-      epoch: 5,
-      active: true,
+    const old = socket({
+      ...auth,
+      auth,
+      role: 'web',
+      sessionId: 'host~session',
+      epoch: 3,
+      authenticated: true,
     });
+    await h.relay.webSocketClose(old as unknown as WebSocket);
+    expect(h.storage.values.get('lease:host~session').active).toBe(true);
+  });
+  it('requires negotiation and gives old clients an explicit upgrade error', async () => {
+    const h = harness();
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      protocol: undefined,
+    });
+    const operation = await h.start();
+    expect((await h.read(operation.data.operationId)).data.error.code).toBe(
+      'AGENT_NEGOTIATING',
+    );
+    const legacy = await h.relay.fetch(
+      new Request('https://internal/control', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'projects', data: {} }),
+      }),
+    );
+    expect(((await legacy.json()) as any).error.code).toBe('UPGRADE_REQUIRED');
   });
 });
-
-describe('relay capacity and negotiation', () => {
-  it('requires protocol negotiation before forwarding side effects', async () => {
-    const send = vi.fn();
-    const agent = {
-      readyState: 1,
-      send,
-      deserializeAttachment: () => ({ role: 'agent' }),
-    };
-    const relay = new HostRelayDO(
-      { getWebSockets: () => [agent] } as unknown as DurableObjectState,
-      {} as never,
-    );
-    await expect(
-      relay.command('create', {
-        key: 'request',
-        projectId: 'project',
-        mode: 'web',
-      }),
-    ).rejects.toMatchObject({ code: 'AGENT_NEGOTIATING' });
-    expect(send).not.toHaveBeenCalled();
-  });
-  it('rejects excess pending controls before allocating another timer', async () => {
-    const send = vi.fn();
-    const agent = {
-      readyState: 1,
-      send,
-      deserializeAttachment: () => ({ role: 'agent', protocol: 1 }),
-    };
-    const relay = new HostRelayDO(
-      { getWebSockets: () => [agent] } as unknown as DurableObjectState,
-      {} as never,
-    );
-    for (let i = 0; i < 64; i++)
-      relay.pending.set(String(i), {
-        resolve: () => {},
-        reject: () => {},
-        timer: undefined as never,
-      });
-    await expect(
-      relay.command('get', { sessionId: 'host~session' }),
-    ).rejects.toMatchObject({ code: 'BACKPRESSURE' });
-    expect(send).not.toHaveBeenCalled();
-    expect(relay.pending.size).toBe(64);
-  });
-  it('closes a reader without acknowledgements and preserves other readers', () => {
-    const reader = () => ({
-      deserializeAttachment: () => ({ history: true }),
-      send: vi.fn(),
-      close: vi.fn(),
-    });
-    const slow = reader(),
-      healthy = reader();
-    const relay = new HostRelayDO({} as DurableObjectState, {} as never);
-    for (let i = 0; i <= 1000; i++)
-      relay.send(slow as unknown as WebSocket, {
-        type: 'event',
-        event: { seq: i },
-      });
+describe('flow control and authorization on activity', () => {
+  it('retains acknowledgement budgets across object reconstruction', async () => {
+    const h = harness(),
+      slow = socket({ id: 'reader', history: true });
+    h.sockets.push(slow);
+    for (let i = 0; i < 1000; i++)
+      h.relay.send(slow as unknown as WebSocket, { type: 'event' });
+    h.recreate();
+    h.relay.send(slow as unknown as WebSocket, { type: 'event' });
     expect(slow.send).toHaveBeenCalledTimes(1000);
     expect(slow.close).toHaveBeenCalledWith(4008, expect.any(String));
-    relay.send(healthy as unknown as WebSocket, { type: 'event' });
-    expect(healthy.send).toHaveBeenCalledOnce();
-    expect(healthy.close).not.toHaveBeenCalled();
   });
-});
-
-describe('relay performance isolation', () => {
-  it('shares an in-flight credential check and invalidates it on revocation', async () => {
+  it('invalidates a pending auth check rather than restoring a revoked cache entry', async () => {
+    const h = harness();
     let release!: (value: unknown) => void;
-    vi.mocked(registryCall)
-      .mockReset()
-      .mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            release = resolve;
-          }),
-      );
-    const relay = new HostRelayDO(
-      { getWebSockets: () => [] } as unknown as DurableObjectState,
-      {} as never,
+    vi.mocked(registryCall).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
     );
-    const first = relay.authorized('shared');
-    const second = relay.authorized('shared');
-    const outcomes = Promise.allSettled([first, second]);
-    expect(registryCall).toHaveBeenCalledTimes(1);
-    await relay.fetch(
+    const results = Promise.allSettled([
+      h.relay.authorized('same'),
+      h.relay.authorized('same'),
+    ]);
+    await h.relay.fetch(
       new Request('https://internal/revoke-auth', {
         method: 'POST',
-        body: JSON.stringify({ hash: 'shared' }),
+        body: JSON.stringify({ hash: 'same' }),
       }),
     );
-    release({ expires: Date.now() + 60000 });
+    release({ expires: Number.MAX_SAFE_INTEGER });
     expect(
-      (await outcomes).every((result) => result.status === 'rejected'),
+      (await results).every((result) => result.status === 'rejected'),
     ).toBe(true);
-    vi.mocked(registryCall).mockResolvedValue({ expires: Date.now() + 60000 });
-    await relay.authorized('shared');
-    expect(registryCall).toHaveBeenCalledTimes(2);
+    expect(registryCall).toHaveBeenCalledOnce();
   });
-  it('isolates a slow reader check and sends negotiated events only on history', async () => {
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
+  it('does no authorization or periodic scheduling for permanent idle sockets', async () => {
+    const h = harness();
+    await h.relay.alarm();
+    expect(h.storage.alarm).toBeNull();
+    expect(registryCall).not.toHaveBeenCalled();
+    expect(h.agent.close).not.toHaveBeenCalled();
+  });
+  it('cleans an offline ticket exactly at its finite deadline', async () => {
+    const h = harness();
+    h.sockets.length = 0;
+    const at = Date.now() + 60000;
+    h.storage.values.set('ticket:test', { expires: at });
+    h.storage.values.set(`due:${String(at).padStart(16, '0')}:ticket:test`, {
+      key: 'ticket:test',
+      at,
     });
-    vi.mocked(registryCall)
-      .mockReset()
-      .mockImplementation(async (_env, _op, data: any) => {
-        if (data.hash === 'slow') await blocked;
-        return { expires: Date.now() + 60000 };
-      });
-    const reader = (hash: string, historyEvents = false, history = true) => ({
-      readyState: 1,
-      deserializeAttachment: () => ({
-        history,
-        historyEvents,
+    await h.relay.alarm();
+    expect(h.storage.alarm).toBe(at);
+    vi.useFakeTimers();
+    vi.setSystemTime(at);
+    await h.relay.alarm();
+    expect(h.storage.values.has('ticket:test')).toBe(false);
+    expect(h.storage.alarm).toBeNull();
+  });
+  it('isolates slow recipients while preserving their event order', async () => {
+    const h = harness();
+    const slow = socket({
+        history: true,
         authenticated: true,
         role: 'web',
-        epoch: 1,
-        deadline: Date.now() + 60000,
-        auth: { hash },
+        auth: { hash: 'slow' },
+        deadline: Number.MAX_SAFE_INTEGER,
       }),
-      send: vi.fn(),
-      close: vi.fn(),
+      fast = socket({
+        history: true,
+        authenticated: true,
+        role: 'web',
+        auth: { hash: 'fast' },
+        deadline: Number.MAX_SAFE_INTEGER,
+      });
+    h.sockets.push(slow, fast);
+    let release!: () => void;
+    const block = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    const slow = reader('slow'),
-      fast = reader('fast'),
-      control = reader('fast', true, false);
-    const waiting: Promise<unknown>[] = [];
-    const relay = new HostRelayDO(
-      {
-        storage: { get: async () => 1 },
-        getWebSockets: () => [slow, fast, control],
-        waitUntil: (task: Promise<unknown>) => waiting.push(task),
-      } as unknown as DurableObjectState,
-      {} as never,
-    );
-    const agent = {
-      deserializeAttachment: () => ({
-        role: 'agent',
-        epoch: 1,
-        deadline: Date.now() + 60000,
-        auth: { hash: 'agent' },
-      }),
-    } as unknown as WebSocket;
+    vi.mocked(registryCall).mockImplementation(async (_env, _op, d: any) => {
+      if (d.hash === 'slow') await block;
+      return { expires: Number.MAX_SAFE_INTEGER };
+    });
+    // All readers subscribe to this session; the Agent epoch is independent.
+    for (const ws of [slow, fast])
+      ws.serializeAttachment({
+        ...ws.deserializeAttachment(),
+        sessionId: 'host~session',
+      });
     for (const seq of [1, 2])
-      await relay.webSocketMessage(
-        agent,
+      await h.relay.webSocketMessage(
+        h.agent as unknown as WebSocket,
         JSON.stringify({
           type: 'event',
+          sessionId: 'host~session',
           epoch: 1,
-          sessionId: 'session',
-          payload: { type: 'event', event: { seq } },
+          payload: { event: { seq } },
         }),
       );
     await vi.waitFor(() => expect(fast.send).toHaveBeenCalledTimes(2));
     expect(slow.send).not.toHaveBeenCalled();
-    expect(control.send).not.toHaveBeenCalled();
     release();
-    await Promise.all(waiting);
+    await Promise.all(h.waiting);
     expect(
-      slow.send.mock.calls.map(([text]) => JSON.parse(text).event.seq),
+      slow.send.mock.calls.map(([raw]) => JSON.parse(raw).event.seq),
     ).toEqual([1, 2]);
-  });
-  it('validates each unique credential once per alarm', async () => {
-    vi.mocked(registryCall)
-      .mockReset()
-      .mockResolvedValue({ expires: Date.now() + 60000 });
-    const sockets = Array.from({ length: 8 }, (_, i) => ({
-      deserializeAttachment: () => ({
-        deadline: Date.now() + 60000,
-        auth: { hash: String(i % 2) },
-      }),
-      close: vi.fn(),
-    }));
-    const relay = new HostRelayDO(
-      {
-        getWebSockets: () => sockets,
-        storage: { list: async () => new Map(), setAlarm: vi.fn() },
-      } as unknown as DurableObjectState,
-      {} as never,
-    );
-    await relay.alarm();
-    expect(registryCall).toHaveBeenCalledTimes(2);
-    expect(
-      sockets.every((socket) => socket.close.mock.calls.length === 0),
-    ).toBe(true);
   });
 });

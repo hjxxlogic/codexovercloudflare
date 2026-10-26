@@ -1,3 +1,4 @@
+import { resolveAsync } from './helpers/async-http.ts';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import {
@@ -90,6 +91,7 @@ async function request(
 ) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-CoC-Async': '1',
     Origin: options.origin || origin,
   };
   if (options.admin) headers.Authorization = 'Bearer ' + adminToken;
@@ -101,11 +103,12 @@ async function request(
   if (options.ip) headers['CF-Connecting-IP'] = options.ip;
   if (data !== undefined)
     headers['Idempotency-Key'] = options.key || randomUUID();
-  const r = await fetch(origin + '/api/v1' + path, {
+  const response = await fetch(origin + '/api/v1' + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers,
     body: data === undefined ? undefined : JSON.stringify(data),
   });
+  const r = await resolveAsync(response, origin, headers);
   const b: any = await r.json();
   return { r, b };
 }
@@ -1298,7 +1301,7 @@ try {
   pass(
     'lost Agent attach acknowledgement preserves existing native controller',
   );
-  await new Promise((done) => setTimeout(done, 3200));
+  await new Promise((done) => setTimeout(done, 10500));
   p.ws.send(
     JSON.stringify({
       action: 'prompt',
@@ -1676,12 +1679,22 @@ try {
     1,
   );
   await api('/admin/reject', { id: startupRequest.id }, { admin: true });
+  const recoveryRequest = await api(
+    '/auth/device/start',
+    {
+      role: 'web',
+      name: 'Approval recovery event',
+      requestedHostId: other.hostId,
+    },
+    { anonymous: true, ip: 'approval-recovery-event' },
+  );
   await wait(
     () => approvalNotices(otherAgent!).some((n) => n.id === foreignRequest.id),
-    'approval check recovers on next poll',
+    'approval check recovers on the next real request event',
     40000,
   );
   await api('/admin/reject', { id: foreignRequest.id }, { admin: true });
+  await api('/admin/reject', { id: recoveryRequest.id }, { admin: true });
   pass(
     'running Agents discover new requests, deduplicate notices and recover from approval service failure',
   );
@@ -1896,6 +1909,7 @@ try {
   });
   await visitorPage.route('**/api/v1/hosts/*/projects', (route) =>
     route.fulfill({
+      headers: { 'X-CoC-Demand': '1' },
       status: 503,
       contentType: 'application/json',
       body: JSON.stringify({

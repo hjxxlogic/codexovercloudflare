@@ -1,0 +1,51 @@
+{
+  "verifiedAt": "2026-10-26T14:39:08.884469+00:00",
+  "version": "0.5.12",
+  "ctest": {
+    "passed": 1
+  },
+  "vitest": {
+    "files": 9,
+    "passed": 90
+  },
+  "nativeAgentIdle": {
+    "seconds": 95,
+    "periodicFrames": 0,
+    "protocolPings": 0,
+    "periodicApprovalReads": 0,
+    "idleReconnects": 0,
+    "eventAndProbePassed": true
+  },
+  "nativeCliRefresh": {
+    "rounds": 3,
+    "gapsMs": [10002, 10001],
+    "submissions": 1,
+    "stoppedAfterExit": true
+  },
+  "browserSimulatedIdle": {
+    "hours": 24,
+    "cwPeriodicRequests": 0,
+    "adminPeriodicRequests": 0,
+    "manualProbeCount": 1
+  },
+  "passed": [
+    "typecheck",
+    "ESLint/Prettier",
+    "C++ format",
+    "protocol:check",
+    "native core",
+    "real Wrangler/native Agent/CLI/Chromium E2E",
+    "desktop/mobile UI including manual refresh and draft preservation",
+    "native login recovery",
+    "native wake",
+    "TLS/proxy",
+    "update integrity/disabled/concurrency",
+    "backup/restore",
+    "release provenance guards",
+    "real Codex initialize/thread-start without model",
+    "real native TUI initialization through asynchronous relay"
+  ],
+  "platformDurationMeasured": false,
+  "platform24HourRunCompleted": false,
+  "modelCalls": 0
+}

@@ -204,6 +204,7 @@ const sessionIdSchema = sessionSchema.shape.id;
 const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
   z.object({ action: z.literal(action), data });
 export const controlCommandSchema = z.discriminatedUnion('action', [
+  control('probe', z.object({})),
   control('projects', z.object({})),
   control(
     'list',

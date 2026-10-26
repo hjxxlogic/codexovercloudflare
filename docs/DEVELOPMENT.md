@@ -1,5 +1,13 @@
 # 开发与本机测试
 
+## 0.5.12 通知与计费回归
+
+控制 API 测试须发送 `X-CoC-Async: 1`，处理 202 回执，通过主机订阅收到完成通知后领取结果，不能继续假设 HTTP 等待 Agent。`tests/helpers/async-http.ts` 只为集成测试实现该客户端协议。测试 Relay hello 需要 `demand:1`；新 Agent 拒绝不支持的 Relay。`npm run protocol:generate` 同步 probe 控制 schema。
+
+原生宿主与 Bookworm 测试分别构建，避免 libssl1.1 / 3 混用；本地旧镜像缺 Git 时使用已有 `coc-release-test` 或重建 Dockerfile.test，并在容器中仅为 `/workspace` 设置 Git safe.directory。E2E 指定 `COC_AGENT_BINARY=.local/build-container/coc-agent`、`COC_CLI_BINARY=.local/build-container/coc-client`，挂载匹配 Chromium 缓存。不要并发覆盖正在被集成测试读取的二进制或站点。
+
+新增回归覆盖持久回执、Agent epoch、授权 scope、容量、撤销竞争、跨休眠流控和无连接到期清理；真实平台验收分别记录 A / A–CW / A–CC 的无业务空闲窗口。日志采样不能当完整计数，必须结合官方 DO 请求 / duration / SQLite 指标，未测满 24 小时不得报告为 24 小时节费验收通过。
+
 ## 1. 目录与工具
 
 - `native/include/coc/`、`native/src/`：C++17 公共接口、Agent、CLI、网络、进程和 SQLite。

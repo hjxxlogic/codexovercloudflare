@@ -1,3 +1,4 @@
+import { resolveAsync } from '../tests/helpers/async-http.ts';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
@@ -74,16 +75,19 @@ export async function localRelay(dir: string) {
     }
     if (!ready) throw new Error('Relay startup timed out');
     const api = async (path: string, data?: unknown): Promise<any> => {
-      const r = await fetch(origin + '/api/v1' + path, {
+      const headers = {
+        Origin: origin,
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+        'Idempotency-Key': crypto.randomUUID(),
+        'X-CoC-Async': '1',
+      };
+      const response = await fetch(origin + '/api/v1' + path, {
         method: data === undefined ? 'GET' : 'POST',
-        headers: {
-          Origin: origin,
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token,
-          'Idempotency-Key': crypto.randomUUID(),
-        },
+        headers,
         body: data === undefined ? undefined : JSON.stringify(data),
       });
+      const r = await resolveAsync(response, origin, headers);
       const b: any = await r.json();
       if (!r.ok) throw new Error(b.error?.code + ': ' + b.error?.message);
       return b;

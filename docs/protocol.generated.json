@@ -500,6 +500,25 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "probe"
+          },
+          "data": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "projects"
           },
           "data": {

@@ -50,7 +50,8 @@ class Agent {
   WorkspaceFiles files_;
   asio::thread_pool file_pool_{1};
   asio::thread_pool approval_pool_{1};
-  bool approval_check_pending_ = false, approval_check_failed_ = false;
+  bool approval_check_pending_ = false, approval_check_failed_ = false,
+       approval_check_again_ = false;
   std::set<std::string> notified_requests_;
   size_t file_requests_ = 0, file_bytes_ = 0;
   bool file_cleanup_pending_ = false;
@@ -60,20 +61,19 @@ class Agent {
   int64_t event_batch_max_us_ = 0;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
   std::shared_ptr<Socket> socket_;
-  asio::steady_timer retry_, maintenance_, heartbeat_, event_timer_;
+  asio::steady_timer retry_, maintenance_, event_timer_;
   asio::signal_set signals_;
   std::atomic<bool> stopped_{false};
-  bool listing_threads_ = false;
+  bool listing_threads_ = false, negotiated_ = false;
   std::set<std::string> archive_loading_;
   int attempts_ = 0;
-  std::atomic<int64_t> pong_{now()};
 
 public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
         config_file_(std::move(config_file)), updater_(updater), store_(config_["dataDir"]),
         file_store_(config_["dataDir"], false), files_(&file_store_), retry_(io_),
-        maintenance_(io_), heartbeat_(io), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
+        maintenance_(io_), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
   bool update_restart() const { return update_restart_; }
   ~Agent() {
     if (worker_.joinable()) {
@@ -93,13 +93,10 @@ public:
     });
     file_store_.on_failure([this] { asio::post(io_, [this] { close(); }); });
     asio::post(io_, [this] {
-      signals_.async_wait([this](auto ec, int) {
-        if (!ec)
-          close();
-      });
-      check_client_requests();
-      connect();
+      wait_signal();
+      updater_.request();
       check_update();
+      connect();
       maintain();
     });
     worker_ = std::thread([this] {
@@ -117,20 +114,32 @@ public:
         asio::post(relay_io_, [this] { relay_io_.stop(); });
       relay_work_.reset();
     });
-    heartbeat();
   }
-  void heartbeat() {
-    heartbeat_.expires_after(std::chrono::seconds(30));
-    heartbeat_.async_wait([this](auto ec) {
-      if (ec || stopped_)
+  void wait_signal() {
+#ifndef _WIN32
+    signals_.add(SIGUSR1);
+#endif
+    signals_.async_wait([this](auto ec, int signal) {
+      if (ec)
         return;
-      if (socket_) {
-        if (now() - pong_.load() > 90000)
-          socket_->close();
-        else
-          socket_->send({{"v", 1}, {"type", "ping"}});
+#ifndef _WIN32
+      if (signal == SIGUSR1) {
+        attempts_ = 0;
+        retry_.cancel();
+        asio::post(relay_io_, [this] {
+          if (socket_)
+            socket_->close();
+          asio::post(io_, [this] {
+            retry_.cancel();
+            attempts_ = 0;
+            connect();
+          });
+        });
+        wait_signal();
+        return;
       }
-      heartbeat();
+#endif
+      close();
     });
   }
   void disconnected(unsigned code) {
@@ -144,6 +153,10 @@ public:
     }
     if (stopped_)
       return;
+    if (attempts_ >= 5) {
+      std::cerr << "Reconnect budget exhausted; restart Agent or send SIGUSR1 to reconnect\n";
+      return;
+    }
     auto delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
     unsigned char random = 0;
     RAND_bytes(&random, 1);
@@ -160,14 +173,9 @@ public:
     asio::post(relay_io_, [this] {
       if (stopped_)
         return;
-      pong_ = now();
       socket_ = connect_socket(
           relay_io_, relay_url(config_["relayUrl"]), config_["token"],
           [this](Json d) {
-            if (d.value("type", "") == "pong") {
-              pong_ = now();
-              return;
-            }
             const auto bytes = d.dump().size();
             if (inbound_.fetch_add(bytes) + bytes > max_queue) {
               inbound_.fetch_sub(bytes);
@@ -295,7 +303,8 @@ public:
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
     if (type == "hello") {
-      if (d.value("minProtocol", 1) > 1) {
+      if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1) {
+        std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
         close();
         return;
       }
@@ -307,13 +316,27 @@ public:
         capabilities["displayName"] = config_["displayName"];
       send(capabilities);
       attempts_ = 0;
+      check_client_requests();
+      if (negotiated_)
+        updater_.request();
+      negotiated_ = true;
+      check_update();
       std::cout << "Agent connected: "
                 << config_.value("displayName", config_.at("hostId").get<std::string>()) << "\n"
                 << std::flush;
       return;
     }
-    if (type == "pong") {
-      pong_ = now();
+    if (type == "change") {
+      if (d.value("scope", "") == "requests")
+        check_client_requests();
+      if (d.value("scope", "") == "release") {
+        const auto version = d.value("version", "");
+        if (!version.empty() && store_.cache_get("announced-release") != version) {
+          store_.cache_put("announced-release", version);
+          updater_.request();
+          check_update();
+        }
+      }
       return;
     }
     if (type == "control") {
@@ -407,6 +430,10 @@ public:
     }
   }
   void control(const std::string &action, const Json &d, Completion done) {
+    if (action == "probe") {
+      done({{"online", true}, {"confirmedAt", now()}}, nullptr);
+      return;
+    }
     if (action == "history") {
       auto id = d.at("sessionId").get<std::string>();
       auto s = store_.get(id);
@@ -1484,8 +1511,12 @@ public:
     }
   }
   void check_client_requests() {
-    if (stopped_ || approval_check_pending_)
+    if (stopped_)
       return;
+    if (approval_check_pending_) {
+      approval_check_again_ = true;
+      return;
+    }
     approval_check_pending_ = true;
     auto work = asio::make_work_guard(io_);
     const auto relay = relay_url(config_.at("relayUrl"));
@@ -1504,13 +1535,18 @@ public:
       asio::post(io_, [this, result = std::move(result), failure = std::move(failure),
                        work = std::move(work)] {
         approval_check_pending_ = false;
+        if (approval_check_again_) {
+          approval_check_again_ = false;
+          asio::post(io_, [this] { check_client_requests(); });
+        }
         if (stopped_)
           return;
         if (!failure.is_null()) {
           if (!approval_check_failed_)
             std::cerr << Json{{"event", "client_approval_check_failed"},
                               {"error", failure},
-                              {"message", "Will retry; Agent continues running"}}
+                              {"message",
+                               "Refresh requests explicitly or reconnect; Agent continues running"}}
                              .dump()
                       << '\n';
           approval_check_failed_ = true;
@@ -1554,7 +1590,6 @@ public:
     maintenance_.async_wait([this](auto ec) {
       if (ec || stopped_)
         return;
-      check_client_requests();
       check_update();
       if (stopped_)
         return;
@@ -1641,7 +1676,6 @@ public:
     maintenance_.cancel();
     signals_.cancel();
     asio::post(relay_io_, [this] {
-      heartbeat_.cancel();
       if (socket_)
         socket_->close();
     });

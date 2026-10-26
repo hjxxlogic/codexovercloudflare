@@ -21,6 +21,7 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   asio::io_context &io_;
   ssl::context ctx_{ssl::context::tls_client};
   tcp::resolver resolver_;
+  asio::steady_timer opening_;
   websocket::stream<Transport> ws_;
   Url url_;
   std::string token_, path_;
@@ -35,7 +36,7 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
 public:
   Connection(asio::io_context &io, Url u, std::string t, SocketMessage m, SocketClosed c,
              std::string path)
-      : io_(io), resolver_(io),
+      : io_(io), resolver_(io), opening_(io),
 #ifdef COC_TLS
         ws_(io, ctx_),
 #else
@@ -52,6 +53,11 @@ public:
   }
   void start() override {
     auto self = shared_from_this();
+    opening_.expires_after(std::chrono::seconds(30));
+    opening_.async_wait([self](auto ec) {
+      if (!ec)
+        self->finish();
+    });
     try {
 #ifdef COC_TLS
       configure_trust(ctx_);
@@ -123,7 +129,8 @@ public:
   void handshake() {
     auto self = shared_from_this();
     beast::get_lowest_layer(ws_).expires_never();
-    ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::client));
+    ws_.set_option(websocket::stream_base::timeout{std::chrono::seconds(15),
+                                                   websocket::stream_base::none(), false});
     ws_.read_message_max(read_limit_);
     ws_.set_option(websocket::stream_base::decorator([token = token_](websocket::request_type &r) {
       r.set(beast::http::field::authorization, "Bearer " + token);
@@ -133,6 +140,7 @@ public:
         self->finish();
         return;
       }
+      self->opening_.cancel();
       self->open_ = true;
       self->read();
     });
@@ -193,6 +201,7 @@ public:
       return;
     ended_ = true;
     open_ = false;
+    opening_.cancel();
     resolver_.cancel();
     boost::system::error_code ec;
     beast::get_lowest_layer(ws_).socket().close(ec);

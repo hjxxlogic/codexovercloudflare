@@ -6,6 +6,7 @@ export default ts.config(
       'node_modules/**',
       'dist/**',
       'build/**',
+      'build-*/**',
       '.wrangler/**',
       '.local/**',
     ],

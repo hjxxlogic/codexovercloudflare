@@ -1,5 +1,13 @@
 # 发布操作
 
+## 0.5.12 发布要求
+
+Worker、网页与四平台原生包配套发布，保留原凭证和 DO 数据，不增加 DO 类迁移。客户端控制接口新增 202 / operationId，旧控制客户端明确提示升级；新 Agent 要求 Relay hello 的 demand:1。先部署 Relay / 网页，再升级原生程序；旧 Agent 仍可保留原心跳作为兼容连接，不纳入无周期流量验收，新的 probe 需要升级 Agent。
+
+下载产物全部就绪后，管理员可 POST `/api/v1/admin/releases`，内容为 `{version,commit}`。服务端核对已部署下载清单身份、协议与全部归档存在后提交幂等版本通知；Agent 再按原下载来源、完整性及空闲安装规则处理。相同版本 / 提交不重复通知，不同提交复用版本拒绝。普通发布保留 OWNER_SECRET，不轮换用户密钥，不替换远端已有服务。
+
+`autoUpdate.intervalHours` 兼容解析但废弃；回滚会恢复旧版本的周期通讯。回滚前保留数据库与旧二进制，不删除 epoch、lease、请求身份、结果或完整历史。平台 24 小时休眠、费用与跨网络静默断链属于单独报告的验收边界。
+
 ## 0.5.11 已发布：Linux musl 全静态版
 
 源码 `59bb0de`、标签 `v0.5.11`；[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 四平台、sanitizers、完整 regression 和发布门禁全部通过。Worker `7fff05b9-5611-478d-8529-050295520b66` 于 2026-10-26 UTC 11:59:04 上线，流量 100%。新增 `coc-0.5.11-linux-x86_64-musl.tar.gz`，保留 Ubuntu 20.04 / Debian 12 动态包及 Windows x64 ZIP；站点、Worker、四平台包、源码和在线手册来自同一标签。

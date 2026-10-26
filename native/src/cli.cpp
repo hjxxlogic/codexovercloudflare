@@ -88,7 +88,7 @@ class Cli {
     std::cerr << "Host offline; wake requested, waiting up to 60 seconds...\n";
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     while (std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::seconds(2));
+      std::this_thread::sleep_for(std::chrono::seconds(10));
       h = status();
       if (h.value("online", false))
         return h;
@@ -219,6 +219,22 @@ class Cli {
       throw Error("WRONG_MODE", "Use the browser for a web session");
     std::cout << "Remote session: " << id << '\n' << std::flush;
     asio::io_context history_io;
+    asio::steady_timer demand_refresh(history_io);
+    bool refresh_enabled = true;
+    std::function<void()> recover_reader = [] {};
+    std::function<void()> refresh_state;
+    refresh_state = [&] {
+      if (!refresh_enabled)
+        return;
+      demand_refresh.expires_after(std::chrono::seconds(10));
+      demand_refresh.async_wait([&](auto ec) {
+        if (ec || !refresh_enabled)
+          return;
+        recover_reader();
+        refresh_state();
+      });
+    };
+    refresh_state();
     std::unique_ptr<TuiBridge> bridge;
     auto url = remote_address(u, "/ws/v1/cli/" + id);
     if (proxy_enabled()) {
@@ -282,16 +298,22 @@ class Cli {
       }
     };
     std::shared_ptr<Socket> reader;
-    asio::steady_timer retry(history_io);
-    bool finished = false;
+    bool finished = false, reconnect_reader = false, history_pending = false, history_ready = false;
+    int64_t history_requested = 0;
     std::function<void()> reconnect = [&] {
       reader = connect_socket(
           history_io, u, c.at("token"),
           [&](Json d) {
             if (d.contains("receiptId"))
               reader->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
-            if (d.value("type", "") == "history-ready")
+            if (d.value("type", "") == "history-ready") {
+              history_ready = true;
+              history_pending = true;
+              history_requested = now();
               reader->send({{"operation", "page"}, {"before", 0}, {"requestId", "initial"}});
+            }
+            if (d.value("type", "") == "history" || d.value("type", "") == "error")
+              history_pending = false;
             if (d.value("type", "") == "history" && d.contains("events")) {
               auto current = tail["events"];
               tail = d;
@@ -326,16 +348,38 @@ class Cli {
             }
           },
           [&](unsigned code) {
-            if (finished || code == 4001)
+            if (code == 4001) {
+              finished = true;
+              refresh_enabled = false;
+              demand_refresh.cancel();
               return;
-            retry.expires_after(std::chrono::seconds(3));
-            retry.async_wait([&](auto error) {
-              if (!error && !finished)
-                reconnect();
-            });
+            }
+            if (finished)
+              return;
+            history_ready = false;
+            history_pending = false;
+            reconnect_reader = true;
           },
           "/ws/v1/history/" + id);
       reader->start();
+    };
+    recover_reader = [&] {
+      if (finished)
+        return;
+      if (history_pending && now() - history_requested >= 20000) {
+        std::cerr
+            << "RESULT_UNKNOWN: history refresh unconfirmed; reconnecting read-only transport\n";
+        reader->close();
+        return;
+      }
+      if (reconnect_reader) {
+        reconnect_reader = false;
+        reconnect();
+      } else if (history_ready && !history_pending) {
+        history_pending = true;
+        history_requested = now();
+        reader->send({{"operation", "page"}, {"before", 0}, {"requestId", uuid()}});
+      }
     };
     reconnect();
 #ifdef _WIN32
@@ -360,7 +404,8 @@ class Cli {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     finished = true;
-    retry.cancel();
+    refresh_enabled = false;
+    demand_refresh.cancel();
     reader->close();
     bridge.reset();
     history_io.restart();

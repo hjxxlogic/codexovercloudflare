@@ -9,6 +9,9 @@ import { ConversationView } from '../apps/web/src/conversation.tsx';
 import { downloadFile } from '../apps/web/src/download.ts';
 
 const root = '/workspace/example';
+function demandResponse(body: string) {
+  return new Response(body, { headers: { 'X-CoC-Demand': '1' } });
+}
 describe('chat file paths', () => {
   it('resolves absolute, relative, encoded and editor paths within the project', () => {
     for (const path of [
@@ -145,7 +148,7 @@ describe('shared browser download', () => {
         requests.push(data);
         const offset = data.offset as number;
         const chunk = bytes.subarray(offset, offset + 65536);
-        return new Response(
+        return demandResponse(
           JSON.stringify({
             data: chunk.toString('base64'),
             size: bytes.length,
@@ -188,7 +191,7 @@ describe('shared browser download', () => {
       vi.fn(async (_url, init) => {
         const { offset } = JSON.parse(init.body);
         const chunk = Buffer.alloc(offset ? 1 : 65536);
-        return new Response(
+        return demandResponse(
           JSON.stringify({
             data: chunk.toString('base64'),
             size: 65537,

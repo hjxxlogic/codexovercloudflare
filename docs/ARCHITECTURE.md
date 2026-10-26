@@ -1,5 +1,19 @@
 # 技术架构与选型
 
+## 0.5.12 按需通讯实现
+
+HostRelay 的控制路径为持久异步状态机：保存调用者 scope、Agent epoch、wire ID、阶段、socket ID、原业务 requestId，发送后返回 202；Agent 结果到达后推进 get / attach / ticket 等阶段或完成回执。HTTP handler 和 history / auth WS handler 均不持有等待 Agent 的 Promise 或控制 timer。结果通知仅送同凭证订阅，领取再次验证身份；迟到 wire / epoch 不匹配时忽略。临时数据分片避免超出单存储值限制，五分钟回收；权威业务去重仍在 Agent。每主机 64 个在途、256 个总回执限制使用持久事务，重建不能绕过；同凭证只读 probe 合并。
+
+`/ws/v1/hosts/HOST` 是独立的入站 Hibernation 通道，无需会话和 A 在线，不授予控制权；Registry `/ws/v1/admin` 与 `/api/v1/auth/device/events?id=ID` 分别验证管理员和申请秘密。秘密仅用 Bearer 或 HttpOnly Cookie，Origin 规则保留。先订阅，再收到 revision 边界后读权威快照；通知为失效信号，无正文增量依赖，重复 / 乱序被忽略，断口和重连重读快照。跨 DO 各自有 revision，不声称全局原子性。Registry→Host 短调用失败不持续重试。
+
+A 删除 heartbeat 与后台审批轮询；Beast 明确关闭 idle timeout / keep_alive_pings，只保留连接操作期限。维护 timer 仅执行本地回收和已触发更新的安装检查，不周期下载。CW 无状态定时查询，CC 的等待和交互共享各自单调度器，最多十秒一轮。Host 出站 receipt 累计预算存 attachment，跨休眠保留；真实转发使用独立接收者队列和按需鉴权。活动鉴权保留五秒缓存、同 hash 在途合并及撤销 token 防护。
+
+`due:` 排序到期索引只存临时设备、限流、owner、票据、握手与回执期限；alarm 每批至多 64 项，完成后只安排真实下一期限。历史库按每页 64 项有界迁移；永久设备授权不加入队列。构造器不调度，无到期工作时删除 alarm；没有连接的票据仍可清理。保留 agentEpoch、lease 和权威请求身份。
+
+`registry_call` 按 Worker / Host 归因，`host_frame` 记录角色、字节、处理时间与缓存命中 / 合并计数，`control_accepted` / `registry_change` 标记实际操作；不写计量存储，不记录凭据、正文或唤醒 URL。当前日志仍是平台 10% 采样，不能直接当完整用量；分别以 A、A–CW、A–CC 场景核对平台请求 / duration / SQLite 指标。
+
+> 计费优化设计：见 [Durable Objects 计费优化方案（2026-10-26）](do-billing-optimization-2026-10-26.md)。最新目标为 A 空闲无心跳、超时探测或周期复核；CW 使用事件通知和刷新按钮，CC 运行期间每 10 秒刷新。C 查询或操作时按需确认 A，业务鉴权缓存仍最多 5 秒。实现说明见下节，平台长稳与节费证据见测试记录。
+
 ## 代理与实例名称补充（2026-10-26）
 
 原生 `proxy.cpp` 共享 HTTP CONNECT / SOCKS5 异步隧道，HTTP 和 WebSocket 在目标 DNS 分类后选择直连或代理；私网与本地结果直连。HTTP 沿用同一可取消 DNS / 请求总期限，代理握手使用最低层 tcp_stream 超时，TLS 保留目标主机验证。进程启动前设置代理配置，网络线程只读，不修改环境。`tui_bridge.cpp` 在启用代理时提供 loopback 随机端口和远程票据鉴权，双向转发有界 WebSocket 消息，让独立 Codex TUI 使用同一网络策略；本机 app-server 独立连接保持直连。
@@ -12,7 +26,7 @@ RegistryDO 的主机记录新增可选 `agentWakeUrl` / `wakeUrlOverride`，有�
 
 CW / CC 用各自主机授权调用 `POST /api/v1/hosts/:id/wake`，Worker 校验角色及目标后交给 HostRelayDO。后者复查主机可用性和当前连接，离线时从 RegistryDO 获取有效 URL，事务写入持久化 `wakeUntil` 后发起 GET。事务在网络请求前提交，防止多客户端并发及 DO 重启重复访问；失败也保留 60 秒窗口。不转发调用方 Header，不跟随重定向，10 秒超时，丢弃响应正文，仅 2xx 成功。唤醒状态不等于 Agent 上线，客户端仍以已完成协议协商的连接为准。
 
-CW 对选中的离线且可唤醒主机每 3 秒查询状态、每分钟请求唤醒；上线后刷新目录。CC 列表命令触发但不等待，业务命令等待最多 60 秒；明确 HOST_OFFLINE 的 HTTP 请求仅在恢复后以相同幂等标识重试一次。离线历史缓存不访问中继。
+CW 对选中的离线且可唤醒主机请求一次唤醒；后续通过事件或用户刷新确认，显式重试受一分钟限流。CC 列表命令触发但不等待，业务命令等待最多 60 秒；明确 HOST_OFFLINE 的 HTTP 请求仅在恢复后以相同幂等标识重试一次。离线历史缓存不访问中继。
 
 > 实现进展：本文件保留初始目标基线；当前开发版本的实际能力与测试结果见 [README](../README.md) 和 [测试记录](TEST_REPORT.md)。
 
@@ -96,13 +110,13 @@ Agent 使用 Bearer 访问 `/api/v1/agent/requests` 及单请求 approve/reject�
 
 原生 `requests / approve / reject` 直接读取 Agent 配置，使用既有 HTTPS 客户端，不启动 Codex runtime、不打开 Store 或占用 dataDir 锁，服务运行或停止时均可明确操作。
 
-`Agent::start` 在连接调度前发起一次客户端申请检查，之后由 30 秒维护周期触发。单线程 `approval_pool_` 执行最多一个在途 HTTP GET，超时 5 秒；结果回到业务执行器处理，不占用文件传输池或阻塞 relay 心跳。查询结果再次核对目标和客户端角色，只向 stderr 输出新请求的白名单字段与人工审批命令；名称和留言使用 JSON 转义，配置路径使用 POSIX shell 单引号转义。按当前 pending ID 集合去重，空间随有效待处理申请有界；进程重启后重新提示。失败保留去重状态、连续失败仅提示一次，恢复后继续发现新申请。退出时等待有界请求结束且丢弃结果，不在停止后发出审批提示。
+Agent 在协议握手后同步一次客户端申请，之后只由指定主机的申请变化通知触发。单线程 `approval_pool_` 执行最多一个在途 HTTP GET，超时 5 秒；结果回到业务执行器处理，不占用文件传输池或阻塞 relay 处理。查询结果再次核对目标和客户端角色，只向 stderr 输出新请求的白名单字段与人工审批命令；名称和留言使用 JSON 转义，配置路径使用 POSIX shell 单引号转义。按当前 pending ID 集合去重，空间随有效待处理申请有界；进程重启后重新提示。失败保留去重状态、连续失败仅提示一次，恢复后继续发现新申请。退出时等待有界请求结束且丢弃结果，不在停止后发出审批提示。
 
 Auth version 2 使用 agent / cli / web 三种独立角色，hostId 固定绑定，设备凭证 expires 使用安全整数最大值表示无固定到期。管理身份 owner 独立，仍为 8 小时。旧认证记录拒绝使用，不自动提升为新授权。CC / CW 的 HTTP、会话票据、WebSocket 都按角色和目标 A 校验，不能调用管理接口。CC 仅控制 cli 模式，CW 仅控制 web 模式。管理员身份不能直接操作会话。
 
 CC 按 R / A 保存多份私有文件凭证；CW 按 A 保存独立 HttpOnly / SameSite=Strict Cookie，HTTPS 加 Secure，使用时续写浏览器有效期。请求路径决定选择哪个 A 的 Cookie，多标签页不依赖全局选中身份。页面脚本不读令牌。
 
-撤销单个客户端凭证后，Registry 删除其摘要并通知对应 HostRelayDO 关闭匹配连接。撤销 A 禁用主机、删除其所有客户端授权并关闭相关连接。帧处理和转发前重新校验，DO alarm 另作兜底；本地 logout 只删除本地凭证，不停止任务或删除 R 授权。永久凭证不依赖轮询 alarm 保活。
+撤销单个客户端凭证后，Registry 删除其摘要并通知对应 HostRelayDO 关闭匹配连接。撤销 A 禁用主机、删除其所有客户端授权并关闭相关连接。帧处理和转发前重新校验，不再周期复核连接，alarm 只执行有限到期工作；本地 logout 只删除本地凭证，不停止任务或删除 R 授权。永久凭证不依赖轮询 alarm 保活。
 
 API Key 与设备配对并行。管理员通过 `/api/v1/admin/api-keys` 创建和列举，`/api/v1/admin/api-keys/revoke` 撤销。创建时强制 agent / cli 角色，cli 必须选择有效 hostId；不提供修改或改绑接口。agent Key 首次 POST `/api/v1/auth/api-key` 时在 RegistryDO 事务中创建主机并写入不可变绑定，并发使用返回同一主机。cli Key 创建即绑定目标 A，可直接作为 Bearer 使用；登录接口只校验角色与目标、返回元数据，不签发新令牌。
 
@@ -222,8 +236,8 @@ Agent 链路使用项目自定义信封，例如：
 
 ### 7.1 断线与重复提交
 
-- Agent 以 1 秒起步、最大 30 秒、带随机抖动的指数退避重连；成功稳定连接后重置计数。
-- Agent 心跳初始间隔 30 秒；连续 3 次无响应即重建连接。离线状态基于最后活动时间计算，不能依赖关闭事件必达。
+- Agent 以 1 秒起步、最大 30 秒、带随机抖动的指数退避重连；成功握手后重置计数；连续失败最多五次，之后等待显式重连。
+- Agent 不发送心跳，不因无消息重连；登记连接与查询时的实际确认分开显示。
 - HostRelayDO 持久化递增 `connectionEpoch`，只接受当前 Agent 连接；旧连接及旧控制端帧直接拒绝，Agent 同样检查版本。
 - 状态变更写入本地事务记录后才回复 accepted；请求身份与确定结果长期保留。已转交 Codex 但未确认结果的请求记为 unknown，不自动重试。
 - 保证应用层去重，不声称网络与 Codex 子进程之间具备 exactly-once。崩溃窗口通过查询线程历史和人工确认处理。
@@ -250,7 +264,7 @@ CLI 断线后不重放已经发送的请求和响应。M0 验证同一 app-serve
 | Agent SQLite         | 会话索引、请求日志、网页事件与正文块    | 历史与请求结果长期保留；审批仅 runtime 内存 |
 | 服务器 Codex home    | Codex 原生配置、认证和线程历史          | 遵循 Codex 自身配置与人工管理               |
 
-DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。心跳由 Agent 发起，不在 DO 中设置永久 interval。心跳与日志仍会消耗请求资源，休眠不代表系统零成本。
+DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。Agent 不发心跳，DO 也不设周期连接 alarm；真实业务、有限清理和日志仍可能产生成本。
 
 事件正文不落云端存储；DO 只做有界转发，慢端溢出后关闭客户端连接。网页从 Agent 恢复，CLI 明确提示重新附着。SQLite 不按历史总量或时间清理会话正文；磁盘由运维管理，客户端缓存支持显式清理。
 

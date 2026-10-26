@@ -1,3 +1,4 @@
+import { WebSocketServer, WebSocket } from 'ws';
 // Browser checks against a local deterministic relay peer; no model calls.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -17,6 +18,7 @@ const server = createServer(async (req, res) => {
   const path = new URL(req.url!, 'http://local').pathname;
   if (path.startsWith('/api/v1/')) {
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('X-CoC-Demand', '1');
     const host = {
       id: 'host',
       name: '开发服务器',
@@ -38,6 +40,7 @@ const server = createServer(async (req, res) => {
       let body = '';
       for await (const chunk of req) body += chunk;
       override = JSON.parse(body).wakeUrl ?? undefined;
+      notify();
     } else if (path === '/api/v1/hosts')
       result = [
         {
@@ -51,8 +54,11 @@ const server = createServer(async (req, res) => {
       assert.equal(req.method, 'POST');
       wakes++;
       online = true;
+      notify();
       result = { state: 'requested', retryAfterMs: 60000 };
-    } else if (path === '/api/v1/client/identity')
+    } else if (path === '/api/v1/hosts/host/probe')
+      result = { online, confirmedAt: Date.now() };
+    else if (path === '/api/v1/client/identity')
       result = { identity: 'wake-ui' };
     else if (path === '/api/v1/hosts/host/projects') {
       projectReads++;
@@ -89,6 +95,22 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end();
   }
 });
+const notifications = new WebSocketServer({ server });
+let revision = 0;
+function notify() {
+  for (const ws of notifications.clients)
+    if (ws.readyState === WebSocket.OPEN)
+      ws.send(
+        JSON.stringify({
+          type: 'change',
+          scope: 'registry',
+          revision: ++revision,
+        }),
+      );
+}
+notifications.on('connection', (ws) =>
+  ws.send(JSON.stringify({ type: 'subscribed', revision, demand: 1 })),
+);
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ headless: true });
 try {
@@ -193,5 +215,7 @@ try {
   );
 } finally {
   await browser.close();
+  for (const ws of notifications.clients) ws.terminate();
+  notifications.close();
   await new Promise<void>((done) => server.close(() => done()));
 }

@@ -10,6 +10,7 @@ import {
   hostStub,
   json,
   registryCall,
+  registry,
   type Auth,
   type Env,
 } from './common.ts';
@@ -91,6 +92,7 @@ function internal(
     'x-host': hostId,
   });
   if (req.headers.has('upgrade')) headers.set('upgrade', 'websocket');
+  if (req.headers.get('x-coc-async') === '1') headers.set('x-coc-async', '1');
   if (ticket) headers.set('x-ticket', ticket);
   return new Request('https://internal' + path, {
     method: data === undefined ? 'GET' : 'POST',
@@ -104,7 +106,7 @@ export default {
       const u = new URL(req.url),
         p = u.pathname;
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.11', protocol: 1 });
+        return json({ ok: true, version: '0.5.12', demand: 1, protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);
@@ -169,6 +171,67 @@ export default {
           ),
         });
       }
+      if (p === '/api/v1/auth/device/events' && req.method === 'GET') {
+        if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
+          throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
+        const id = idSchema.parse(u.searchParams.get('id'));
+        const secret = cookies(req).get('coc_pending_' + id) || bearer(req);
+        return registry(env).fetch(
+          new Request('https://internal/subscribe', {
+            headers: {
+              Upgrade: 'websocket',
+              'x-subscription': encodeURIComponent(
+                JSON.stringify({ id, secret }),
+              ),
+            },
+          }),
+        );
+      }
+      if (p === '/ws/v1/admin') {
+        const auth = await authenticate(req, env, undefined, true);
+        return registry(env).fetch(
+          new Request('https://internal/subscribe', {
+            headers: {
+              Upgrade: 'websocket',
+              'x-subscription': encodeURIComponent(
+                JSON.stringify({ hash: auth.hash }),
+              ),
+            },
+          }),
+        );
+      }
+      const subscription = p.match(/^\/ws\/v1\/hosts\/([\w-]+)$/);
+      if (subscription) {
+        const auth = await authenticate(req, env, subscription[1]);
+        return hostStub(env, subscription[1]).fetch(
+          internal(req, '/subscribe', auth, subscription[1]),
+        );
+      }
+      const receipt = p.match(
+        /^\/api\/v1\/hosts\/([\w-]+)\/operations\/([\w-]+)$/,
+      );
+      if (receipt && ['GET', 'POST'].includes(req.method)) {
+        const auth = await authenticate(req, env, receipt[1]);
+        return hostStub(env, receipt[1]).fetch(
+          internal(
+            req,
+            '/operation/' + receipt[2],
+            auth,
+            receipt[1],
+            req.method === 'POST' ? {} : undefined,
+          ),
+        );
+      }
+      const probe = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/probe$/);
+      if (probe && req.method === 'POST') {
+        const auth = await authenticate(req, env, probe[1]);
+        return hostStub(env, probe[1]).fetch(
+          internal(req, '/control', auth, probe[1], {
+            action: 'probe',
+            data: {},
+          }),
+        );
+      }
       if (p === '/api/v1/auth/device/poll' && req.method === 'POST') {
         const d = await body(req),
           id = idSchema.parse(d.id);
@@ -215,6 +278,45 @@ export default {
       }
       if (p.startsWith('/api/v1/admin/')) {
         await authenticate(req, env, undefined, true);
+        if (p === '/api/v1/admin/releases' && req.method === 'POST') {
+          const d = await body(req);
+          const manifestResponse = await env.ASSETS.fetch(
+            new Request(new URL('/downloads/index.json', req.url)),
+          );
+          const manifest: any = await manifestResponse.json();
+          if (
+            !manifestResponse.ok ||
+            manifest.version !== d.version ||
+            manifest.commit !== d.commit ||
+            manifest.protocol !== 1 ||
+            !Array.isArray(manifest.files) ||
+            !manifest.files.length
+          )
+            throw new AppError(
+              'RELEASE_NOT_READY',
+              'Deploy matching verified release artifacts before notifying',
+              409,
+            );
+          for (const file of manifest.files) {
+            if (
+              typeof file !== 'string' ||
+              !/^[\w.-]+$/.test(file) ||
+              !(
+                await env.ASSETS.fetch(
+                  new Request(new URL('/downloads/' + file, req.url), {
+                    method: 'HEAD',
+                  }),
+                )
+              ).ok
+            )
+              throw new AppError(
+                'RELEASE_NOT_READY',
+                'Release artifact unavailable',
+                409,
+              );
+          }
+          return json(await registryCall(env, 'releasePublish', d));
+        }
         if (p === '/api/v1/admin/devices' && req.method === 'GET')
           return json(await registryCall(env, 'devices'));
         if (p === '/api/v1/admin/hosts' && req.method === 'GET')
@@ -284,7 +386,7 @@ export default {
       if (p === '/api/v1/hosts' && req.method === 'GET') {
         const auths: Auth[] = [];
         if (bearer(req)) {
-          const a: Auth = await registryCall(env, 'auth', {
+          const a: Auth = await registryCall(env, 'authHost', {
             token: bearer(req),
           });
           if (a.role !== 'cli')
@@ -294,7 +396,9 @@ export default {
           for (const [name, value] of cookies(req)) {
             if (!/^coc_web_[\w-]+$/.test(name)) continue;
             try {
-              const a: Auth = await registryCall(env, 'auth', { token: value });
+              const a: Auth = await registryCall(env, 'authHost', {
+                token: value,
+              });
               if (a.role === 'web' && name === 'coc_web_' + a.hostId)
                 auths.push(a);
             } catch {
@@ -307,7 +411,7 @@ export default {
         const response = json(
           await Promise.all(
             auths.map(async (a) => {
-              const h = await registryCall(env, 'host', { id: a.hostId });
+              const h = (a as Auth & { host: any }).host;
               const status: any = await (
                 await hostStub(env, h.id).fetch('https://internal/status')
               ).json();

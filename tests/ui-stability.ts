@@ -117,6 +117,7 @@ const server = createServer((req, res) => {
   if (url.pathname.startsWith('/api/v1')) {
     const path = url.pathname.slice(7);
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('X-CoC-Demand', '1');
     let body: unknown = {};
     if ((path === '/auth/me' && !admin) || (!logged && path === '/hosts')) {
       res.statusCode = 401;
@@ -154,6 +155,8 @@ const server = createServer((req, res) => {
     else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
     else if (path === '/client/identity') body = { identity };
+    else if (path === '/hosts/sample/probe')
+      body = { online, confirmedAt: Date.now() };
     else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
       body =
@@ -223,6 +226,14 @@ const sync = (ws: WebSocket) =>
   );
 wss.on('connection', (ws, request) => {
   sockets.add(ws);
+  if (
+    request.url === '/ws/v1/admin' ||
+    request.url?.startsWith('/ws/v1/hosts/')
+  ) {
+    ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
+    ws.on('close', () => sockets.delete(ws));
+    return;
+  }
   ws.on('close', () => {
     sockets.delete(ws);
     controls.delete(ws);
@@ -379,6 +390,16 @@ try {
   const languageDraft = '中英文切换保留草稿 / keep this draft';
   await page.getByLabel('任务内容').fill(languageDraft);
   const languageAttachCalls = attachCalls;
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
+  assert.equal(
+    attachCalls,
+    languageAttachCalls,
+    'manual refresh preserves the active controller',
+  );
   await openMenu(page);
   await page.getByLabel('语言 / Language').selectOption('en');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -457,11 +478,13 @@ try {
     fileReads.push(data);
     if (data.path === 'docs/missing.txt')
       return route.fulfill({
+        headers: { 'X-CoC-Demand': '1' },
         status: 404,
         json: { error: { code: 'NOT_FOUND', message: 'File not found' } },
       });
     const chunk = downloadBytes.subarray(data.offset, data.offset + 65536);
     await route.fulfill({
+      headers: { 'X-CoC-Demand': '1' },
       json: {
         data: chunk.toString('base64'),
         size: downloadBytes.length,

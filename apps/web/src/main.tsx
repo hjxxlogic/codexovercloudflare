@@ -1,3 +1,4 @@
+import { observe, recoverNotifications } from './notifications.ts';
 import {
   t,
   localeTag,
@@ -248,7 +249,29 @@ function App() {
         }
       : null;
   };
+  const refreshPending = useRef<Promise<void> | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshed, setRefreshed] = useState('');
+  const [revision, setRevision] = useState(0);
+  const [resultRevision, setResultRevision] = useState(0);
+  const snapshotPending = useRef<Promise<void> | undefined>(undefined);
+  const snapshotDirty = useRef(false);
   async function refresh() {
+    snapshotDirty.current = true;
+    if (snapshotPending.current) return snapshotPending.current;
+    snapshotPending.current = (async () => {
+      try {
+        while (snapshotDirty.current) {
+          snapshotDirty.current = false;
+          await readSnapshot();
+        }
+      } finally {
+        snapshotPending.current = undefined;
+      }
+    })();
+    return snapshotPending.current;
+  }
+  async function readSnapshot() {
     const results = await Promise.allSettled([api('/hosts'), api('/auth/me')]);
     if (results[0].status === 'fulfilled') {
       const available = results[0].value;
@@ -269,6 +292,11 @@ function App() {
         setChecking(false);
         return;
       }
+      if (
+        results[0].reason instanceof ApiError &&
+        results[0].reason.code === 'UPGRADE_REQUIRED'
+      )
+        report(results[0].reason);
       setHosts([]);
       setLogged(false);
       setSelected(undefined);
@@ -289,13 +317,28 @@ function App() {
       history.replaceState(null, '', location.pathname + location.search);
     }
     void refresh();
-    const timer = setInterval(() => void refresh(), 15000);
-    return () => clearInterval(timer);
+    const visible = () => {
+      if (document.visibilityState === 'visible') {
+        recoverNotifications();
+        void refresh();
+        setRevision((value) => value + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
   }, []);
   useEffect(() => {
-    if (!admin) return;
-    let disposed = false;
-    const update = () =>
+    if (!admin || mode !== 'admin') return;
+    let disposed = false,
+      running = false,
+      dirty = false;
+    const update = () => {
+      if (running) {
+        dirty = true;
+        return;
+      }
+      running = true;
+      dirty = false;
       void Promise.all([
         api('/admin/devices'),
         api('/admin/api-keys'),
@@ -308,50 +351,79 @@ function App() {
             setKeyHosts(available.filter((h: any) => !h.disabled));
           }
         })
-        .catch(report);
-    update();
-    const timer = setInterval(update, 3000);
+        .catch(report)
+        .finally(() => {
+          running = false;
+          if (dirty && !disposed) update();
+        });
+    };
+    const stop = observe('/ws/v1/admin', (event) => {
+      if (event.type === 'subscribed' || event.type === 'change') update();
+    });
     return () => {
       disposed = true;
-      clearInterval(timer);
+      stop();
     };
-  }, [admin]);
+  }, [admin, mode, revision]);
+  useEffect(() => {
+    if (!logged) return;
+    const stops = hosts.map((h) =>
+      observe(`/ws/v1/hosts/${h.id}`, (event) => {
+        if (
+          event.type === 'subscribed' ||
+          (event.type === 'change' &&
+            ['host', 'registry', 'requests', 'sessions'].includes(event.scope))
+        ) {
+          void refresh();
+          if (event.scope === 'sessions' || event.type === 'subscribed')
+            setRevision((value) => value + 1);
+        }
+        if (event.type === 'change' && event.scope === 'request-results')
+          setResultRevision((value) => value + 1);
+      }),
+    );
+    return () => stops.forEach((stop) => stop());
+  }, [logged, hosts.map((h) => h.id).join(',')]);
   useEffect(() => {
     if (mode !== 'cw' || !host || online || !wakeConfigured) return;
-    let disposed = false,
-      running = false,
-      nextWake = 0;
     const controller = new AbortController();
-    const poll = async () => {
-      if (running) return;
-      running = true;
-      try {
-        if (Date.now() >= nextWake) {
-          nextWake = Date.now() + 60000;
-          const result = await api(
-            `/hosts/${host}/wake`,
-            {},
-            controller.signal,
-          );
-          if (!disposed && result.state !== 'unconfigured')
-            setNotice('服务器离线，已请求唤醒，正在等待上线…');
-        }
-        const available = await api('/hosts', undefined, controller.signal);
-        if (!disposed) setHosts(available);
-      } catch (error) {
-        if (!disposed) report(error);
-      } finally {
-        running = false;
-      }
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), 3000);
-    return () => {
-      disposed = true;
-      controller.abort();
-      clearInterval(timer);
-    };
+    void api(`/hosts/${host}/wake`, {}, controller.signal)
+      .then((result) => {
+        if (result.state !== 'unconfigured')
+          setNotice('服务器离线，已请求唤醒；可刷新确认或手动重试唤醒。');
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) report(error);
+      });
+    return () => controller.abort();
   }, [host, online, wakeConfigured, mode]);
+  async function refreshView() {
+    if (refreshPending.current) return refreshPending.current;
+    const work = (async () => {
+      setRefreshing(true);
+      setRefreshed('');
+      recoverNotifications(true);
+      try {
+        await refresh();
+        if (mode === 'cw' && host) {
+          const confirmation = await api(`/hosts/${host}/probe`, {});
+          if (!confirmation.online) throw new Error('未确认服务器可达，请重试');
+          if (!socket.current || socket.current.readyState >= WebSocket.CLOSING)
+            setReconnect((value) => value + 1);
+        }
+        setRevision((value) => value + 1);
+        setResultRevision((value) => value + 1);
+        setRefreshed(new Date().toLocaleTimeString());
+      } catch (error) {
+        report(error);
+      } finally {
+        setRefreshing(false);
+        refreshPending.current = undefined;
+      }
+    })();
+    refreshPending.current = work;
+    return work;
+  }
   useEffect(() => {
     if (!host || !online || catalogHost !== host) return;
     setNotice((current) =>
@@ -399,18 +471,28 @@ function App() {
         if (!controller.signal.aborted) report(error);
       });
     return () => controller.abort();
-  }, [host, online, catalogHost]);
+  }, [host, online, catalogHost, revision]);
   useEffect(() => {
     if (!grant) return;
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let disposed = false,
+      running = false,
+      dirty = false,
+      finished = false;
     const poll = async () => {
+      if (finished || disposed) return;
+      if (running) {
+        dirty = true;
+        return;
+      }
+      running = true;
+      dirty = false;
       try {
         if (grant.expires <= Date.now())
           throw new Error('登录请求已过期，请重新申请');
         const result = await api('/auth/device/poll', { id: grant.id });
         if (disposed) return;
         if (result.state === 'approved') {
+          finished = true;
           if (grant.requestedHostId && result.hostId !== grant.requestedHostId)
             throw new Error('批准的服务器与申请目标不一致，请重新申请。');
           setGrant(undefined);
@@ -422,26 +504,44 @@ function App() {
           setHost(result.hostId);
           await refresh();
         } else if (result.state === 'rejected') {
+          finished = true;
           setGrant(undefined);
           setError(
             grant.requestedHostId
               ? '目标服务器或管理员已拒绝登录申请'
               : '管理员已拒绝登录申请',
           );
-        } else timer = setTimeout(() => void poll(), 2000);
+        }
       } catch (e) {
         if (!disposed) {
-          setGrant(undefined);
           report(e);
         }
+      } finally {
+        running = false;
+        if (dirty && !finished && !disposed) void poll();
       }
     };
-    void poll();
+    const stop = observe(
+      `/api/v1/auth/device/events?id=${grant.id}`,
+      (event) => {
+        if (event.type === 'subscribed' || event.type === 'change') void poll();
+      },
+    );
+    const expiry = setTimeout(
+      () => {
+        if (!disposed) {
+          setGrant(undefined);
+          setError('登录请求已过期，请重新申请');
+        }
+      },
+      Math.max(0, grant.expires - Date.now()),
+    );
     return () => {
       disposed = true;
-      clearTimeout(timer);
+      stop();
+      clearTimeout(expiry);
     };
-  }, [grant]);
+  }, [grant, revision]);
   useEffect(() => {
     let disposed = false;
     const controller = new AbortController();
@@ -562,13 +662,11 @@ function App() {
       }
     };
     void query();
-    const timer = setInterval(() => void query(), 5000);
     return () => {
       disposed = true;
       controller.abort();
-      clearInterval(timer);
     };
-  }, [host, project, createOperation?.requestId]);
+  }, [host, project, createOperation?.requestId, resultRevision]);
   async function loadThreads(append = false) {
     if (!host || !project || !online) return;
     const request = ++historyRequest.current;
@@ -768,7 +866,7 @@ function App() {
     const controller = new AbortController();
     let terminal = false;
     const retry = () => {
-      if (disposed || terminal) return;
+      if (disposed || terminal || attempt >= 3) return;
       clearTimeout(timer);
       timer = setTimeout(
         () => void connect(),
@@ -951,6 +1049,7 @@ function App() {
       }
     };
     let historyTimer: ReturnType<typeof setTimeout>;
+    let historyAttempts = 0;
     let cache: HistoryCache | undefined;
     let checkpoint: number | undefined;
     const requests = new Map<string, number | 'sync'>();
@@ -1219,13 +1318,13 @@ function App() {
           requests.clear();
           pageGeneration++;
           finishPage();
-          if (!disposed)
+          if (!disposed && historyAttempts++ < 3)
             historyTimer = setTimeout(() => void connectHistory(), 3000);
         };
       } catch (e) {
         if (!disposed) {
           report(e);
-          if (retryable(e))
+          if (retryable(e) && historyAttempts++ < 3)
             historyTimer = setTimeout(() => void connectHistory(), 5000);
         }
       }
@@ -1619,7 +1718,20 @@ function App() {
             ))}
           </select>
         </label>
-        <button onClick={() => void refresh()}>{t('刷新主机')}</button>
+        <button disabled={refreshing} onClick={() => void refreshView()}>
+          {refreshing ? t('正在加载…') : t('刷新主机')}
+        </button>
+        {mode === 'cw' && host && !online && wakeConfigured && (
+          <button
+            onClick={() =>
+              void api(`/hosts/${host}/wake`, {})
+                .then(() => setNotice('已请求唤醒，请刷新确认上线状态'))
+                .catch(report)
+            }
+          >
+            {t('重试唤醒')}
+          </button>
+        )}
         <button
           disabled={!host}
           onClick={() => {
@@ -1680,6 +1792,22 @@ function App() {
             </>
           )}
         </a>
+        <button
+          className="status-refresh"
+          aria-label={t('刷新状态')}
+          title={
+            refreshed
+              ? `${t('最近确认')} ${refreshed}`
+              : t('连接状态未确认，点击刷新核对')
+          }
+          disabled={refreshing}
+          onClick={() => void refreshView()}
+        >
+          <span aria-hidden="true">↻</span>
+          <small aria-live="polite">
+            {refreshing ? t('刷新中') : refreshed || t('未确认')}
+          </small>
+        </button>
         {logged && view === 'chat' && (
           <div className="header-actions">
             <button onClick={() => setPanel('sessions')}>{t('历史')}</button>

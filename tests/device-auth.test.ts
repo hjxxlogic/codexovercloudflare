@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryStorage } from './helpers/do-state.ts';
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {
     constructor(
       public ctx: unknown,
       public env: unknown,
-    ) {}
+    ) {
+      (ctx as any).getWebSockets ??= () => [];
+    }
   },
 }));
 import { RegistryDO } from '../apps/relay/src/registry.ts';
@@ -12,35 +15,7 @@ import { HostRelayDO } from '../apps/relay/src/host.ts';
 import worker from '../apps/relay/src/index.ts';
 import type { Env } from '../apps/relay/src/common.ts';
 
-class Storage {
-  values = new Map<string, any>();
-  tail: Promise<unknown> = Promise.resolve();
-  async get(key: string) {
-    return structuredClone(this.values.get(key));
-  }
-  async put(key: string, value: any) {
-    this.values.set(key, structuredClone(value));
-  }
-  async delete(key: string) {
-    this.values.delete(key);
-  }
-  async list({ prefix }: { prefix: string }) {
-    return new Map(
-      [...this.values]
-        .filter(([k]) => k.startsWith(prefix))
-        .map(([k, v]) => [k, structuredClone(v)]),
-    );
-  }
-  async getAlarm() {
-    return 1;
-  }
-  async setAlarm() {}
-  transaction<T>(fn: (tx: Storage) => Promise<T>) {
-    const result = this.tail.then(() => fn(this));
-    this.tail = result.catch(() => {});
-    return result;
-  }
-}
+class Storage extends MemoryStorage {}
 let storage: Storage, registry: RegistryDO, env: Env;
 async function op(name: string, data: unknown = {}) {
   const r = await registry.fetch(

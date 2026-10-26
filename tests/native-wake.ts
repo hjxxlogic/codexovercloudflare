@@ -16,6 +16,7 @@ const stopKeys: string[] = [];
 let agentUrl = '';
 const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('X-CoC-Demand', '1');
   const reply = (value: unknown, status = 200) => {
     res.statusCode = status;
     res.end(JSON.stringify(value));
@@ -47,6 +48,8 @@ const server = createServer(async (req, res) => {
     wakes++;
     online = configured;
     reply({ state: configured ? 'requested' : 'unconfigured' });
+  } else if (req.url === '/api/v1/hosts/host/probe') {
+    reply({ online, confirmedAt: Date.now() });
   } else if (req.url === '/api/v1/hosts/host/projects') {
     assert(online);
     reply([{ id: 'project' }]);
@@ -168,7 +171,7 @@ try {
       10000,
     );
     wss.on('connection', (ws) => {
-      ws.send(JSON.stringify({ type: 'hello', minProtocol: 1 }));
+      ws.send(JSON.stringify({ type: 'hello', demand: 1, minProtocol: 1 }));
       ws.on('message', (raw) => {
         const frame = JSON.parse(raw.toString());
         if (frame.type === 'capabilities') {

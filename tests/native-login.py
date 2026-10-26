@@ -29,6 +29,7 @@ class LoginRecovery(unittest.TestCase):
                 body = json.dumps([{'id': grant['hostId'], 'name': grant['name']}]).encode()
                 self.send_response(200)
                 self.send_header('Content-Length', str(len(body)))
+                self.send_header('X-CoC-Demand', '1')
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -61,6 +62,7 @@ class LoginRecovery(unittest.TestCase):
                 body = json.dumps(result).encode()
                 self.send_response(status)
                 self.send_header('Content-Length', str(len(body)))
+                self.send_header('X-CoC-Demand', '1')
                 self.end_headers()
                 self.wfile.write(body)
 

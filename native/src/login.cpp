@@ -141,35 +141,107 @@ Json device_login(const std::string &relay, const std::string &role, const std::
             << "\nPairing code: " << request.at("code").get<std::string>()
             << "\nWaiting for approval (5 minutes)...\n"
             << std::flush;
-  while (now() < request.at("expires").get<int64_t>()) {
-    Json result;
+  asio::io_context io;
+  asio::steady_timer expiry(io), refresh(io);
+  std::shared_ptr<Socket> socket;
+  Json approved, failure;
+  bool ended = false;
+  int retries = 0;
+  std::function<void()> reconnect;
+  const auto finish = [&] {
+    if (ended)
+      return;
+    ended = true;
+    expiry.cancel();
+    refresh.cancel();
+    if (socket)
+      socket->close();
+  };
+  const auto poll = [&] {
+    if (ended)
+      return;
     try {
-      // Retry only this secret-bound lookup, never deviceStart or API-key login.
       const auto remaining = request.at("expires").get<int64_t>() - now();
-      if (remaining <= 0)
-        break;
-      result = http_json(url, "/api/v1/auth/device/poll",
-                         {{"id", request.at("id")}, {"pollSecret", request.at("pollSecret")}}, "",
-                         "", std::chrono::milliseconds(std::min<int64_t>(30000, remaining)));
+      if (remaining <= 0) {
+        finish();
+        return;
+      }
+      auto result =
+          http_json(url, "/api/v1/auth/device/poll",
+                    {{"id", request.at("id")}, {"pollSecret", request.at("pollSecret")}}, "", "",
+                    std::chrono::milliseconds(std::min<int64_t>(5000, remaining)));
+      if (result.at("state") == "approved") {
+        if (role == "cli" && !host.empty() && result.value("hostId", "") != host)
+          throw Error("FORBIDDEN", "Approved server differs from requested server");
+        result.erase("state");
+        result["relay"] = url.origin;
+        approved = result;
+        finish();
+      } else if (result.at("state") == "rejected") {
+        failure = {{"code", "LOGIN_REJECTED"}, {"message", "Login request rejected"}};
+        finish();
+      }
     } catch (const Error &error) {
-      if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK")
-        throw;
-      std::cerr << "Login approval check temporarily unavailable (" << error.code
-                << "); retrying the same request until it expires.\n";
-      std::this_thread::sleep_for(std::chrono::seconds(2));
-      continue;
+      if (error.code == "HTTP_TIMEOUT" || error.code == "HTTP_NETWORK") {
+        std::cerr << "Login check unavailable (" << error.code
+                  << "); reconnecting within the finite login budget\n";
+        if (socket)
+          socket->close();
+        return;
+      }
+      failure = error_data(error);
+      finish();
     }
-    if (result.at("state") == "approved") {
-      if (role == "cli" && !host.empty() && result.value("hostId", "") != host)
-        throw Error("FORBIDDEN", "Approved server differs from the requested server");
-      result.erase("state");
-      result["relay"] = url.origin;
-      return result;
-    }
-    if (result.at("state") == "rejected")
-      throw Error("LOGIN_REJECTED", "Login request rejected");
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-  }
+  };
+  std::function<void()> tick;
+  tick = [&] {
+    if (ended || role != "cli")
+      return;
+    refresh.expires_after(std::chrono::seconds(10));
+    refresh.async_wait([&](auto ec) {
+      if (!ec) {
+        poll();
+        tick();
+      }
+    });
+  };
+  reconnect = [&] {
+    if (ended)
+      return;
+    socket = connect_socket(
+        io, url, request.at("pollSecret"),
+        [&](Json event) {
+          if (event.value("type", "") == "subscribed" || event.value("type", "") == "change")
+            poll();
+        },
+        [&](unsigned) {
+          if (ended || role == "cli" || retries >= 3)
+            return;
+          refresh.expires_after(std::chrono::seconds(1 << retries++));
+          refresh.async_wait([&](auto ec) {
+            if (!ec) {
+              reconnect();
+              poll();
+            }
+          });
+        },
+        "/api/v1/auth/device/events?id=" + request.at("id").get<std::string>());
+    socket->start();
+  };
+  expiry.expires_after(std::chrono::milliseconds(
+      std::max<int64_t>(0, request.at("expires").get<int64_t>() - now())));
+  expiry.async_wait([&](auto ec) {
+    if (!ec)
+      finish();
+  });
+  reconnect();
+  poll();
+  tick();
+  io.run();
+  if (!failure.is_null())
+    throw Error(failure.value("code", "LOGIN_FAILED"), failure.value("message", "Login failed"));
+  if (!approved.is_null())
+    return approved;
   throw Error("LOGIN_EXPIRED", "Login request expired; run login again");
 }
 Json credential_status(const Json &credential) {

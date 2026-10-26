@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
 import { z } from 'zod';
 import {
   AppError,
@@ -11,6 +12,7 @@ import {
   failure,
   json,
   token,
+  hostStub,
   type Auth,
   type Env,
 } from './common.ts';
@@ -31,7 +33,204 @@ type Host = {
   wakeUrlOverride?: string;
 };
 export class RegistryDO extends DurableObject<Env> {
-  async fetch(req: Request) {
+  async fetch(req: Request): Promise<Response> {
+    try {
+      const op = new URL(req.url).pathname.slice(1);
+      if (op === 'subscribe') return await this.subscribe(req);
+      await migrateExpiry(this.ctx.storage, ['device:', 'limit:', 'auth:']);
+      const d = await body(req.clone() as Request);
+      const release =
+        op === 'releasePublish'
+          ? await this.ctx.storage.get<any>('release')
+          : undefined;
+      const previous = [
+        'deviceApprove',
+        'deviceReject',
+        'agentDeviceApprove',
+        'agentDeviceReject',
+      ].includes(op)
+        ? await this.ctx.storage.get<any>('device:' + d.id)
+        : undefined;
+      const response = await this.dispatch(req);
+      const mutations = [
+        'login',
+        'logout',
+        'logoutOthers',
+        'deviceStart',
+        'deviceApprove',
+        'deviceReject',
+        'agentDeviceApprove',
+        'agentDeviceReject',
+        'credentialRevoke',
+        'apiKeyCreate',
+        'apiKeyLogin',
+        'apiKeyRevoke',
+        'setWakeUrl',
+        'agentSetWakeUrl',
+        'setInstanceName',
+        'releasePublish',
+      ];
+      if (
+        response.ok &&
+        mutations.includes(op) &&
+        !(
+          op === 'releasePublish' &&
+          release?.version === d.version &&
+          release?.commit === d.commit
+        )
+      ) {
+        const result: any = await response.clone().json();
+        const targeted =
+          op === 'deviceStart'
+            ? result.requestedHostId
+            : previous?.requestedHostId;
+        await this.publish(
+          op === 'releasePublish' ? 'release' : 'registry',
+          op === 'deviceStart' ? result.id : previous?.id,
+          targeted,
+        ).catch(() =>
+          console.log(
+            JSON.stringify({
+              event: 'notification_deferred',
+              scope: 'registry',
+            }),
+          ),
+        );
+      }
+      return response;
+    } catch (error) {
+      return failure(error);
+    }
+  }
+  private async subscribe(req: Request) {
+    const d = JSON.parse(
+      decodeURIComponent(req.headers.get('x-subscription') || '%7B%7D'),
+    );
+    let attachment: {
+      kind: 'owner' | 'device';
+      hash?: string;
+      id?: string;
+      pollHash?: string;
+      expires: number;
+    };
+    if (d.hash) {
+      const response = await this.dispatch(
+        new Request('https://internal/authHash', {
+          method: 'POST',
+          body: JSON.stringify({ hash: d.hash }),
+        }),
+      );
+      if (!response.ok) return response;
+      const auth = (await response.json()) as Auth;
+      if (auth.role !== 'owner')
+        throw new AppError(
+          'FORBIDDEN',
+          'Administrator subscription required',
+          403,
+        );
+      attachment = { kind: 'owner', hash: auth.hash, expires: auth.expires };
+    } else {
+      const id = idSchema.parse(d.id),
+        pollHash = await digest(z.string().max(500).parse(d.secret));
+      const request = await this.ctx.storage.get<any>('device:' + id);
+      if (
+        !request ||
+        request.pollHash !== pollHash ||
+        request.expires <= Date.now()
+      )
+        throw new AppError('UNAUTHORIZED', 'Invalid login subscription', 401);
+      attachment = { kind: 'device', id, pollHash, expires: request.expires };
+    }
+    if (this.ctx.getWebSockets().length >= 240)
+      throw new AppError(
+        'CAPACITY',
+        'Notification connection budget exhausted',
+        429,
+      );
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1], [attachment.kind]);
+    pair[1].serializeAttachment(attachment);
+    pair[1].send(
+      JSON.stringify({
+        type: 'subscribed',
+        revision: (await this.ctx.storage.get('revision')) || 0,
+        demand: 1,
+      }),
+    );
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+  private async publish(
+    scope: string,
+    deviceId?: string,
+    requestedHost?: string,
+  ) {
+    const revision =
+      ((await this.ctx.storage.get<number>('revision')) || 0) + 1;
+    await this.ctx.storage.put('revision', revision);
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as {
+        kind: string;
+        hash?: string;
+        id?: string;
+        expires: number;
+      };
+      try {
+        if (a.expires <= Date.now()) {
+          ws.close(4001, 'Subscription expired');
+          continue;
+        }
+        if (a.kind === 'owner') {
+          const auth = await this.dispatch(
+            new Request('https://internal/authHash', {
+              method: 'POST',
+              body: JSON.stringify({ hash: a.hash }),
+            }),
+          );
+          if (!auth.ok) {
+            ws.close(4001, 'Authorization revoked');
+            continue;
+          }
+        } else if (a.id !== deviceId) continue;
+        ws.send(JSON.stringify({ type: 'change', scope, revision }));
+      } catch {
+        ws.close(4001, 'Subscription validation failed');
+      }
+    }
+    const hosts = requestedHost
+      ? [requestedHost]
+      : scope === 'release' || scope === 'registry'
+        ? [...(await this.ctx.storage.list<Host>({ prefix: 'host:' })).values()]
+            .filter((h) => !h.disabled)
+            .map((h) => h.id)
+        : [];
+    const release =
+      scope === 'release'
+        ? await this.ctx.storage.get<{ version: string }>('release')
+        : undefined;
+    await Promise.allSettled(
+      hosts.map(async (id) =>
+        hostStub(this.env, id).fetch('https://internal/notify', {
+          method: 'POST',
+          body: JSON.stringify({
+            scope: requestedHost ? 'requests' : scope,
+            revision,
+            ...(release ? { version: release.version } : {}),
+          }),
+        }),
+      ),
+    );
+    console.log(JSON.stringify({ event: 'registry_change', scope, revision }));
+  }
+  async webSocketMessage(ws: WebSocket) {
+    ws.close(4000, 'Notification channel is read only');
+  }
+  async webSocketClose(ws: WebSocket) {
+    ws.close(1000, 'Closed');
+  }
+  async webSocketError(ws: WebSocket) {
+    ws.close(1011, 'Transport error');
+  }
+  private async dispatch(req: Request) {
     try {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
@@ -57,7 +256,7 @@ export class RegistryDO extends DurableObject<Env> {
         if (++attempts.count > 10)
           throw new AppError('RATE_LIMITED', 'Try again in one minute', 429);
         await s.put(key, attempts);
-        await this.schedule();
+        await expireAt(s, key, attempts.until);
       }
       if (op === 'apiKeyCreate') {
         const role = z.enum(['agent', 'cli']).parse(d.role);
@@ -213,7 +412,7 @@ export class RegistryDO extends DurableObject<Env> {
           state: 'pending',
         };
         await s.put('device:' + id, request);
-        await this.schedule();
+        await expireAt(s, 'device:' + id, request.expires);
         return json({
           id,
           pollSecret,
@@ -437,6 +636,26 @@ export class RegistryDO extends DurableObject<Env> {
           }),
         );
       }
+      if (op === 'releasePublish') {
+        const version = z
+          .string()
+          .regex(/^\d+\.\d+\.\d+$/)
+          .parse(d.version);
+        const commit = z
+          .string()
+          .regex(/^[a-f0-9]{40}$/)
+          .parse(d.commit);
+        const previous = await s.get<any>('release');
+        if (previous?.version === version && previous.commit !== commit)
+          throw new AppError(
+            'IDEMPOTENCY_CONFLICT',
+            'Version already published from another commit',
+            409,
+          );
+        if (previous?.version === version) return json(previous);
+        await s.put('release', { version, commit });
+        return json({ version, commit });
+      }
       if (op === 'login') {
         if (
           typeof d.secret !== 'string' ||
@@ -455,11 +674,12 @@ export class RegistryDO extends DurableObject<Env> {
           created: Date.now(),
           expires,
         } satisfies Auth);
+        await expireAt(s, 'auth:' + hash, expires);
         return json({ token: value, expires });
       }
-      if (op === 'auth' || op === 'authHash') {
+      if (op === 'auth' || op === 'authHash' || op === 'authHost') {
         const hash =
-          op === 'auth'
+          op !== 'authHash'
             ? await digest(z.string().max(500).parse(d.token))
             : z.string().parse(d.hash);
         const a = await s.get<Auth>('auth:' + hash);
@@ -485,7 +705,11 @@ export class RegistryDO extends DurableObject<Env> {
           if (!h || h.version !== 2 || h.disabled)
             throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
         }
-        return json(a);
+        return json(
+          op === 'authHost'
+            ? { ...a, host: await s.get<Host>('host:' + a.hostId) }
+            : a,
+        );
       }
       if (op === 'setInstanceName') {
         const name = z
@@ -640,36 +864,27 @@ export class RegistryDO extends DurableObject<Env> {
     }
     return auth;
   }
-  async schedule() {
-    if (!(await this.ctx.storage.getAlarm()))
-      await this.ctx.storage.setAlarm(Date.now() + 60000);
-  }
   async alarm() {
-    let remaining = false;
-    for (const prefix of ['device:', 'limit:', 'auth:']) {
-      for (const key of (await this.ctx.storage.list<any>({ prefix })).keys()) {
-        await this.ctx.storage.transaction(async (tx) => {
-          const value = await tx.get<any>(key);
-          if (!value) return;
-          if ((value.expires ?? value.until) <= Date.now()) {
-            if (value.result && !value.delivered) {
-              await tx.delete('auth:' + (await digest(value.result.token)));
-              if (value.role === 'agent') {
-                const host = await tx.get<Host>('host:' + value.hostId);
-                if (host)
-                  await tx.put('host:' + host.id, { ...host, disabled: true });
-                for (const [authKey, auth] of await tx.list<Auth>({
-                  prefix: 'auth:',
-                }))
-                  if (auth.hostId === value.hostId) await tx.delete(authKey);
-              }
-            }
-            await tx.delete(key);
-          } else if (prefix !== 'auth:' || value.role === 'owner')
-            remaining = true;
-        });
-      }
+    const s = this.ctx.storage;
+    await migrateExpiry(s, ['device:', 'limit:', 'auth:']);
+    for (const [index, { key }] of await dueEntries(s)) {
+      let deviceId: string | undefined;
+      await s.transaction(async (tx) => {
+        const value = await tx.get<any>(key);
+        if (!value || (value.expires ?? value.until) > Date.now()) return;
+        if (value.result && !value.delivered) {
+          await this.revokeCredential(tx, await digest(value.result.token));
+        }
+        await tx.delete(key);
+        if (key.startsWith('device:')) deviceId = key.slice(7);
+      });
+      await s.delete(index);
+      if (deviceId) await this.publish('registry', deviceId);
     }
-    if (remaining) await this.ctx.storage.setAlarm(Date.now() + 60000);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.deserializeAttachment().expires <= Date.now())
+        ws.close(4001, 'Subscription expired');
+    }
+    await nextExpiry(s);
   }
 }

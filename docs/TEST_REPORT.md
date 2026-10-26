@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 0.5.12 Durable Objects 按需通讯 · 2026-10-26
+
+- Agent 实际连续空闲 95 秒：应用帧、协议 ping、审批查询和空闲重连增量均为 0，跨过旧 90 秒阈值；真实审批通知及只读 probe 随后成功。CC 实测三轮查询，间隔 10.002 / 10.001 秒，只提交一次业务请求，退出后观察 10.5 秒无继续查询。
+- Chromium 模拟 24 小时：CW 与管理员视图周期请求均为 0，手动刷新只触发一次 probe。另验证刷新保留草稿和当前控制连接，桌面 / 手机界面无溢出。模拟时间不代表真实 Cloudflare 24 小时运行。
+- CTest 1 项、Vitest 9 文件 / 90 项、类型、ESLint / Prettier、C++ 格式和协议生成一致性通过。真实 Wrangler / 原生 Agent、CLI / Chromium 完整 E2E 通过，覆盖配对通知、角色与主机隔离、原生审批、接管 / 丢确认、历史、完整文件传输、慢读者及主动撤销。独立 UI / 唤醒、原生登录恢复、TLS / 代理、更新完整性 / 禁用 / 并发、备份恢复及发行来源保护通过；真实 Codex initialize / thread-start 与真实 TUI 通过新中继初始化也通过，无模型调用。
+- 中间 E2E 因本机 glibc / libssl 不兼容改用 Bookworm 与匹配构建；首次验证期间重建站点触发 Wrangler reload 的中断未计为通过。后续发现并修复客户端“快照读取期间收到完成通知”的丢事件竞态；旧接管测试改为等待完整预留期限，审批失败恢复改由下一次真实请求事件触发。最终固定二进制与站点的完整回归通过。
+- 独立 Cloudflare 测试 Worker 验证 A 离线时可订阅、202 控制领取和真实 A 往返；15 秒窗口未收到空闲通知。由于本机到 workers.dev 默认地址不可达，测试通过同一 Cloudflare edge 地址连接，保持原测试域名、Host / SNI 与 TLS 校验；没有使用生产凭据或主机。
+- [本地验证](assets/billing-optimization-2026-10-26/local-verification.json)、[独立 namespace 冒烟](assets/billing-optimization-2026-10-26/stage-verification.json)、[CW 刷新](assets/billing-optimization-2026-10-26/cw-refresh-390.png)、[管理员刷新](assets/billing-optimization-2026-10-26/admin-refresh-390.png)。完整日志位于 `.local/billing-*.log`。发布身份与线上验证将在部署后补充。
+- 未完成的平台验收：真实 24 小时 A / A–CW / A–CC、1 / 5 主机受控请求 / duration / SQLite 计量、跨网络静默断链和长期压力；不声称实际节费或这些长期门禁已通过。旧 Agent 的兼容心跳不计入新方案验收。
+
 ## 管理表格与 CW 会话自动批准 · 2026-10-26 · 已部署
 
 - 待授权、已授权设备、唤醒配置和 API Key 改为原生表格，具有列 / 行标题、空状态及局部键盘 / 触摸横向滚动。1280 / 390 宽度验证长名称和留言、中英文表头、目标选择与锁定、页面无横向溢出。

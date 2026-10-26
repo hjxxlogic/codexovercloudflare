@@ -250,11 +250,6 @@ std::unique_ptr<PreparedUpdate> prepare_update(const Json &config, const std::st
           "group/world write or set-ID bits");
   auto lock = std::make_unique<PrivateLock>(executable.string() + ".update");
   auto state = executable.string() + ".update-state.json";
-  if (!manual && std::filesystem::exists(state)) {
-    auto checked = read_json(state).value("checkedAt", int64_t(0));
-    if (checked > now() - int64_t(settings.interval_hours) * 3600000 && checked <= now())
-      return nullptr;
-  }
   save_private(state, {{"checkedAt", now()}});
   const auto url = relay_url(relay);
   const auto release =
@@ -382,8 +377,8 @@ bool AgentUpdater::poll(const Json &config, const std::string &relay, bool idle)
   }
   if (ready_)
     return idle;
-  if (!pending_.valid() && now() >= next_) {
-    next_ = now() + int64_t(settings.interval_hours) * 3600000;
+  if (!pending_.valid() && requested_) {
+    requested_ = false;
     pending_ =
         std::async(std::launch::async, [config, relay] { return prepare_update(config, relay); });
   }

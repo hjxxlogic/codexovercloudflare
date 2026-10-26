@@ -1,5 +1,17 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  刷新状态: 'Refresh status',
+  刷新中: 'Refreshing',
+  未确认: 'Unconfirmed',
+  最近确认: 'Last confirmed',
+  '连接状态未确认，点击刷新核对': 'Connection unconfirmed; refresh to check',
+  重试唤醒: 'Retry wake',
+  '服务器离线，已请求唤醒；可刷新确认或手动重试唤醒。':
+    'Host offline; wake requested. Refresh to check or retry wake manually.',
+  '已请求唤醒，请刷新确认上线状态':
+    'Wake requested; refresh to confirm availability',
+  '未确认服务器可达，请重试': 'Host reachability unconfirmed; retry',
+
   管理功能: 'Administration',
   管理会话: 'Admin sessions',
   角色: 'Role',
