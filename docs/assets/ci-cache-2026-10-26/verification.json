@@ -1,0 +1,208 @@
+{
+  "coldRun": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40320593609",
+  "coldCommit": "d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+  "coldJobs": [
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:13Z",
+      "completedAt": "2026-10-26T12:15:27Z",
+      "steps": [
+        {
+          "name": "Build and test target binaries",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:11:50Z",
+          "completedAt": "2026-10-26T12:15:16Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:19Z",
+          "completedAt": "2026-10-26T12:15:19Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:19Z",
+          "completedAt": "2026-10-26T12:15:20Z"
+        }
+      ]
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:13Z",
+      "completedAt": "2026-10-26T12:15:53Z",
+      "steps": [
+        {
+          "name": "Build and test target binaries",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:11:57Z",
+          "completedAt": "2026-10-26T12:15:43Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:46Z",
+          "completedAt": "2026-10-26T12:15:46Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:46Z",
+          "completedAt": "2026-10-26T12:15:47Z"
+        }
+      ]
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:13Z",
+      "completedAt": "2026-10-26T12:17:39Z",
+      "steps": [
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "skipped",
+          "startedAt": "2026-10-26T12:17:34Z",
+          "completedAt": "2026-10-26T12:17:34Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "skipped",
+          "startedAt": "2026-10-26T12:17:34Z",
+          "completedAt": "2026-10-26T12:17:34Z"
+        }
+      ]
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:14Z",
+      "completedAt": "2026-10-26T12:15:35Z",
+      "steps": [
+        {
+          "name": "Run ccache --zero-stats && cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake --build build-sanitize -j 2",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:11:30Z",
+          "completedAt": "2026-10-26T12:14:58Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:32Z",
+          "completedAt": "2026-10-26T12:15:32Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:15:32Z",
+          "completedAt": "2026-10-26T12:15:34Z"
+        }
+      ]
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:13Z",
+      "completedAt": "2026-10-26T12:19:06Z",
+      "steps": [
+        {
+          "name": "Build with compiler cache",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:11:56Z",
+          "completedAt": "2026-10-26T12:14:51Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:19:01Z",
+          "completedAt": "2026-10-26T12:19:01Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:19:01Z",
+          "completedAt": "2026-10-26T12:19:02Z"
+        }
+      ]
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "startedAt": "2026-10-26T12:11:13Z",
+      "completedAt": "2026-10-26T12:17:59Z",
+      "steps": [
+        {
+          "name": "Prepare Alpine musl toolchain",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:11:22Z",
+          "completedAt": "2026-10-26T12:12:20Z"
+        },
+        {
+          "name": "Build, test and package fully static Linux x86_64 binaries",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:12:20Z",
+          "completedAt": "2026-10-26T12:17:48Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:17:53Z",
+          "completedAt": "2026-10-26T12:17:53Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "conclusion": "success",
+          "startedAt": "2026-10-26T12:17:53Z",
+          "completedAt": "2026-10-26T12:17:53Z"
+        }
+      ]
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "startedAt": "2026-10-26T12:19:07Z",
+      "completedAt": "2026-10-26T12:19:06Z",
+      "steps": []
+    }
+  ],
+  "coldCacheEntries": [
+    {
+      "key": "native-Linux-X64-regression-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 6286101,
+      "created_at": "2026-10-26T12:19:02.028641Z",
+      "last_accessed_at": "2026-10-26T12:19:02.028641Z"
+    },
+    {
+      "key": "native-Linux-X64-musl-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 6610132,
+      "created_at": "2026-10-26T12:17:53.862468Z",
+      "last_accessed_at": "2026-10-26T12:17:53.862468Z"
+    },
+    {
+      "key": "native-Linux-X64-ubuntu20.04-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 5104465,
+      "created_at": "2026-10-26T12:15:47.903195Z",
+      "last_accessed_at": "2026-10-26T12:15:47.903195Z"
+    },
+    {
+      "key": "native-Linux-X64-sanitizers-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 64577912,
+      "created_at": "2026-10-26T12:15:34.227800Z",
+      "last_accessed_at": "2026-10-26T12:15:34.227800Z"
+    },
+    {
+      "key": "native-Linux-X64-debian12-release-v1-d9c2c422d8b4ea63dd510d5158988ef7342cd0e0",
+      "size_in_bytes": 5864813,
+      "created_at": "2026-10-26T12:15:20.322790Z",
+      "last_accessed_at": "2026-10-26T12:15:20.322790Z"
+    },
+    {
+      "key": "index-musl-toolchain-1-49c8f7d5#1",
+      "size_in_bytes": 1468,
+      "created_at": "2026-10-26T12:12:20.932396Z",
+      "last_accessed_at": "2026-10-26T12:12:20.932396Z"
+    }
+  ],
+  "warmValidation": "pending"
+}

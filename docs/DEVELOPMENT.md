@@ -39,7 +39,7 @@ docker run --rm -v "$PWD:/workspace" coc-musl-build sh -ec '
 
 ## Actions 构建缓存
 
-Linux 的 regression、Ubuntu 20.04 / Debian 12 发行包、musl 和 sanitizers 作业使用 `ccache`，通过 CMake 的 `CMAKE_CXX_COMPILER_LAUNCHER=ccache` 启用。Actions 在构建前恢复 `.local/ccache`，完成后或后续测试失败时保存已生成的编译结果，并输出本次命中统计。普通作业最多 256 MiB，sanitizers 最多 512 MiB，启用压缩。
+Linux 的 regression、Ubuntu 20.04 / Debian 12 发行包、musl 和 sanitizers 作业使用 `ccache`，通过 CMake 的 `CMAKE_CXX_COMPILER_LAUNCHER=ccache` 启用。Actions 在构建前恢复 `.local/ccache`，完成后或后续测试失败时保存已生成的编译结果，并输出本次命中统计。普通作业最多 256 MB，sanitizers 最多 512 MB，启用压缩。
 
 缓存键按 runner 系统、架构、构建目标 / 模式和提交区分；新提交通过同目标前缀恢复最近缓存，随后由 ccache 按编译器内容、编译参数、源码和头文件校验是否复用。版本来源头每次重新生成，受影响的编译单元重新编译；不缓存 CMake 构建目录、生成的来源头或发行包，链接、打包身份检查和完整测试仍执行。首次未命中时正常编译；需要整体失效时递增 workflow 缓存键中的 `v1`。
 
