@@ -21,7 +21,8 @@ BUILD = json.loads(subprocess.check_output([CLI, '--version']))
 RELEASE = dict(BUILD, version='.'.join(BUILD['version'].split('.')[:2] +
                                     [str(int(BUILD['version'].split('.')[2]) + 1)]),
                commit='a' * 40, sourceDigest='b' * 64, dirty=False)
-PLATFORM = 'ubuntu20.04'  # Test platform selection is explicit; ELF uses the current toolchain.
+MUSL = '--musl' in sys.argv
+PLATFORM = 'musl' if MUSL else 'ubuntu20.04'
 NAME = f"coc-{RELEASE['version']}-linux-x86_64-{PLATFORM}"
 FILENAME = NAME + '.tar.gz'
 MODE = 'good'
@@ -80,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                   json.dumps(json.dumps(metadata)) + ');return 0;}FILE *f=fopen(' +
                   json.dumps(str(marker)) + ',"w");if(f){fputs("restarted",f);fclose(f);}return 0;}')
         candidate = workspace / ('fixture-' + kind)
-        subprocess.run(['cc', '-x', 'c', '-', '-o', str(candidate)], input=source.encode(), check=True)
+        subprocess.run(['cc', *(['-static'] if MUSL else []), '-x', 'c', '-', '-o', str(candidate)], input=source.encode(), check=True)
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode='w:gz') as archive:
             for program in ('coc-agent', 'coc-client'):
@@ -103,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
         shutil.copy2(AGENT if agent else CLI, binary)
         config = folder / 'config.json'
         config.write_text(json.dumps({'version': 2, 'entries': [], 'selected': '',
-                                      'autoUpdate': False if disabled else {'platform': PLATFORM}}))
+                                      'autoUpdate': False if disabled else ({} if MUSL else {'platform': PLATFORM})}))
         return binary, config
 
     try:

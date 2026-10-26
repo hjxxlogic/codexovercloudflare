@@ -1,5 +1,9 @@
 # 发布操作
 
+## 0.5.11 发布候选：Linux musl 全静态版
+
+本次新增 Linux x86_64 musl 静态 PIE 发行包，保留 Ubuntu 20.04 / Debian 12 动态包及 Windows x64 ZIP。版本统一为 0.5.11；提交并推送 `v0.5.11` 后，等待四平台、sanitizers 和完整 regression 门禁通过，再部署 Actions 生成的站点与同一提交的 Worker。保留现有生产配置、secrets 和 Durable Object 数据。实际 Actions、发布与部署身份在发布后记录，不覆盖旧标签或旧包。
+
 > 0.5.10 已发布并部署：源码 `ccc3a28`、标签 `v0.5.10`，GitHub Actions 三平台、sanitizers 和完整浏览器回归全部通过。Worker `44ee79fc-ec0a-4f6e-98c5-5163e16a26ec` 于 2026-10-26 UTC 11:25:48 上线，流量 100%。产物身份、归档、线上资源与浏览器验证见 [测试记录](TEST_REPORT.md)。此前 0.5.9 因 CI 门禁失败未正式发布。
 
 ## 0.5.10：代理、实例名称与管理员 Tab
@@ -13,7 +17,9 @@
 
 ## Actions 发布流程
 
-推送干净提交后由 `.github/workflows/checks.yml` 执行构建测试，包括常规回归、ASan/UBSan、Ubuntu 20.04 / Debian 12 和 Windows x64。推送匹配 package.json 的 `v` 版本标签后，只有全部作业通过才运行发布作业；`scripts/assemble-release.py` 核对各平台版本、提交、源码摘要、协议与归档 SHA256，组装网页和下载目录并上传 GitHub Release。下载 Release 的 `coc-VERSION-site.tar.gz` 后，用已认证的 Wrangler 将该站点与同一提交的 Worker 部署；Actions 不持有 Cloudflare 凭据，也不自动部署生产。
+推送干净提交后由 `.github/workflows/checks.yml` 执行构建测试，包括常规回归、ASan/UBSan、Ubuntu 20.04 / Debian 12、Linux musl 全静态版和 Windows x64。推送匹配 package.json 的 `v` 版本标签后，只有全部作业通过才运行发布作业；`scripts/assemble-release.py` 核对各平台版本、提交、源码摘要、协议与归档 SHA256，组装网页和下载目录并上传 GitHub Release。下载 Release 的 `coc-VERSION-site.tar.gz` 后，用已认证的 Wrangler 将该站点与同一提交的 Worker 部署；Actions 不持有 Cloudflare 凭据，也不自动部署生产。
+
+新增 `linux-musl` artifact，发行归档为 `coc-<版本>-linux-x86_64-musl.tar.gz`，与既有动态包并存。使用 `Dockerfile.musl` 的 Alpine 3.23 工具链及 `-DCOC_STATIC_MUSL=ON` 构建，容器内 CTest / 原生登录、Ubuntu 宿主启动及 musl 默认更新选择回归通过后上传。干净源码下执行 `python3 scripts/package-release.py --build-dir build-musl --platform musl` 打包；打包检查两个程序均为 x86_64 ELF，拒绝 PT_INTERP 动态加载器及 DT_NEEDED 共享库依赖（允许静态 PIE 的自重定位动态段），确保没有动态加载器或共享库依赖。正式组装现在要求四个平台均通过身份和 SHA256 校验，缺少 musl 产物也不能发布。新增包的实际发布以下载清单为准。
 
 升级原生程序获得登录轮询恢复、外部输出补全和完整默认配置；Relay 同步升级获得批准结果重取。Windows 原生审批仍要求显式配置连接原 Codex 的同一个本机 WebSocket app-server，不能将既有独占 stdio 会话事后转移审批。
 

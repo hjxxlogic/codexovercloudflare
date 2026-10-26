@@ -62,7 +62,7 @@ coc-agent proxy ''
 
 ## 2. 安装与前置条件
 
-当前原生发行包支持 Linux x86_64，分别提供 Ubuntu 20.04 和 Debian 12 动态链接包。选择匹配的发行版，下载并核对 `SHA256SUMS`，解压后安装：
+当前原生发行包支持 Linux x86_64，提供 Ubuntu 20.04、Debian 12 动态链接包，以及基于 musl 的全静态包 `coc-<版本>-linux-x86_64-musl.tar.gz`（新增包是否已发布以下载清单为准）。选择匹配的发行版或 musl 通用包，下载并核对 `SHA256SUMS`，解压后安装：
 
 ```bash
 mkdir -p "$HOME/.local/bin"
@@ -70,7 +70,7 @@ install -m 0755 coc-agent coc-client "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-只运行服务器时只需安装 `coc-agent`；用户电脑只需安装 `coc-client`。运行原生程序不需要 Node.js。系统需要对应版本的 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书；用 `ldd coc-agent` / `ldd coc-client` 检查动态库。
+只运行服务器时只需安装 `coc-agent`；用户电脑只需安装 `coc-client`。运行原生程序不需要 Node.js。动态包需要对应版本的 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书；用 `ldd coc-agent` / `ldd coc-client` 检查动态库。musl 包已静态链接 libc、C++ 运行库及第三方库，可在 Alpine 或 glibc Linux 上运行，无需安装 musl 或上述动态库；仍需系统 CA 证书以验证 TLS。Codex 是单独安装的外部程序，其运行依赖不包含在此静态包中。
 
 A 必须安装并配置 **Codex 0.164.0**，以运行 Agent 的系统用户确认 `codex` 可以正常使用。使用 CC 的电脑同样需要 Codex 0.164.0 来运行原生 TUI；CW 用户不需要安装 Codex。模型凭据、代码和命令执行留在 A 上；模型 API Key 不用于 R 登录。
 
@@ -121,7 +121,7 @@ Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配
 
 也可设置 `{"autoUpdate":{"enabled":true,"intervalHours":24}}`；间隔为 1–168 小时，默认 1 小时，失败也按间隔退避。Agent 每 30 秒重读这一设置，CLI 下次命令读取。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
 
-自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
+自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。musl 静态版默认始终选择 `musl` 更新包，不按宿主发行版切换到动态包；也可显式设置 `autoUpdate.platform` 为 `musl`。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
 
 程序和安装目录必须归运行用户所有、目录可写且没有组/其他用户写权限；拒绝 set-ID 程序。建议安装到该用户的 `~/.local/bin`，并让 systemd 使用相同路径。root 所有的 `/usr/local/bin` 安装不会让普通用户自动提权更新，需管理员手动安装，或改为用户目录。更新依赖系统 `/bin/tar`；无需 Node.js，不更新 Codex、系统动态库、配置、凭据或数据库。
 

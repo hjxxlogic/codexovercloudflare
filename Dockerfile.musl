@@ -1,0 +1,4 @@
+FROM alpine:3.23
+RUN apk add --no-cache build-base cmake git python3 nodejs ca-certificates \
+    boost-dev boost-static openssl-dev openssl-libs-static sqlite-dev sqlite-static nlohmann-json
+WORKDIR /workspace

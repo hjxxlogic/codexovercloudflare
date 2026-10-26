@@ -6,6 +6,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import struct
 import tarfile
 import tempfile
 import sys
@@ -16,7 +17,7 @@ sys.dont_write_bytecode = True
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', default='build')
 parser.add_argument('--dependency-dir', help='Windows vcpkg installed triplet directory (for license notices)')
-parser.add_argument('--platform', required=True, help='Distribution identifier: ubuntu20.04, debian12 or windows-x64')
+parser.add_argument('--platform', required=True, help='Distribution identifier: ubuntu20.04, debian12, musl or windows-x64')
 args = parser.parse_args()
 if not re.fullmatch(r'[a-zA-Z0-9._-]+', args.platform):
     parser.error('Invalid platform identifier')
@@ -35,6 +36,33 @@ if windows and metadata['target'] != 'windows-x86_64':
 if not windows and metadata['target'] != 'linux-x86_64':
     parser.error('Linux releases must be packaged and validated on Linux x86_64')
 for executable in ('coc-client', 'coc-agent'):
+    if args.platform == 'musl':
+        # Inspect ELF directly: ldd output and exit codes vary between libc implementations.
+        data = (pathlib.Path(args.build_dir) / executable).read_bytes()
+        if len(data) < 64 or data[:7] != b'\x7fELF\x02\x01\x01':
+            parser.error(f'{executable}: musl release requires a static Linux x86_64 ELF')
+        kind, machine = struct.unpack_from('<HH', data, 16)
+        offset = struct.unpack_from('<Q', data, 32)[0]
+        size, count = struct.unpack_from('<HH', data, 54)
+        if (kind not in (2, 3) or machine != 62 or size != 56 or count == 0
+                or offset < 64 or offset + size * count > len(data)):
+            parser.error(f'{executable}: invalid Linux x86_64 ELF program headers')
+        for index in range(count):
+            header = offset + index * size
+            segment = struct.unpack_from('<I', data, header)[0]
+            if segment == 3:  # PT_INTERP
+                parser.error(f'{executable}: musl release must be fully static (no dynamic loader or dependencies)')
+            if segment == 2:  # Static PIE may have PT_DYNAMIC for self-relocation.
+                start = struct.unpack_from('<Q', data, header + 8)[0]
+                length = struct.unpack_from('<Q', data, header + 32)[0]
+                if start + length > len(data) or length % 16:
+                    parser.error(f'{executable}: invalid ELF dynamic section')
+                for entry in range(start, start + length, 16):
+                    tag = struct.unpack_from('<q', data, entry)[0]
+                    if tag == 0:  # DT_NULL
+                        break
+                    if tag == 1:  # DT_NEEDED
+                        parser.error(f'{executable}: musl release must be fully static (no shared library dependencies)')
     built = json.loads(subprocess.check_output([str(pathlib.Path(args.build_dir).resolve() / (executable + suffix)), '--version'], text=True))
     if any(built.get(key) != metadata[key] for key in ('version', 'commit', 'sourceDigest', 'protocol', 'dirty', 'target')):
         parser.error(f'{executable} build identity does not match the clean source tree')
@@ -76,10 +104,16 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
                 if path.is_file():
                     archive.write(path, f'{name}/{path.relative_to(root).as_posix()}')
     else:
+        runtime = (
+            'Fully static musl binaries: no shared libraries or musl installation required. '
+            'Install system CA certificates for TLS verification. '
+            if args.platform == 'musl' else
+            'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, '
+            'libstdc++ and CA certificates. Check dependencies with ldd. '
+        )
         (root / 'README.txt').write_text(
             f'Codex over Cloudflare {version}\nTarget: Linux x86_64 / {args.platform}\n'
-            'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, '
-            'libstdc++ and CA certificates. Check dependencies with ldd. Codex 0.164.0 is required '
+            + runtime + 'Codex 0.164.0 is required '
             'for the Agent and native TUI. No Node.js runtime is required.\n'
             'Install: mkdir -p ~/.local/bin && install -m 0755 coc-client coc-agent ~/.local/bin/\n'
             'Auto-update: enabled by default; set autoUpdate: false in the configuration to disable.\n'

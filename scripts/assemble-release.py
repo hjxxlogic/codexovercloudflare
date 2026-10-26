@@ -21,7 +21,7 @@ if identity['dirty'] or args.tag != 'v' + identity['version']:
 version = identity['version']
 selected = []
 source = f'codex-over-cloudflare-{version}-source.tar.gz'
-for platform in ('ubuntu20.04', 'debian12', 'windows-x64'):
+for platform in ('ubuntu20.04', 'debian12', 'musl', 'windows-x64'):
     root = args.artifacts / ('windows-x64' if platform == 'windows-x64' else 'linux-' + platform)
     manifest = json.loads((root / 'index.json').read_text())
     for field in ('version', 'commit', 'sourceDigest', 'protocol'):

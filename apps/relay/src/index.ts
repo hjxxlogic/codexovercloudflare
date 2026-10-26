@@ -104,7 +104,7 @@ export default {
       const u = new URL(req.url),
         p = u.pathname;
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.10', protocol: 1 });
+        return json({ ok: true, version: '0.5.11', protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);

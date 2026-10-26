@@ -137,6 +137,9 @@ void sync_parent(const std::filesystem::path &path) {
   require(result == 0, "Cannot persist executable directory");
 }
 std::string release_platform() {
+#ifdef COC_STATIC_MUSL
+  return "musl";
+#else
   std::ifstream input("/etc/os-release");
   std::string line, id, version;
   while (std::getline(input, line)) {
@@ -153,6 +156,7 @@ std::string release_platform() {
   if (id == "debian" && version == "12")
     return "debian12";
   throw Error("UPDATE_PLATFORM", "No matching release for this OS; configure autoUpdate.platform");
+#endif
 }
 #endif
 void log_error(const std::exception &error) {

@@ -18,7 +18,22 @@ cmake --build build -j 2
 cmake -E chdir build ctest --output-on-failure
 ```
 
-本机二进制不依赖 Node.js，运行时需要与编译目标兼容的动态库。可执行 `sudo cmake --install build --prefix /usr/local` 安装。当前验证 Linux x86_64；不承诺跨发行版直接复制二进制。
+默认构建的本机二进制不依赖 Node.js，运行时需要与编译目标兼容的动态库。可执行 `sudo cmake --install build --prefix /usr/local` 安装。当前验证 Linux x86_64；不承诺跨发行版直接复制二进制。
+
+musl 全静态构建使用 `Dockerfile.musl`（Alpine 3.23，包含静态 Boost、OpenSSL、SQLite 及 musl/C++ 运行库）：
+
+```bash
+docker build -t coc-musl-build - < Dockerfile.musl
+docker run --rm -v "$PWD:/workspace" coc-musl-build sh -ec '
+  git config --global --add safe.directory /workspace
+  cmake -S . -B build-musl -DCMAKE_BUILD_TYPE=Release -DCOC_STATIC_MUSL=ON
+  cmake --build build-musl -j 2
+  ctest --test-dir build-musl --output-on-failure
+  COC_AGENT_BINARY=build-musl/coc-agent COC_CLI_BINARY=build-musl/coc-client python3 tests/native-login.py
+'
+```
+
+`COC_STATIC_MUSL` 仅用于 Linux musl 工具链，与 sanitizers 不兼容；默认构建不受影响。镜像中的 Node.js 仅用于模拟 Codex 的原生测试。Actions 在容器内测试后，另在 Ubuntu 宿主直接检查两个静态程序的 `--version` / `--help`，并运行 `COC_AGENT_BINARY=build-musl/coc-agent COC_CLI_BINARY=build-musl/coc-client python3 tests/native-update.py --musl`，以不指定 platform 的配置验证默认选择 musl、身份及校验和、原子替换和失败拒绝。TLS 仍读取系统 CA 证书；可用 `SSL_CERT_FILE` 指定证书文件。静态包自动更新默认选择 `musl`，避免按宿主发行版换成动态版本。
 
 云端、网页和 TypeScript 测试工具需要 Node.js ≥ 22.17（建议 24），执行 `npm ci`。Codex 固定 `0.164.0`，Agent 启动时检查版本。
 
@@ -144,7 +159,7 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 构建生成的 build.hpp 含提交与源码摘要；运行二进制 `--version` 可检查。Python/Git 仅为构建依赖，本机运行不需要 Node.js。旧容器没有 Git 时可显式设置 `COC_TEST_BUILD_METADATA` 指向本机生成的测试元数据；它强制 dirty=true/verified=false，禁止作为发行包来源。更新 Dockerfile.test 的镜像后无需此兼容选项。
 
-网页构建保留下载目录，防止重新构建意外删除已准备的原生包。发布仍须校验版本/摘要一致、干净源码及完整目标平台产物；普通分支 CI 成功不自动发布。版本标签在所有门禁通过后，用 `scripts/assemble-release.py` 校验三个平台产物的身份与校验和，发布 GitHub Release 及可部署站点包；生产部署仍单独进行，见 [发布操作](RELEASE.md)。Observability 采样 10%，应用日志只包含元数据；不记录正文、令牌和 Key。实际日志的访问与保留期限由自托管者配置。
+网页构建保留下载目录，防止重新构建意外删除已准备的原生包。发布仍须校验版本/摘要一致、干净源码及完整目标平台产物；普通分支 CI 成功不自动发布。版本标签在所有门禁通过后，用 `scripts/assemble-release.py` 校验四个平台产物的身份与校验和，发布 GitHub Release 及可部署站点包；生产部署仍单独进行，见 [发布操作](RELEASE.md)。Observability 采样 10%，应用日志只包含元数据；不记录正文、令牌和 Key。实际日志的访问与保留期限由自托管者配置。
 
 ### 流式存储基准
 
@@ -228,4 +243,4 @@ python scripts/package-release.py --build-dir build-windows/Release --platform w
 
 外部输出回归可单独运行 `./build/coc-tests --external-refresh`，也包含在 Linux CTest 中：模拟原生 Codex 读取进程，在同轮新增 40 项并完成一次刷新后，补全一个早期消息，验证下一轮同步仍能读取。共享审批配置夹具验证初始化错误包含具体原因；Windows CTest 另检查空审批 endpoint 明确提示 WebSocket。`tests/native-login.py` 新增完整默认配置及已有自定义配置补全检查。
 
-Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原生登录故障恢复测试与打包；Windows 同样运行 `tests/native-login.py`，通过环境变量选择 Release EXE。Ubuntu 20.04 使用 `cmake -E chdir build ctest` 兼容 CMake 3.16。
+Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原生登录故障恢复测试与打包；新增 `linux-musl` 作业在 Alpine 容器中执行相同原生门禁，并在打包时拒绝包含动态加载器或共享库依赖的 ELF（允许静态 PIE 自重定位）。`npm run test:release` 另覆盖动态 ELF 误标拒绝、静态打包说明及四平台组装身份校验（合成产物）；Windows 同样运行 `tests/native-login.py`，通过环境变量选择 Release EXE。Ubuntu 20.04 使用 `cmake -E chdir build ctest` 兼容 CMake 3.16。

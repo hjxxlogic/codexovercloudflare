@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## Linux musl 全静态构建 · 2026-10-26 · 本地验证，未发布
+
+- 使用新增 `Dockerfile.musl` 的 Alpine 3.23 / GCC 15.2 工具链完成 Release 构建，静态链接 Boost.System、OpenSSL、SQLite、musl 和 C++ 运行库。实际产物为静态 PIE：没有 PT_INTERP 或 DT_NEEDED；允许用于自重定位的 PT_DYNAMIC。
+- Alpine 内 CTest 1/1 通过（14.18 秒），`tests/native-login.py` 5 项通过（78.46 秒），不调用模型。
+- 在 glibc 宿主直接运行两个程序的 `--version` / `--help` 成功；`tests/native-update.py --musl` 六组通过，以空 platform 配置验证默认选择 musl，覆盖 Agent / CLI 安装、SHA256、身份、协议、降级拒绝、关闭更新和互斥锁。
+- `tests/release-provenance.py` 通过：拒绝非 ELF、动态加载器及无加载器但仍有 DT_NEEDED 的 ELF，接受静态 ELF / 静态 PIE，验证四平台组装、musl 身份和校验和拒绝。夹具平台归档为合成产物。
+- 在 `.local/musl-release-check` 的隔离干净源码快照中重新生成构建身份并实际打包成功；musl 二进制归档及源码归档的 `SHA256SUMS` 全部校验通过，README 正确标明静态运行依赖。打包日志：`/tmp/coc-musl-package.log`。
+- glibc 工具链配置 `COC_STATIC_MUSL=ON` 按预期拒绝；C++ 格式、变更文档 / workflow 的 Prettier 及 `git diff --check` 通过。日志位于 `/tmp/coc-musl-build.log`、`/tmp/coc-musl-update.log`；本轮尚未推送、运行远端 Actions 或发布。
+
 ## 0.5.10 · 2026-10-26 · Actions 发布与线上验收
 
 - 测试修复提交 `4dae2e0`；发布源码 `ccc3a28347b045c90856ddbcb982ab0000c2008e`、标签 `v0.5.10` 已推送。[Actions 40313956429](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40313956429) 的 Ubuntu 20.04、Debian 12、Windows x64、ASan/UBSan、完整 regression 和发布作业全部通过，包含本轮英文 Tab 断言修复、Windows 中文配置、完整 E2E / UI。上次本机跨主机 `chat ready` 超时本轮及该次 CI 未复现，未以放宽超时处理。
