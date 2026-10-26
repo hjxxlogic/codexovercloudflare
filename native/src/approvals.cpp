@@ -80,7 +80,7 @@ void ExternalApprovals::wait_ready() {
     return;
   if (socket_ && socket_->ready()) {
     request("initialize",
-            {{"clientInfo", {{"name", "coc-external-approvals"}, {"version", "0.5.7"}}},
+            {{"clientInfo", {{"name", "coc-external-approvals"}, {"version", "0.5.8"}}},
              {"capabilities", {{"experimentalApi", true}}}},
             [self = shared_from_this()](Json, Json error) {
               if (!error.is_null()) {

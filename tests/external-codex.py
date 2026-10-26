@@ -21,7 +21,7 @@ class Peer:
             for line in self.process.stdout:
                 self.messages.put(json.loads(line))
         threading.Thread(target=read, daemon=True).start()
-        self.call('initialize', {'clientInfo': {'name': 'coc-external-test', 'version': '0.5.7'},
+        self.call('initialize', {'clientInfo': {'name': 'coc-external-test', 'version': '0.5.8'},
                                  'capabilities': {'experimentalApi': True}})
         self.process.stdin.write('{"method":"initialized"}\n')
         self.process.stdin.flush()

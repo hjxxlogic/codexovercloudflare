@@ -63,7 +63,7 @@ class Owner:
             for line in self.process.stdout:
                 self.messages.put(json.loads(line))
         threading.Thread(target=read, daemon=True).start()
-        self.call('initialize', {'clientInfo': {'name': 'coc-approval-contract', 'version': '0.5.7'},
+        self.call('initialize', {'clientInfo': {'name': 'coc-approval-contract', 'version': '0.5.8'},
             'capabilities': {'experimentalApi': True}})
         self.send({'method': 'initialized'})
 
