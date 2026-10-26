@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 0.5.9 发布候选受阻与交接 · 2026-10-26
+
+- 功能源码 `9002f52` 与 `v0.5.9` 已推送。Actions `40300123744` 的两个 Linux 平台和 sanitizers 通过；Windows 编译 / CTest 通过，但原生登录配置测试失败，regression 的完整 E2E / UI 步骤也失败，发布作业跳过。线上没有部署，仍为 0.5.8。
+- 修复新增中文测试依赖系统默认编码的问题：配置读取、子进程捕获及 CI 日志输出显式使用 UTF-8。本地两项配置 / 登录测试和 ASCII 输出环境下的 CI 错误注释验证通过，Windows 修复结果尚待 CI。
+- 本地完整 E2E 通过 CLI/TUI、历史、审批、管理员授权与 API Key 流程后，在 `tests/e2e.ts:1842` 跨主机新建网页会话等待 `chat ready` 超时；未解决、未宣称全部回归通过。用户要求保存进度，具体状态和恢复命令见 [发布交接](DEPLOYMENT_STATUS.md)。
+
 ## HTTP / SOCKS5 代理、实例显示名与管理 Tab · 2026-10-26 · 未部署
 
 - `npm run build` 通过：Linux Release 原生程序、网页构建、TypeScript 和 Worker dry-run；没有发布。`npm run lint`、`npm run lint:cpp` 通过。

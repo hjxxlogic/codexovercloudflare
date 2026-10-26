@@ -87,10 +87,10 @@ class LoginRecovery(unittest.TestCase):
                     args += ['--project', tmp]
                 if scenario == 'defaults':
                     args += ['--name', '办公室电脑', '--proxy', 'http://127.0.0.1:1']
-                result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+                result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', timeout=60)
                 if scenario in ('recovery', 'defaults', 'custom'):
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    saved = json.loads(config.read_text())
+                    saved = json.loads(config.read_text(encoding='utf-8'))
                     credential = saved if binary == 'coc-agent' else saved['entries'][0]
                     self.assertEqual(credential['token'], grant['token'])
                     self.assertEqual(saved['displayName'], '办公室电脑' if scenario == 'defaults' else socket.gethostname())
@@ -141,17 +141,17 @@ class LoginRecovery(unittest.TestCase):
                                                  else 'COC_CLI_BINARY', 'build/' + binary)).resolve()
                 def run(*args):
                     return subprocess.run([str(executable), *args, '--config', str(path)],
-                                          capture_output=True, text=True, timeout=5)
+                                          capture_output=True, text=True, encoding='utf-8', timeout=5)
                 self.assertEqual(run('name', ' 我的笔记本 ').returncode, 0)
                 self.assertEqual(run('proxy', 'socks5://user:p%40ss@127.0.0.1:1080').returncode, 0)
-                saved = json.loads(path.read_text())
+                saved = json.loads(path.read_text(encoding='utf-8'))
                 self.assertEqual(saved['displayName'], '我的笔记本')
                 self.assertEqual(saved['proxy'], 'socks5://user:p%40ss@127.0.0.1:1080')
                 invalid = run('proxy', 'http://proxy:0')
                 self.assertNotEqual(invalid.returncode, 0)
-                self.assertEqual(json.loads(path.read_text()), saved)
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8')), saved)
                 self.assertEqual(run('proxy', '').returncode, 0)
-                self.assertEqual(json.loads(path.read_text())['proxy'], '')
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['proxy'], '')
                 if os.name != 'nt':
                     self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 

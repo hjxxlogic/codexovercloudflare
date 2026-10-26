@@ -3,6 +3,10 @@ from collections import deque
 import subprocess
 import sys
 
+# Native tools and GitHub log commands use UTF-8 on every runner.
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 if len(sys.argv) < 2:
     raise SystemExit('Usage: ci-command.py executable [arguments...]')
 
