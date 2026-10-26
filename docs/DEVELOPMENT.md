@@ -37,6 +37,16 @@ docker run --rm -v "$PWD:/workspace" coc-musl-build sh -ec '
 
 云端、网页和 TypeScript 测试工具需要 Node.js ≥ 22.17（建议 24），执行 `npm ci`。Codex 固定 `0.164.0`，Agent 启动时检查版本。
 
+## Actions 构建缓存
+
+Linux 的 regression、Ubuntu 20.04 / Debian 12 发行包、musl 和 sanitizers 作业使用 `ccache`，通过 CMake 的 `CMAKE_CXX_COMPILER_LAUNCHER=ccache` 启用。Actions 在构建前恢复 `.local/ccache`，完成后或后续测试失败时保存已生成的编译结果，并输出本次命中统计。普通作业最多 256 MiB，sanitizers 最多 512 MiB，启用压缩。
+
+缓存键按 runner 系统、架构、构建目标 / 模式和提交区分；新提交通过同目标前缀恢复最近缓存，随后由 ccache 按编译器内容、编译参数、源码和头文件校验是否复用。版本来源头每次重新生成，受影响的编译单元重新编译；不缓存 CMake 构建目录、生成的来源头或发行包，链接、打包身份检查和完整测试仍执行。首次未命中时正常编译；需要整体失效时递增 workflow 缓存键中的 `v1`。
+
+musl 工具链通过 Buildx `type=gha` 缓存 `Dockerfile.musl` 镜像层（scope 为 `musl-toolchain`），镜像只加载到 runner、不推送镜像仓库。容器内 `.local/ccache` 挂载回宿主，由 Actions 单独持久化；工具链层和 C++ 编译缓存互相独立。npm 下载缓存及 Windows 的 vcpkg 二进制 / 下载缓存继续使用原有配置。缓存目录只包含构建数据，不包含生产凭据或运行状态。
+
+本机可安装 ccache，在首次 CMake 配置时添加 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，用 `ccache --show-stats` 查看命中率；musl 镜像已包含该工具。本机未设置此选项时仍使用默认构建流程。
+
 ## 2. 常用命令
 
 | 命令                                              | 用途                                                       |

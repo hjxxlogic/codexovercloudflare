@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## Actions 构建缓存 · 2026-10-26 · 本地验证
+
+- Linux regression、Ubuntu / Debian 发行包、musl 和 sanitizers 启用按目标隔离的 ccache；musl 工具链通过 Buildx 的 GitHub Actions 后端缓存 Docker 层。构建失败后的缓存保存及命中统计独立于后续测试结果。
+- 在 Alpine 3.23 / GCC 15.2 的隔离 CMake 夹具中验证：首次编译 0/2 命中，清理构建输出后重新编译 2/2 命中；修改版本头后 1/2 命中，实际程序输出由 `first:42` 更新为 `second:42`。证明复用编译结果不会保留过期版本头。详细日志位于 `/tmp/coc-ccache-smoke.log`；夹具只验证缓存机制，不代替项目测试。
+- actionlint 1.7.12、Workflow 和变更文档的 Prettier、`git diff --check` 通过；远端首次填充和后续恢复将在推送后验证，不据此提前宣称 CI 提速。
+
 ## 0.5.11 正式发布与 musl 线上验证 · 2026-10-26
 
 - 发布源码 `59bb0debfd2d7c7d34acb286a744be9820e0c187`，标签 `v0.5.11`；[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 七个作业全部通过：Ubuntu 20.04、Debian 12、Linux musl、Windows x64、sanitizers、完整 regression（含 E2E / UI）和发布。

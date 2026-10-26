@@ -83,7 +83,7 @@ npm run setup:local
 npm run dev
 ```
 
-开发需要 Node.js ≥22.17、C++17、CMake ≥3.16、Boost.System ≥1.71、OpenSSL、SQLite3、nlohmann/json ≥3.7。Ubuntu 20.04 的 workerd 容器方案见 [开发说明](DEVELOPMENT.md)。以下示例的 R 地址在本机体验时替换为 `http://127.0.0.1:8787`。
+开发需要 Node.js ≥22.17、C++17、CMake ≥3.16、Boost.System ≥1.71、OpenSSL、SQLite3、nlohmann/json ≥3.7。GitHub Actions 通过缓存加速构建，仍执行来源校验与完整测试。本机源码构建也可安装 ccache，并先执行 `cmake -S . -B build -DCMAKE_CXX_COMPILER_LAUNCHER=ccache` 启用编译缓存；后续继续使用上述构建命令。Ubuntu 20.04 的 workerd 容器方案见 [开发说明](DEVELOPMENT.md)。以下示例的 R 地址在本机体验时替换为 `http://127.0.0.1:8787`。
 
 ### Windows x64
 

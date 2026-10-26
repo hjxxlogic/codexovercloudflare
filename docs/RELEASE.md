@@ -23,6 +23,8 @@
 
 新增 `linux-musl` artifact，发行归档为 `coc-<版本>-linux-x86_64-musl.tar.gz`，与既有动态包并存。使用 `Dockerfile.musl` 的 Alpine 3.23 工具链及 `-DCOC_STATIC_MUSL=ON` 构建，容器内 CTest / 原生登录、Ubuntu 宿主启动及 musl 默认更新选择回归通过后上传。干净源码下执行 `python3 scripts/package-release.py --build-dir build-musl --platform musl` 打包；打包检查两个程序均为 x86_64 ELF，拒绝 PT_INTERP 动态加载器及 DT_NEEDED 共享库依赖（允许静态 PIE 的自重定位动态段），确保没有动态加载器或共享库依赖。正式组装现在要求四个平台均通过身份和 SHA256 校验，缺少 musl 产物也不能发布。新增包的实际发布以下载清单为准。
 
+Linux 构建使用按目标隔离的编译缓存，musl 工具链额外使用 Docker 层缓存；未命中时正常编译。缓存不跳过来源生成、链接、打包校验或测试，正式发布仍以当前标签完整门禁通过为准。配置和缓存失效方式见 [开发说明](DEVELOPMENT.md)。
+
 升级原生程序获得登录轮询恢复、外部输出补全和完整默认配置；Relay 同步升级获得批准结果重取。Windows 原生审批仍要求显式配置连接原 Codex 的同一个本机 WebSocket app-server，不能将既有独占 stdio 会话事后转移审批。
 
 ## 1. 发布内容与升级

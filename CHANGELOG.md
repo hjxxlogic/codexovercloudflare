@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布
+
+- GitHub Actions 为 Linux 各构建作业增加 ccache，按目标隔离并跨提交恢复编译结果；musl 工具链增加 Docker 层缓存，保留完整测试与发行身份校验。
+
 ## 0.5.11 · 2026-10-26 · Linux musl 全静态发行包
 
 - GitHub Actions 新增 Linux x86_64 musl 全静态 Agent / CLI，验证无动态加载器及共享库依赖，并纳入统一发行包和校验清单；保留 Ubuntu / Debian 动态包。

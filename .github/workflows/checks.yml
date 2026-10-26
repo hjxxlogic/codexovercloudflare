@@ -5,6 +5,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.local/ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_COMPILERCHECK: content
+  CCACHE_COMPRESS: '1'
+  CCACHE_MAXSIZE: 256M
 jobs:
   regression:
     runs-on: ubuntu-24.04
@@ -15,7 +21,13 @@ jobs:
         with:
           node-version: 22.17.0
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+      - uses: actions/cache/restore@v4
+        id: compiler-cache
+        with:
+          path: .local/ccache
+          key: native-${{ runner.os }}-${{ runner.arch }}-regression-v1-${{ github.sha }}
+          restore-keys: native-${{ runner.os }}-${{ runner.arch }}-regression-v1-
       - name: Install locked dependencies
         run: |
           if npm ci > /tmp/coc-npm-ci.log 2>&1; then
@@ -31,7 +43,11 @@ jobs:
             exit 1
           fi
       - run: python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check
-      - run: npm run build
+      - name: Build with compiler cache
+        run: |
+          ccache --zero-stats
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          npm run build
       - run: npm test
       - run: npm run test:tls
       - run: python3 tests/native-login.py
@@ -52,6 +68,14 @@ jobs:
           name: verified-web
           path: dist/web
           if-no-files-found: error
+      - name: Report compiler cache statistics
+        if: always() && steps.compiler-cache.outcome == 'success'
+        run: ccache --show-stats
+      - uses: actions/cache/save@v4
+        if: always() && steps.compiler-cache.outcome == 'success' && steps.compiler-cache.outputs.cache-hit != 'true'
+        with:
+          path: .local/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   linux-release:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -68,15 +92,22 @@ jobs:
       - name: Install target build dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev python3
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates build-essential cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev python3
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.17.0
+      - uses: actions/cache/restore@v4
+        id: compiler-cache
+        with:
+          path: .local/ccache
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-release-v1-${{ github.sha }}
+          restore-keys: native-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-release-v1-
       - name: Build and test target binaries
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          ccache --zero-stats
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build -j 2
           cmake -E chdir build ctest --output-on-failure
           python3 tests/native-login.py
@@ -87,18 +118,43 @@ jobs:
           name: linux-${{ matrix.platform }}
           path: dist/web/downloads
           if-no-files-found: error
+      - name: Report compiler cache statistics
+        if: always() && steps.compiler-cache.outcome == 'success'
+        run: ccache --show-stats
+      - uses: actions/cache/save@v4
+        if: always() && steps.compiler-cache.outcome == 'success' && steps.compiler-cache.outputs.cache-hit != 'true'
+        with:
+          path: .local/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   linux-musl:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: compiler-cache
+        with:
+          path: .local/ccache
+          key: native-${{ runner.os }}-${{ runner.arch }}-musl-release-v1-${{ github.sha }}
+          restore-keys: native-${{ runner.os }}-${{ runner.arch }}-musl-release-v1-
+      - uses: docker/setup-buildx-action@v3
       - name: Prepare Alpine musl toolchain
-        run: docker build -t coc-musl-build - < Dockerfile.musl
+        id: musl-toolchain
+        uses: docker/build-push-action@v6
+        with:
+          file: Dockerfile.musl
+          load: true
+          tags: coc-musl-build:latest
+          cache-from: type=gha,scope=musl-toolchain
+          cache-to: type=gha,scope=musl-toolchain,mode=max
       - name: Build, test and package fully static Linux x86_64 binaries
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" coc-musl-build sh -ec '
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" \
+            -e CCACHE_DIR=/workspace/.local/ccache -e CCACHE_BASEDIR=/workspace \
+            -e CCACHE_COMPILERCHECK -e CCACHE_COMPRESS -e CCACHE_MAXSIZE coc-musl-build sh -ec '
             git config --global --add safe.directory /workspace
-            cmake -S . -B build-musl -DCMAKE_BUILD_TYPE=Release -DCOC_STATIC_MUSL=ON
+            ccache --zero-stats
+            cmake -S . -B build-musl -DCMAKE_BUILD_TYPE=Release -DCOC_STATIC_MUSL=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
             cmake --build build-musl -j 2
             ctest --test-dir build-musl --output-on-failure
             COC_AGENT_BINARY=build-musl/coc-agent COC_CLI_BINARY=build-musl/coc-client python3 tests/native-login.py
@@ -116,14 +172,38 @@ jobs:
           name: linux-musl
           path: dist/web/downloads
           if-no-files-found: error
+      - name: Report compiler cache statistics
+        if: always() && steps.compiler-cache.outcome == 'success' && steps.musl-toolchain.outcome == 'success'
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -e CCACHE_DIR=/workspace/.local/ccache coc-musl-build ccache --show-stats
+      - uses: actions/cache/save@v4
+        if: always() && steps.compiler-cache.outcome == 'success' && steps.compiler-cache.outputs.cache-hit != 'true'
+        with:
+          path: .local/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   sanitizers:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CCACHE_MAXSIZE: 512M
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
-      - run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON && cmake --build build-sanitize -j 2
+      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
+      - uses: actions/cache/restore@v4
+        id: compiler-cache
+        with:
+          path: .local/ccache
+          key: native-${{ runner.os }}-${{ runner.arch }}-sanitizers-v1-${{ github.sha }}
+          restore-keys: native-${{ runner.os }}-${{ runner.arch }}-sanitizers-v1-
+      - run: ccache --zero-stats && cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake --build build-sanitize -j 2
       - run: ctest --test-dir build-sanitize --output-on-failure
+      - name: Report compiler cache statistics
+        if: always() && steps.compiler-cache.outcome == 'success'
+        run: ccache --show-stats
+      - uses: actions/cache/save@v4
+        if: always() && steps.compiler-cache.outcome == 'success' && steps.compiler-cache.outputs.cache-hit != 'true'
+        with:
+          path: .local/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   windows-x64:
     runs-on: windows-2022
     timeout-minutes: 40
