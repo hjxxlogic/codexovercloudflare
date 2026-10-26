@@ -43,7 +43,7 @@ Linux 构建使用按目标隔离的编译缓存，musl 工具链额外使用 Do
 
 生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
 
-当前版本 0.5.11 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Linux x86_64 musl 全静态包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
+当前版本 0.5.12 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Linux x86_64 musl 全静态包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
 
 2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
 

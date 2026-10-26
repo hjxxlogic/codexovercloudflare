@@ -1,0 +1,130 @@
+[
+  {
+    "platform": "ubuntu20.04",
+    "program": "coc-agent",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "platform": "ubuntu20.04",
+    "program": "coc-client",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "platform": "debian12",
+    "program": "coc-agent",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "platform": "debian12",
+    "program": "coc-client",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    }
+  },
+  {
+    "platform": "musl",
+    "program": "coc-agent",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    },
+    "noDynamicLoaderOrLibraries": true
+  },
+  {
+    "platform": "musl",
+    "program": "coc-client",
+    "metadata": {
+      "version": "0.5.12",
+      "commit": "3b41fce53a89707c281f7b27683369383fc620ea",
+      "target": "linux-x86_64",
+      "sourceDigest": "151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals"
+      ]
+    },
+    "noDynamicLoaderOrLibraries": true
+  }
+]

@@ -8,6 +8,8 @@
 - 中间 E2E 因本机 glibc / libssl 不兼容改用 Bookworm 与匹配构建；首次验证期间重建站点触发 Wrangler reload 的中断未计为通过。后续发现并修复客户端“快照读取期间收到完成通知”的丢事件竞态；旧接管测试改为等待完整预留期限，审批失败恢复改由下一次真实请求事件触发。最终固定二进制与站点的完整回归通过。
 - 独立 Cloudflare 测试 Worker 验证 A 离线时可订阅、202 控制领取和真实 A 往返；15 秒窗口未收到空闲通知。由于本机到 workers.dev 默认地址不可达，测试通过同一 Cloudflare edge 地址连接，保持原测试域名、Host / SNI 与 TLS 校验；没有使用生产凭据或主机。
 - [本地验证](assets/billing-optimization-2026-10-26/local-verification.json)、[独立 namespace 冒烟](assets/billing-optimization-2026-10-26/stage-verification.json)、[CW 刷新](assets/billing-optimization-2026-10-26/cw-refresh-390.png)、[管理员刷新](assets/billing-optimization-2026-10-26/admin-refresh-390.png)。完整日志位于 `.local/billing-*.log`。发布身份与线上验证将在部署后补充。
+- [Actions 40343777576](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40343777576) 的七个作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 与 publish-release。[v0.5.12](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.12) 的五个归档、下载清单及来源绑定功能提交 `3b41fce53a89707c281f7b27683369383fc620ea`；来源摘要 `151ca52aeaec2d3bcea2a63ab1cfe3a8cfe6b55c08228ba8cb08ed55031cff2a`。六个 Linux 程序在匹配环境启动并核对身份；Windows 运行由 Actions 验证。[发行校验](assets/billing-optimization-2026-10-26/package-verification.json)、[二进制](assets/billing-optimization-2026-10-26/binary-verification.json)。
+- 干净构建额外通过 `tests/native-update.py --automatic --busy`：CLI 命令结束安装、空闲 Agent 安装并重启、忙碌时保留当前任务、停止后安装。独立测试 Worker 已删除；没有清理或操作生产用户主机。上线准备另修正在线手册中沿用旧版的每小时更新和 CW 三秒唤醒描述，保持已验证原生归档与标签不变。
 - 未完成的平台验收：真实 24 小时 A / A–CW / A–CC、1 / 5 主机受控请求 / duration / SQLite 计量、跨网络静默断链和长期压力；不声称实际节费或这些长期门禁已通过。旧 Agent 的兼容心跳不计入新方案验收。
 
 ## 管理表格与 CW 会话自动批准 · 2026-10-26 · 已部署

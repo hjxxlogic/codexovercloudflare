@@ -1,0 +1,9 @@
+{
+  "kind": "documentation correction after verified CI assembly",
+  "nativeSourceCommit": "3b41fce53a89707c281f7b27683369383fc620ea",
+  "ciManualSha256": "87a31d9cd6e0888ad4a2e9ec7e418f29ddc2aa50fb22a27b0c036990e53ceaa0",
+  "sourcePath": "docs/USER_GUIDE.md",
+  "reason": "Remove older periodic update and CW wake descriptions superseded by 0.5.12; correct wake button location",
+  "deployedManualSha256": "232cb3eaec176731dffde7e988d87fcb7e59a2ae00442b6a38883620c23f5ef6",
+  "archivesModified": false
+}
