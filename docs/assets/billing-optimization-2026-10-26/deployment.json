@@ -1,0 +1,28 @@
+{
+  "functionalCommit": "3b41fce53a89707c281f7b27683369383fc620ea",
+  "manualCommit": "c8b5972",
+  "tag": "v0.5.12",
+  "deployment": {
+    "id": "756232dc-7f4a-44da-85ba-f9ac1140d40f",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "huangjielg@gmail.com",
+    "annotations": {
+      "workers/message": "Release 0.5.12 demand-driven Durable Objects; verified CI packages and corrected manual",
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-10-26T15:08:13.284919Z"
+  },
+  "origin": "https://r.xlogic.cc",
+  "secretsRotated": false,
+  "doMigrationsChanged": false,
+  "stageWorkerDeleted": true,
+  "platform24HourRunCompleted": false,
+  "platformDurationOrSavingsMeasured": false
+}

@@ -1,0 +1,10 @@
+{
+  "verifiedAt": "2026-10-26T15:13:12.386083+00:00",
+  "platform": "musl",
+  "origin": "https://r.xlogic.cc",
+  "version": "0.5.12",
+  "operation": "coc-client update with isolated empty configuration",
+  "result": "Already up to date",
+  "modelCalls": 0,
+  "binaryReplaced": false
+}

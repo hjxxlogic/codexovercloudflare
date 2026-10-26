@@ -1,0 +1,13 @@
+{
+  "verifiedAt": "2026-10-26T15:11:33.202413+00:00",
+  "origin": "https://r.xlogic.cc",
+  "release": {
+    "version": "0.5.12",
+    "commit": "3b41fce53a89707c281f7b27683369383fc620ea"
+  },
+  "artifactsReadyCheckedByWorker": true,
+  "ownerSessionLoggedOut": true,
+  "productionDevicesCreated": 0,
+  "productionTasksStarted": 0,
+  "secretsRotated": false
+}

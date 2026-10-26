@@ -1,6 +1,6 @@
 # Durable Objects 计费优化方案
 
-日期：2026-10-26。状态：**0.5.12 已实现并通过本地回归；部署与测试身份见 TEST_REPORT，未验证线上节省**。
+日期：2026-10-26。状态：**0.5.12 已实现、测试并部署；部署与测试身份见 TEST_REPORT，未验证线上节省**。
 
 本文依据当前代码和用户提供的 [Durable Objects 文档索引](https://cloudflaredoc.ubitools.com/durable-objects/llms.txt)，并用 Cloudflare 官方文档核对计费和 API 语义。下文保留设计依据及旧代码基线，实施差异见第 8 节；价格与额度是查阅日快照，实际以账户账单为准。
 
