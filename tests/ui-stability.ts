@@ -469,14 +469,14 @@ try {
     await expect(menu.getByRole('button', { name })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
   await expect(page.getByLabel('服务器标识')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: '设备授权管理' })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole('heading', { name: '待授权请求', exact: true }),
+  ).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.getByLabel('所有者密钥').fill('synthetic-owner-secret');
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: '设备授权管理' }),
+    page.getByRole('heading', { name: '待授权请求', exact: true }),
   ).toBeVisible();
   for (const viewport of [
     { width: 1280, height: 900 },

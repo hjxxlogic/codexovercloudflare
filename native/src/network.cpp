@@ -1,4 +1,5 @@
 #include "coc/network.hpp"
+#include "coc/proxy.hpp"
 #include "coc/tls.hpp"
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
@@ -51,6 +52,7 @@ public:
       done({}, {{address, static_cast<unsigned short>(std::stoi(url.port))}});
       return;
     }
+    buffer_.clear();
     int pipe[2];
     if (pipe2(pipe, O_CLOEXEC) != 0) {
       done(asio::error::no_descriptors, {});
@@ -150,6 +152,9 @@ public:
                   : boost::system::error_code(),
            addresses);
     };
+    ResetEvent(event_.native_handle());
+    operation_ = {};
+    operation_.hEvent = event_.native_handle();
     hints_.ai_family = AF_UNSPEC;
     hints_.ai_socktype = SOCK_STREAM;
     host_ = wide(url.host);
@@ -217,6 +222,37 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
       finish(asio::error::timed_out);
     }
   });
+  const auto connect = [&](const std::vector<tcp::endpoint> &addresses, bool proxied) {
+    beast::get_lowest_layer(stream).async_connect(addresses, [&, proxied](auto ec, auto) {
+      if (completed)
+        return;
+      const auto handshake = [&](boost::system::error_code ec) {
+        if (completed)
+          return;
+        if (ec) {
+          finish(ec);
+          return;
+        }
+        if constexpr (std::is_same_v<Stream, beast::tcp_stream>)
+          write();
+        else
+          stream.async_handshake(ssl::stream_base::client, [&](auto ec) {
+            if (completed)
+              return;
+            if (ec)
+              finish(ec);
+            else
+              write();
+          });
+      };
+      if (ec)
+        finish(ec);
+      else if (proxied)
+        proxy_tunnel(beast::get_lowest_layer(stream), u, handshake);
+      else
+        handshake({});
+    });
+  };
   resolver.resolve(u, [&](auto ec, auto addresses) {
     if (completed)
       return;
@@ -224,25 +260,17 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
       finish(ec);
       return;
     }
-    beast::get_lowest_layer(stream).async_connect(addresses, [&](auto ec, auto) {
-      if (completed)
-        return;
-      if (ec) {
-        finish(ec);
-        return;
-      }
-      if constexpr (std::is_same_v<Stream, beast::tcp_stream>)
-        write();
-      else
-        stream.async_handshake(ssl::stream_base::client, [&](auto ec) {
-          if (completed)
-            return;
-          if (ec)
-            finish(ec);
-          else
-            write();
-        });
-    });
+    if (auto proxy = proxy_route(u, addresses))
+      resolver.resolve(*proxy, [&](auto ec, auto endpoints) {
+        if (completed)
+          return;
+        if (ec)
+          finish(ec);
+        else
+          connect(endpoints, true);
+      });
+    else
+      connect(addresses, false);
   });
   io.run();
   if (timed_out)

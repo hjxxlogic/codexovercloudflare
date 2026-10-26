@@ -27,7 +27,8 @@ Options::Options(int argc, char **argv) {
       if (key != "relay" && key != "host" && key != "name" && key != "message" && key != "config" &&
           key != "project" && key != "project-id" && key != "before" && key != "seq" &&
           key != "offset" && key != "offline" && key != "cache-dir" && key != "request-id" &&
-          key != "revision" && key != "cursor" && key != "session" && key != "approval-id")
+          key != "revision" && key != "cursor" && key != "session" && key != "approval-id" &&
+          key != "proxy")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);
@@ -61,6 +62,7 @@ std::filesystem::path config_path(const char *env, const std::string &relative) 
 }
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
                   const std::string &host, bool api_key, const std::string &message) {
+  const auto instance_name = display_name(name);
   auto url = relay_url(relay);
   if (api_key) {
     std::string value;
@@ -111,13 +113,14 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     }
     if (value.empty() || value.size() > 500)
       throw Error("INPUT", "Invalid API key input");
-    auto result = http_json(url, "/api/v1/auth/api-key",
-                            {{"apiKey", value}, {"role", role}, {"name", name}, {"hostId", host}});
+    auto result =
+        http_json(url, "/api/v1/auth/api-key",
+                  {{"apiKey", value}, {"role", role}, {"name", instance_name}, {"hostId", host}});
     result["token"] = value;
     result["relay"] = url.origin;
     return result;
   }
-  Json input = {{"role", role}, {"name", name}};
+  Json input = {{"role", role}, {"name", instance_name}};
   if (role == "cli") {
     input["message"] = message;
     if (!host.empty()) {

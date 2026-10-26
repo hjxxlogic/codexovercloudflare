@@ -1,7 +1,9 @@
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/login.hpp"
+#include "coc/proxy.hpp"
 #include "coc/store.hpp"
+#include "coc/tui_bridge.hpp"
 #include "coc/update.hpp"
 #include <algorithm>
 #include <csignal>
@@ -216,7 +218,13 @@ class Cli {
     if (t["mode"] != "cli")
       throw Error("WRONG_MODE", "Use the browser for a web session");
     std::cout << "Remote session: " << id << '\n' << std::flush;
-    auto url = std::string(u.tls ? "wss://" : "ws://") + u.authority + "/ws/v1/cli/" + id;
+    asio::io_context history_io;
+    std::unique_ptr<TuiBridge> bridge;
+    auto url = remote_address(u, "/ws/v1/cli/" + id);
+    if (proxy_enabled()) {
+      bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id);
+      url = bridge->url();
+    }
     std::vector<std::string> args = {"codex",
                                      "--remote",
                                      url,
@@ -243,7 +251,6 @@ class Cli {
 #else
     WindowsChild child(args, "", false, t.at("ticket").get<std::string>());
 #endif
-    asio::io_context history_io;
     std::unique_ptr<Store> cache;
     try {
       cache = history_cache(c);
@@ -355,6 +362,7 @@ class Cli {
     finished = true;
     retry.cancel();
     reader->close();
+    bridge.reset();
     history_io.restart();
     history_io.poll();
 #ifdef _WIN32
@@ -381,6 +389,7 @@ public:
     auto settings = command != "help" && std::filesystem::exists(credentials_)
                         ? read_json(credentials_)
                         : Json::object();
+    configure_proxy(command == "proxy" ? "" : option("proxy", settings.value("proxy", "")));
     update_settings(settings);
     auto release_relay = [&] {
       if (!option("relay").empty())
@@ -401,20 +410,51 @@ public:
     }
     auto id = options_.args.size() > 1 ? options_.args[1] : "";
     std::unique_ptr<PrivateLock> config_lock;
-    if (command == "login" || command == "logout" || command == "use")
+    if (command == "login" || command == "logout" || command == "use" || command == "name" ||
+        command == "proxy")
       config_lock = std::make_unique<PrivateLock>(credentials_);
+    if (command == "proxy") {
+      if (options_.args.size() != 2)
+        throw Error("USAGE", "proxy URL (empty URL disables proxy)");
+      configure_proxy(id);
+      auto data = store();
+      data["proxy"] = id;
+      save_private(credentials_, data);
+      std::cout << "Proxy configuration saved\n";
+      return;
+    }
+    if (command == "name") {
+      if (options_.args.size() != 2)
+        throw Error("USAGE", "name DISPLAY_NAME");
+      auto name = display_name(id);
+      auto data = store();
+      // Update every authorization belonging to this client instance.
+      for (auto &entry : data["entries"]) {
+        http_json(relay_url(entry.at("relay")), "/api/v1/instance/name", {{"displayName", name}},
+                  entry.at("token"));
+        entry["displayName"] = name;
+      }
+      data["displayName"] = name;
+      save_private(credentials_, data);
+      std::cout << "Client name: " << name << '\n';
+      return;
+    }
     if (command == "login") {
       if (options_.args.size() != 1)
         throw Error("USAGE", "Unexpected login argument");
       if (options_.api_key && !valid_id(option("host")))
         throw Error("USAGE", "API key login requires --host <A-ID>");
       store();
-      auto result =
-          device_login(option("relay", "https://r.xlogic.cc"), "cli", option("name", "CLI client"),
-                       option("host"), options_.api_key, option("message"));
+      const auto name =
+          display_name(option("name", settings.value("displayName", asio::ip::host_name())));
+      auto result = device_login(option("relay", "https://r.xlogic.cc"), "cli", name,
+                                 option("host"), options_.api_key, option("message"));
       auto hosts = credential_status(result);
       result["name"] = hosts.at(0).at("name");
+      result["displayName"] = name;
       auto data = store();
+      data["displayName"] = name;
+      data["proxy"] = option("proxy", settings.value("proxy", ""));
       auto &entries = data["entries"];
       for (auto it = entries.begin(); it != entries.end();) {
         if (key(*it) == key(result))
@@ -454,9 +494,12 @@ public:
     } else if (command == "status") {
       auto c = load();
       auto hosts = credential_status(c);
-      for (auto &h : hosts)
+      for (auto &h : hosts) {
+        h["clientDisplayName"] =
+            settings.value("displayName", c.value("displayName", "CLI client"));
         if (!h.value("online", false) && h.value("wakeConfigured", false))
           h["wake"] = wake(c);
+      }
       std::cout << hosts.dump(2) << '\n';
     } else if (command == "hosts") {
       Json hosts = Json::array();
@@ -561,11 +604,13 @@ public:
     } else {
       std::cout
           << "Usage: coc-client "
-             "<login|logout|status|use|hosts|projects|threads|observe|queue|approvals|approve|"
+             "<login|logout|name|proxy|status|use|hosts|projects|threads|observe|queue|approvals|"
+             "approve|"
              "reject|sessions|connect|"
              "attach|stop|history|cache-"
              "clear|doctor|update> [options]\n"
-             "Options: --relay URL --host ID --name NAME --message TEXT --project ID --config PATH "
+             "Options: --proxy URL --relay URL --host ID --name NAME --message TEXT --project ID "
+             "--config PATH "
              "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
              "--session ID --offline true --cache-dir PATH\n"

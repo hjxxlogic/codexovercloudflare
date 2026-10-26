@@ -85,12 +85,16 @@ class LoginRecovery(unittest.TestCase):
                         'http://127.0.0.1:' + str(server.server_port), '--config', str(config)]
                 if binary == 'coc-agent':
                     args += ['--project', tmp]
+                if scenario == 'defaults':
+                    args += ['--name', '办公室电脑', '--proxy', 'http://127.0.0.1:1']
                 result = subprocess.run(args, capture_output=True, text=True, timeout=60)
                 if scenario in ('recovery', 'defaults', 'custom'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     saved = json.loads(config.read_text())
                     credential = saved if binary == 'coc-agent' else saved['entries'][0]
                     self.assertEqual(credential['token'], grant['token'])
+                    self.assertEqual(saved['displayName'], '办公室电脑' if scenario == 'defaults' else socket.gethostname())
+                    self.assertEqual(saved['proxy'], 'http://127.0.0.1:1' if scenario == 'defaults' else '')
                     self.assertEqual(len(polls), 4 if scenario == 'recovery' else 1)
                     if scenario == 'recovery':
                         self.assertIn('HTTP_TIMEOUT', result.stderr)
@@ -99,6 +103,7 @@ class LoginRecovery(unittest.TestCase):
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
+                            'displayName', 'proxy',
                         })
                         self.assertEqual(saved['externalSessions'], {
                             'allowQueue': scenario == 'custom', 'allowApprovals': False,
@@ -127,6 +132,28 @@ class LoginRecovery(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_instance_settings_before_login(self):
+        for binary in ('coc-agent', 'coc-client'):
+            with self.subTest(binary=binary), tempfile.TemporaryDirectory(prefix='coc-settings-') as tmp:
+                path = Path(tmp) / 'settings.json'
+                executable = Path(os.environ.get('COC_AGENT_BINARY' if binary == 'coc-agent'
+                                                 else 'COC_CLI_BINARY', 'build/' + binary)).resolve()
+                def run(*args):
+                    return subprocess.run([str(executable), *args, '--config', str(path)],
+                                          capture_output=True, text=True, timeout=5)
+                self.assertEqual(run('name', ' 我的笔记本 ').returncode, 0)
+                self.assertEqual(run('proxy', 'socks5://user:p%40ss@127.0.0.1:1080').returncode, 0)
+                saved = json.loads(path.read_text())
+                self.assertEqual(saved['displayName'], '我的笔记本')
+                self.assertEqual(saved['proxy'], 'socks5://user:p%40ss@127.0.0.1:1080')
+                invalid = run('proxy', 'http://proxy:0')
+                self.assertNotEqual(invalid.returncode, 0)
+                self.assertEqual(json.loads(path.read_text()), saved)
+                self.assertEqual(run('proxy', '').returncode, 0)
+                self.assertEqual(json.loads(path.read_text())['proxy'], '')
+                if os.name != 'nt':
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_agent_recovers_transport_failures(self):
         self.run_login('recovery')

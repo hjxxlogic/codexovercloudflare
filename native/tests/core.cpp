@@ -7,6 +7,7 @@
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include "external-approvals.hpp"
+#include "proxy.hpp"
 #include <condition_variable>
 #include <ctime>
 #include <fstream>
@@ -899,7 +900,9 @@ int main(int argc, char **argv) {
     std::cerr.setf(std::ios::unitbuf);
     signal(SIGPIPE, SIG_IGN);
     std::string mode = argc > 1 ? argv[1] : "";
-    if (mode == "--external-refresh") {
+    if (mode == "--proxy") {
+      proxy_tests();
+    } else if (mode == "--external-refresh") {
       external_refresh_test();
     } else if (mode == "--external-approval") {
       if (argc != 5 && argc != 6)
@@ -916,6 +919,7 @@ int main(int argc, char **argv) {
     else {
       std::cout << "RUN: core\n";
       core();
+      proxy_tests();
       external_test();
       external_refresh_test();
       std::cout << "RUN: history\n";

@@ -1,6 +1,6 @@
 # 用户手册
 
-> 0.5.6 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
+> 0.5.9 开发预览版。生产中转 R：**https://r.xlogic.cc**；本机开发地址：`http://127.0.0.1:8787`。下载：[原生程序和源码](https://r.xlogic.cc/downloads/)。
 
 ## 1. 组件与权限
 
@@ -21,6 +21,44 @@
 CC 在本地文件保存多份凭证；CW 为每个 A 保存独立的持久化 HttpOnly Cookie，可切换 A 及其会话。浏览器对 Cookie 有存储期限限制，网站在使用时续写；浏览器清理、隐私模式退出或长期未访问导致 Cookie 丢失时仍需重新申请。R 不会因设备离线、程序重启或关闭页面自动撤销授权。
 
 原生 Agent / CLI 在等待配对批准时，HTTP 超时或断连会在原五分钟申请期限内重试同一轮询，不重新申请。新版 Relay 允许凭原轮询秘密重取同一批准结果，解决批准响应丢失；网页保持单次交付。拒绝、撤销和其他服务端错误立即停止。需同时升级 Relay 和原生程序；旧 Relay 已消费且丢失的结果无法恢复，须在管理网页核对并撤销未使用授权后重新登录。
+
+### 实例显示名与管理员 Tab
+
+Agent 与客户端均保存独立的 `displayName`。首次登录通过 `--name` 指定，未指定时默认使用本机主机名；后续登录复用已保存名称。名称去除首尾空白，长度为 1–100 个 UTF-16 单元，禁止控制字符。
+
+```bash
+coc-agent login --name '办公室服务器' --project /srv/projects/demo
+coc-client login --name '我的笔记本' --message '申请开发访问'
+# 已登录后修改名称，不重新签发凭证
+coc-agent name '办公室服务器'
+coc-client name '我的笔记本'
+```
+
+`name` 命令也可在登录前保存名称。Agent 的名称显示在主机列表、授权记录和连接日志；客户端名称显示在授权请求、已授权设备及 `status` 的 `clientDisplayName` 字段。客户端凭证条目的 `name` 仍表示目标服务器名称，用于既有 `--host` 选择；`displayName` 独立保存实例名称。客户端改名同步当前配置文件内全部授权；若某份授权已撤销或中继不可达，命令报错，可移除失效授权后重试。不同实例应使用不同 `--config`。
+
+已运行的 Agent 改名后需重启，避免旧进程下次连接重新登记旧名称。Agent 每次连接登记配置中的名称，旧配置未设置时保留云端名称。改名接口与自动登记名称需要同步升级 Relay。
+
+管理员登录后按“待授权请求、已授权设备、服务器唤醒配置、API Key 管理、管理会话”五个 Tab 操作。Tab 支持左右方向键与 Home / End；授权链接仍直接定位待授权请求。撤销其他管理会话位于“管理会话”。
+
+### HTTP / SOCKS5 代理
+
+两个原生程序均支持配置文件顶层 `proxy`；Agent 位于 `agent.json`，客户端位于版本 2 的 `credentials.json` 顶层。可在登录前配置：
+
+```bash
+coc-agent proxy 'http://127.0.0.1:7890'
+coc-client proxy 'socks5://127.0.0.1:1080'
+# 仅覆盖本次命令；login 会保存该值
+coc-client hosts --proxy 'http://127.0.0.1:7890'
+# 空字符串禁用
+coc-client proxy ''
+coc-agent proxy ''
+```
+
+优先级：`--proxy` 高于配置文件；未设置或空字符串为直连，不自动读取系统代理环境变量。`proxy` 命令持久保存配置，运行中的 Agent 需重启。支持 `http://host:port`（CONNECT）、`socks5://host:port`，`socks://` 与 `socks5h://` 为 SOCKS5 别名。端口必须显式指定；IPv6 使用 `[::1]:1080`。可选 `user:password@` 认证，特殊字符使用百分号编码。HTTP 使用 Basic，SOCKS5 使用用户名密码认证；密码仅写入私有本地配置，不输出代理 URL，不上传 Relay。应使用可信代理，代理认证本身不加密。
+
+代理覆盖登录、状态、更新下载、业务 HTTP、Agent/客户端 WebSocket、历史流及 `connect` / `attach` 的远程 TUI。TUI 通过仅监听 `127.0.0.1` 随机端口、凭票据鉴权的本地 WebSocket 转接外部流量；TLS 校验在 coc-client 访问目标服务器时完成，不修改 Codex 子进程的代理环境。未启用代理的 TUI 地址始终显式包含 `:443` / `:80`，避免 Codex 的 `invalid remote address` 错误。遇到该错误时可用 `coc-client attach <Remote session 中的完整 ID>` 重连已有会话。
+
+本机、局域网地址自动直连：IPv4 loopback、10/8、172.16/12、192.168/16、169.254/16、100.64/10、未指定地址，以及 IPv6 loopback、link-local、site-local、ULA 和映射的 IPv4 本地地址。域名先在本机解析；任一结果属于上述范围则对本次解析结果直连，包含 `localhost`。即使选择 `socks5h://`，也需要本地 DNS 完成绕过判断；仅公网目标交给代理。DNS、隧道和 TLS 均纳入 HTTP 总超时；代理失败不会回退公网直连。Codex app-server 的本机 WebSocket、私有 Unix socket 和 stdio 通道始终直连，不受此配置影响。
 
 ## 2. 安装与前置条件
 

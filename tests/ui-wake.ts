@@ -106,6 +106,21 @@ try {
   await page.keyboard.press('Escape');
   await page.getByLabel('所有者密钥').fill('local-test-owner');
   await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(
+    page.getByRole('tab', { name: '待授权请求', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('唤醒 URL 开发服务器')).toHaveCount(0);
+  await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
+  await expect(page.getByRole('tabpanel')).toHaveAttribute(
+    'id',
+    'admin-panel-authorized',
+  );
+  await page
+    .getByRole('tab', { name: '已授权设备', exact: true })
+    .press('ArrowRight');
+  await expect(
+    page.getByRole('tab', { name: '服务器唤醒配置', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
   const settings = page
     .locator('form')
     .filter({ has: page.getByRole('heading', { name: '开发服务器' }) });
@@ -121,6 +136,16 @@ try {
     path: join(artifacts, 'admin-desktop.png'),
     fullPage: true,
   });
+  await page.getByRole('tab', { name: 'API Key 管理', exact: true }).click();
+  await expect(page.getByRole('tabpanel')).toHaveAttribute(
+    'id',
+    'admin-panel-keys',
+  );
+  await page.getByRole('tab', { name: '管理会话', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '退出其他管理会话', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: '服务器唤醒配置', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await input.scrollIntoViewIfNeeded();
   assert(

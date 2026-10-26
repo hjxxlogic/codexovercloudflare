@@ -1465,7 +1465,9 @@ try {
   await page.keyboard.press('Escape');
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
-  await page.getByRole('heading', { name: '设备授权管理' }).waitFor();
+  await page
+    .getByRole('heading', { name: '待授权请求', exact: true })
+    .waitFor();
   await page.getByRole('button', { name: '功能菜单' }).click();
   await page.getByRole('button', { name: /API Key 管理访问/ }).click();
   // API keys are credentials themselves; no browser pairing or token exchange.
@@ -1779,7 +1781,9 @@ try {
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').waitFor();
   assert.equal(
-    await visitorPage.getByRole('heading', { name: '设备授权管理' }).count(),
+    await visitorPage
+      .getByRole('heading', { name: '待授权请求', exact: true })
+      .count(),
     0,
   );
   const browserCookies = await visitor.cookies();
@@ -2218,6 +2222,7 @@ try {
       c.name === '网页客户端' &&
       c.hostId === enrolled.hostId,
   );
+  await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
   page.once('dialog', (dialog) => void dialog.accept());
   await page
     .locator(`[data-credential-id="${visitorGrant.id}"]`)

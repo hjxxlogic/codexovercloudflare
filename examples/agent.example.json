@@ -1,4 +1,6 @@
 {
+  "displayName": "办公室服务器",
+  "proxy": "",
   "relayUrl": "https://r.xlogic.cc",
   "hostId": "REPLACE_WITH_ENROLLED_HOST_ID",
   "token": "REPLACE_WITH_ENROLLED_DEVICE_TOKEN",

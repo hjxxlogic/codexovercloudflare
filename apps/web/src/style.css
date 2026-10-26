@@ -1023,3 +1023,19 @@ progress {
   outline: 2px solid var(--warning);
   outline-offset: 2px;
 }
+
+.admin-tabs {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+  padding-bottom: 0.35rem;
+}
+.admin-tabs [role='tab'] {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.admin-tabs [aria-selected='true'] {
+  background: var(--accent, #2563eb);
+  color: white;
+}

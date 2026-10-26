@@ -104,7 +104,7 @@ export default {
       const u = new URL(req.url),
         p = u.pathname;
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.8', protocol: 1 });
+        return json({ ok: true, version: '0.5.9', protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);
@@ -329,6 +329,23 @@ export default {
             );
           }
         return response;
+      }
+      if (p === '/api/v1/instance/name' && req.method === 'POST') {
+        const value = bearer(req);
+        if (!value) throw new AppError('UNAUTHORIZED', 'Login required', 401);
+        const auth: Auth = await registryCall(env, 'auth', { token: value });
+        if (!['agent', 'cli'].includes(auth.role))
+          throw new AppError(
+            'FORBIDDEN',
+            'Native instance credential required',
+            403,
+          );
+        return json(
+          await registryCall(env, 'setInstanceName', {
+            ...(await body(req)),
+            hash: auth.hash,
+          }),
+        );
       }
       if (p === '/api/v1/agent/status' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);

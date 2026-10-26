@@ -199,4 +199,4 @@ jobs:
         run: >-
           gh release create "$GITHUB_REF_NAME" dist/web/downloads/* .local/*-site.tar.gz
           --verify-tag --title "$GITHUB_REF_NAME"
-          --notes 'Native login recovery, external output synchronization, Windows approval diagnostics and complete generated Agent defaults. All platform packages and site assets passed GitHub Actions.'
+          --notes 'HTTP CONNECT and SOCKS5 proxies with local-network bypass, configurable instance names, administrator tabs, and Codex TUI address fixes. All platform packages and site assets passed GitHub Actions.'

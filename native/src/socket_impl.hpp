@@ -1,4 +1,5 @@
 #include "coc/network.hpp"
+#include "coc/proxy.hpp"
 #include "coc/tls.hpp"
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
@@ -58,31 +59,66 @@ public:
       verify_tls_hostname(ws_.next_layer().native_handle(), url_.host);
 #endif
       resolver_.async_resolve(url_.host, url_.port, [self](auto ec, auto results) {
+        if (self->ended_)
+          return;
         if (ec) {
           self->finish();
           return;
         }
-        beast::get_lowest_layer(self->ws_).expires_after(std::chrono::seconds(15));
-        beast::get_lowest_layer(self->ws_).async_connect(results, [self](auto ec, auto) {
-          if (ec) {
-            self->finish();
-            return;
-          }
-#ifdef COC_TLS
-          self->ws_.next_layer().async_handshake(ssl::stream_base::client, [self](auto ec) {
-            if (ec)
+        std::vector<tcp::endpoint> addresses;
+        for (const auto &r : results)
+          addresses.push_back(r.endpoint());
+        if (auto proxy = proxy_route(self->url_, addresses)) {
+          self->resolver_.async_resolve(proxy->host, proxy->port, [self](auto ec, auto endpoints) {
+            if (self->ended_)
+              return;
+            if (ec) {
               self->finish();
-            else
-              self->handshake();
+              return;
+            }
+            std::vector<tcp::endpoint> addresses;
+            for (const auto &r : endpoints)
+              addresses.push_back(r.endpoint());
+            self->connect(addresses, true);
           });
-#else
- self->handshake();
-#endif
-        });
+        } else
+          self->connect(addresses, false);
       });
     } catch (...) {
       finish();
     }
+  }
+  void connect(const std::vector<tcp::endpoint> &addresses, bool proxied) {
+    if (ended_)
+      return;
+    auto self = shared_from_this();
+    beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(15));
+    beast::get_lowest_layer(ws_).async_connect(addresses, [self, proxied](auto ec, auto) {
+      if (ec) {
+        self->finish();
+        return;
+      }
+      const auto ready = [self](boost::system::error_code ec) {
+        if (ec || self->ended_) {
+          self->finish();
+          return;
+        }
+#ifdef COC_TLS
+        self->ws_.next_layer().async_handshake(ssl::stream_base::client, [self](auto ec) {
+          if (ec)
+            self->finish();
+          else
+            self->handshake();
+        });
+#else
+        self->handshake();
+#endif
+      };
+      if (proxied)
+        proxy_tunnel(beast::get_lowest_layer(self->ws_), self->url_, ready);
+      else
+        ready({});
+    });
   }
   void handshake() {
     auto self = shared_from_this();

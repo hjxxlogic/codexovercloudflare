@@ -146,7 +146,11 @@ export class RegistryDO extends DurableObject<Env> {
                 expires: Number.MAX_SAFE_INTEGER,
               } satisfies Auth);
             }
-            return { hostId, role, name: host.name };
+            const auth = await tx.get<Auth>('auth:' + id);
+            if (auth) await tx.put('auth:' + id, { ...auth, name });
+            if (role === 'agent')
+              await tx.put('host:' + hostId, { ...host, name });
+            return { hostId, role, name: role === 'agent' ? name : host.name };
           }),
         );
       }
@@ -482,6 +486,50 @@ export class RegistryDO extends DurableObject<Env> {
             throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
         }
         return json(a);
+      }
+      if (op === 'setInstanceName') {
+        const name = z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .refine(
+            (name) =>
+              !Array.from(name).some(
+                (character) =>
+                  character.charCodeAt(0) < 32 ||
+                  character.charCodeAt(0) === 127,
+              ),
+          )
+          .parse(d.displayName);
+        const hash = z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .parse(d.hash);
+        return json(
+          await s.transaction(async (tx) => {
+            const auth = await tx.get<Auth>('auth:' + hash);
+            if (
+              !auth ||
+              auth.version !== 2 ||
+              auth.expires <= Date.now() ||
+              !['agent', 'cli'].includes(auth.role) ||
+              (auth.apiKeyId && !(await tx.get('apiKey:' + auth.apiKeyId)))
+            )
+              throw new AppError(
+                'UNAUTHORIZED',
+                'Invalid native credential',
+                401,
+              );
+            const host = await tx.get<Host>('host:' + auth.hostId);
+            if (!host || host.version !== 2 || host.disabled)
+              throw new AppError('UNAUTHORIZED', 'Host unavailable', 401);
+            await tx.put('auth:' + hash, { ...auth, name });
+            if (auth.role === 'agent')
+              await tx.put('host:' + host.id, { ...host, name });
+            return { displayName: name };
+          }),
+        );
       }
       if (op === 'logoutOthers') {
         for (const [key, auth] of await s.list<Auth>({ prefix: 'auth:' }))

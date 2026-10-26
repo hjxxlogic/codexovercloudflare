@@ -1011,3 +1011,47 @@ describe('host wake configuration and requests', () => {
     },
   );
 });
+
+describe('native instance display names', () => {
+  async function rename(token: string | undefined, displayName: unknown) {
+    return worker.fetch(
+      new Request('https://relay.test/api/v1/instance/name', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://relay.test',
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        },
+        body: JSON.stringify({ displayName, hash: '0'.repeat(64) }),
+      }),
+      env,
+    );
+  }
+  it('renames only the authenticated instance and its own agent host', async () => {
+    const agent = await grant('agent');
+    const other = await grant('agent');
+    const cli = await grant('cli', agent.hostId);
+    expect((await rename(agent.token, ' 办公室电脑 ')).status).toBe(200);
+    expect((await op('host', { id: agent.hostId })).data.name).toBe(
+      '办公室电脑',
+    );
+    expect((await op('host', { id: other.hostId })).data.name).toBe('test');
+    expect((await rename(cli.token, '我的笔记本')).status).toBe(200);
+    expect((await op('auth', { token: cli.token })).data.name).toBe(
+      '我的笔记本',
+    );
+    expect((await op('host', { id: agent.hostId })).data.name).toBe(
+      '办公室电脑',
+    );
+  });
+  it('rejects missing, web, revoked credentials and invalid names', async () => {
+    const agent = await grant('agent');
+    const web = await grant('web', agent.hostId);
+    expect((await rename(undefined, 'name')).status).toBe(401);
+    expect((await rename(web.token, 'name')).status).toBe(403);
+    for (const name of ['', '  ', 'a'.repeat(101), 'bad\nname', 123])
+      expect((await rename(agent.token, name)).status).toBe(400);
+    const auth = (await op('auth', { token: agent.token })).data;
+    await storage.delete('auth:' + auth.hash);
+    expect((await rename(agent.token, 'name')).status).toBe(401);
+  });
+});

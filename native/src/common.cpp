@@ -236,6 +236,15 @@ size_t utf16_length(const std::string &text) {
   return units;
 }
 } // namespace
+std::string display_name(const Json &value) {
+  if (!value.is_string())
+    throw Error("CONFIG_ERROR", "displayName must be a string");
+  auto name = trim_text(value.get<std::string>());
+  if (name.empty() || utf16_length(name) > 100 ||
+      std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+    throw Error("CONFIG_ERROR", "displayName requires 1-100 characters without control characters");
+  return name;
+}
 Json agent_config(Json c) {
   if (!c.is_object())
     throw Error("CONFIG_ERROR", "Expected object");
@@ -244,6 +253,8 @@ Json agent_config(Json c) {
       throw Error("CONFIG_ERROR", std::string("Missing ") + k);
   if (!valid_id(c["hostId"]) || c["token"].get<std::string>().size() < 20)
     throw Error("CONFIG_ERROR", "Invalid device credentials");
+  if (c.contains("displayName"))
+    c["displayName"] = display_name(c["displayName"]);
   c["relayUrl"] = relay_url(c.value("relayUrl", "https://r.xlogic.cc")).origin;
   if (c.contains("wakeUrl"))
     c["wakeUrl"] = wake_url(c["wakeUrl"]);
@@ -408,9 +419,9 @@ Json guard_cli(Json m, const std::string &cwd, const std::string &sandbox,
   return m;
 }
 Json redact(Json v) {
-  static const std::regex secret(
-      "^(api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|password|authorization)$",
-      std::regex::icase);
+  static const std::regex secret("^(api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|"
+                                 "password|authorization|proxy)$",
+                                 std::regex::icase);
   if (v.is_array())
     for (auto &x : v)
       x = redact(x);

@@ -36,6 +36,7 @@ struct Url {
 };
 Url relay_url(std::string text);
 std::string wake_url(const Json &value);
+std::string display_name(const Json &value);
 Json agent_config(Json config);
 Json guard_cli(Json message, const std::string &cwd, const std::string &sandbox,
                const std::string &thread = "");

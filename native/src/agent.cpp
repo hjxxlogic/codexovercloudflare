@@ -4,6 +4,7 @@
 #include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/login.hpp"
+#include "coc/proxy.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include <atomic>
@@ -302,9 +303,13 @@ public:
           {"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}};
       if (config_.contains("wakeUrl"))
         capabilities["wakeUrl"] = config_["wakeUrl"];
+      if (config_.contains("displayName"))
+        capabilities["displayName"] = config_["displayName"];
       send(capabilities);
       attempts_ = 0;
-      std::cout << "Agent connected\n" << std::flush;
+      std::cout << "Agent connected: "
+                << config_.value("displayName", config_.at("hostId").get<std::string>()) << "\n"
+                << std::flush;
       return;
     }
     if (type == "pong") {
@@ -1676,11 +1681,12 @@ int coc_main(int argc, char **argv) {
     if (command == "help") {
       std::cout
           << "Usage: coc-agent "
-             "<login|logout|status|wake-url|requests|approve|reject|doctor|run|update|--version> "
+             "<login|logout|name|proxy|status|wake-url|requests|approve|reject|doctor|run|update|--"
+             "version> "
              "[--config "
              "PATH] "
              "[--relay URL] "
-             "[--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
+             "[--proxy URL] [--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
              "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
              "displayed request in the management website. logout only "
              "removes local credentials.\n"
@@ -1692,6 +1698,10 @@ int coc_main(int argc, char **argv) {
     }
     if (options.api_key && command != "login")
       throw coc::Error("USAGE", "--api-key is only valid for login");
+    const auto settings =
+        std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
+    coc::configure_proxy(command == "proxy" ? ""
+                                            : options.get("proxy", settings.value("proxy", "")));
     if (command == "update") {
       auto config = std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
       auto update = coc::prepare_update(
@@ -1704,8 +1714,27 @@ int coc_main(int argc, char **argv) {
       return 0;
     }
     std::unique_ptr<coc::PrivateLock> config_lock;
-    if (command == "login" || command == "logout" || command == "wake-url")
+    if (command == "login" || command == "logout" || command == "wake-url" || command == "name" ||
+        command == "proxy")
       config_lock = std::make_unique<coc::PrivateLock>(file);
+    if (command == "proxy" || command == "name") {
+      if (options.args.size() != 2)
+        throw coc::Error("USAGE", command + " VALUE");
+      auto config = settings;
+      if (command == "proxy") {
+        coc::configure_proxy(options.args[1]);
+        config["proxy"] = options.args[1];
+      } else {
+        auto name = coc::display_name(options.args[1]);
+        if (!config.value("token", "").empty())
+          coc::http_json(coc::relay_url(config.at("relayUrl")), "/api/v1/instance/name",
+                         {{"displayName", name}}, config.at("token"));
+        config["displayName"] = name;
+      }
+      coc::save_private(file, config);
+      std::cout << "Configuration saved; restart a running Agent to reload.\n";
+      return 0;
+    }
     if (command == "login") {
       if (options.args.size() != 1)
         throw coc::Error("USAGE", "Unexpected login argument");
@@ -1715,19 +1744,24 @@ int coc_main(int argc, char **argv) {
         if (!config.value("token", "").empty())
           throw coc::Error("ALREADY_LOGGED_IN",
                            "Local A credential exists; use status or logout first");
-      } else {
+      }
+      if (!config.contains("projects")) {
         if (options.get("project").empty())
           throw coc::Error("USAGE", "First login requires --project <directory>");
         auto path = std::filesystem::canonical(std::filesystem::u8path(options.get("project")));
         auto id = options.get("project-id", "my-project");
         if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
           throw coc::Error("CONFIG_ERROR", "Invalid project");
-        config = {{"dataDir", (std::filesystem::absolute(file).parent_path() / "data").u8string()},
-                  {"projects",
-                   coc::Json::array({{{"id", id}, {"name", id}, {"path", path.u8string()}}})}};
+        config["dataDir"] = (std::filesystem::absolute(file).parent_path() / "data").u8string();
+        config["projects"] =
+            coc::Json::array({{{"id", id}, {"name", id}, {"path", path.u8string()}}});
       }
-      auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent",
-                                     options.get("name", "Codex agent"), "", options.api_key);
+      const auto name = coc::display_name(
+          options.get("name", config.value("displayName", coc::asio::ip::host_name())));
+      config["displayName"] = name;
+      config["proxy"] = options.get("proxy", settings.value("proxy", ""));
+      auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent", name, "",
+                                     options.api_key);
       config["relayUrl"] = grant.at("relay");
       config["hostId"] = grant.at("hostId");
       config["token"] = grant.at("token");

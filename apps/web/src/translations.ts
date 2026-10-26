@@ -1,5 +1,7 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  管理功能: 'Administration',
+  管理会话: 'Admin sessions',
   '切换到{0}模式': 'Switch to {0} mode',
   服务器返回了无法读取的响应: 'The server returned an unreadable response',
   请求失败: 'Request failed',

@@ -73,6 +73,9 @@ type Mode = 'cw' | 'admin';
 function App() {
   const language = useLanguage();
   const [view, setView] = useState<View>('chat');
+  const [adminTab, setAdminTab] = useState<
+    'pending' | 'authorized' | 'wake' | 'sessions'
+  >('pending');
   const [mode, setMode] = useState<Mode>('cw');
   const adminLogin = mode === 'admin';
   const currentMode = useRef(mode);
@@ -278,6 +281,7 @@ function App() {
     );
     if (request) {
       setView('devices');
+      setAdminTab('pending');
       setMode('admin');
       setManaging(request);
       history.replaceState(null, '', location.pathname + location.search);
@@ -1890,175 +1894,268 @@ function App() {
       )}
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
+      {mode === 'admin' && admin && (
+        <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
+          {(
+            [
+              ['pending', t('待授权请求')],
+              ['authorized', t('已授权设备')],
+              ['wake', t('服务器唤醒配置')],
+              ['keys', t('API Key 管理')],
+              ['sessions', t('管理会话')],
+            ] as const
+          ).map(([id, label]) => {
+            const selected = view === 'keys' ? id === 'keys' : id === adminTab;
+            return (
+              <button
+                key={id}
+                id={`admin-tab-${id}`}
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`admin-panel-${id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => {
+                  if (id === 'keys') setView('keys');
+                  else {
+                    setAdminTab(id);
+                    setView('devices');
+                  }
+                }}
+                onKeyDown={(event) => {
+                  const tabs = Array.from(
+                    event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                      '[role="tab"]',
+                    ),
+                  );
+                  const index = tabs.indexOf(event.currentTarget);
+                  const next =
+                    event.key === 'ArrowRight'
+                      ? (index + 1) % tabs.length
+                      : event.key === 'ArrowLeft'
+                        ? (index + tabs.length - 1) % tabs.length
+                        : event.key === 'Home'
+                          ? 0
+                          : event.key === 'End'
+                            ? tabs.length - 1
+                            : -1;
+                  if (next < 0) return;
+                  event.preventDefault();
+                  tabs[next].focus();
+                  tabs[next].click();
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
       {admin && view === 'devices' && (
-        <section className="card">
-          <h2>{t('设备授权管理')}</h2>
-          <button
-            onClick={() => {
-              if (
-                confirm(t('撤销其他浏览器的管理员登录？设备与客户端授权保留。'))
-              )
-                void api('/auth/logout-others', {})
-                  .then(() => setNotice('其他管理会话已撤销'))
-                  .catch(report);
-            }}
-          >
-            {t('退出其他管理会话')}
-          </button>
-          <p>
+        <section
+          className="card"
+          role="tabpanel"
+          id={`admin-panel-${adminTab}`}
+          aria-labelledby={`admin-tab-${adminTab}`}
+        >
+          <h2>
             {t(
-              '批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作 Codex 会话。',
+              adminTab === 'pending'
+                ? '待授权请求'
+                : adminTab === 'authorized'
+                  ? '已授权设备'
+                  : adminTab === 'wake'
+                    ? '服务器唤醒配置'
+                    : '管理会话',
             )}
-          </p>
-          {managing && (
-            <p>
-              {t('当前请求：')}
-              {managing}
-            </p>
-          )}
-          <h3>{t('服务器唤醒配置')}</h3>
-          {keyHosts.map((h) => (
-            <HostWakeSettings
-              key={h.id}
-              host={h}
-              report={report}
-              saved={async () => {
-                setKeyHosts(
-                  (await api('/admin/hosts')).filter((h: any) => !h.disabled),
-                );
-                setNotice('唤醒配置已保存');
-                await refresh();
-              }}
-            />
-          ))}
-          <h3>{t('待授权请求')}</h3>
-          {!devices.pending.length && <p>{t('暂无待授权请求')}</p>}
-          {devices.pending.map((d) => (
-            <div
-              className={`card ${d.id === managing ? 'highlight-request' : ''}`}
-              id={`request-${d.id}`}
-              key={d.id}
-            >
+          </h2>
+          {adminTab === 'pending' && (
+            <>
               <p>
-                {d.name} ·{' '}
-                {d.role === 'agent'
-                  ? t('服务器 Agent')
-                  : d.role === 'cli'
-                    ? t('命令行客户端')
-                    : t('网页客户端')}{' '}
-                {t('· 配对码')} {d.code}
+                {t(
+                  '批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作 Codex 会话。',
+                )}
               </p>
-              {d.role !== 'agent' ? (
-                <>
-                  <p className="request-message">
-                    {t('留言：')}
-                    {d.message || t('未填写')}
-                  </p>
-                  <label>
-                    {t('目标服务器')}
-                    <select
-                      aria-label={t('目标服务器 {0}', d.code)}
-                      value={d.requestedHostId || approvalHosts[d.id] || ''}
-                      disabled={!!d.requestedHostId}
-                      onChange={(e) =>
-                        setApprovalHosts((current) => ({
-                          ...current,
-                          [d.id]: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">{t('请选择服务器')}</option>
-                      {keyHosts.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.name} · {h.id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {d.requestedHostId && (
-                    <p>
-                      {t('申请方指定：')}
-                      {d.requestedHostId}
-                      {t('；该 Agent 也可批准或拒绝。')}
-                    </p>
-                  )}
-                  {!keyHosts.length && (
-                    <p>{t('暂无可授权的服务器，请先授权服务器 Agent。')}</p>
-                  )}
-                </>
-              ) : (
+              {managing && (
                 <p>
-                  {t('目标服务器：')}
-                  {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                    d.hostId}
+                  {t('当前请求：')}
+                  {managing}
                 </p>
               )}
-              <details>
-                <summary>{t('请求标识与有效期')}</summary>
-                <p>
-                  {d.id} {t('· 有效期至')}{' '}
-                  {new Date(d.expires).toLocaleString(localeTag())}
-                </p>
-              </details>
+              {!devices.pending.length && <p>{t('暂无待授权请求')}</p>}
+              {devices.pending.map((d) => (
+                <div
+                  className={`card ${d.id === managing ? 'highlight-request' : ''}`}
+                  id={`request-${d.id}`}
+                  key={d.id}
+                >
+                  <p>
+                    {d.name} ·{' '}
+                    {d.role === 'agent'
+                      ? t('服务器 Agent')
+                      : d.role === 'cli'
+                        ? t('命令行客户端')
+                        : t('网页客户端')}{' '}
+                    {t('· 配对码')} {d.code}
+                  </p>
+                  {d.role !== 'agent' ? (
+                    <>
+                      <p className="request-message">
+                        {t('留言：')}
+                        {d.message || t('未填写')}
+                      </p>
+                      <label>
+                        {t('目标服务器')}
+                        <select
+                          aria-label={t('目标服务器 {0}', d.code)}
+                          value={d.requestedHostId || approvalHosts[d.id] || ''}
+                          disabled={!!d.requestedHostId}
+                          onChange={(e) =>
+                            setApprovalHosts((current) => ({
+                              ...current,
+                              [d.id]: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">{t('请选择服务器')}</option>
+                          {keyHosts.map((h) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name} · {h.id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {d.requestedHostId && (
+                        <p>
+                          {t('申请方指定：')}
+                          {d.requestedHostId}
+                          {t('；该 Agent 也可批准或拒绝。')}
+                        </p>
+                      )}
+                      {!keyHosts.length && (
+                        <p>{t('暂无可授权的服务器，请先授权服务器 Agent。')}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p>
+                      {t('目标服务器：')}
+                      {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                        d.hostId}
+                    </p>
+                  )}
+                  <details>
+                    <summary>{t('请求标识与有效期')}</summary>
+                    <p>
+                      {d.id} {t('· 有效期至')}{' '}
+                      {new Date(d.expires).toLocaleString(localeTag())}
+                    </p>
+                  </details>
+                  <button
+                    disabled={
+                      generating ||
+                      (d.role !== 'agent' &&
+                        !keyHosts.some(
+                          (h) =>
+                            h.id === (d.requestedHostId || approvalHosts[d.id]),
+                        ))
+                    }
+                    onClick={() => void manage('approve', d.id)}
+                  >
+                    {t('批准')} {d.code}
+                  </button>
+                  <button
+                    disabled={generating}
+                    onClick={() => void manage('reject', d.id)}
+                  >
+                    {t('拒绝')} {d.code}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {adminTab === 'authorized' && (
+            <>
+              {devices.credentials.map((d) => (
+                <div className="card" key={d.id} data-credential-id={d.id}>
+                  <p>
+                    {d.name} ·{' '}
+                    {d.role === 'agent'
+                      ? t('服务器 Agent')
+                      : d.role === 'cli'
+                        ? t('命令行客户端')
+                        : t('网页客户端')}{' '}
+                    {t('· 服务器：')}
+                    {keyHosts.find((host) => host.id === d.hostId)?.name ||
+                      d.hostId}
+                  </p>
+                  <p>
+                    {t('授权时间：')}
+                    {new Date(d.created).toLocaleString(localeTag())}{' '}
+                    {t('· 长期有效')}
+                  </p>
+                  <details>
+                    <summary>{t('授权标识与服务器')}</summary>
+                    <p className="id">
+                      {d.id} · {d.hostId}
+                    </p>
+                    <CopyText text={d.id} />
+                  </details>
+                  <button
+                    disabled={generating}
+                    onClick={() => void manage('revoke', d.id)}
+                  >
+                    {t('撤销')} {d.name}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {adminTab === 'wake' && (
+            <>
+              {keyHosts.map((h) => (
+                <HostWakeSettings
+                  key={h.id}
+                  host={h}
+                  report={report}
+                  saved={async () => {
+                    setKeyHosts(
+                      (await api('/admin/hosts')).filter(
+                        (h: any) => !h.disabled,
+                      ),
+                    );
+                    setNotice('唤醒配置已保存');
+                    await refresh();
+                  }}
+                />
+              ))}
+            </>
+          )}
+          {adminTab === 'sessions' && (
+            <>
               <button
-                disabled={
-                  generating ||
-                  (d.role !== 'agent' &&
-                    !keyHosts.some(
-                      (h) =>
-                        h.id === (d.requestedHostId || approvalHosts[d.id]),
-                    ))
-                }
-                onClick={() => void manage('approve', d.id)}
+                onClick={() => {
+                  if (
+                    confirm(
+                      t('撤销其他浏览器的管理员登录？设备与客户端授权保留。'),
+                    )
+                  )
+                    void api('/auth/logout-others', {})
+                      .then(() => setNotice('其他管理会话已撤销'))
+                      .catch(report);
+                }}
               >
-                {t('批准')} {d.code}
+                {t('退出其他管理会话')}
               </button>
-              <button
-                disabled={generating}
-                onClick={() => void manage('reject', d.id)}
-              >
-                {t('拒绝')} {d.code}
-              </button>
-            </div>
-          ))}
-          <h3>{t('已授权设备')}</h3>
-          {devices.credentials.map((d) => (
-            <div className="card" key={d.id} data-credential-id={d.id}>
-              <p>
-                {d.name} ·{' '}
-                {d.role === 'agent'
-                  ? t('服务器 Agent')
-                  : d.role === 'cli'
-                    ? t('命令行客户端')
-                    : t('网页客户端')}{' '}
-                {t('· 服务器：')}
-                {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                  d.hostId}
-              </p>
-              <p>
-                {t('授权时间：')}
-                {new Date(d.created).toLocaleString(localeTag())}{' '}
-                {t('· 长期有效')}
-              </p>
-              <details>
-                <summary>{t('授权标识与服务器')}</summary>
-                <p className="id">
-                  {d.id} · {d.hostId}
-                </p>
-                <CopyText text={d.id} />
-              </details>
-              <button
-                disabled={generating}
-                onClick={() => void manage('revoke', d.id)}
-              >
-                {t('撤销')} {d.name}
-              </button>
-            </div>
-          ))}
+            </>
+          )}
         </section>
       )}
       {admin && view === 'keys' && (
-        <section className="card">
+        <section
+          className="card"
+          role="tabpanel"
+          id="admin-panel-keys"
+          aria-labelledby="admin-tab-keys"
+        >
           <h2>{t('API Key 管理')}</h2>
           <p>
             {t(

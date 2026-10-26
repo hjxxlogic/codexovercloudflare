@@ -53,6 +53,12 @@ npm run test:native -- --task
 
 第一项使用 C++ 进程层在临时项目创建并校验 `proof.txt`；第二项验证原生 TUI 经 Worker、Durable Object 和 C++ Agent 的模型对话。测试使用临时端口和凭据，不连接生产。
 
+### 代理、实例名称与 Tab 验证
+
+`npm test` 的 native-core 包含本地模拟 HTTP CONNECT / SOCKS5 代理、认证与分片握手、HTTP / WebSocket、TUI 转接鉴权与地址绕过检查；无需访问公网或模型。`npm run test:tls` 额外在临时 CA 下验证 loopback 绕过与 HTTP CONNECT 后的 HTTPS / WSS 证书校验。`tests/device-auth.test.ts` 覆盖改名身份隔离、撤销与输入边界。
+
+先执行 `npm run build:web`，再用 `npx tsx tests/ui-wake.ts` 检查管理员五个 Tab、键盘切换、唤醒配置及手机布局；`COC_ARTIFACT_DIR` 指定截图目录。需要可用的 Playwright Chromium；这些测试需允许监听本机端口。
+
 ## 3. Ubuntu 20.04 容器方案
 
 新版 workerd 需要更新的 glibc；用 Bookworm 容器运行中转和浏览器，不替换宿主系统库：

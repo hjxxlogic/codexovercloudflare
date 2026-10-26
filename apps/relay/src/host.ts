@@ -639,6 +639,11 @@ export class HostRelayDO extends DurableObject<Env> {
               agentHash: a.auth.hash,
               wakeUrl: wakeUrlSchema.parse(d.wakeUrl),
             });
+          if (d.displayName !== undefined)
+            await registryCall(this.env, 'setInstanceName', {
+              hash: a.auth.hash,
+              displayName: d.displayName,
+            });
           ws.serializeAttachment(a);
           return;
         }

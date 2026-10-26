@@ -1,5 +1,16 @@
 # 本机测试记录
 
+## HTTP / SOCKS5 代理、实例显示名与管理 Tab · 2026-10-26 · 未部署
+
+- `npm run build` 通过：Linux Release 原生程序、网页构建、TypeScript 和 Worker dry-run；没有发布。`npm run lint`、`npm run lint:cpp` 通过。
+- `npm test` 通过：native-core 40.62 秒，全量 Vitest 9 个文件 / 86 项。原生代理夹具覆盖 HTTP CONNECT / SOCKS5、有无用户名密码、分片回复、HTTP / WebSocket、代理拒绝与握手超时、私网 / loopback / IPv6 本地地址绕过，以及 TUI 本机鉴权和双向转发。没有公网连接或模型调用。
+- TUI 夹具复现关闭后服务器空闲计时器仍等待的问题，修复为显式取消 WebSocket 计时器；全部代理场景及完整 native-core 回归通过。远程地址覆盖省略默认端口、IPv6 和显式自定义端口。
+- `npm run test:tls` 六组通过：HTTPS / WSS 在 loopback 时绕过配置的代理、公网测试 IP 经本地 HTTP CONNECT；可信证书通过，不可信 CA 与错误主机名均拒绝。测试仅用临时本地 CA 与服务端。
+- `python3 tests/native-login.py LoginRecovery.test_generated_defaults_and_custom_configuration LoginRecovery.test_instance_settings_before_login` 通过：登录保存显示名与代理，保留原自定义设置；两程序登录前可保存、清除配置，拒绝非法代理且不改写已保存文件，Linux 文件权限为 0600。
+- 名称接口验证只允许 agent / cli Bearer 修改自身名称；Agent 同步其主机名，CLI 不改变主机名。覆盖其他主机隔离、缺少身份、web 身份、撤销身份与无效输入。
+- Chromium 在现有 Debian 开发容器内运行 `tests/ui-wake.ts` 通过：五个 Tab、方向键切换、仅展示选中面板、唤醒保存 / 禁用 / Agent 回退、390 像素手机无横向页面溢出，以及 CW 唤醒后的项目刷新。人工核对截图：[桌面](assets/proxy-names-tabs-2026-10-26/admin-desktop.png)、[手机](assets/proxy-names-tabs-2026-10-26/admin-mobile.png)、[CW](assets/proxy-names-tabs-2026-10-26/cw-online-mobile.png)。
+- 本轮没有编译 Windows 二进制、运行完整 Wrangler E2E 或访问用户提供的生产会话；不把本地模拟验证视为生产恢复。代理与名称配置、兼容边界和已有会话 attach 方法见用户手册。
+
 ## 0.5.8 · 2026-10-26 · Actions 发布与线上验收
 
 - 发布源码 `caca2b8`、标签 `v0.5.8`；[GitHub Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40261492201) 的常规回归、ASan/UBSan、Ubuntu 20.04、Debian 12、Windows x64 及发布作业全部通过，包含登录故障恢复、默认配置、端到端与浏览器回归。原生包与网页均取自该轮 Actions，没有在 WSL 交叉构建 Windows 包。
