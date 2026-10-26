@@ -1,0 +1,18 @@
+{
+  "webSourceCommit": "1d2f526bfa13d103a58ab4a2d3c269842fe978fe",
+  "nativeVersion": "0.5.11",
+  "nativeSourceCommit": "59bb0debfd2d7c7d34acb286a744be9820e0c187",
+  "workerVersionId": "ec890616-6aa8-46f7-bfa7-bfe8029727e7",
+  "deploymentId": "c9face35-ff13-4e73-be24-f46a831ac9f2",
+  "createdOn": "2026-10-26T13:02:48.210861Z",
+  "percentage": 100,
+  "origin": "https://r.xlogic.cc",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40326037786",
+  "siteBuild": "local locked build from the same source commit verified by Actions",
+  "keepVars": true,
+  "secretsRotated": false,
+  "durableObjectMigrationChanged": false,
+  "productionCredentialsSubmitted": false,
+  "existingHostOrSessionOperations": false,
+  "modelCalls": false
+}

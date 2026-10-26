@@ -1,0 +1,33 @@
+{
+  "webCommit": "1d2f526bfa13d103a58ab4a2d3c269842fe978fe",
+  "nativeManifest": {
+    "version": "0.5.11",
+    "commit": "59bb0debfd2d7c7d34acb286a744be9820e0c187",
+    "sourceDigest": "bd6e678e39a463789fed4b7da7f1b9031a87ebc062d16238e6b55df60ba930f3",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.11-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.11-linux-x86_64-musl.tar.gz",
+      "coc-0.5.11-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.11-windows-x64.zip",
+      "codex-over-cloudflare-0.5.11-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "files": {
+    "_headers": "e7fc98977f6188fcb1f058f0ca330dffde2d6f59820d8c73d86246c841a74f3c",
+    "index.html": "2054a944bd8b951c61269e81aba160d1f1d07f490e9b53ed9d02488a5cbbb129",
+    "assets/index-CBJDAurb.js": "0d1646ba51c6b85963c8e6e6f3ad4442b6d3a4adb87165d275984cac0f631a4f",
+    "assets/index-Cc3f90sh.css": "a98c22dcd10915bcf3224a9c3c47362cd716acaa9c0c829f4c11dfc730b2aecd",
+    "downloads/coc-0.5.11-windows-x64.zip": "552126b8f9b0fa1d1f5b5449d8c0cc7c8497bb3756a612b1f5649bd6fdfd0707",
+    "downloads/index.json": "2cbcab2dcef78cbcbe30206716e504e3696a4ed80c8f81f2c4c9b35092db4066",
+    "downloads/coc-0.5.11-linux-x86_64-musl.tar.gz": "596556f7c6c367a353a390ff3ce7c594a1179d7d8e7c529a92fe724321e83ba7",
+    "downloads/codex-over-cloudflare-0.5.11-source.tar.gz": "70306968c62244ac0be62665f255e6cb6940c04e967a9a6c9917134688486b1f",
+    "downloads/USER_GUIDE.md": "48d1f51b0765735ad2181532dfa82d236b16aa8fa6f4cad33ebb822791b37be5",
+    "downloads/coc-0.5.11-linux-x86_64-ubuntu20.04.tar.gz": "0a87ac3c4147d0bf1d5c09780fb08b584b5950a55d3ec01e3bb57b576388fea7",
+    "downloads/coc-0.5.11-linux-x86_64-debian12.tar.gz": "60295c2841d70c41c1d014fbc84ead85c84b705809843fe4607e18f9cb9c2770",
+    "downloads/SHA256SUMS": "376b857bc6307306b81ead5ecc29bc0d123d0b2e39acf503250ac1cdf2b0256d",
+    "downloads/index.html": "56aded56790fe2364194ed57be6b1c0658bb906d481ac3b7f2d80600025b9b21"
+  }
+}

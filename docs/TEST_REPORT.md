@@ -1,12 +1,15 @@
 # 本机测试记录
 
-## 管理表格与 CW 会话自动批准 · 2026-10-26 · 本地回归通过
+## 管理表格与 CW 会话自动批准 · 2026-10-26 · 已部署
 
 - 待授权、已授权设备、唤醒配置和 API Key 改为原生表格，具有列 / 行标题、空状态及局部键盘 / 触摸横向滚动。1280 / 390 宽度验证长名称和留言、中英文表头、目标选择与锁定、页面无横向溢出。
 - CW 显式勾选后自动允许当前会话的命令、文件和本轮额外权限；默认关闭，切换 / 刷新关闭。真实 Worker / DO / 原生 Agent / 原共享 app-server 夹具验证三类自动决定和权限 `scope: turn`；不改变后端策略或调用模型。
 - UI 验证重复同步、反复开关、丢失 ack 后重连不重复提交；跳过已提交 / 未支持请求；关闭后停止自动答复。开关位于输入区，范围说明展开显示；390×480 审批详情与按钮仍可操作，展开说明不超出视口。
 - 完整 `test:ui`、`tests/ui-wake.ts` 与 `test:e2e` 通过；TypeScript、ESLint / Prettier、网页构建和 Vitest 9 文件 / 86 项通过。早期测试发现独立开关栏压缩聊天面积，已移入输入区，保留原聊天几何断言。完整 E2E 在固定构建产物上重跑通过；未将并发覆盖构建目录造成的中间失败记为成功。
-- [本地验证](assets/admin-tables-auto-approval-2026-10-26/local-verification.json)、[桌面管理表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-pending-1280.png)、[手机表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-keys-390.png)、[桌面自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-desktop.png)、[手机自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-390.png)。Actions 与部署结果将在完成后追加。
+- [本地验证](assets/admin-tables-auto-approval-2026-10-26/local-verification.json)、[桌面管理表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-pending-1280.png)、[手机表格](assets/admin-tables-auto-approval-2026-10-26/admin-table-keys-390.png)、[桌面自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-desktop.png)、[手机自动批准](assets/admin-tables-auto-approval-2026-10-26/cw-auto-approval-390.png)。[Actions 40326037786](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40326037786) 的六个构建 / 回归作业全部通过，分支发布作业按预期跳过。
+- 网页源码 `1d2f526bfa13d103a58ab4a2d3c269842fe978fe`，Worker `ec890616-6aa8-46f7-bfa7-bfe8029727e7` 于 `2026-10-26T13:02:48.210861Z` 部署，流量 100%。站点为从同一提交锁定依赖构建的本机产物，线上 JS / CSS / 手册与准备的产物逐字节相同；HTML 排除 Cloudflare 统计注入后匹配。原生五个归档及清单继续使用已验证的 v0.5.11，来源仍为 `59bb0de`，未改写标签或归档。
+- 生产 health 200 / 0.5.11、未授权 hosts 401、跨域管理登录 403、安全头与手册 UTF-8 通过；Chromium 验证公开页面双语、刷新保留、桌面 / 手机菜单及管理员入口，无脚本错误。使用 `--keep-vars`，不轮换 secrets、不更改 DO 迁移或操作已有设备 / 会话，无真实模型调用；生产未提交凭据，实际审批行为由本地 / CI 夹具验证。
+- [部署元数据](assets/admin-tables-auto-approval-2026-10-26/deployment.json)、[Actions](assets/admin-tables-auto-approval-2026-10-26/actions-verification.json)、[线上字节](assets/admin-tables-auto-approval-2026-10-26/online-verification.json)、[生产浏览器](assets/admin-tables-auto-approval-2026-10-26/browser-verification.json)、[预期站点身份](assets/admin-tables-auto-approval-2026-10-26/expected-site.json)。本机完整日志及校验脚本位于 `.local/admin-tables-deploy/`。
 
 ## Actions 构建缓存 · 2026-10-26 · 两轮远端验证通过
 

@@ -1,0 +1,86 @@
+{
+  "/api/v1/healthz": {
+    "status": 200,
+    "sha256": "1ff82b246d1718f6767f8c2394e10c70247ab604d4f7c8ac1fb456e677cfcc0e"
+  },
+  "/assets/index-CBJDAurb.js": {
+    "status": 200,
+    "bytes": 573679,
+    "sha256": "0d1646ba51c6b85963c8e6e6f3ad4442b6d3a4adb87165d275984cac0f631a4f",
+    "comparison": "exact bytes"
+  },
+  "/assets/index-Cc3f90sh.css": {
+    "status": 200,
+    "bytes": 16175,
+    "sha256": "a98c22dcd10915bcf3224a9c3c47362cd716acaa9c0c829f4c11dfc730b2aecd",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.11-windows-x64.zip": {
+    "status": 200,
+    "bytes": 7998062,
+    "sha256": "552126b8f9b0fa1d1f5b5449d8c0cc7c8497bb3756a612b1f5649bd6fdfd0707",
+    "comparison": "exact bytes"
+  },
+  "/downloads/index.json": {
+    "status": 200,
+    "bytes": 484,
+    "sha256": "2cbcab2dcef78cbcbe30206716e504e3696a4ed80c8f81f2c4c9b35092db4066",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.11-linux-x86_64-musl.tar.gz": {
+    "status": 200,
+    "bytes": 24743413,
+    "sha256": "596556f7c6c367a353a390ff3ce7c594a1179d7d8e7c529a92fe724321e83ba7",
+    "comparison": "exact bytes"
+  },
+  "/downloads/codex-over-cloudflare-0.5.11-source.tar.gz": {
+    "status": 200,
+    "bytes": 2306141,
+    "sha256": "70306968c62244ac0be62665f255e6cb6940c04e967a9a6c9917134688486b1f",
+    "comparison": "exact bytes"
+  },
+  "/downloads/USER_GUIDE.md": {
+    "status": 200,
+    "bytes": 60664,
+    "sha256": "48d1f51b0765735ad2181532dfa82d236b16aa8fa6f4cad33ebb822791b37be5",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.11-linux-x86_64-ubuntu20.04.tar.gz": {
+    "status": 200,
+    "bytes": 3079089,
+    "sha256": "0a87ac3c4147d0bf1d5c09780fb08b584b5950a55d3ec01e3bb57b576388fea7",
+    "comparison": "exact bytes"
+  },
+  "/downloads/coc-0.5.11-linux-x86_64-debian12.tar.gz": {
+    "status": 200,
+    "bytes": 3524958,
+    "sha256": "60295c2841d70c41c1d014fbc84ead85c84b705809843fe4607e18f9cb9c2770",
+    "comparison": "exact bytes"
+  },
+  "/downloads/SHA256SUMS": {
+    "status": 200,
+    "bytes": 519,
+    "sha256": "376b857bc6307306b81ead5ecc29bc0d123d0b2e39acf503250ac1cdf2b0256d",
+    "comparison": "exact bytes"
+  },
+  "/downloads/index.html": {
+    "status": 200,
+    "bytes": 1120,
+    "sha256": "cc52f6ba8c65919f77c36dcad51661bfccc72264030d34f80b404ba4d243c35e",
+    "comparison": "HTML excluding Cloudflare analytics injection"
+  },
+  "/": {
+    "status": 200,
+    "bytes": 765,
+    "assetReferences": [
+      "/assets/index-CBJDAurb.js",
+      "/assets/index-Cc3f90sh.css"
+    ]
+  },
+  "unauthenticated-hosts": {
+    "status": 401
+  },
+  "cross-origin-admin-login": {
+    "status": 403
+  }
+}
