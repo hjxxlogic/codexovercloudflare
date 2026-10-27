@@ -5,6 +5,9 @@
 - 用户确认生产 `build-server` 在手动刷新后恢复一致；本次用户现象应归为管理页快照未同步，未证实该生产主机是旧协议记录。下述旧协议过滤是独立发现、已复现的问题，不能作为生产同名主机的根因结论。
 - 定位管理操作后仅刷新设备 / Key 子列表，唤醒主机列表依赖通知补齐；通知丢失时本人的操作也可能留下不一致展示。统一本人操作、手动刷新和通知使用的管理快照读取，并等待读取完成。
 - 扩展 `test:billing:web`：在模拟空闲 24 小时零轮询后，丢弃管理员所有订阅确认 / 变更通知，验证手动刷新恢复快照、撤销 Agent 及撤销 Agent Key 后设备 / Key / 唤醒主机列表一致。测试使用本机夹具 `build-server`，不访问或更改生产授权。
+- 本地 Vitest 95 项、类型、lint、Worker dry-run 通过；上述 Chromium 回归通过，控制台错误为 0。宿主 Ubuntu 20.04 缺少可用浏览器，最终使用 Node 22 Bookworm 容器安装 Chromium 并执行；初始 IPC 权限 / 缺少浏览器及容器网络失败未计为通过。
+- 源码 `ea659cf9f76afa97321f9f3aee60d15339f0e883` 已推送，[Actions 40435416363](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363) 六个检查作业成功，含完整集成与新增浏览器场景，分支发布作业跳过。Worker `c92768d5-ac11-4c3b-9c79-15ad92499a7e` 于 `2026-10-27T02:02:33.382219Z` 部署，流量 100%；保留 vars / secrets、DO 数据和 0.5.12 原生下载。
+- 线上 health 200、未授权 hosts 401、跨域登录 403、首页 CSP、HTML / JS / CSS / 手册及下载清单 / SHA256 字节与 UTF-8、五个归档 HEAD 通过。仅更新入口 HTML、新 JS 与手册；不登录生产管理、不改用户主机或凭证、无模型调用。[部署与验证范围](assets/admin-snapshot-fix-2026-10-27/deployment.json)、[线上字节与接口](assets/admin-snapshot-fix-2026-10-27/online-verification.json)。完整本机日志在 `.local/admin-snapshot-fix/`。
 
 ## 旧版主机列表过滤 · 2026-10-27
 

@@ -1,0 +1,91 @@
+{
+  "sourceCommit": "ea659cf9f76afa97321f9f3aee60d15339f0e883",
+  "workerVersion": "c92768d5-ac11-4c3b-9c79-15ad92499a7e",
+  "deployedAt": "2026-10-27T02:02:33.382219Z",
+  "trafficPercentage": 100,
+  "ci": {
+    "runId": 40435416363,
+    "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363",
+    "jobs": [
+      {
+        "id": 121962795442,
+        "name": "linux-musl",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795442"
+      },
+      {
+        "id": 121962795602,
+        "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795602"
+      },
+      {
+        "id": 121962795642,
+        "name": "linux-release (debian12, debian:12)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795642"
+      },
+      {
+        "id": 121962795649,
+        "name": "sanitizers",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795649"
+      },
+      {
+        "id": 121962795682,
+        "name": "regression",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795682"
+      },
+      {
+        "id": 121962795811,
+        "name": "windows-x64",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121962795811"
+      },
+      {
+        "id": 121965159416,
+        "name": "publish-release",
+        "status": "completed",
+        "conclusion": "skipped",
+        "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363/job/121965159416"
+      }
+    ]
+  },
+  "checks": {
+    "vitestTests": 95,
+    "typecheck": "passed",
+    "lint": "passed",
+    "workerDryRun": "passed",
+    "browser": {
+      "environment": "Node 22 Bookworm container with Playwright Chromium",
+      "simulatedIdleHours": 24,
+      "cwPeriodicRequests": 0,
+      "adminPeriodicRequests": 0,
+      "adminRefreshWithoutNotification": true,
+      "deviceRevokeRefreshesHosts": true,
+      "apiKeyRevokeRefreshesHosts": true,
+      "pageErrors": []
+    }
+  },
+  "nativeDownloads": {
+    "version": "0.5.12",
+    "sourceCommit": "3b41fce53a89707c281f7b27683369383fc620ea",
+    "changed": false
+  },
+  "configuration": {
+    "keepVars": true,
+    "newDurableObjectMigrations": false
+  },
+  "limitations": [
+    "Production user reported consistency after manual refresh; no administrator credentials were used to inspect the specific build-server record.",
+    "Browser workflow validation used a local fixture, while production validation checked public resources and authorization failures.",
+    "No user hosts, credentials or sessions were modified, and no model calls were made."
+  ]
+}
