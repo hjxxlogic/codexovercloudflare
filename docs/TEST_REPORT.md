@@ -1,9 +1,12 @@
 # 本机测试记录
 
-## 未发布：DO 实际用量与通知优化 · 2026-10-27
+## 已部署：DO 实际用量与通知优化 · 2026-10-27
 
 - 使用既有 Cloudflare OAuth 只读查询 namespace 归属、GraphQL schema 和两个完整 UTC 日 / 部署后小时数据；原始结果见 [daily](assets/do-usage-2026-10-27/daily.json)、[hourly](assets/do-usage-2026-10-27/hourly.json) 与 [范围记录](assets/do-usage-2026-10-27/metadata.json)。仅统计本项目两个 namespace，不混入同账户其他项目。
-- Vitest 10 文件 / 94 项、TypeScript、ESLint / Prettier 和 Worker dry-run 打包通过，新增验证管理操作零 Host 通知、指定 / 未指定目标审批、到期通知隔离、改名 / 配置 / 撤销目标、全主机发布与重复发布幂等，以及迁移完成读取预算、重建与多页继续迁移。未部署本次修改，也未测本次修改后的线上节费。
+- Vitest 10 文件 / 94 项、TypeScript、ESLint / Prettier 和 Worker dry-run 打包通过，新增验证管理操作零 Host 通知、指定 / 未指定目标审批、到期通知隔离、改名 / 配置 / 撤销目标、全主机发布与重复发布幂等，以及迁移完成读取预算、重建与多页继续迁移。
+- 源码 `08d0ff46606d4c74b3517e088af95f4b9cb72838` 已推送 master；[Actions 40431197988](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40431197988) 六个检查作业全部成功，包括完整 regression（真实 Wrangler / Chromium 集成）、sanitizers、Ubuntu / Debian / musl 和 Windows；分支发布作业按规则跳过。
+- Worker `df318752-ee2e-4e23-9b43-3914baadf5cb` 于 `2026-10-27T01:17:29.296851Z` 上线，流量 100%，保留 vars / secrets，无新增 DO 迁移。沿用已发布的 0.5.12 五个归档、下载清单和 SHA256；部署前从同标签 GitHub Release 取得归档并与原线上 SHA256 逐一核对。初始本地 dist 下载是旧 0.5.8，未使用它部署；直连下载站超时的部分文件也未使用。Wrangler 确认仅上传更新后的手册，网页静态资源及原生归档复用原内容。
+- 线上 health 200 / 0.5.12 / demand:1、未授权 hosts 401、跨域登录 403、首页 CSP、首页 / 下载清单 / SHA256 / 手册字节及 UTF-8 通过；五个归档部署后 HEAD 均为 200，未二次完整下载。未提交生产凭据、创建临时设备、操作既有会话或调用模型。初次沙箱部署因联网失败退出，随后联网重试成功。[部署与 CI 证据](assets/do-usage-2026-10-27/deployment.json)、[线上验证](assets/do-usage-2026-10-27/online-verification.json)，完整本机日志在忽略目录 `.local/do-optimization-deploy/`。本次优化后的实际线上节费和真实 24 小时受控场景尚未测量。
 - 详细数据、推断与剩余观察项见 [DO 平台用量分析](do-usage-2026-10-27.md)。
 
 ## 0.5.12 Durable Objects 按需通讯 · 2026-10-26

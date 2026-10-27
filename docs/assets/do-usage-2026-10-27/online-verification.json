@@ -1,0 +1,95 @@
+{
+  "checkedAt": "2026-10-27T01:23:14.110Z",
+  "workerVersion": "df318752-ee2e-4e23-9b43-3914baadf5cb",
+  "sourceCommit": "08d0ff46606d4c74b3517e088af95f4b9cb72838",
+  "health": {
+    "ok": true,
+    "version": "0.5.12",
+    "demand": 1,
+    "protocol": 1
+  },
+  "checks": [
+    {
+      "path": "/api/v1/healthz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 54,
+      "sha256": "9514f2742b077d9445e4f651c202eb34ba131ae997ff5f6f5bc55f4278f6be03"
+    },
+    {
+      "path": "/api/v1/hosts",
+      "method": "GET",
+      "status": 401,
+      "bytes": 60
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 403,
+      "bytes": 73
+    },
+    {
+      "path": "/",
+      "method": "GET",
+      "status": 200,
+      "bytes": 398,
+      "sha256": "55c885b575a4aac7d9c6e2da081840d5e7bdebcd605df860c3a9cc4b93a994b2"
+    },
+    {
+      "path": "/downloads/index.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 484,
+      "sha256": "2322992fc34fb70c5ad141656bd20fd5480ff433f7ca2378280aecb4d7de9fc5"
+    },
+    {
+      "path": "/downloads/SHA256SUMS",
+      "method": "GET",
+      "status": 200,
+      "bytes": 519,
+      "sha256": "a4e0f0a378ff1899eb3e7fa7acefde2a72a4756b2c0d74733a3722201e52f3ff"
+    },
+    {
+      "path": "/downloads/USER_GUIDE.md",
+      "method": "GET",
+      "status": 200,
+      "bytes": 65466,
+      "sha256": "e9da36260fae89cf158bf386cd3a5a1231d239a5419fa9586bd562f0b038d826"
+    },
+    {
+      "path": "/downloads/coc-0.5.12-linux-x86_64-debian12.tar.gz",
+      "method": "HEAD",
+      "status": 200,
+      "bytes": 0
+    },
+    {
+      "path": "/downloads/coc-0.5.12-linux-x86_64-musl.tar.gz",
+      "method": "HEAD",
+      "status": 200,
+      "bytes": 0
+    },
+    {
+      "path": "/downloads/coc-0.5.12-linux-x86_64-ubuntu20.04.tar.gz",
+      "method": "HEAD",
+      "status": 200,
+      "bytes": 0
+    },
+    {
+      "path": "/downloads/coc-0.5.12-windows-x64.zip",
+      "method": "HEAD",
+      "status": 200,
+      "bytes": 0
+    },
+    {
+      "path": "/downloads/codex-over-cloudflare-0.5.12-source.tar.gz",
+      "method": "HEAD",
+      "status": 200,
+      "bytes": 0
+    }
+  ],
+  "notes": [
+    "All five staged archives matched the production SHA256SUMS before deployment; Wrangler uploaded only the changed manual.",
+    "Post-deployment checks verify download availability with HEAD; archives were not downloaded a second time.",
+    "No production credentials submitted, no user devices or sessions changed, no model calls."
+  ]
+}

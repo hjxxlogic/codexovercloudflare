@@ -1,24 +1,24 @@
-# 发布状态：0.5.11 + 管理表格与 CW 自动批准
+# 发布状态：0.5.12 + DO 通知与迁移读取优化
 
-更新时间：2026-10-26。网页、在线手册和构建缓存已更新；原生下载仍为已验证的 v0.5.11 四平台包。
+更新时间：2026-10-27。Worker 与在线手册已更新，原生下载沿用已验证的 v0.5.12 四平台包。
 
-## 当前网页与 Worker
+## 当前 Worker 与网页
 
-- 源码 `1d2f526bfa13d103a58ab4a2d3c269842fe978fe`，管理表格和 CW 当前会话自动批准。开关默认关闭，显式启用后包含命令、文件及本轮额外权限；切换会话 / 刷新重置，原策略仍由服务器执行。
-- [Actions 40326037786](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40326037786)：六个构建 / 回归作业通过，分支发布作业跳过。
-- 生产 `https://r.xlogic.cc`；Worker `ec890616-6aa8-46f7-bfa7-bfe8029727e7`，`2026-10-26T13:02:48.210861Z` 上线，流量 100%。线上资源匹配同一提交的准备产物。
-- Linux 编译和 musl 工具链缓存已启用；两轮 Actions 确认保存 / 恢复，实测 regression 构建 175→45 秒、musl 构建 / 测试 328→146 秒，详见 [缓存证据](assets/ci-cache-2026-10-26/verification.json)。
+- 源码 `08d0ff46606d4c74b3517e088af95f4b9cb72838`，Registry 通知仅送受影响主机，已完成到期迁移不再在每次请求中重复读取完成标记。
+- [Actions 40431197988](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40431197988)：regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 六个检查作业全部成功；分支发布作业跳过。
+- 生产 `https://r.xlogic.cc`；Worker `df318752-ee2e-4e23-9b43-3914baadf5cb` 于 `2026-10-27T01:17:29.296851Z` 上线，流量 100%。
+- 网页 JS / CSS 复用原内容，在线手册更新；保留生产 vars / secrets 和 DO 数据，无新增迁移。本次未发布新原生版本或发送新版本通知。
 
 ## 当前原生下载
 
-- 源码 `59bb0debfd2d7c7d34acb286a744be9820e0c187`，不可变标签 `v0.5.11`。
-- [Release v0.5.11](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.11)：Ubuntu 20.04、Debian 12、Linux musl、Windows x64、源码及 SHA256。本次网页部署未改写归档、清单或旧标签，在线手册已更新。
-- 原生发行门禁：[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 七个作业通过。
+- 源码 `3b41fce53a89707c281f7b27683369383fc620ea`，标签 [v0.5.12](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.12)。
+- Ubuntu 20.04、Debian 12、Linux musl、Windows x64、源码及 SHA256 保持已发布内容。本次从 GitHub Release 获取归档并与原线上校验和逐一核对后复用；Wrangler 仅上传了更新后的手册。
+- 原生发行门禁：[Actions 40343777576](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40343777576) 七个作业成功。
 
 ## 验证与边界
 
-本地 / CI 完整 E2E 验证管理审批和撤销、三类自动批准及权限 turn scope、目标隔离、断线去重和刷新 / 会话切换重置。UI 检查 1280 / 390 宽度表格、键盘滚动、短屏和双语；Vitest 86 项、类型、格式及构建通过。
+本地 Vitest 94 项、类型、lint 和 Worker dry-run 通过；源码 CI 包含真实 Wrangler / Chromium 完整回归。线上 health、401 / 403、首页 CSP、首页 / 手册 / 下载清单与 SHA256 字节、手册 UTF-8 和五个归档 HEAD 通过。未提交生产凭据或操作用户设备 / 会话，无模型调用。
 
-线上 health、安全头、401 / 403、手册 UTF-8、全部资源 / 五个归档字节和公开 Chromium 页面检查通过。生产未提交凭据、创建授权或操作既有主机 / 会话，无真实模型调用；保留 vars、secrets、DO 数据和既有授权。实际模型任务与长期负载未在本次生产验证。
+实际平台基线已采集，见 [DO 用量分析](do-usage-2026-10-27.md)。本次优化后的请求 / duration / 行读取收益和真实 24 小时受控验收仍待测量，不以旧基线证明新版本节费。
 
-证据见 [测试记录](TEST_REPORT.md) 和 [部署元数据](assets/admin-tables-auto-approval-2026-10-26/deployment.json)。本机完整部署日志保存在忽略目录 `.local/admin-tables-deploy/`。发布证据另行提交，源码提交与原生标签保持不变。
+证据见 [测试记录](TEST_REPORT.md)、[部署与 CI](assets/do-usage-2026-10-27/deployment.json) 和 [线上验证](assets/do-usage-2026-10-27/online-verification.json)。完整本机部署日志在忽略目录 `.local/do-optimization-deploy/`。
