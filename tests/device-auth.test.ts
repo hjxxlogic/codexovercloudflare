@@ -79,6 +79,43 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('excludes legacy hosts from management and release fanout without deleting stored records', async () => {
+    const legacy = {
+      id: crypto.randomUUID(),
+      name: 'build-server',
+      disabled: false,
+      agentWakeUrl: 'https://wake.example.com/start',
+    };
+    storage.values.set('host:' + legacy.id, legacy);
+    const current = await grant('agent');
+    const notify = vi.fn<(id: string) => Promise<Response>>(async () =>
+      Response.json({ ok: true }),
+    );
+    env.HOSTS = {
+      idFromName: (id: string) => id,
+      get: (id: string) => ({ fetch: () => notify(id) }),
+    } as unknown as DurableObjectNamespace;
+    expect(
+      (await op('hosts')).data.map((host: { id: string }) => host.id),
+    ).toEqual([current.hostId]);
+    expect(
+      (await op('devices')).data.credentials.map(
+        (auth: { hostId: string }) => auth.hostId,
+      ),
+    ).toEqual([current.hostId]);
+    expect((await op('host', { id: legacy.id })).status).toBe(404);
+    expect(
+      (await op('setWakeUrl', { id: legacy.id, wakeUrl: null })).status,
+    ).toBe(404);
+    await op('releasePublish', { version: '0.5.12', commit: 'a'.repeat(40) });
+    expect(notify.mock.calls.map(([id]) => id)).toEqual([current.hostId]);
+    expect(storage.values.get('host:' + legacy.id)).toEqual(legacy);
+    const auth = (await op('auth', { token: current.token })).data;
+    await op('credentialRevoke', { id: auth.hash });
+    expect((await op('hosts')).data).toMatchObject([
+      { id: current.hostId, disabled: true },
+    ]);
+  });
   it('keeps management changes local and targets host snapshot notifications', async () => {
     const notify = vi.fn<
       (id: string, data: { scope: string }) => Promise<Response>

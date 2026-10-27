@@ -223,7 +223,7 @@ export class RegistryDO extends DurableObject<Env> {
     const hosts =
       scope === 'release'
         ? [...(await this.ctx.storage.list<Host>({ prefix: 'host:' })).values()]
-            .filter((h) => !h.disabled)
+            .filter((h) => h.version === 2 && !h.disabled)
             .map((h) => h.id)
         : [...new Set(affectedHosts)];
     const release =
@@ -823,7 +823,9 @@ export class RegistryDO extends DurableObject<Env> {
       }
       if (op === 'hosts')
         return json(
-          Array.from((await s.list<Host>({ prefix: 'host:' })).values()),
+          Array.from((await s.list<Host>({ prefix: 'host:' })).values()).filter(
+            (host) => host.version === 2,
+          ),
         );
       if (op === 'host') {
         const h = await s.get<Host>('host:' + idSchema.parse(d.id));

@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 旧版主机列表过滤 · 2026-10-27
+
+- 复现缺少 `version:2` 的历史主机 `build-server` 可出现在旧管理主机列表，但无对应新版已授权设备，且实际单主机读取 / 唤醒配置接口已拒绝访问。该测试名称为复现夹具，不代表已读取或确认生产同名记录的格式。
+- 修复管理 `hosts` 返回与全局版本通知的协议过滤，保留历史存储及新版停用记录；验证旧主机不成为唤醒配置 / 授权目标或版本通知目标，新版主机正常保留，旧协议访问仍拒绝。
+- Vitest 10 文件 / 95 项、TypeScript、ESLint / Prettier 与 Worker dry-run 打包通过。生产同名记录尚未通过管理员接口核对，不把复现结果当作生产记录已确认。
+
 ## 已部署：DO 实际用量与通知优化 · 2026-10-27
 
 - 使用既有 Cloudflare OAuth 只读查询 namespace 归属、GraphQL schema 和两个完整 UTC 日 / 部署后小时数据；原始结果见 [daily](assets/do-usage-2026-10-27/daily.json)、[hourly](assets/do-usage-2026-10-27/hourly.json) 与 [范围记录](assets/do-usage-2026-10-27/metadata.json)。仅统计本项目两个 namespace，不混入同账户其他项目。
