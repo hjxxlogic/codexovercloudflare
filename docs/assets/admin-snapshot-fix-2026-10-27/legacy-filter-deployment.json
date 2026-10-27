@@ -1,0 +1,10 @@
+{
+  "sourceCommit": "165e500a989c8d20929a436f33ab92ea354582bb",
+  "workerVersion": "e7c72404-5706-436d-95f1-802fb9fdd029",
+  "deployedAt": "2026-10-27T01:41:44.074548Z",
+  "trafficPercentage": 100,
+  "ci": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40433028501",
+  "ciConclusion": "success",
+  "scope": "Independent legacy-host filtering fix; production build-server was not confirmed as a legacy record.",
+  "userFeedback": "Manual refresh restored consistency; the reported symptom concerns management snapshots."
+}

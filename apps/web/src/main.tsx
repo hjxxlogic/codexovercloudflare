@@ -327,6 +327,31 @@ function App() {
     document.addEventListener('visibilitychange', visible);
     return () => document.removeEventListener('visibilitychange', visible);
   }, []);
+  const adminSnapshotPending = useRef<Promise<void> | undefined>(undefined);
+  const adminSnapshotDirty = useRef(false);
+  const readAdminSnapshot = useCallback(() => {
+    adminSnapshotDirty.current = true;
+    if (adminSnapshotPending.current) return adminSnapshotPending.current;
+    adminSnapshotPending.current = (async () => {
+      try {
+        while (adminSnapshotDirty.current) {
+          adminSnapshotDirty.current = false;
+          const [d, keys, available] = await Promise.all([
+            api('/admin/devices'),
+            api('/admin/api-keys'),
+            api('/admin/hosts'),
+          ]);
+          if (adminSnapshotDirty.current) continue;
+          setDevices(d);
+          setApiKeys(keys);
+          setKeyHosts(available.filter((h: any) => !h.disabled));
+        }
+      } finally {
+        adminSnapshotPending.current = undefined;
+      }
+    })();
+    return adminSnapshotPending.current;
+  }, []);
   useEffect(() => {
     if (!admin || mode !== 'admin') return;
     let disposed = false,
@@ -339,18 +364,7 @@ function App() {
       }
       running = true;
       dirty = false;
-      void Promise.all([
-        api('/admin/devices'),
-        api('/admin/api-keys'),
-        api('/admin/hosts'),
-      ])
-        .then(([d, keys, available]) => {
-          if (!disposed) {
-            setDevices(d);
-            setApiKeys(keys);
-            setKeyHosts(available.filter((h: any) => !h.disabled));
-          }
-        })
+      void readAdminSnapshot()
         .catch(report)
         .finally(() => {
           running = false;
@@ -364,7 +378,7 @@ function App() {
       disposed = true;
       stop();
     };
-  }, [admin, mode, revision]);
+  }, [admin, mode, revision, readAdminSnapshot]);
   useEffect(() => {
     if (!logged) return;
     const stops = hosts.map((h) =>
@@ -405,6 +419,7 @@ function App() {
       recoverNotifications(true);
       try {
         await refresh();
+        if (mode === 'admin') await readAdminSnapshot();
         if (mode === 'cw' && host) {
           const confirmation = await api(`/hosts/${host}/probe`, {});
           if (!confirmation.online) throw new Error('未确认服务器可达，请重试');
@@ -1483,7 +1498,7 @@ function App() {
             }
           : {}),
       });
-      setDevices(await api('/admin/devices'));
+      await readAdminSnapshot();
       await refresh();
     } catch (e) {
       report(e);
@@ -2309,11 +2324,7 @@ function App() {
                     host={h}
                     report={report}
                     saved={async () => {
-                      setKeyHosts(
-                        (await api('/admin/hosts')).filter(
-                          (h: any) => !h.disabled,
-                        ),
-                      );
+                      await readAdminSnapshot();
                       setNotice('唤醒配置已保存');
                       await refresh();
                     }}
@@ -2367,7 +2378,7 @@ function App() {
               })
                 .then(async (result) => {
                   setNewKey(result.apiKey);
-                  setApiKeys(await api('/admin/api-keys'));
+                  await readAdminSnapshot();
                 })
                 .catch(report)
                 .finally(() => setGenerating(false));
@@ -2480,8 +2491,7 @@ function App() {
                       void api('/admin/api-keys/revoke', { id: k.id })
                         .then(async () => {
                           setNewKey('');
-                          setApiKeys(await api('/admin/api-keys'));
-                          setDevices(await api('/admin/devices'));
+                          await readAdminSnapshot();
                         })
                         .catch(report)
                         .finally(() => setGenerating(false));

@@ -8,7 +8,9 @@ const artifacts = process.env.COC_ARTIFACT_DIR || '.local/billing-browser';
 mkdirSync(artifacts, { recursive: true });
 let requests = 0,
   admin = false,
-  probes = 0;
+  probes = 0,
+  adminHostActive = false,
+  dropAdminNotifications = false;
 const server = createServer((req, res) => {
   const url = new URL(req.url!, 'http://local');
   if (url.pathname.startsWith('/api/v1/')) {
@@ -30,12 +32,42 @@ const server = createServer((req, res) => {
       value = admin ? { role: 'owner' } : { error: { code: 'UNAUTHORIZED' } };
     } else if (url.pathname === '/api/v1/auth/login') admin = true;
     else if (url.pathname === '/api/v1/admin/devices')
-      value = { pending: [], credentials: [] };
+      value = {
+        pending: [],
+        credentials: adminHostActive
+          ? [
+              {
+                id: 'agent-grant',
+                name: 'build-server',
+                role: 'agent',
+                hostId: 'host',
+                created: 1,
+              },
+            ]
+          : [],
+      };
+    else if (url.pathname === '/api/v1/admin/hosts')
+      value = adminHostActive
+        ? [{ id: 'host', name: 'build-server', version: 2, disabled: false }]
+        : [];
+    else if (url.pathname === '/api/v1/admin/api-keys')
+      value = adminHostActive
+        ? [
+            {
+              id: 'agent-key',
+              name: 'fixture-agent-key',
+              role: 'agent',
+              hostId: 'host',
+              created: 1,
+            },
+          ]
+        : [];
     else if (
-      url.pathname === '/api/v1/admin/hosts' ||
-      url.pathname === '/api/v1/admin/api-keys'
+      ['/api/v1/admin/revoke', '/api/v1/admin/api-keys/revoke'].includes(
+        url.pathname,
+      )
     )
-      value = [];
+      adminHostActive = false;
     else if (url.pathname === '/api/v1/hosts/host/probe') {
       probes++;
       value = { online: true, confirmedAt: Date.now() };
@@ -69,9 +101,10 @@ const server = createServer((req, res) => {
   }
 });
 const notifications = new WebSocketServer({ server });
-notifications.on('connection', (ws) =>
-  ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 })),
-);
+notifications.on('connection', (ws, req) => {
+  if (dropAdminNotifications && req.url === '/ws/v1/admin') return;
+  ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
+});
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${(server.address() as any).port}`;
 const browser = await chromium.launch({
@@ -126,6 +159,46 @@ try {
     adminBaseline,
     'Administrator view must not poll during a simulated idle day',
   );
+  // Neither refresh nor a successful mutation may depend on an arriving WS event.
+  dropAdminNotifications = true;
+  adminHostActive = true;
+  const refresh = page.getByRole('button', { name: '刷新状态', exact: true });
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
+  await expect(
+    page.getByRole('table', { name: '已授权设备', exact: true }),
+  ).toContainText('build-server');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page
+    .getByRole('button', { name: '撤销 build-server', exact: true })
+    .click();
+  await expect(
+    page.getByRole('table', { name: '已授权设备', exact: true }),
+  ).toContainText('暂无已授权设备');
+  await page.getByRole('tab', { name: '服务器唤醒配置', exact: true }).click();
+  await expect(
+    page.getByRole('table', { name: '服务器唤醒配置', exact: true }),
+  ).toContainText('暂无服务器');
+
+  adminHostActive = true;
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  await expect(
+    page.getByRole('table', { name: '服务器唤醒配置', exact: true }),
+  ).toContainText('build-server');
+  await page.getByRole('tab', { name: 'API Key 管理', exact: true }).click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page
+    .getByRole('button', { name: '撤销 Key fixture-agent-key', exact: true })
+    .click();
+  await expect(
+    page.getByRole('table', { name: 'API Key 管理', exact: true }),
+  ).toContainText('暂无 API Key');
+  await page.getByRole('tab', { name: '服务器唤醒配置', exact: true }).click();
+  await expect(
+    page.getByRole('table', { name: '服务器唤醒配置', exact: true }),
+  ).toContainText('暂无服务器');
   assert.deepEqual(failures, []);
   assert(
     await page.evaluate(
@@ -143,6 +216,9 @@ try {
       cwPeriodicRequests: 0,
       adminPeriodicRequests: 0,
       manualProbes: probes,
+      adminRefreshWithoutNotification: true,
+      deviceRevokeRefreshesHosts: true,
+      apiKeyRevokeRefreshesHosts: true,
       pageErrors: failures,
     }),
   );
