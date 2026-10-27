@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 未发布：DO 实际用量与通知优化 · 2026-10-27
+
+- 使用既有 Cloudflare OAuth 只读查询 namespace 归属、GraphQL schema 和两个完整 UTC 日 / 部署后小时数据；原始结果见 [daily](assets/do-usage-2026-10-27/daily.json)、[hourly](assets/do-usage-2026-10-27/hourly.json) 与 [范围记录](assets/do-usage-2026-10-27/metadata.json)。仅统计本项目两个 namespace，不混入同账户其他项目。
+- Vitest 10 文件 / 94 项、TypeScript、ESLint / Prettier 和 Worker dry-run 打包通过，新增验证管理操作零 Host 通知、指定 / 未指定目标审批、到期通知隔离、改名 / 配置 / 撤销目标、全主机发布与重复发布幂等，以及迁移完成读取预算、重建与多页继续迁移。未部署本次修改，也未测本次修改后的线上节费。
+- 详细数据、推断与剩余观察项见 [DO 平台用量分析](do-usage-2026-10-27.md)。
+
 ## 0.5.12 Durable Objects 按需通讯 · 2026-10-26
 
 - Agent 实际连续空闲 95 秒：应用帧、协议 ping、审批查询和空闲重连增量均为 0，跨过旧 90 秒阈值；真实审批通知及只读 probe 随后成功。CC 实测三轮查询，间隔 10.002 / 10.001 秒，只提交一次业务请求，退出后观察 10.5 秒无继续查询。

@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "063ac305df585d0760b87d971c9a5e4419eeb3e2",
+  "worker": "codex-over-cloudflare",
+  "namespaceIds": {
+    "HostRelayDO": "a1ed91c48d284f33ba92625cdbc57bd5",
+    "RegistryDO": "87004434a5c1489aa7ca335a09312126"
+  },
+  "dailyWindow": {
+    "from": "2026-10-25T00:00:00Z",
+    "until": "2026-10-27T00:00:00Z"
+  },
+  "hourlyWindow": {
+    "from": "2026-10-26T16:00:00Z",
+    "until": "2026-10-27T01:00:00Z"
+  },
+  "note": "Read-only GraphQL Analytics baseline. Production and development activity are mixed. No post-change deployment or savings measurement.",
+  "collectedOnUtc": "2026-10-27"
+}

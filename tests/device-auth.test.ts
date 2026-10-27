@@ -79,6 +79,121 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('keeps management changes local and targets host snapshot notifications', async () => {
+    const notify = vi.fn<
+      (id: string, data: { scope: string }) => Promise<Response>
+    >(async () => Response.json({ ok: true }));
+    env.HOSTS = {
+      idFromName: (id: string) => id,
+      get: (id: string) => ({
+        fetch: (url: string, init: RequestInit) =>
+          notify(id, JSON.parse(init.body as string)),
+      }),
+    } as unknown as DurableObjectNamespace;
+    const a = await grant('agent'),
+      b = await grant('agent');
+    notify.mockClear();
+    const owner = (await op('login', { secret: env.OWNER_SECRET, ip: 'owner' }))
+      .data;
+    await op('logoutOthers', { hash: owner.token });
+    await op('apiKeyCreate', { role: 'cli', name: 'key', hostId: a.hostId });
+    await op('deviceStart', { role: 'agent', name: 'unassigned' });
+    expect(notify).not.toHaveBeenCalled();
+
+    await op('setWakeUrl', { id: a.hostId, wakeUrl: null });
+    expect(notify.mock.calls.map(([id]) => id)).toEqual([a.hostId]);
+    notify.mockClear();
+    const request = (
+      await op('deviceStart', {
+        role: 'cli',
+        name: 'targeted',
+        requestedHostId: b.hostId,
+      })
+    ).data;
+    await op('deviceApprove', { id: request.id });
+    expect(notify.mock.calls.map(([id]) => id)).toEqual([b.hostId, b.hostId]);
+    expect(
+      notify.mock.calls.every(([, data]) => data.scope === 'requests'),
+    ).toBe(true);
+
+    notify.mockClear();
+    const unassigned = (
+      await op('deviceStart', { role: 'cli', name: 'unassigned' })
+    ).data;
+    await op('deviceApprove', { id: unassigned.id, hostId: a.hostId });
+    expect(notify.mock.calls.map(([id]) => id)).toEqual([a.hostId]);
+    notify.mockClear();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(unassigned.expires);
+    try {
+      await registry.alarm();
+    } finally {
+      clock.mockRestore();
+    }
+    expect(
+      notify.mock.calls.every(([id]) => id === a.hostId || id === b.hostId),
+    ).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(4);
+
+    notify.mockClear();
+    // The unclaimed client grants expired, but the delivered Agents survive.
+    const release = { version: '0.5.12', commit: 'a'.repeat(40) };
+    await op('releasePublish', release);
+    expect(notify.mock.calls.map(([id]) => id).sort()).toEqual(
+      [a.hostId, b.hostId].sort(),
+    );
+    notify.mockClear();
+    await op('releasePublish', release);
+    expect(notify).not.toHaveBeenCalled();
+  });
+  it('targets rename, Agent configuration and revocation changes without suppressing them', async () => {
+    const a = await grant('agent');
+    await grant('agent');
+    const auth = (await op('auth', { token: a.token })).data;
+    const calls: string[] = [];
+    env.HOSTS = {
+      idFromName: (id: string) => id,
+      get: (id: string) => ({
+        fetch: async () => {
+          calls.push(id);
+          return Response.json({ ok: true });
+        },
+      }),
+    } as unknown as DurableObjectNamespace;
+    expect(
+      (await op('setInstanceName', { hash: auth.hash, displayName: 'renamed' }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await op('agentSetWakeUrl', {
+          agentHash: auth.hash,
+          wakeUrl: 'https://wake.example.com/start',
+        })
+      ).status,
+    ).toBe(200);
+    const key = (
+      await op('apiKeyCreate', {
+        role: 'cli',
+        hostId: a.hostId,
+        name: 'test key',
+      })
+    ).data;
+    expect(
+      (
+        await op('apiKeyLogin', {
+          role: 'cli',
+          apiKey: key.apiKey,
+          hostId: a.hostId,
+          name: 'client',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await op('apiKeyRevoke', { id: key.id })).status).toBe(200);
+    expect((await op('credentialRevoke', { id: auth.hash })).status).toBe(200);
+    expect(calls).toEqual(Array(5).fill(a.hostId));
+    expect((await op('auth', { token: a.token })).status).toBe(401);
+    expect((await op('auth', { token: key.apiKey })).status).toBe(401);
+  });
   it.each(['cli', 'web'])(
     'lets only the explicitly requested Agent approve a %s request',
     async (role) => {

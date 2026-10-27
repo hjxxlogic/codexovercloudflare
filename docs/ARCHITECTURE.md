@@ -1,5 +1,11 @@
 # 技术架构与选型
 
+## DO 通知范围与迁移读取 · 2026-10-27
+
+Registry 的登录 / 退出、API Key 创建和未指定主机的申请仅更新 Registry 订阅者。配对、授权撤销、API Key 登录 / 撤销及主机配置变更只向受影响 HostRelay 发短通知，同批 hostId 去重；仅版本发布扫描并通知全部有效主机。未领取申请到期仍执行权威撤销，通知仅发往原目标或已批准的主机，不为尚未批准的 Agent 预分配 ID 创建 HostRelay。`registry_change.notifiedHosts` 记录本次目标数，通知失败仍由快照恢复，不安排持续重试。
+
+到期迁移完成状态使用按 storage 实例关联的 WeakSet 提示，跳过热路径重复读取 `expiryMigration`。该提示只在持久完成状态已确认或最后一页写入成功后设置；有界迁移继续读取游标，休眠 / 重建后再次核对持久状态，不缓存业务授权或删除到期任务。实际用量分析与边界见 [DO 平台用量分析](do-usage-2026-10-27.md)。
+
 ## 0.5.12 按需通讯实现
 
 HostRelay 的控制路径为持久异步状态机：保存调用者 scope、Agent epoch、wire ID、阶段、socket ID、原业务 requestId，发送后返回 202；Agent 结果到达后推进 get / attach / ticket 等阶段或完成回执。HTTP handler 和 history / auth WS handler 均不持有等待 Agent 的 Promise 或控制 timer。结果通知仅送同凭证订阅，领取再次验证身份；迟到 wire / epoch 不匹配时忽略。临时数据分片避免超出单存储值限制，五分钟回收；权威业务去重仍在 Agent。每主机 64 个在途、256 个总回执限制使用持久事务，重建不能绕过；同凭证只读 probe 合并。

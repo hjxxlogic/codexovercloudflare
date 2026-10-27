@@ -51,6 +51,9 @@ export class RegistryDO extends DurableObject<Env> {
       ].includes(op)
         ? await this.ctx.storage.get<any>('device:' + d.id)
         : undefined;
+      const credential = ['setInstanceName', 'agentSetWakeUrl'].includes(op)
+        ? await this.ctx.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
+        : undefined;
       const response = await this.dispatch(req);
       const mutations = [
         'login',
@@ -80,14 +83,35 @@ export class RegistryDO extends DurableObject<Env> {
         )
       ) {
         const result: any = await response.clone().json();
-        const targeted =
-          op === 'deviceStart'
-            ? result.requestedHostId
-            : previous?.requestedHostId;
+        const deviceChange = op === 'deviceStart' || previous !== undefined;
+        // Administrative state is local to Registry. Only wake hosts whose
+        // snapshots changed; release publication is the sole global broadcast.
+        const hosts: (string | undefined)[] = deviceChange
+          ? [
+              op === 'deviceStart'
+                ? result.requestedHostId
+                : (previous?.requestedHostId ??
+                  (op === 'deviceApprove'
+                    ? (previous?.hostId ?? d.hostId)
+                    : undefined)),
+            ]
+          : op === 'apiKeyRevoke'
+            ? result.map((auth: Auth) => auth.hostId)
+            : [
+                op === 'credentialRevoke' || op === 'apiKeyLogin'
+                  ? result.hostId
+                  : op === 'setWakeUrl'
+                    ? d.id
+                    : credential?.hostId,
+              ];
         await this.publish(
-          op === 'releasePublish' ? 'release' : 'registry',
+          op === 'releasePublish'
+            ? 'release'
+            : deviceChange
+              ? 'requests'
+              : 'registry',
           op === 'deviceStart' ? result.id : previous?.id,
-          targeted,
+          hosts.filter((id): id is string => typeof id === 'string'),
         ).catch(() =>
           console.log(
             JSON.stringify({
@@ -162,7 +186,7 @@ export class RegistryDO extends DurableObject<Env> {
   private async publish(
     scope: string,
     deviceId?: string,
-    requestedHost?: string,
+    affectedHosts: string[] = [],
   ) {
     const revision =
       ((await this.ctx.storage.get<number>('revision')) || 0) + 1;
@@ -196,13 +220,12 @@ export class RegistryDO extends DurableObject<Env> {
         ws.close(4001, 'Subscription validation failed');
       }
     }
-    const hosts = requestedHost
-      ? [requestedHost]
-      : scope === 'release' || scope === 'registry'
+    const hosts =
+      scope === 'release'
         ? [...(await this.ctx.storage.list<Host>({ prefix: 'host:' })).values()]
             .filter((h) => !h.disabled)
             .map((h) => h.id)
-        : [];
+        : [...new Set(affectedHosts)];
     const release =
       scope === 'release'
         ? await this.ctx.storage.get<{ version: string }>('release')
@@ -212,14 +235,21 @@ export class RegistryDO extends DurableObject<Env> {
         hostStub(this.env, id).fetch('https://internal/notify', {
           method: 'POST',
           body: JSON.stringify({
-            scope: requestedHost ? 'requests' : scope,
+            scope,
             revision,
             ...(release ? { version: release.version } : {}),
           }),
         }),
       ),
     );
-    console.log(JSON.stringify({ event: 'registry_change', scope, revision }));
+    console.log(
+      JSON.stringify({
+        event: 'registry_change',
+        scope,
+        revision,
+        notifiedHosts: hosts.length,
+      }),
+    );
   }
   async webSocketMessage(ws: WebSocket) {
     ws.close(4000, 'Notification channel is read only');
@@ -869,6 +899,7 @@ export class RegistryDO extends DurableObject<Env> {
     await migrateExpiry(s, ['device:', 'limit:', 'auth:']);
     for (const [index, { key }] of await dueEntries(s)) {
       let deviceId: string | undefined;
+      let hostId: string | undefined;
       await s.transaction(async (tx) => {
         const value = await tx.get<any>(key);
         if (!value || (value.expires ?? value.until) > Date.now()) return;
@@ -876,10 +907,15 @@ export class RegistryDO extends DurableObject<Env> {
           await this.revokeCredential(tx, await digest(value.result.token));
         }
         await tx.delete(key);
-        if (key.startsWith('device:')) deviceId = key.slice(7);
+        if (key.startsWith('device:')) {
+          deviceId = key.slice(7);
+          hostId =
+            value.requestedHostId ?? (value.result ? value.hostId : undefined);
+        }
       });
       await s.delete(index);
-      if (deviceId) await this.publish('registry', deviceId);
+      if (deviceId)
+        await this.publish('requests', deviceId, hostId ? [hostId] : []);
     }
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.deserializeAttachment().expires <= Date.now())

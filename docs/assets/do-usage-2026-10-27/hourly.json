@@ -1,0 +1,281 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "inv": [
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T16:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 236
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-27T00:00:00Z",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 1
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T19:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 207
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T18:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 236
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T22:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 238
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T19:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 1
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T23:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 1
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T17:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 238
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T21:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 236
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T23:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 236
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T20:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 242
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-27T00:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "scriptVersion": "bb6a5e38-2851-4bcb-99b6-9619d43c9376",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 248
+              }
+            }
+          ],
+          "periodic": [
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T23:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.14416448,
+                "rowsRead": 241,
+                "rowsWritten": 1
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T21:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.167903872,
+                "rowsRead": 236,
+                "rowsWritten": 0
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T20:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.33856614399999996,
+                "rowsRead": 240,
+                "rowsWritten": 0
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T17:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.300870656,
+                "rowsRead": 238,
+                "rowsWritten": 0
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-27T00:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.168452992,
+                "rowsRead": 303,
+                "rowsWritten": 5
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T18:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.17192870400000002,
+                "rowsRead": 237,
+                "rowsWritten": 0
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T16:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.13356147199999996,
+                "rowsRead": 237,
+                "rowsWritten": 0
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-27T00:00:00Z",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5"
+              },
+              "sum": {
+                "duration": 0.0368064,
+                "rowsRead": 2,
+                "rowsWritten": 1
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T19:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.137023744,
+                "rowsRead": 214,
+                "rowsWritten": 2
+              }
+            },
+            {
+              "dimensions": {
+                "datetimeHour": "2026-10-26T22:00:00Z",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "duration": 0.12454451199999998,
+                "rowsRead": 239,
+                "rowsWritten": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "errors": null
+}

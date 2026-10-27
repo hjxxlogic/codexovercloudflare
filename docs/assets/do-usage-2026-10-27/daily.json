@@ -1,0 +1,399 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "inv": [
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "hibernation"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 12592,
+                "wallTime": 453816863
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "scriptThrewException",
+                "type": "hibernation"
+              },
+              "sum": {
+                "errors": 1,
+                "requests": 1,
+                "wallTime": 4075
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "responseStreamDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 13,
+                "requests": 13,
+                "wallTime": 21109057863
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "success",
+                "type": "jsrpc"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 3,
+                "wallTime": 75191
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 46609,
+                "wallTime": 188505952
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "hibernation"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 8356,
+                "wallTime": 411285763
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 31806,
+                "wallTime": 94797509
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "scriptThrewException",
+                "type": "hibernation"
+              },
+              "sum": {
+                "errors": 2,
+                "requests": 2,
+                "wallTime": 14841
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 3027,
+                "wallTime": 19058195505
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 4129,
+                "wallTime": 696331927
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "clientDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 114,
+                "requests": 114,
+                "wallTime": 172442608548
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "clientDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 1,
+                "requests": 1,
+                "wallTime": 1740
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 735,
+                "wallTime": 20344587
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 964,
+                "wallTime": 26992578
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "clientDisconnected",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 79,
+                "requests": 79,
+                "wallTime": 4568846
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 1874,
+                "wallTime": 2257517163
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "responseStreamDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 11,
+                "requests": 11,
+                "wallTime": 31417493681
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "clientDisconnected",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 31,
+                "requests": 31,
+                "wallTime": 1283874
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "clientDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 160,
+                "requests": 160,
+                "wallTime": 113215494598
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "clientDisconnected",
+                "type": "http"
+              },
+              "sum": {
+                "errors": 1,
+                "requests": 1,
+                "wallTime": 1815
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126",
+                "status": "clientDisconnected",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 8,
+                "requests": 8,
+                "wallTime": 130758
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5",
+                "status": "success",
+                "type": "alarm"
+              },
+              "sum": {
+                "errors": 0,
+                "requests": 5819,
+                "wallTime": 193429143
+              }
+            }
+          ],
+          "periodic": [
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "activeTime": 154376992,
+                "cpuTime": 54413436,
+                "duration": 19.760254976000002,
+                "inboundWebsocketMsgCount": 0,
+                "outboundWebsocketMsgCount": 0,
+                "rowsRead": 285473,
+                "rowsWritten": 173
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5"
+              },
+              "sum": {
+                "activeTime": 1157401388,
+                "cpuTime": 21202002,
+                "duration": 148.14737766400003,
+                "inboundWebsocketMsgCount": 0,
+                "outboundWebsocketMsgCount": 9425,
+                "rowsRead": 11941,
+                "rowsWritten": 288
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5"
+              },
+              "sum": {
+                "activeTime": 707898135,
+                "cpuTime": 19051146,
+                "duration": 90.61096128,
+                "inboundWebsocketMsgCount": 0,
+                "outboundWebsocketMsgCount": 7350,
+                "rowsRead": 12980,
+                "rowsWritten": 115
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "sum": {
+                "activeTime": 108017783,
+                "cpuTime": 37318534,
+                "duration": 13.826276224,
+                "inboundWebsocketMsgCount": 0,
+                "outboundWebsocketMsgCount": 0,
+                "rowsRead": 144394,
+                "rowsWritten": 341
+              }
+            }
+          ],
+          "storage": [
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "max": {
+                "storedBytes": 28672
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-26",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5"
+              },
+              "max": {
+                "storedBytes": 303104
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "87004434a5c1489aa7ca335a09312126"
+              },
+              "max": {
+                "storedBytes": 28672
+              }
+            },
+            {
+              "dimensions": {
+                "date": "2026-10-25",
+                "namespaceId": "a1ed91c48d284f33ba92625cdbc57bd5"
+              },
+              "max": {
+                "storedBytes": 270336
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "errors": null
+}

@@ -1,3 +1,7 @@
+// This hint only skips reads of a durable, completed migration. Hibernation
+// discards it safely; unfinished migrations always use their persisted cursor.
+const migrated = new WeakSet<DurableObjectStorage>();
+
 // One sorted queue per object. Permanent credentials never enter this queue.
 export async function expireAt(
   storage: DurableObjectStorage,
@@ -24,10 +28,14 @@ export async function migrateExpiry(
   storage: DurableObjectStorage,
   prefixes: string[],
 ) {
+  if (migrated.has(storage)) return;
   const state = await storage.get<{ prefix: number; after?: string }>(
     'expiryMigration',
   );
-  if (state?.prefix === prefixes.length) return;
+  if (state?.prefix === prefixes.length) {
+    migrated.add(storage);
+    return;
+  }
   const cursor = state || { prefix: 0 };
   const records = await storage.list<any>({
     prefix: prefixes[cursor.prefix],
@@ -44,6 +52,7 @@ export async function migrateExpiry(
     pending: !!after || cursor.prefix + 1 < prefixes.length,
     ...(after ? { after } : {}),
   });
+  if (!after && cursor.prefix + 1 === prefixes.length) migrated.add(storage);
   if (after || cursor.prefix + 1 < prefixes.length) {
     const alarm = await storage.getAlarm();
     if (alarm === null || alarm > Date.now())
