@@ -691,6 +691,24 @@ try {
     'approval check failure warns without stopping Agent',
   );
   otherAgent.approvalStatus = undefined;
+  // Exercise recovery while these five-minute device requests are still valid.
+  await api('/admin/reject', { id: startupRequest.id }, { admin: true });
+  const recoveryRequest = await api(
+    '/auth/device/start',
+    {
+      role: 'web',
+      name: 'Approval recovery event',
+      requestedHostId: other.hostId,
+    },
+    { anonymous: true, ip: 'approval-recovery-event' },
+  );
+  await wait(
+    () => approvalNotices(otherAgent!).some((n) => n.id === foreignRequest.id),
+    'approval check recovers on the next real request event',
+    40000,
+  );
+  await api('/admin/reject', { id: foreignRequest.id }, { admin: true });
+  await api('/admin/reject', { id: recoveryRequest.id }, { admin: true });
   assert.equal(
     JSON.parse(await cliCommand(['projects', '--host', 'local-test']))[0].id,
     'test-project',
@@ -904,6 +922,34 @@ try {
     );
     state = JSON.parse(readFileSync(file, 'utf8'));
     assert.equal(state.queue.length, count + 1);
+    for (const command of [
+      { action: 'models' },
+      {
+        action: 'prompt',
+        text: 'must not queue a model override',
+        model: 'test-model-alt',
+      },
+    ]) {
+      const requestId = randomUUID();
+      connection.ws.send(JSON.stringify({ ...command, requestId }));
+      await wait(
+        () =>
+          connection.messages.some(
+            (m) => m.type === 'error' && m.requestId === requestId,
+          ),
+        'external model override rejected',
+      );
+      assert.equal(
+        connection.messages.find(
+          (m) => m.type === 'error' && m.requestId === requestId,
+        ).error.code,
+        'EXTERNAL_READ_ONLY',
+      );
+    }
+    assert.equal(
+      JSON.parse(readFileSync(file, 'utf8')).queue.length,
+      count + 1,
+    );
     state.items[state.items.length - 1].text = 'External reply grew 你好';
     writeFileSync(file, JSON.stringify(state));
     await wait(
@@ -1246,7 +1292,26 @@ try {
     p.messages.some((m) => m.type === 'attached'),
   )!;
   pass('real DO concurrent attach permits exactly one controller');
-  const prompt = { action: 'prompt', requestId: randomUUID(), text: 'hello' };
+  const modelsRequestId = randomUUID();
+  p.ws.send(JSON.stringify({ action: 'models', requestId: modelsRequestId }));
+  await wait(
+    () =>
+      p.messages.some(
+        (m) => m.type === 'ack' && m.requestId === modelsRequestId,
+      ),
+    'web model list',
+  );
+  assert.equal(
+    p.messages.find((m) => m.type === 'ack' && m.requestId === modelsRequestId)
+      .result.data[0].model,
+    'test-model-alt',
+  );
+  const prompt = {
+    action: 'prompt',
+    requestId: randomUUID(),
+    text: 'hello',
+    model: 'test-model-alt',
+  };
   p.ws.send(JSON.stringify(prompt));
   await wait(
     () => p.messages.some((m) => m.event?.type === 'turn/completed'),
@@ -1255,6 +1320,11 @@ try {
   const liveEvents = p.messages
     .filter((m) => m.type === 'event')
     .map((m) => m.event);
+  assert.equal(
+    liveEvents.find((e) => e.type === 'turn/started')?.data.model,
+    'test-model-alt',
+    'web model selection reaches Codex turn/start',
+  );
   assert.deepEqual(
     liveEvents.map((e) => e.revision),
     liveEvents.map((e) => e.revision).sort((a, b) => a - b),
@@ -1276,6 +1346,23 @@ try {
   );
   assert.equal(p.messages.filter((m) => m.event?.type === 'user').length, 1);
   pass('streaming and duplicate prompt suppression');
+  p.ws.send(JSON.stringify({ ...prompt, model: 'another-model' }));
+  await wait(
+    () =>
+      p.messages.some(
+        (m) => m.type === 'error' && m.requestId === prompt.requestId,
+      ),
+    'changed-model duplicate rejected',
+  );
+  assert.equal(
+    p.messages.find(
+      (m) => m.type === 'error' && m.requestId === prompt.requestId,
+    ).error.code,
+    'IDEMPOTENCY_CONFLICT',
+  );
+  pass(
+    'web model discovery, turn model forwarding and model-aware duplicate rejection',
+  );
   agent.loseNextAttachReply();
   const lostTicket = await api(`/sessions/${s.id}/takeover`, {});
   const lostController = peer('/ws/v1/web/' + s.id);
@@ -1678,23 +1765,6 @@ try {
     approvalNotices(agent!).filter((n) => n.id === startupRequest.id).length,
     1,
   );
-  await api('/admin/reject', { id: startupRequest.id }, { admin: true });
-  const recoveryRequest = await api(
-    '/auth/device/start',
-    {
-      role: 'web',
-      name: 'Approval recovery event',
-      requestedHostId: other.hostId,
-    },
-    { anonymous: true, ip: 'approval-recovery-event' },
-  );
-  await wait(
-    () => approvalNotices(otherAgent!).some((n) => n.id === foreignRequest.id),
-    'approval check recovers on the next real request event',
-    40000,
-  );
-  await api('/admin/reject', { id: foreignRequest.id }, { admin: true });
-  await api('/admin/reject', { id: recoveryRequest.id }, { admin: true });
   pass(
     'running Agents discover new requests, deduplicate notices and recover from approval service failure',
   );

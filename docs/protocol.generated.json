@@ -37,12 +37,38 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64000
+          },
+          "model": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}(?![\\s\\S])"
           }
         },
         "required": [
           "action",
           "requestId",
           "text"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "models"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "action",
+          "requestId"
         ],
         "additionalProperties": false
       },

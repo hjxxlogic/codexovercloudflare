@@ -4,6 +4,9 @@ export const MAX_FRAME = 256 * 1024;
 export const MAX_QUEUE = 8 * 1024 * 1024;
 export const CODEX_VERSION = '0.164.0';
 export const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+export const modelIdSchema = z
+  .string()
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}(?![\s\S])/);
 export const wakeUrlSchema = z
   .string()
   .max(2048)
@@ -102,6 +105,12 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     action: z.literal('prompt'),
     requestId: idSchema,
     text: z.string().trim().min(1).max(64000),
+    model: modelIdSchema.optional(),
+  }),
+  z.object({
+    action: z.literal('models'),
+    requestId: idSchema,
+    cursor: z.string().max(4096).optional(),
   }),
   z.object({ action: z.literal('interrupt'), requestId: idSchema }),
   z.object({

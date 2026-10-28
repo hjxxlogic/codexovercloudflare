@@ -15,7 +15,11 @@ import React, {
   useMemo,
 } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { Event, Session } from '../../../packages/protocol/src/index.ts';
+import {
+  modelIdSchema,
+  type Event,
+  type Session,
+} from '../../../packages/protocol/src/index.ts';
 import './style.css';
 import { eventWindow, mergeEvents } from './events.ts';
 import { api, ApiError, retryable } from './api.ts';
@@ -38,6 +42,7 @@ import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
 import { AutoApproval } from './auto-approval.tsx';
+import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
 function MenuIcon() {
   return (
@@ -90,9 +95,9 @@ function App() {
   const [threadError, setThreadError] = useState('');
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
-  const [panel, setPanel] = useState<'sessions' | 'details' | 'files' | null>(
-    null,
-  );
+  const [panel, setPanel] = useState<
+    'sessions' | 'details' | 'files' | 'models' | null
+  >(null);
   const panelDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = panelDialog.current;
@@ -193,6 +198,9 @@ function App() {
     requestId: string;
     threadId?: string;
   }>();
+  const [promptProgress, setPromptProgress] = useState<
+    'sending' | 'waiting' | 'replying'
+  >();
   const [fileBusy, setFileBusy] = useState(false);
   const closePanel = () => {
     if (
@@ -217,6 +225,17 @@ function App() {
     action: string;
   }>();
   const pendingCommand = useRef<typeof unconfirmed>(undefined);
+  const [selectedModel, setSelectedModel] = useState('');
+  const modelRequests = useRef(
+    new Map<
+      string,
+      {
+        resolve: (page: ModelPage) => void;
+        reject: (error: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >(),
+  );
   const draft = useRef('');
   draft.current = text;
   const online = hosts.find((h) => h.id === host)?.online === true;
@@ -742,7 +761,7 @@ function App() {
   useEffect(() => {
     if (followMessages.current && messageList.current)
       messageList.current.scrollTop = messageList.current.scrollHeight;
-  }, [events, view]);
+  }, [events, view, promptProgress, busy, unconfirmed]);
   useLayoutEffect(() => {
     const anchor = historyAnchor.current;
     historyAnchor.current = null;
@@ -780,6 +799,8 @@ function App() {
     setApprovals([]);
     setText('');
     setUnconfirmed(undefined);
+    setPromptProgress(undefined);
+    setSelectedModel('');
     pendingCommand.current = undefined;
     followMessages.current = true;
     if (!selected) return;
@@ -792,7 +813,8 @@ function App() {
     setApprovals([]);
     setReady(false);
     setPending(false);
-    setBusy(selected.state === 'ready' && selected.running);
+    let running = selected.state === 'ready' && selected.running;
+    setBusy(running);
     const seen = new Map<number, number>();
     let stateSeq = 0;
     const displayEvents = new Map<number, Event>();
@@ -827,6 +849,15 @@ function App() {
       }
       if (!live) return;
       const d = e.data as any;
+      if (
+        running &&
+        e.seq > stateSeq &&
+        ((e.type === 'item/agentMessage/delta' && d.delta) ||
+          (['item/started', 'item/completed'].includes(e.type) &&
+            d.item?.type === 'agentMessage' &&
+            d.item.text))
+      )
+        setPromptProgress('replying');
       if (e.type === 'sessionClosed') {
         setApprovals([]);
         setReady(false);
@@ -843,7 +874,9 @@ function App() {
         );
       }
       if (e.type === 'externalState') {
+        running = d.running;
         setBusy(d.running);
+        if (!running) setPromptProgress(undefined);
         setSelected((current) =>
           current?.id === selected.id
             ? {
@@ -875,7 +908,9 @@ function App() {
         ['turn/started', 'turn/completed', 'sessionClosed'].includes(e.type)
       ) {
         stateSeq = e.seq;
-        setBusy(e.type === 'turn/started');
+        running = e.type === 'turn/started';
+        setBusy(running);
+        setPromptProgress(e.type === 'turn/started' ? 'waiting' : undefined);
       }
     };
     const controller = new AbortController();
@@ -900,6 +935,9 @@ function App() {
         );
         if (disposed) return;
         if (result.state === 'completed' || result.state === 'failed') {
+          setPromptProgress((progress) =>
+            progress === 'sending' ? undefined : progress,
+          );
           pendingCommand.current = undefined;
           setUnconfirmed(undefined);
           setPending(false);
@@ -907,10 +945,14 @@ function App() {
           if (result.result?.state === 'queued')
             setNotice('已确认加入原客户端队列，等待原客户端执行。');
           if (result.state === 'failed') {
+            setPromptProgress(undefined);
             setText((text) => text || command.text || '');
             setError(result.result.requestError.message);
           }
         } else {
+          setPromptProgress((progress) =>
+            progress === 'sending' ? undefined : progress,
+          );
           setPending(false);
           setUnconfirmed(command);
           setNotice('提交结果尚未确认，请核对远程历史；不要重复提交同一任务。');
@@ -952,6 +994,29 @@ function App() {
               ws.send(
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
+            const modelRequest = modelRequests.current.get(d.requestId);
+            if (modelRequest && (d.type === 'ack' || d.type === 'error')) {
+              clearTimeout(modelRequest.timer);
+              modelRequests.current.delete(d.requestId);
+              if (d.type === 'error')
+                modelRequest.reject(new Error(d.error.message));
+              else {
+                const page = modelPageSchema.safeParse(d.result);
+                if (page.success) modelRequest.resolve(page.data);
+                else
+                  modelRequest.reject(
+                    new Error(t('模型列表格式不兼容，请升级 Agent / Codex。')),
+                  );
+              }
+              return;
+            }
+            // Late catalog replies must not clear an unrelated task/approval submission.
+            if (
+              ['ack', 'error'].includes(d.type) &&
+              typeof d.requestId === 'string' &&
+              d.requestId.startsWith('models-')
+            )
+              return;
             if (d.type === 'attached') {
               ws.send(
                 JSON.stringify({
@@ -969,7 +1034,10 @@ function App() {
                   : current,
               );
               setApprovals(d.approvals);
+              running = d.session.running;
               setBusy(d.session.running);
+              if (!d.session.running && !pendingCommand.current)
+                setPromptProgress(undefined);
               for (const e of d.events) add(e);
               if (d.gap) setError('部分历史已清理，当前显示保留记录。');
               if (d.more)
@@ -994,6 +1062,13 @@ function App() {
                   '已加入原客户端队列，等待原客户端执行；审批仍在原客户端处理。',
                 );
               if (pendingCommand.current?.requestId === d.requestId) {
+                setPromptProgress((progress) =>
+                  d.result?.state === 'queued'
+                    ? undefined
+                    : progress === 'sending'
+                      ? 'waiting'
+                      : progress,
+                );
                 pendingCommand.current = undefined;
                 setUnconfirmed(undefined);
                 void cache?.record('pending', null);
@@ -1002,6 +1077,8 @@ function App() {
             }
             if (d.type === 'error') {
               setPending(false);
+              if (d.requestId === pendingCommand.current?.requestId)
+                setPromptProgress(undefined);
               if (
                 d.requestId === pendingCommand.current?.requestId &&
                 d.error.code !== 'RESULT_UNKNOWN'
@@ -1031,6 +1108,11 @@ function App() {
         ws.onclose = (e) => {
           clearTimeout(handshake);
           if (disposed) return;
+          for (const request of modelRequests.current.values()) {
+            clearTimeout(request.timer);
+            request.reject(new Error(t('连接已断开，请重新加载模型。')));
+          }
+          modelRequests.current.clear();
           setReady(false);
           setPending(false);
           setStatus('已断开');
@@ -1196,10 +1278,13 @@ function App() {
           );
           localHistory.current = cache;
           const savedDraft = await cache.record('draft').catch(() => undefined);
+          const savedModel = await cache.record('model').catch(() => undefined);
           const savedPending = await cache
             .record('pending')
             .catch(() => undefined);
           if (disposed) return;
+          const restoredModel = modelIdSchema.safeParse(savedModel);
+          if (restoredModel.success) setSelectedModel(restoredModel.data);
           setText((current) => current || savedDraft || '');
           if (savedPending) {
             pendingCommand.current = savedPending;
@@ -1349,6 +1434,11 @@ function App() {
     else setStatus('查看已结束会话的历史');
     return () => {
       disposed = true;
+      for (const request of modelRequests.current.values()) {
+        clearTimeout(request.timer);
+        request.reject(new Error(t('连接或会话已切换，请重新加载模型。')));
+      }
+      modelRequests.current.clear();
       clearTimeout(displayTimer);
       displayEvents.clear();
       controller.abort();
@@ -1370,6 +1460,44 @@ function App() {
       socket.current = null;
     };
   }, [selected?.id, takeover, host, reconnect]);
+  const loadModels = useCallback(
+    (cursor?: string): Promise<ModelPage> => {
+      const ws = socket.current;
+      if (!ready || !online || ws?.readyState !== WebSocket.OPEN)
+        return Promise.reject(new Error(t('请先连接会话。')));
+      if (selected?.external)
+        return Promise.reject(new Error(t('外部会话请在原客户端切换模型。')));
+      return new Promise((resolve, reject) => {
+        const requestId = 'models-' + crypto.randomUUID();
+        const timer = setTimeout(() => {
+          modelRequests.current.delete(requestId);
+          reject(new Error(t('模型列表读取超时，请重试。')));
+        }, 15000);
+        modelRequests.current.set(requestId, { resolve, reject, timer });
+        try {
+          ws.send(
+            JSON.stringify({
+              action: 'models',
+              requestId,
+              ...(cursor ? { cursor } : {}),
+            }),
+          );
+        } catch (error) {
+          clearTimeout(timer);
+          modelRequests.current.delete(requestId);
+          reject(error);
+        }
+      });
+    },
+    [ready, online, selected?.id, selected?.external],
+  );
+  const openModels = () => {
+    if (selected?.external) {
+      setError('外部会话请在原客户端切换模型。');
+      return;
+    }
+    setPanel('models');
+  };
   const send = (data: {
     action: string;
     text?: string;
@@ -1384,6 +1512,8 @@ function App() {
     if (data.action === 'prompt') {
       pendingCommand.current = command;
       setUnconfirmed(command);
+      setPending(true);
+      setPromptProgress('sending');
       // Persist the identity before the send. Cache failure leaves the draft intact.
       void (async () => {
         let submitted = false;
@@ -1409,6 +1539,7 @@ function App() {
             }
           }
           if (socket.current === targetSocket) {
+            setPromptProgress(undefined);
             report(e);
             setPending(false);
           }
@@ -2541,12 +2672,36 @@ function App() {
                       ? t('会话详情')
                       : panel === 'files'
                         ? t('工作区文件')
-                        : t('会话记录')}
+                        : panel === 'models'
+                          ? t('选择模型')
+                          : t('会话记录')}
                   </h2>
                   <button aria-label={t('关闭面板')} onClick={closePanel}>
                     {t('关闭')}
                   </button>
                 </div>
+                {panel === 'models' && (
+                  <ModelPicker
+                    load={loadModels}
+                    current={selectedModel}
+                    disabled={
+                      busy ||
+                      pending ||
+                      !!unconfirmed ||
+                      !!promptProgress ||
+                      !ready ||
+                      !online
+                    }
+                    onChoose={async (model) => {
+                      const cache = localHistory.current;
+                      if (!cache) throw new Error(t('本机存储尚未就绪'));
+                      await cache.record('model', model);
+                      if (localHistory.current !== cache) return;
+                      setSelectedModel(model);
+                      setPanel(null);
+                    }}
+                  />
+                )}
                 {panel === 'files' && (
                   <WorkspaceFiles
                     host={host}
@@ -2850,19 +3005,30 @@ function App() {
                           onRead={readContent}
                         />
                       </FileContext.Provider>
-                      {busy && (
+                      {(busy || promptProgress) && (
                         <p className="thinking" role="status">
                           ●{' '}
-                          {approvals.length
-                            ? t('等待你的确认')
-                            : t('Codex 正在处理…')}
+                          {!ready
+                            ? t('连接已断开，等待重新连接确认状态…')
+                            : promptProgress === 'sending'
+                              ? t('正在发送给 Codex…')
+                              : approvals.length
+                                ? t('等待你的确认')
+                                : promptProgress === 'replying'
+                                  ? t('Codex 正在回复…')
+                                  : selected.external
+                                    ? t('Codex 正在处理…')
+                                    : t('已发送，等待 Codex 回复…')}
                         </p>
                       )}
-                      {!events.length && (
-                        <p className="empty-hint">
-                          {t('对话已就绪，发送任务开始。')}
-                        </p>
-                      )}
+                      {!events.length &&
+                        !unconfirmed &&
+                        !promptProgress &&
+                        !busy && (
+                          <p className="empty-hint">
+                            {t('对话已就绪，发送任务开始。')}
+                          </p>
+                        )}
                     </div>
                     <ApprovalQueue
                       approvals={approvals}
@@ -2881,8 +3047,8 @@ function App() {
                     {unconfirmed && (
                       <div className="submission-state" role="status">
                         <strong>
-                          {pending
-                            ? t('正在提交任务')
+                          {pending && promptProgress === 'sending'
+                            ? t('正在发送给 Codex…')
                             : t('任务提交结果待确认')}
                         </strong>
                         <p>{unconfirmed.text}</p>
@@ -2911,15 +3077,32 @@ function App() {
                         className="composer"
                         onSubmit={(e) => {
                           e.preventDefault();
+                          if (text.trim() === '/model') {
+                            openModels();
+                            if (!selected.external) {
+                              setText('');
+                              void localHistory.current
+                                ?.saveDraft('')
+                                .catch(report);
+                            }
+                            return;
+                          }
                           if (
                             text.trim() &&
                             ready &&
                             !pending &&
+                            (selected.external || !promptProgress) &&
                             (!busy || selected.external) &&
                             (!selected.external || selected.queueEnabled) &&
                             !pendingCommand.current
                           ) {
-                            send({ action: 'prompt', text });
+                            send({
+                              action: 'prompt',
+                              text,
+                              ...(!selected.external && selectedModel
+                                ? { model: selectedModel }
+                                : {}),
+                            });
                           }
                         }}
                       >
@@ -2959,6 +3142,13 @@ function App() {
                             }
                           />
                         </label>
+                        <button
+                          type="button"
+                          className="model-toggle"
+                          onClick={openModels}
+                        >
+                          /model · {selectedModel || t('选择模型')}
+                        </button>
                         {busy && !selected.external ? (
                           <button
                             type="button"
@@ -2975,6 +3165,7 @@ function App() {
                               !online ||
                               pending ||
                               !!unconfirmed ||
+                              (!selected.external && !!promptProgress) ||
                               (selected.external && !selected.queueEnabled) ||
                               !text.trim()
                             }

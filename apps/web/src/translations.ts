@@ -388,7 +388,32 @@ export const english: Record<string, string> = {
   加载更早内容: 'Load earlier content',
   '正在加载更早内容…': 'Loading earlier content…',
   返回最新内容: 'Return to latest',
+  选择模型: 'Choose model',
+  '选择后从下一条消息开始使用；不会中断当前任务。':
+    'The selected model will be used starting with your next message. Your current task will continue.',
+  '后续消息模型：{0}': 'Model for subsequent messages: {0}',
+  '请等待当前任务或提交结束后切换模型。':
+    'Wait for the current task or submission to finish before switching models.',
+  '正在加载模型…': 'Loading models\u2026',
+  '没有可用模型。': 'No models available.',
+  '（默认）': ' (default)',
+  刷新模型列表: 'Refresh models',
+  '模型列表分页异常，请重试。': 'Model list pagination failed. Please retry.',
+  '模型列表格式不兼容，请升级 Agent / Codex。':
+    'Incompatible model list. Please update Agent / Codex.',
+  '连接或会话已切换，请重新加载模型。':
+    'The connection or session changed. Please reload models.',
+  '连接已断开，请重新加载模型。': 'Disconnected. Please reload models.',
+  '请先连接会话。': 'Connect to a session first.',
+  '外部会话请在原客户端切换模型。':
+    'Switch models in the original client for external sessions.',
+  '模型列表读取超时，请重试。': 'Loading models timed out. Please retry.',
   'Codex 正在处理…': 'Codex is working…',
+  '正在发送给 Codex…': 'Sending to Codex…',
+  '已发送，等待 Codex 回复…': 'Sent. Waiting for Codex to reply…',
+  'Codex 正在回复…': 'Codex is replying…',
+  '连接已断开，等待重新连接确认状态…':
+    'Disconnected. Waiting to reconnect and confirm the status…',
   '对话已就绪，发送任务开始。': 'Ready. Send a task to get started.',
   正在提交任务: 'Submitting task',
   任务提交结果待确认: 'Task submission unconfirmed',

@@ -50,6 +50,9 @@ const approvalAnswers: {
 }[] = [];
 let dropApprovalAck = false;
 const submitted = new Set<string>();
+const promptCommands: { requestId: string; text: string; model?: string }[] =
+  [];
+let modelListFailure = false;
 let contentCalls = 0;
 let pagedHistory:
   | { seq: number; type: string; data: { text: string }; time: number }[]
@@ -323,8 +326,51 @@ wss.on('connection', (ws, request) => {
     else if (data.type === 'auth')
       ws.send(JSON.stringify({ type: 'attached', epoch: 1 }));
     else if (data.action === 'sync') sync(ws);
-    else if (data.action === 'prompt') submitted.add(data.requestId);
-    else if (data.action === 'approval') {
+    else if (data.action === 'models') {
+      ws.send(
+        JSON.stringify(
+          modelListFailure
+            ? {
+                type: 'error',
+                requestId: data.requestId,
+                error: {
+                  code: 'UNSUPPORTED_METHOD',
+                  message: 'model/list unavailable',
+                },
+              }
+            : {
+                type: 'ack',
+                requestId: data.requestId,
+                result: {
+                  data: data.cursor
+                    ? [
+                        {
+                          model: 'test-model-alt',
+                          displayName: 'Test alternative',
+                          description: 'Another model',
+                        },
+                      ]
+                    : [
+                        {
+                          model: 'test-model',
+                          displayName: 'Test default',
+                          isDefault: true,
+                        },
+                        {
+                          model: 'hidden-model',
+                          displayName: 'Hidden',
+                          hidden: true,
+                        },
+                      ],
+                  nextCursor: data.cursor ? null : 'second-page',
+                },
+              },
+        ),
+      );
+    } else if (data.action === 'prompt') {
+      submitted.add(data.requestId);
+      promptCommands.push(data);
+    } else if (data.action === 'approval') {
       approvalAnswers.push({
         approvalId: data.approvalId,
         requestId: data.requestId,
@@ -387,6 +433,105 @@ try {
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);
   assert.match(await group.locator(':scope > summary').innerText(), /3 项/);
+  await page.getByLabel('任务内容').fill('/model');
+  await page.getByLabel('任务内容').press('Enter');
+  await expect(
+    page.getByRole('heading', { name: '选择模型', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Test alternative/ }),
+  ).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Hidden/ })).toHaveCount(0);
+  assert.equal(
+    submitted.size,
+    0,
+    '/model is a local command and never a model task',
+  );
+  await page.screenshot({ path: join(artifacts, 'cw-models-mobile.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: join(artifacts, 'cw-models-desktop.png') });
+  modelListFailure = true;
+  await page.getByRole('button', { name: '刷新模型列表' }).click();
+  await expect(page.locator('.model-picker').getByRole('alert')).toContainText(
+    'model/list unavailable',
+  );
+  modelListFailure = false;
+  await page.getByRole('button', { name: '刷新模型列表' }).click();
+  await page.getByRole('button', { name: /Test alternative/ }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('.model-toggle')).toContainText('test-model-alt');
+  await page.reload();
+  await expect(page.locator('.model-toggle')).toContainText('test-model-alt');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('任务内容').fill('发送状态测试');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const progress = page.locator('.thinking');
+  await expect(progress).toContainText('正在发送给 Codex…');
+  await page.screenshot({ path: join(artifacts, 'cw-sending.png') });
+  await page.waitForFunction(
+    () => document.querySelector('textarea')?.value === '',
+  );
+  const requestId = [...submitted][0];
+  assert(requestId, 'prompt reaches the relay');
+  assert.equal(
+    promptCommands.at(-1)?.model,
+    'test-model-alt',
+    'selected model reaches the prompt',
+  );
+  for (const ws of controls)
+    ws.send(JSON.stringify({ type: 'ack', requestId, result: {} }));
+  await expect(progress).toContainText('已发送，等待 Codex 回复…');
+  const emit = (seq: number, type: string, data = {}) => {
+    for (const ws of controls)
+      ws.send(
+        JSON.stringify({
+          type: 'event',
+          event: { seq, type, data, time: seq },
+        }),
+      );
+  };
+  emit(1000, 'turn/started');
+  await expect(progress).toContainText('已发送，等待 Codex 回复…');
+  await page.locator('.model-toggle').click();
+  await expect(
+    page.getByRole('button', { name: /Test default/ }),
+  ).toBeDisabled();
+  await page.getByRole('button', { name: '关闭面板' }).click();
+  emit(1001, 'item/agentMessage/delta', {
+    itemId: 'status-reply',
+    delta: '收到消息',
+  });
+  await expect(progress).toContainText('Codex 正在回复…');
+  await page.screenshot({ path: join(artifacts, 'cw-replying.png') });
+  emit(1002, 'turn/completed');
+  await expect(progress).toHaveCount(0);
+  submitted.clear();
+  await page.getByLabel('任务内容').fill('提交结果不明测试');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(progress).toContainText('正在发送给 Codex…');
+  await page.waitForFunction(
+    () => document.querySelector('textarea')?.value === '',
+  );
+  const unknownRequestId = [...submitted][0];
+  assert(unknownRequestId);
+  for (const code of ['RESULT_UNKNOWN', 'SESSION_BUSY']) {
+    for (const ws of controls)
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          requestId: unknownRequestId,
+          error: { code, message: 'synthetic submission error' },
+        }),
+      );
+    await expect(progress).toHaveCount(0);
+    if (code === 'RESULT_UNKNOWN')
+      await expect(page.locator('.submission-state')).toContainText(
+        '任务提交结果待确认',
+      );
+  }
+  await expect(page.locator('.submission-state')).toHaveCount(0);
+  await expect(page.getByLabel('任务内容')).toHaveValue('提交结果不明测试');
+  submitted.clear();
   const languageDraft = '中英文切换保留草稿 / keep this draft';
   await page.getByLabel('任务内容').fill(languageDraft);
   const languageAttachCalls = attachCalls;
@@ -656,7 +801,7 @@ try {
       '切换后仍应保留的草稿',
   );
   await page.getByRole('button', { name: '发送', exact: true }).click();
-  await page.getByText('正在提交任务', { exact: true }).waitFor();
+  await expect(page.locator('.thinking')).toContainText('正在发送给 Codex…');
   await page.waitForFunction(
     () => document.querySelector('textarea')?.value === '',
   );

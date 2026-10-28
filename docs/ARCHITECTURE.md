@@ -112,6 +112,8 @@ flowchart LR
 
 Web UI 的中文 / English 语言状态独立于认证与会话，默认中文，使用本机 localStorage 保留并同步同源标签页；不可用时退回内存。React 通过外部状态订阅更新界面与日期格式，文档 `lang` 和标题同步更新。语言切换不重建连接、不重置草稿或审批；翻译表仅覆盖界面文案，不改写对话、命令、路径或协议载荷。
 
+CW `/model` 为本地界面命令，通过现有已授权、带控制租约的 WebSocket 发送 `models`（可选 cursor）；Agent 仅转为 `model/list`，每页 100 项，不暴露任意 RPC。模型选择写入按 origin / credential identity / host / session 隔离的 IndexedDB；后续 `prompt` 可携带受限 model 标识，Agent 转为 `turn/start.model`。model 纳入幂等指纹，缺省旧请求指纹保持兼容；服务端工作目录、sandbox 与审批规则保持权威。模型目录只按需读取，不增加轮询。外部会话拒绝 `models` 及含 model 的队列输入，保持原 writer 控制权。
+
 ### 3.1 设备授权模型
 
 R 为 Cloudflare 中转，A 为 `coc-agent`，CC 为 `coc-client`，CW 为网页客户端。只分发两个本地程序，原 `coc` 退出支持。A 的配置和登录由自身完成，客户端不再承担 Agent 登记或撤销管理。

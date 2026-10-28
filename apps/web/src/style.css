@@ -559,6 +559,31 @@ textarea {
   color: #9db9e7;
   font-size: 12px;
 }
+.composer > .model-toggle {
+  order: 0;
+  margin-left: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  background: transparent;
+  color: #b4c1d5;
+  font-size: 12px;
+}
+.model-picker {
+  min-width: 0;
+}
+.model-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  margin: 8px 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.model-option[aria-pressed='true'] {
+  border-color: #9db9e7;
+}
 .chat-welcome {
   margin: auto;
   padding: 40px 12px;

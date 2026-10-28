@@ -457,6 +457,19 @@ Json web_command(Json v) {
     if (utf16_length(s) > 64000)
       throw Error("INVALID_REQUEST", "Prompt exceeds limit");
     out["text"] = s;
+    if (v.contains("model")) {
+      if (!v["model"].is_string() ||
+          !std::regex_match(v["model"].get<std::string>(),
+                            std::regex("^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}$")))
+        throw Error("INVALID_REQUEST", "Invalid model");
+      out["model"] = v["model"];
+    }
+  } else if (a == "models") {
+    if (v.contains("cursor")) {
+      if (!v["cursor"].is_string() || utf16_length(v["cursor"].get<std::string>()) > 4096)
+        throw Error("INVALID_REQUEST", "Invalid model cursor");
+      out["cursor"] = v["cursor"];
+    }
   } else if (a == "approval") {
     auto s = v.at("approvalId").get<std::string>();
     if (s.empty() || s.size() > 200 || !v.at("allow").is_boolean())
@@ -473,6 +486,10 @@ std::string web_fingerprint(const Json &c) {
       "{\"action\":" + c.at("action").dump() + ",\"requestId\":" + c.at("requestId").dump();
   if (c.at("action") == "prompt")
     out += ",\"text\":" + c.at("text").dump();
+  if (c.at("action") == "prompt" && c.contains("model"))
+    out += ",\"model\":" + c.at("model").dump();
+  if (c.at("action") == "models" && c.contains("cursor"))
+    out += ",\"cursor\":" + c.at("cursor").dump();
   if (c.at("action") == "approval")
     out += ",\"approvalId\":" + c.at("approvalId").dump() + ",\"allow\":" + c.at("allow").dump();
   return out + "}";

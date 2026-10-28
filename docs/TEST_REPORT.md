@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## CW 发送状态与模型选择 · 2026-10-28
+
+- `npm test` 通过：CTest `native-core` 及 Vitest 10 文件 / 105 项。共享 C++ / Zod 夹具覆盖 models 分页、prompt.model 正常值及空值 / 类型 / 空白 / 超长拒绝；原生指纹验证不同模型不能共享同一请求内容。
+- `npm run typecheck`、`npm run lint`、`npm run lint:cpp`、`npm run protocol:check`、网页构建及 `git diff --check` 通过。
+- Chromium 合成 UI 回归通过：发送立即提示、确认后等待回复、收到正文、完成后清除、RESULT_UNKNOWN 保留待确认、失败恢复草稿；`/model` 不产生任务、模型列表分页 / 隐藏过滤 / 错误重试、选择后请求携带 model、刷新恢复、执行中禁止切换，以及原有审批 / 重连 / 历史 / 语言回归。
+- Bookworm 容器内 Chromium 再次完成 UI 回归；[手机模型面板](assets/cw-models-2026-10-28/cw-models-mobile.png)、[桌面模型面板](assets/cw-models-2026-10-28/cw-models-desktop.png)、[发送中](assets/cw-models-2026-10-28/cw-sending.png)、[收到回复](assets/cw-models-2026-10-28/cw-replying.png)。截图使用合成模型和对话数据，背景离线提示为票据重试夹具，非生产状态。
+- 本机真实 Codex `initialize` + `model/list(limit=100, includeHidden=false)` 成功，返回 9 个模型，model / displayName 字段符合界面使用要求；没有调用模型、提交任务或操作已有会话。
+- 本地完整 E2E 未计为通过：首次受网页重建触发的 Wrangler reload 打断，随后在旧设备申请超过五分钟后清理时失败。已将该审批恢复 / 清理夹具移到申请有效期内执行，保持产品过期规则；模型列表、模型传递、按模型去重及外部会话拒绝覆盖的集成断言已通过。
+- 用户重申测试应在 GitHub Actions 中进行，已停止本地完整回归；最终验收以本次功能提交的 `.github/workflows/checks.yml` 全部必需作业为准，提交时仍待 CI 结果，不把本地局部通过作为发行验证。尚未部署，模型选择需要网页、Worker 和 Agent 同时更新。
+
 ## CI 部署自动化 · 2026-10-28
 
 - `python3 tests/agent-deploy.py` 八项测试通过：推送拒绝脏工作区 / 错误仓库、精确提交 / 工作流 / 六项必需作业门禁、artifact 摘要与归档穿越 / 链接拒绝、候选来源身份、未知 / 过期指标及忙碌工作不视为空闲、繁忙不停止服务、启动失败还原备份及旧版 curl 的中断续传重试。测试无网络、SSH 或系统服务修改；已纳入 Actions regression。

@@ -1361,7 +1361,20 @@ public:
       if (action != "prompt")
         throw Error("EXTERNAL_READ_ONLY",
                     "The original Codex client handles interruption and approvals");
+      if (cmd.contains("model"))
+        throw Error("EXTERNAL_READ_ONLY", "Switch models in the original Codex client");
       queue_external(id, cmd, [this, id, cmd, done](Json result, Json error) {
+        if (error.is_null())
+          notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
+        done(result, error);
+      });
+      return;
+    }
+    if (action == "models") {
+      Json params = {{"limit", 100}, {"includeHidden", false}};
+      if (cmd.contains("cursor"))
+        params["cursor"] = cmd["cursor"];
+      rt->process->request("model/list", params, [this, id, cmd, done](Json result, Json error) {
         if (error.is_null())
           notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
         done(result, error);
@@ -1398,27 +1411,28 @@ public:
       s.erase("turnId");
       store_.save(s);
       emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
-      rt->process->request("turn/start",
-                           {{"threadId", s.at("threadId")},
-                            {"input", Json::array({{{"type", "text"},
-                                                    {"text", cmd["text"]},
-                                                    {"text_elements", Json::array()}}})}},
-                           [this, id, complete](Json result, Json error) {
-                             auto current = store_.get(id);
-                             if (error.is_null()) {
-                               auto turn = result.at("turn").at("id");
-                               if (current["running"] == true)
-                                 current["turnId"] = turn;
-                               store_.save(current);
-                               complete({{"turnId", turn}}, nullptr);
-                             } else {
-                               if (error.value("code", "") != "RESULT_UNKNOWN") {
-                                 current["running"] = false;
-                                 store_.save(current);
-                               }
-                               complete(nullptr, error);
-                             }
-                           });
+      Json params = {{"threadId", s.at("threadId")},
+                     {"input", Json::array({{{"type", "text"},
+                                             {"text", cmd["text"]},
+                                             {"text_elements", Json::array()}}})}};
+      if (cmd.contains("model"))
+        params["model"] = cmd["model"];
+      rt->process->request("turn/start", params, [this, id, complete](Json result, Json error) {
+        auto current = store_.get(id);
+        if (error.is_null()) {
+          auto turn = result.at("turn").at("id");
+          if (current["running"] == true)
+            current["turnId"] = turn;
+          store_.save(current);
+          complete({{"turnId", turn}}, nullptr);
+        } else {
+          if (error.value("code", "") != "RESULT_UNKNOWN") {
+            current["running"] = false;
+            store_.save(current);
+          }
+          complete(nullptr, error);
+        }
+      });
       return;
     }
     if (action == "interrupt" && s.contains("turnId")) {

@@ -174,11 +174,27 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     ['turn/start', 'turn/interrupt'].includes(m.method)
   )
     throw new Error('External writer must never be controlled');
+  if (m.method === 'model/list') {
+    result = {
+      data: [
+        {
+          id: 'test-model-alt',
+          model: 'test-model-alt',
+          displayName: 'Test alternative',
+          isDefault: true,
+        },
+      ],
+      nextCursor: null,
+    };
+  }
   if (m.method === 'turn/start') {
     turn++;
     result = { turn: { id: 'turn-' + turn, status: 'inProgress' } };
     send({ id: m.id, result });
-    send({ method: 'turn/started', params: { turn: result.turn } });
+    send({
+      method: 'turn/started',
+      params: { turn: result.turn, model: m.params.model },
+    });
     const text = m.params.input[0].text;
     if (text.includes('approval')) {
       approval = nextApproval++;

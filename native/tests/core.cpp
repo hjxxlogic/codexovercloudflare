@@ -122,6 +122,12 @@ void core() {
             {{"action", "approval"}, {"requestId", "r"}, {"approvalId", "1"}, {"allow", false}}) ==
             "{\"action\":\"approval\",\"requestId\":\"r\",\"approvalId\":\"1\",\"allow\":false}",
         "Legacy request fingerprint compatibility");
+  check(
+      web_fingerprint(
+          {{"action", "prompt"}, {"requestId", "r"}, {"text", "hello"}, {"model", "model-a"}}) !=
+          web_fingerprint(
+              {{"action", "prompt"}, {"requestId", "r"}, {"text", "hello"}, {"model", "model-b"}}),
+      "Model changes must not share a prompt fingerprint");
   Temp t;
   {
     Store s(t.path);

@@ -44,5 +44,103 @@
     "input": { "action": "interrupt", "requestId": "r4" },
     "output": { "action": "interrupt", "requestId": "r4" }
   },
-  { "input": { "action": "exec", "requestId": "r5" }, "error": true }
+  { "input": { "action": "exec", "requestId": "r5" }, "error": true },
+  {
+    "input": {
+      "action": "models",
+      "requestId": "models1"
+    },
+    "output": {
+      "action": "models",
+      "requestId": "models1"
+    }
+  },
+  {
+    "input": {
+      "action": "models",
+      "requestId": "models2",
+      "cursor": "next-page"
+    },
+    "output": {
+      "action": "models",
+      "requestId": "models2",
+      "cursor": "next-page"
+    }
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model1",
+      "text": "hello",
+      "model": "provider/model-v1"
+    },
+    "output": {
+      "action": "prompt",
+      "requestId": "model1",
+      "text": "hello",
+      "model": "provider/model-v1"
+    }
+  },
+  {
+    "input": {
+      "action": "models",
+      "requestId": "models3",
+      "cursor": 4
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": ""
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": null
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": 42
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": "bad model"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "prompt",
+      "requestId": "model2",
+      "text": "hello",
+      "model": "x\n"
+    },
+    "error": true
+  }
 ]
