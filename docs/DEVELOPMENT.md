@@ -1,5 +1,9 @@
 # 开发与本机测试
 
+## CI 与部署脚本回归
+
+项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。
+
 ## Agent 协议心跳回归 · 2026-10-28
 
 `npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。默认约三分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。

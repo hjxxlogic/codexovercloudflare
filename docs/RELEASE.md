@@ -1,5 +1,27 @@
 # 发布操作
 
+## 从 GitHub Actions 部署 Linux Agent
+
+构建与测试以推送后的 GitHub Actions 为准；先等待同一源码提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六个检查作业全部成功，再部署对应产物。本地构建仅用于开发验证，不能替代 CI 产物。分支运行的 `publish-release` 跳过是正常行为；本流程不创建发行标签、不发布 Worker 或全站下载。
+
+使用已提交的脚本处理等待、下载、校验、备份、安装和恢复，避免人工逐条拼接部署命令。需要本机 Python 3、curl、SSH / SCP，目标机 Python 3、systemd 用户服务、journalctl 读取权限，以及已配置的 SSH 密钥和主机校验。本脚本当前仅支持公开 GitHub 仓库的 `linux-musl` Agent 产物。
+
+```bash
+# 默认只等待 CI、下载校验并读取目标状态，不改变服务。
+python3 scripts/deploy-agent.py --commit HEAD \
+  --ssh ubuntu@server --binary /opt/coc/coc-agent
+
+# 显式安装：等待空闲，备份当前运行的程序，原子替换并验证 120 秒。
+python3 scripts/deploy-agent.py --commit HEAD \
+  --ssh ubuntu@server --binary /opt/coc/coc-agent --apply
+```
+
+`--run-id ID` 可固定一次运行，仍须匹配 `--commit` 的完整来源提交和 checks 工作流。脚本等待完整运行成功，并逐项核对必须检查；通过公开产物解析服务 nightly.link 下载，再对照 GitHub API 独立提供的 artifact SHA256、包内 SHA256SUMS、manifest 提交及远端候选程序的 commit / sourceDigest / protocol / clean 身份验证。凭证不写入命令或证据，TLS 和 SSH 主机校验保持启用。
+
+`--service` 默认 `coc-agent.service`，只操作已存在的 systemd **用户服务**，`--binary` 必须是其 MainPID 对应的既有绝对程序路径。默认最多等待 CI 2400 秒、空闲 1800 秒；最近指标缺失、过期或仍有 runtime / 历史读取 / 文件请求时均不当作空闲。空闲检查是最近本机指标快照，不能与新任务提交形成原子互斥；升级窗口请停止提交新任务。只有明确接受中断当前会话时才加 `--allow-restart-active`，不能由自动化自行推断。
+
+安装前再次检查状态，并备份 `/proc/MainPID/exe`，包括磁盘程序已被自动更新、进程仍运行旧程序的情况。随后停止服务、原子替换 Agent 并启动；默认观察 120 秒，核对稳定 PID、实际运行来源身份、Relay 握手以及无 Pong 超时 / 重连耗尽。验证失败尝试恢复备份并启动原服务；SSH 中断或回滚失败需要重新查询处理。保留配置、凭证、SQLite 和备份文件，不更换 CLI。证据默认写入 `.local/deploy-agent/RUN_ID/deployment.json`，同目录保留 CI 原始信息、artifact 和候选 Agent。实际部署身份及验证结果另记测试记录。
+
 ## 0.5.13 已发布 · 2026-10-28
 
 源码 `99506d28bec9d97800b378c2e9f987a048ceceec`、标签 `v0.5.13`；[Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40628265655) 七项作业全部通过。[GitHub Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.13) 与生产下载已同步。Worker `30cb4797-bec0-40fa-81df-67f510ae617a` 于 UTC 03:56:17 上线，生产流量 100%。四平台原生包、源码、站点与在线手册已验证，保留 0.5.12 归档直接下载；详见 [测试记录](TEST_REPORT.md)。

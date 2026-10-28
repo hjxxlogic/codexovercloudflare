@@ -1,5 +1,9 @@
 # 用户手册
 
+## 使用 CI 构建包更新 Agent
+
+部署 Linux systemd 用户服务 Agent 可运行 `python3 scripts/deploy-agent.py --commit HEAD --ssh USER@HOST --binary /absolute/path/coc-agent --apply`。脚本等待同一提交的 GitHub Actions 完整构建 / 测试成功，验证产物来源与校验和，等待运行会话结束，再备份、替换、重启并观察 120 秒。省略 `--apply` 仅准备和查看状态。默认不停止运行会话；安装窗口请停止提交新任务。完整参数、公开仓库 / musl 支持范围和回滚边界见 [发布操作](RELEASE.md)。
+
 ## 管理列表同步 · 2026-10-27
 
 批准、撤销设备、创建 / 撤销 API Key 和保存唤醒配置后，管理页会同步更新已授权设备、Key 和主机列表，不需要依赖通知到达才能看到本人操作的结果。“刷新状态”会等待这些管理数据读取完成再结束加载。其他客户端的变化仍通过通知更新，漏通知时可手动刷新；空闲不轮询。

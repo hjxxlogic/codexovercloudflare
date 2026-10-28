@@ -33,6 +33,14 @@ Use two-space indentation. C++ uses snake_case functions, PascalCase classes, RA
 
 Cover authentication, isolation, approvals, deduplication, process exit, and reconnects. CTest verifies native behavior; `*.test.ts` uses Vitest. `test:e2e` starts native binaries, Wrangler, simulated Codex, and Chromium. `test:codex` and `test:native` use real Codex without model calls; `test:task` and `test:native -- --task` call the model. TUI tests require the Docker image. No coverage percentage is mandated.
 
+## CI Builds and Deployment
+
+- Push the reviewed source to GitHub and use `.github/workflows/checks.yml` to build and test deployment artifacts. Local checks are useful for development; never deploy locally built binaries as verified release artifacts.
+- Wait for the exact source commit's Actions run to finish successfully. Inspect every required job, including regression, sanitizers, Ubuntu 20.04, Debian 12, musl, and Windows x64. A triggered or still-running workflow is not a passing result; fix failures and push again.
+- Deploy through checked-in scripts, extending them for uncovered targets instead of repeating ad-hoc AI-generated deployment commands. For a Linux systemd user-service Agent, use `scripts/deploy-agent.py`; it waits for CI, verifies the GitHub artifact digest and source identity, waits for idle work, backs up the running binary, installs, verifies, and attempts rollback on failure.
+- Preserve credentials, configuration, databases, and running tasks. Restarting active sessions requires explicit authorization (`--allow-restart-active`); normal deployment waits for idle. Do not infer permission to publish a Worker or release from an Agent update.
+- Record the commit, Actions URL/result, artifact checksums, deployment target, verification, and limitations under `docs/`; keep credentials and machine-local evidence in ignored `.local/` paths.
+
 ## Commit, PR & Documentation Requirements
 
 Use concise imperative `feat:`, `fix:`, or `docs:` subjects. PRs describe behavior, validation, limitations, configuration changes, and screenshots for UI changes. Update `CHANGELOG.md` for user-visible changes.

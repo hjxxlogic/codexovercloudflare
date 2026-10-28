@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## CI 部署自动化 · 2026-10-28
+
+- `python3 tests/agent-deploy.py` 七项测试通过：精确提交 / 工作流 / 六项必需作业门禁、artifact 摘要与归档穿越 / 链接拒绝、候选来源身份、未知 / 过期指标及忙碌工作不视为空闲、繁忙不停止服务、启动失败还原备份及旧版 curl 的中断续传重试。测试无网络、SSH 或系统服务修改；已纳入 Actions regression。
+- 脚本真实准备模式已下载并校验上述运行的公开 musl artifact，核对 GitHub SHA256、包摘要与提交后通过 SSH 读取目标状态；目标仍有一个 runtime，准备模式未改动服务。初次发现 Ubuntu 20.04 curl 不支持 `--retry-all-errors`，已改为兼容的显式重试 / 续传并补回归。
+- 心跳源码 `168ccf0d57d2ffa866486dec0dabfc90e06b357b` 的 [Actions 40644251548](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40644251548) 六项检查全部成功；分支发布作业正常跳过。部署脚本与项目规则后续提交需要独立等待 CI，不用前一次成功冒充新提交结果。
+
 ## Agent WebSocket 协议心跳 · 2026-10-28
 
 - 真实原生 Agent 健康空闲 95 秒收到 3 个协议 Ping：零周期 JSON、零周期审批查询、零空闲重连；真实审批事件和业务 probe 成功。随后停止协议 Pong、持续发送 JSON pong，约 85.9 秒后自动重连并完成审批初始同步；Agent 进程保持运行，无模型调用。
