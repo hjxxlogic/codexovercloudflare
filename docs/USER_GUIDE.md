@@ -100,7 +100,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 只运行服务器时只需安装 `coc-agent`；用户电脑只需安装 `coc-client`。运行原生程序不需要 Node.js。动态包需要对应版本的 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书；用 `ldd coc-agent` / `ldd coc-client` 检查动态库。musl 包已静态链接 libc、C++ 运行库及第三方库，可在 Alpine 或 glibc Linux 上运行，无需安装 musl 或上述动态库；仍需系统 CA 证书以验证 TLS。Codex 是单独安装的外部程序，其运行依赖不包含在此静态包中。
 
-A 必须安装并配置 **Codex 0.164.0**，以运行 Agent 的系统用户确认 `codex` 可以正常使用。使用 CC 的电脑同样需要 Codex 0.164.0 来运行原生 TUI；CW 用户不需要安装 Codex。模型凭据、代码和命令执行留在 A 上；模型 API Key 不用于 R 登录。
+A 必须安装并配置 Codex（已验证版本为 **0.164.0**，Agent 不强制版本号），以运行 Agent 的系统用户确认 `codex` 可以正常使用。使用 CC 的电脑同样需要安装 Codex 来运行原生 TUI，CLI 不强制版本号；CW 用户不需要安装 Codex。模型凭据、代码和命令执行留在 A 上；模型 API Key 不用于 R 登录。
 
 从源码开发时：
 
@@ -117,7 +117,7 @@ npm run dev
 
 原生源码新增 Windows 10/11 x64、Windows Server 2019+ 的 `coc-agent.exe` / `coc-client.exe` 构建；下载是否已发布以下载清单为准。Windows ZIP 使用静态第三方库和 MSVC 运行库，无需安装 Node.js 或单独复制 DLL。下载 `coc-<版本>-windows-x64.zip` 后用 `Get-FileHash -Algorithm SHA256` 核对 `SHA256SUMS`，完整解压到用户可写目录，并把该目录加入 PATH。
 
-必须使用 Codex 0.164.0 的原生 `codex.exe`。将它加入 PATH，或设置 `$env:COC_CODEX_PATH = 'C:\Tools\Codex\codex.exe'`；Agent 也可在配置中设置 `codexPath`。npm 的 `codex.cmd` 不能直接作为子进程启动路径；使用 npm 安装 Codex 时，需指向其实际原生可执行文件。先运行 `& $env:COC_CODEX_PATH --version` 确认版本；模型凭据和 Codex Windows 沙箱需按 Codex 本身要求配置。CC 的远程 TUI 使用 Windows Terminal / PowerShell。
+Agent 必须使用原生 `codex.exe`，不强制 Codex 版本号；已验证版本为 0.164.0。将它加入 PATH，或设置 `$env:COC_CODEX_PATH = 'C:\Tools\Codex\codex.exe'`；Agent 也可在配置中设置 `codexPath`。npm 的 `codex.cmd` 不能直接作为子进程启动路径；使用 npm 安装 Codex 时，需指向其实际原生可执行文件。先运行 `& $env:COC_CODEX_PATH --version` 确认版本；模型凭据和 Codex Windows 沙箱需按 Codex 本身要求配置。CC 的远程 TUI 使用 Windows Terminal / PowerShell。
 
 ```powershell
 .\coc-agent.exe login --relay https://r.xlogic.cc --project 'C:\Projects\demo'
@@ -513,7 +513,7 @@ coc-client history SESSION_ID --seq SEQ --offset 0
 coc-client history SESSION_ID --seq SEQ --offset 4096 --revision REVISION
 ```
 
-`--version` 为 JSON，含版本、提交、源码摘要、协议和能力；doctor 检查配置、Codex 0.164.0、TLS、项目权限、磁盘与 SQLite，不调用模型。HTTP DNS 解析使用系统 `/usr/bin/getent`，请保留发行版 libc-bin。CLI 在启动 TUI 前检查本机 Codex 版本。
+`--version` 为 JSON，含版本、提交、源码摘要、协议和能力；Agent / CLI 启动及 doctor 仅要求 `codex --version` 成功并返回非空输出，doctor 显示实际版本；其他版本仍需兼容所用 app-server API。doctor 检查配置、Codex 可执行性、TLS、项目权限、磁盘与 SQLite，不调用模型。HTTP DNS 解析使用系统 `/usr/bin/getent`，请保留发行版 libc-bin。CLI 在启动 TUI 前检查本机 Codex 可执行性，不强制版本号。
 
 目录响应是 `{data,nextCursor}`，每页最多 100 条。大内容首块自动保存 revision；后续内容缓存也绑定 revision，正文变化返回 `CONTENT_CHANGED`，从 offset 0 重新读取。CLI 历史观察连接会独立重连，缓存故障不终止 TUI。CLI 仍不支持接管已附着的 CLI runtime；请先结束旧会话再新建。
 

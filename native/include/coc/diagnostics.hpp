@@ -19,9 +19,8 @@ inline Json doctor(const Json &config, bool agent) {
     }
   };
   check("codex", [&] {
-    verify_codex({{"codexPath", config.value("codexPath", "codex")},
-                  {"codexArgs", config.value("codexArgs", Json::array())}});
-    return Json("0.164.0");
+    return Json(verify_codex({{"codexPath", config.value("codexPath", "codex")},
+                              {"codexArgs", config.value("codexArgs", Json::array())}}));
   });
   check("relay_tls", [&] {
     return http_json(relay_url(config.at(agent ? "relayUrl" : "relay")), "/api/v1/healthz",

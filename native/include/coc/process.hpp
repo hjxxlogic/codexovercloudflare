@@ -10,7 +10,7 @@
 #include <memory>
 namespace coc {
 namespace asio = boost::asio;
-void verify_codex(const Json &config);
+std::string verify_codex(const Json &config);
 using Completion = std::function<void(Json, Json)>; // result, error (null on success)
 class CodexProcess : public std::enable_shared_from_this<CodexProcess> {
   asio::io_context &io_;

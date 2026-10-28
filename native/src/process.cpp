@@ -11,7 +11,7 @@
 #endif
 namespace coc {
 #ifndef _WIN32
-void verify_codex(const Json &c) {
+std::string verify_codex(const Json &c) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
@@ -74,8 +74,10 @@ void verify_codex(const Json &c) {
   }
   while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
     output.pop_back();
-  if (!ended || !WIFEXITED(status) || WEXITSTATUS(status) != 0 || output != "codex-cli 0.164.0")
-    throw Error("CODEX_VERSION", "Unsupported Codex version; expected codex-cli 0.164.0");
+  if (!ended || !WIFEXITED(status) || WEXITSTATUS(status) != 0 || output.empty() ||
+      output.size() > 4096)
+    throw Error("CODEX_VERSION", "Cannot read Codex version");
+  return output;
 }
 
 CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::string &cwd,
@@ -139,7 +141,7 @@ CodexProcess::~CodexProcess() {
   }
 }
 #else
-void verify_codex(const Json &c) {
+std::string verify_codex(const Json &c) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
@@ -147,8 +149,9 @@ void verify_codex(const Json &c) {
   auto text = windows_capture(args);
   while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
     text.pop_back();
-  if (text != "codex-cli 0.164.0")
-    throw Error("CODEX_VERSION", "Unsupported Codex version; expected codex-cli 0.164.0");
+  if (text.empty())
+    throw Error("CODEX_VERSION", "Cannot read Codex version");
+  return text;
 }
 CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::string &cwd,
                            std::function<void(Json)> msg, std::function<void()> ex)

@@ -43,7 +43,7 @@ docker run --rm -v "$PWD:/workspace" coc-musl-build sh -ec '
 
 `COC_STATIC_MUSL` 仅用于 Linux musl 工具链，与 sanitizers 不兼容；默认构建不受影响。镜像中的 Node.js 仅用于模拟 Codex 的原生测试。Actions 在容器内测试后，另在 Ubuntu 宿主直接检查两个静态程序的 `--version` / `--help`，并运行 `COC_AGENT_BINARY=build-musl/coc-agent COC_CLI_BINARY=build-musl/coc-client python3 tests/native-update.py --musl`，以不指定 platform 的配置验证默认选择 musl、身份及校验和、原子替换和失败拒绝。TLS 仍读取系统 CA 证书；可用 `SSL_CERT_FILE` 指定证书文件。静态包自动更新默认选择 `musl`，避免按宿主发行版换成动态版本。
 
-云端、网页和 TypeScript 测试工具需要 Node.js ≥ 22.17（建议 24），执行 `npm ci`。Codex 固定 `0.164.0`，Agent 启动时检查版本。
+云端、网页和 TypeScript 测试工具需要 Node.js ≥ 22.17（建议 24），执行 `npm ci`。Codex 已验证版本为 `0.164.0`；Agent / CLI 启动时仅检查 `--version` 成功并返回非空输出，不强制版本号，doctor 返回实际版本。其他版本仍需兼容所用 app-server / TUI API。
 
 ## Actions 构建缓存
 

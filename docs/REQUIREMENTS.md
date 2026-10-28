@@ -52,7 +52,7 @@
 - CLI：C++17 原生构建支持 Linux x86_64 和 Windows x64；macOS 列为后续兼容项。Windows 使用原生 codex.exe、Windows Terminal 及手动 ZIP 升级，实际验证边界见测试记录。
 - 网页：桌面 Chromium、Firefox；移动端可进行基本会话操作。
 - 网络：服务端和客户端能够向 Cloudflare 发起 HTTPS/WSS，服务端能够访问其配置的模型服务。
-- Codex：优先验证本机已检查的 `0.164.0`；发布时锁定经过端到端测试的确切版本，不承诺任意版本兼容。
+- Codex：优先验证本机已检查的 `0.164.0`；Agent / CLI 不强制版本号，仅检查版本命令可执行，不承诺任意版本的 app-server / TUI API 兼容。
 
 ### 2.3 非目标
 

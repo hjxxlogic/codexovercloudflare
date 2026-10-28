@@ -588,3 +588,8 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 接入边界保持明确：远程审批需要原会话所属的共享 app-server；既有独占 stdio 进程不能事后转移审批。默认 `allowQueue / allowApprovals` 均关闭，需升级 Agent 并显式配置；不代替用户更新已有服务。命令 / 文件、本轮精确权限可远程处理，其他交互和设备身份验证仍受原客户端兼容性限制；真实硬件无人值守长稳、八小时压力等既有验收边界未扩充为已完成。
 
 证据：[CI](assets/external-session-2026-10-25/actions-verification.json)、[部署](assets/external-session-2026-10-25/deployment.json)、[发行包](assets/external-session-2026-10-25/package-verification.json)、[在线资源](assets/external-session-2026-10-25/online-verification.json)、[线上流程](assets/external-session-2026-10-25/browser-verification.json)、[远程审批](assets/external-session-2026-10-25/production-external-approval.png)。本节为发布后的独立证据提交，不改写发行标签及源码包。
+
+## Agent / CLI Codex 版本检查 · 2026-10-28
+
+- `cmake --build build -j 2` 与 `ctest --test-dir build --output-on-failure` 通过；CTest 在允许本机套接字的沙箱外运行。原生回归覆盖接受较新 / 较旧版本、返回实际版本、拒绝空输出及版本命令非零退出，不调用模型。
+- 修改的 C++ 文件通过 clang-format 检查，`git diff --check` 通过。本轮未运行 Windows 构建或跨版本真实 Codex app-server / TUI 验收。

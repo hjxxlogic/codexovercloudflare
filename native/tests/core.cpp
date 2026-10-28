@@ -801,6 +801,20 @@ void process_test(bool real, bool task) {
                                                    "/tests/fixtures/fake-codex.mjs"})},
                  {"sandbox", task ? "workspace-write" : "read-only"}};
   verify_codex(config);
+  if (!real) {
+    auto version_config = [](const std::string &script) {
+      return Json{{"codexPath", "node"}, {"codexArgs", Json::array({"-e", script, "--"})}};
+    };
+    auto newer = version_config("console.log('codex-cli 0.999.0')");
+    check(verify_codex(newer) == "codex-cli 0.999.0",
+          "Agent and CLI accept and report a different Codex version");
+    auto older = version_config("console.log('codex-cli 0.130.0')");
+    check(verify_codex(older) == "codex-cli 0.130.0", "Older Codex versions are accepted");
+    auto empty = version_config("");
+    rejects([&] { verify_codex(empty); }, "CODEX_VERSION");
+    auto failed = version_config("console.log('codex-cli 0.999.0'); process.exit(1)");
+    rejects([&] { verify_codex(failed); }, "CODEX_VERSION");
+  }
   std::shared_ptr<CodexProcess> p;
   asio::steady_timer timeout(io, std::chrono::seconds(task ? 120 : 15));
   auto end = [&](bool ok, std::string error = "") {
