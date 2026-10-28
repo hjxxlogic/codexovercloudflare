@@ -4,7 +4,7 @@
 
 ## 本机快速开始
 
-本机 Agent / CLI 使用 C++17，无 Node.js 运行依赖；需 CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。中转和网页开发需要 Node.js ≥ 22.17、npm；Codex 固定 `0.164.0`。本机原生构建支持 Linux x86_64 和 Windows x64；Windows 使用 MSVC / vcpkg 构建并以 ZIP 分发，安装方式见[用户手册](docs/USER_GUIDE.md#windows-x64)；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
+本机 Agent / CLI 使用 C++17，无 Node.js 运行依赖；需 CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。中转和网页开发需要 Node.js ≥ 22.17、npm；Codex 已验证版本为 `0.164.0`，Agent / CLI 不强制版本号，其他版本仍需兼容所用 app-server / TUI API。本机原生构建支持 Linux x86_64 和 Windows x64；Windows 使用 MSVC / vcpkg 构建并以 ZIP 分发，安装方式见[用户手册](docs/USER_GUIDE.md#windows-x64)；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
 
 ```bash
 sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev

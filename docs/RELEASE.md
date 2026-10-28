@@ -1,6 +1,8 @@
 # 发布操作
 
-## 0.5.13 发布要求
+## 0.5.13 已发布 · 2026-10-28
+
+源码 `99506d28bec9d97800b378c2e9f987a048ceceec`、标签 `v0.5.13`；[Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40628265655) 七项作业全部通过。[GitHub Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.13) 与生产下载已同步。Worker `30cb4797-bec0-40fa-81df-67f510ae617a` 于 UTC 03:56:17 上线，生产流量 100%。四平台原生包、源码、站点与在线手册已验证，保留 0.5.12 归档直接下载；详见 [测试记录](TEST_REPORT.md)。
 
 Agent / CLI 取消 Codex 精确版本检查，启动及 doctor 仅要求版本命令成功且返回非空输出，doctor 返回实际版本。其他版本仍需兼容所用 app-server / TUI API。发布四平台原生包、源码、站点与在线手册；无需配置或数据迁移。Linux 现有自动更新规则继续适用，Windows 手动整包升级。发布身份和验证结果另记入测试记录。
 

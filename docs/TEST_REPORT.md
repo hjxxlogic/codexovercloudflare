@@ -593,3 +593,13 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 - `cmake --build build -j 2` 与 `ctest --test-dir build --output-on-failure` 通过；CTest 在允许本机套接字的沙箱外运行。原生回归覆盖接受较新 / 较旧版本、返回实际版本、拒绝空输出及版本命令非零退出，不调用模型。
 - 修改的 C++ 文件通过 clang-format 检查，`git diff --check` 通过。本轮未运行 Windows 构建或跨版本真实 Codex app-server / TUI 验收。
+
+### 0.5.13 发布与生产验证完成
+
+- 发行源码 `99506d28bec9d97800b378c2e9f987a048ceceec` 与标签 `v0.5.13` 已推送；[Actions 40628265655](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40628265655) 的 regression、Ubuntu 20.04、Debian 12、musl、sanitizers、Windows x64 和 publish-release 全部通过。覆盖原生回归、浏览器集成、计费通讯、TLS、更新器、类型、格式及协议检查；无真实模型调用。
+- [GitHub Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.13) 提供四平台包、源码和站点。下载站点核对独立 asset digest，五个归档同时匹配清单 SHA256 与 GitHub asset digest；版本、提交、sourceDigest、protocol 与干净源码一致，源码包与标签的 git archive 字节一致。实际解包的 Ubuntu / musl Agent 和 CLI 均通过构建身份及 help 启动检查；Windows 原生执行由 Actions 验证。
+- Worker `30cb4797-bec0-40fa-81df-67f510ae617a` 于 2026-10-28 UTC 03:56:17 部署，部署 ID `c7bf97cc-36ed-4a08-bbe7-b39ea96cf5a9`，生产流量 100%。使用 `--keep-vars`，沿用生产配置、secrets 和 DO 数据；0.5.12 旧归档按部署前线上校验和验证后保留。
+- 线上健康接口返回 0.5.13 / demand 1 / protocol 1，未登录业务请求 401、跨域管理登录 403。首页 CSP、JS / CSS、UTF-8 手册、下载清单与校验文件均核对通过；重新下载生产的五个新归档，与已验证产物逐字节一致。
+- 本轮发布下载包及站点，不直接替换已有用户 Agent / CLI 服务，未发送管理员版本通知或操作真实设备、会话。现有程序升级到 0.5.13 后获得新版本检查行为；取消版本号限制不代表所有 Codex 版本的 API 均已验收。
+
+证据：[Actions](assets/release-0.5.13/actions-verification.json)、[产物](assets/release-0.5.13/package-verification.json)、[部署](assets/release-0.5.13/deployment.json)、[线上核验](assets/release-0.5.13/online-verification.json)。本节为发布后的证据提交，不改写发行源码、标签或归档。

@@ -13,7 +13,7 @@ This repository provides remote Codex access through Cloudflare. Local programs 
 
 ## Build, Test, and Development Commands
 
-Use C++17, CMake ≥3.16, Boost.System ≥1.71, OpenSSL, SQLite3, and nlohmann/json ≥3.7. Local binaries need no Node.js. Cloud/web tooling requires Node.js ≥22.17; Codex is pinned to `0.164.0`.
+Use C++17, CMake ≥3.16, Boost.System ≥1.71, OpenSSL, SQLite3, and nlohmann/json ≥3.7. Local binaries need no Node.js. Cloud/web tooling requires Node.js ≥22.17; Codex `0.164.0` is the verified baseline; Agent/CLI do not pin the installed version.
 
 - `npm ci`: install cloud/web and test dependencies.
 - `npm run build:native`: compile `build/coc-agent`, `build/coc-client`, and native tests.

@@ -1,0 +1,17 @@
+{
+  "id": "c7bf97cc-36ed-4a08-bbe7-b39ea96cf5a9",
+  "source": "wrangler",
+  "strategy": "percentage",
+  "author_email": "huangjielg@gmail.com",
+  "annotations": {
+    "workers/message": "Release 0.5.13: remove Codex version pinning from agent and CLI; source 99506d2",
+    "workers/triggered_by": "deployment"
+  },
+  "versions": [
+    {
+      "version_id": "30cb4797-bec0-40fa-81df-67f510ae617a",
+      "percentage": 100
+    }
+  ],
+  "created_on": "2026-10-28T03:56:17.02873Z"
+}

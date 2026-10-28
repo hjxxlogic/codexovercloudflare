@@ -1,0 +1,114 @@
+{
+  "checkedAt": "2026-10-28T04:00:56.293Z",
+  "workerVersion": "30cb4797-bec0-40fa-81df-67f510ae617a",
+  "sourceCommit": "99506d28bec9d97800b378c2e9f987a048ceceec",
+  "health": {
+    "ok": true,
+    "version": "0.5.13",
+    "demand": 1,
+    "protocol": 1
+  },
+  "checks": [
+    {
+      "path": "/api/v1/healthz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 54,
+      "sha256": "d4d1ab4898de72b217db5261d5cbe4a95c91d259a70fe715a781509336fa293b"
+    },
+    {
+      "path": "/api/v1/hosts",
+      "method": "GET",
+      "status": 401,
+      "bytes": 60
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 403,
+      "bytes": 73
+    },
+    {
+      "path": "/",
+      "method": "GET",
+      "status": 200,
+      "bytes": 398,
+      "sha256": "ff2ace93e2b9ab73113f1a98298ce47488d0a168798087d577bed553ba61fdf7"
+    },
+    {
+      "path": "/assets/index-CrKRwyow.js",
+      "method": "GET",
+      "status": 200,
+      "bytes": 578697,
+      "sha256": "b025942b50a5e07800bd871244a27a4bce1e01403519891c42c432393787cd4b"
+    },
+    {
+      "path": "/assets/index-D1ggRu9z.css",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16370,
+      "sha256": "683de1082d427d388b59c066daabe1f7d6019292aa27faa4c351ab24b5a2a4fd"
+    },
+    {
+      "path": "/downloads/index.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 484,
+      "sha256": "d00d97eb0be45c561ff8c974c426f047e5d45e6da2009ed42fa4916322105638"
+    },
+    {
+      "path": "/downloads/SHA256SUMS",
+      "method": "GET",
+      "status": 200,
+      "bytes": 519,
+      "sha256": "cc0d0ed3aabd1a1d5595c05db15029628cf32a3381f27d4cd053cc6c868f5a7b"
+    },
+    {
+      "path": "/downloads/USER_GUIDE.md",
+      "method": "GET",
+      "status": 200,
+      "bytes": 66778,
+      "sha256": "4a85d724f70b182e8fe57521ef6d23eaf5764f6821aead1c6b362b7b86d213f5"
+    },
+    {
+      "path": "/downloads/coc-0.5.13-linux-x86_64-debian12.tar.gz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 3571406,
+      "sha256": "ef5d2cbf41d2a4e7b7d875414f9d012d7d349413b2bfcd5c7acf5f8cfdf485c7"
+    },
+    {
+      "path": "/downloads/coc-0.5.13-linux-x86_64-musl.tar.gz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 24795211,
+      "sha256": "42c48d409af38bd6692d4f8f61cdbb805f8ce0ce0e7556e085fdd2f3448a03b7"
+    },
+    {
+      "path": "/downloads/coc-0.5.13-linux-x86_64-ubuntu20.04.tar.gz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 3111003,
+      "sha256": "cc12ef0549177fba78fcf4c19daf37a8c9c1b48d6e662feb90100cd3f5c8d4e8"
+    },
+    {
+      "path": "/downloads/coc-0.5.13-windows-x64.zip",
+      "method": "GET",
+      "status": 200,
+      "bytes": 8024523,
+      "sha256": "668738ba3adab1b1297b17114f10f9c43965ab4d93ed386d97cf61043400dc58"
+    },
+    {
+      "path": "/downloads/codex-over-cloudflare-0.5.13-source.tar.gz",
+      "method": "GET",
+      "status": 200,
+      "bytes": 3260476,
+      "sha256": "c76caa8663f28e463023267078149aaf1e2588d0469a9407a9f2b6e7b95f4a88"
+    }
+  ],
+  "notes": [
+    "Four platform native packages and source archive match GitHub Release asset digests and the verified site manifest.",
+    "All five archives were downloaded from production and compared byte for byte; manifest, checksums, manual, homepage and web assets also match.",
+    "No production credentials submitted, no user devices or sessions changed, no model calls."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "release": "https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.13",
+  "siteDigest": "sha256:c8ad66e38649818cff5eff6894d448b56f70796afb619387eedc112e99be97c3",
+  "identity": {
+    "version": "0.5.13",
+    "commit": "99506d28bec9d97800b378c2e9f987a048ceceec",
+    "target": "linux-x86_64",
+    "sourceDigest": "139ae0ad6b914a05c2dd924ef802855b18c5f71c8fd15015a46beea4996f7f77",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals"
+    ]
+  },
+  "checksums": {
+    "coc-0.5.13-linux-x86_64-debian12.tar.gz": "ef5d2cbf41d2a4e7b7d875414f9d012d7d349413b2bfcd5c7acf5f8cfdf485c7",
+    "coc-0.5.13-linux-x86_64-musl.tar.gz": "42c48d409af38bd6692d4f8f61cdbb805f8ce0ce0e7556e085fdd2f3448a03b7",
+    "coc-0.5.13-linux-x86_64-ubuntu20.04.tar.gz": "cc12ef0549177fba78fcf4c19daf37a8c9c1b48d6e662feb90100cd3f5c8d4e8",
+    "coc-0.5.13-windows-x64.zip": "668738ba3adab1b1297b17114f10f9c43965ab4d93ed386d97cf61043400dc58",
+    "codex-over-cloudflare-0.5.13-source.tar.gz": "c76caa8663f28e463023267078149aaf1e2588d0469a9407a9f2b6e7b95f4a88"
+  },
+  "executed": [
+    "ubuntu20.04/coc-agent --version / --help",
+    "ubuntu20.04/coc-client --version / --help",
+    "musl/coc-agent --version / --help",
+    "musl/coc-client --version / --help"
+  ],
+  "sourceMatchesGitArchive": true,
+  "preservedPreviousArchives": [
+    "coc-0.5.12-linux-x86_64-debian12.tar.gz",
+    "coc-0.5.12-linux-x86_64-musl.tar.gz",
+    "coc-0.5.12-linux-x86_64-ubuntu20.04.tar.gz",
+    "coc-0.5.12-windows-x64.zip",
+    "codex-over-cloudflare-0.5.12-source.tar.gz"
+  ]
+}
