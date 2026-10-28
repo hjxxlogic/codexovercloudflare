@@ -131,7 +131,7 @@ def main():
     evidence['applied'] = True
     evidence['verification'] = 'pending'
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
-    health = json.loads(agent.curl(base + '/api/health'))
+    health = json.loads(agent.curl(base + '/api/v1/healthz'))
     for path in [output / 'site/index.html', *sorted((output / 'site/assets').glob('*')),
                  output / 'site/downloads/USER_GUIDE.md', output / 'site/downloads/index.json',
                  output / 'site/downloads/SHA256SUMS']:
