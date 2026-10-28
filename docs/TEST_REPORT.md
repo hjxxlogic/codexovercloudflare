@@ -8,6 +8,8 @@
 - 原 CI 注释过长导致末尾断言被 GitHub 截断，现改为转义后保留最后 3500 字符；`python3 tests/ci-command.py` 验证大量日志下仍保留最后错误和原退出码，已加入 regression。
 - 最终源码 `8ce86a1713cef6377d601bcc1cf0561ef220017e` 已通过脚本推送；[Actions 40647697874](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40647697874) 的 regression、sanitizers、Windows x64、musl、Ubuntu 20.04、Debian 12 六项检查全部成功，分支 publish-release 正常跳过。后续重复查询 GitHub API 返回 403，未完成该运行的新产物准备，不计为部署成功。
 - 用户选择等待现有会话结束后安装。目标机心跳修复部署使用已核验的 `168ccf0` Actions 产物，脚本等待 runtime 及其他工作全部空闲；截至 2026-10-28 15:17（Asia/Shanghai）仍有运行会话，尚未替换或重启服务，不将 CI 成功记为目标机已升级。
+- 2026-10-28 用户随后明确要求现在重启更新；15:43（Asia/Shanghai）在 `ubuntu-ThinkStation-P3-Tower-Gen-2` 安装 Actions 40644251548 的 `168ccf0` 心跳构建。GitHub API 复查返回 403，使用此前已核验的缓存运行 / 六项作业记录，并重新检查 ZIP SHA256 `b8fa9de52083c2a142ce9ea553262da85a1bf640e177f19da27b1e4f47162572`、包内摘要和构建来源。SSH 上传多次中断，最终 rsync 完成候选文件传输；实际备份 / 原子替换 / 重启 / 验证仍由 `scripts/deploy-agent-remote.py` 执行。
+- 新服务 PID 5959 的实际运行文件返回 commit `168ccf0d57d2ffa866486dec0dabfc90e06b357b`、sourceDigest `65fa0a864e6d1ebe5d0e7b58c388979c7158f4e90f6e5708509704a1918f6478`、dirty false；连续 120 秒服务 active、PID 不变、已连接中继，无 Pong timeout / 重连耗尽，指标显示新 runtime 和业务事件。原版本备份名为 `coc-agent.backup-20261028T074309580171Z`。本机完整证据在忽略的 `.local/deploy-agent/40644251548/deployment.json`；未升级 CLI / Worker / 网页，未验证长期稳定性或真实账单。
 - 心跳源码 `168ccf0d57d2ffa866486dec0dabfc90e06b357b` 的 [Actions 40644251548](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40644251548) 六项检查全部成功；分支发布作业正常跳过。部署脚本与项目规则后续提交需要独立等待 CI，不用前一次成功冒充新提交结果。
 
 ## Agent WebSocket 协议心跳 · 2026-10-28
