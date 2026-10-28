@@ -1,5 +1,17 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  '当前邮箱：': 'Signed in email: ',
+  '已验证邮箱：': 'Verified email: ',
+  '已授权服务器随邮箱保存，换浏览器登录后自动恢复。':
+    'Authorized hosts are saved to your email and restored when you sign in on another browser.',
+  '将此浏览器的旧服务器授权关联到当前邮箱？':
+    'Link this browser’s legacy host authorization to the current email?',
+  '关联旧授权：': 'Link legacy authorization: ',
+  使用管理员邮箱进入管理: 'Continue as email administrator',
+  '首次批准后，此邮箱可在其他浏览器直接连接该服务器。':
+    'After approval, this email can connect from other browsers without pairing again.',
+  断开当前浏览器连接: 'Disconnect this browser',
+  重新验证邮箱: 'Sign in with email again',
   刷新状态: 'Refresh status',
   刷新中: 'Refreshing',
   未确认: 'Unconfirmed',

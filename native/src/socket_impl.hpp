@@ -1,3 +1,4 @@
+#include "coc/access.hpp"
 #include "coc/network.hpp"
 #include "coc/proxy.hpp"
 #include "coc/tls.hpp"
@@ -30,6 +31,7 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   SocketMessage message_;
   SocketClosed closed_;
   beast::flat_buffer buf_{max_queue};
+  websocket::response_type handshake_response_;
   size_t read_limit_ = max_frame;
   std::deque<std::string> writes_;
   size_t queued_ = 0;
@@ -141,11 +143,21 @@ public:
     ws_.set_option(websocket::stream_base::timeout{std::chrono::seconds(15),
                                                    websocket::stream_base::none(), false});
     ws_.read_message_max(read_limit_);
-    ws_.set_option(websocket::stream_base::decorator([token = token_](websocket::request_type &r) {
-      r.set(beast::http::field::authorization, "Bearer " + token);
-    }));
-    ws_.async_handshake(url_.authority, path_, [self](auto ec) {
+    ws_.set_option(websocket::stream_base::decorator(
+        [token = token_, access = access_credentials(url_)](websocket::request_type &r) {
+          if (!access.first.empty()) {
+            r.set("CF-Access-Client-Id", access.first);
+            r.set("CF-Access-Client-Secret", access.second);
+          }
+          r.set(beast::http::field::authorization, "Bearer " + token);
+        }));
+    ws_.async_handshake(handshake_response_, url_.authority, path_, [self](auto ec) {
       if (ec) {
+        const auto status = self->handshake_response_.result_int();
+        if (status == 302 || status == 401 || status == 403)
+          std::cerr << "WebSocket authorization failed; check Cloudflare Access and CoC "
+                       "credentials (HTTP "
+                    << status << ")\n";
         self->finish();
         return;
       }

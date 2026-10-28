@@ -1,4 +1,24 @@
 import { observe } from './notifications.ts';
+let emailAccount = '';
+const restoredHosts = new Map<string, Promise<void>>();
+export function setEmailAccount(accountId: string) {
+  if (emailAccount !== accountId) restoredHosts.clear();
+  emailAccount = accountId;
+}
+export function forgetEmailHost(hostId: string) {
+  restoredHosts.delete(hostId);
+}
+export async function ensureEmailHost(hostId: string) {
+  if (!emailAccount || !hostId) return;
+  let restored = restoredHosts.get(hostId);
+  if (!restored) {
+    restored = api('/auth/email/restore', { hostId }).then(() => {});
+    restoredHosts.set(hostId, restored);
+    restored.catch(() => restoredHosts.delete(hostId));
+  }
+  await restored;
+}
+
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -23,6 +43,14 @@ export async function api(
   signal?: AbortSignal,
   requestId?: string,
 ): Promise<any> {
+  if (emailAccount && /^\/(hosts\/|sessions|client\/)/.test(path)) {
+    const url = new URL(path, location.origin);
+    const hostId =
+      path.match(/^\/hosts\/([\w-]+)/)?.[1] ||
+      url.searchParams.get('hostId') ||
+      (data as { hostId?: string } | undefined)?.hostId;
+    if (hostId) await ensureEmailHost(hostId);
+  }
   const response = await fetch('/api/v1' + path, {
     method: data === undefined ? 'GET' : 'POST',
     signal: signal
@@ -35,6 +63,15 @@ export async function api(
     },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
+  if (
+    response.redirected ||
+    response.headers.get('Content-Type')?.includes('text/html')
+  )
+    throw new ApiError(
+      'ACCESS_REQUIRED',
+      '请重新打开网站完成 Cloudflare 邮箱登录',
+      401,
+    );
   let result: any;
   try {
     result = await response.json();

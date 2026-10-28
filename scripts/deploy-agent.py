@@ -1,6 +1,7 @@
 """Wait for GitHub Actions, verify its musl artifact, and deploy a Linux user-service Agent."""
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import pathlib
@@ -14,6 +15,9 @@ import uuid
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+_access_spec = importlib.util.spec_from_file_location('coc_cloudflare_access', ROOT / 'scripts/cloudflare_access.py')
+_access = importlib.util.module_from_spec(_access_spec)
+_access_spec.loader.exec_module(_access)
 REQUIRED_JOBS = {'regression', 'sanitizers', 'windows-x64', 'linux-musl',
                  'linux-release (debian12, debian:12)', 'linux-release (ubuntu20.04, ubuntu:20.04)'}
 
@@ -26,12 +30,21 @@ def curl(url, output=None):
     args = ['curl', '--fail', '--silent', '--show-error', '--location', '--retry', '3',
             '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '300',
             '--max-filesize', str(512 * 1024 * 1024), '--user-agent', 'coc-deploy-agent/1', url]
+    headers = _access.request_headers(url)
+    if headers:
+        args.remove('--location')
+        args += ['--header', '@-', '--write-out', '\n%{http_code} %{content_type}']
     if output:
         args += ['--continue-at', '-', '--output', str(output)]
     # Older supported Ubuntu curl lacks --retry-all-errors. Resume interrupted downloads ourselves.
     for attempt in range(3 if output else 1):
-        result = subprocess.run(args, capture_output=True)
+        result = subprocess.run(args, capture_output=True, **({'input': headers} if headers else {}))
         if result.returncode == 0:
+            if headers:
+                payload, _, status = result.stdout.rpartition(b'\n')
+                if not status.startswith(b'2') or b'text/html' in status.lower() and not url.endswith(('/', '.html')):
+                    raise RuntimeError('Access login redirect or unexpected response; check shared service token and policy')
+                return payload
             return result.stdout
         if output and result.returncode == 33:
             pathlib.Path(output).unlink(missing_ok=True)  # Server did not support Range.
@@ -87,6 +100,8 @@ def push_source(repository, commit):
 def wait_run(repository, commit, run_id, timeout):
     deadline = time.monotonic() + timeout
     previous = None
+    jobs = []
+    next_jobs = 0
     while time.monotonic() < deadline:
         if run_id is None:
             runs = api(repository, 'workflows/checks.yml/runs?head_sha=' + commit + '&per_page=20')
@@ -96,7 +111,9 @@ def wait_run(repository, commit, run_id, timeout):
         if run_id is not None:
             run = api(repository, 'runs/' + str(run_id))
             complete = check_run(run, commit)
-            jobs = api(repository, 'runs/' + str(run_id) + '/jobs?per_page=100')['jobs']
+            if complete or time.monotonic() >= next_jobs:
+                jobs = api(repository, 'runs/' + str(run_id) + '/jobs?per_page=100')['jobs']
+                next_jobs = time.monotonic() + 300
             summary = ', '.join(j['name'] + ':' + (j['conclusion'] or j['status']) for j in jobs)
             if summary != previous:
                 log(run['html_url'] + '\n' + summary)
@@ -104,7 +121,7 @@ def wait_run(repository, commit, run_id, timeout):
             if complete:
                 check_jobs(jobs)
                 return run, jobs
-        time.sleep(20)
+        time.sleep(60)
     raise RuntimeError('Timed out waiting for matching successful GitHub Actions')
 
 

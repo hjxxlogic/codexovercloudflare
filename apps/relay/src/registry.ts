@@ -1,3 +1,10 @@
+import { accessEnabled, type AccessUser } from './access.ts';
+import {
+  createEmailGrant,
+  emailOperation,
+  validateEmailAuth,
+  type EmailGrant,
+} from './email.ts';
 import { DurableObject } from 'cloudflare:workers';
 import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
 import { z } from 'zod';
@@ -72,6 +79,8 @@ export class RegistryDO extends DurableObject<Env> {
         'agentSetWakeUrl',
         'setInstanceName',
         'releasePublish',
+        'emailGrantRevoke',
+        'emailMigrate',
       ];
       if (
         response.ok &&
@@ -98,7 +107,10 @@ export class RegistryDO extends DurableObject<Env> {
           : op === 'apiKeyRevoke'
             ? result.map((auth: Auth) => auth.hostId)
             : [
-                op === 'credentialRevoke' || op === 'apiKeyLogin'
+                op === 'credentialRevoke' ||
+                op === 'apiKeyLogin' ||
+                op === 'emailGrantRevoke' ||
+                op === 'emailMigrate'
                   ? result.hostId
                   : op === 'setWakeUrl'
                     ? d.id
@@ -159,6 +171,7 @@ export class RegistryDO extends DurableObject<Env> {
       const request = await this.ctx.storage.get<any>('device:' + id);
       if (
         !request ||
+        (request.identity && request.identity.accountId !== d.accountId) ||
         request.pollHash !== pollHash ||
         request.expires <= Date.now()
       )
@@ -265,7 +278,12 @@ export class RegistryDO extends DurableObject<Env> {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
         s = this.ctx.storage;
-      if (op === 'login' || op === 'deviceStart' || op === 'apiKeyLogin') {
+      if (
+        op === 'login' ||
+        op === 'deviceStart' ||
+        op === 'apiKeyLogin' ||
+        op === 'emailAdminLogin'
+      ) {
         if (!this.env.OWNER_SECRET || this.env.OWNER_SECRET.length < 32)
           throw new AppError(
             'NOT_CONFIGURED',
@@ -287,6 +305,27 @@ export class RegistryDO extends DurableObject<Env> {
           throw new AppError('RATE_LIMITED', 'Try again in one minute', 429);
         await s.put(key, attempts);
         await expireAt(s, key, attempts.until);
+      }
+      if (
+        [
+          'emailHosts',
+          'emailRestore',
+          'emailMigrate',
+          'emailAdminLogin',
+          'emailGrantRevoke',
+        ].includes(op)
+      ) {
+        const result = await s.transaction((tx) =>
+          emailOperation(tx, this.env, op, d),
+        );
+        if (op === 'emailRestore' || op === 'emailMigrate') {
+          const key = 'limit:email:' + d.identity.accountId;
+          const limit = await s.get<{ until: number }>(key);
+          if (limit) await expireAt(s, key, limit.until);
+        }
+        if ('hash' in result && result.hash && 'expires' in result)
+          await expireAt(s, 'auth:' + result.hash, result.expires);
+        return json(result);
       }
       if (op === 'apiKeyCreate') {
         const role = z.enum(['agent', 'cli']).parse(d.role);
@@ -405,6 +444,14 @@ export class RegistryDO extends DurableObject<Env> {
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
+        const identity: AccessUser | undefined =
+          role === 'web' && accessEnabled(this.env) ? d.identity : undefined;
+        if (role === 'web' && accessEnabled(this.env) && !identity)
+          throw new AppError(
+            'ACCESS_USER_REQUIRED',
+            'Verified email required',
+            403,
+          );
         const hostId = role === 'agent' ? crypto.randomUUID() : undefined;
         const requestedHostId =
           d.requestedHostId === undefined
@@ -437,6 +484,8 @@ export class RegistryDO extends DurableObject<Env> {
           requestedHostId,
           message,
           code: id.slice(0, 8).toUpperCase(),
+          identity,
+          email: identity?.email,
           pollHash: await digest(pollSecret),
           expires: Date.now() + 5 * 60000,
           state: 'pending',
@@ -474,6 +523,7 @@ export class RegistryDO extends DurableObject<Env> {
                   name,
                   requestedHostId,
                   message,
+                  email,
                   code,
                   expires,
                 }) => ({
@@ -482,6 +532,7 @@ export class RegistryDO extends DurableObject<Env> {
                   name,
                   requestedHostId,
                   message,
+                  email,
                   code,
                   expires,
                 }),
@@ -503,6 +554,7 @@ export class RegistryDO extends DurableObject<Env> {
               hostId,
               requestedHostId,
               message,
+              email,
               code,
               expires,
             }) => ({
@@ -512,6 +564,7 @@ export class RegistryDO extends DurableObject<Env> {
               hostId,
               requestedHostId,
               message,
+              email,
               code,
               expires,
             }),
@@ -519,7 +572,7 @@ export class RegistryDO extends DurableObject<Env> {
         const credentials = Array.from(
           (await s.list<Auth>({ prefix: 'auth:' })).values(),
         )
-          .filter((v) => v.version === 2 && v.role !== 'owner')
+          .filter((v) => v.version === 2 && v.role !== 'owner' && !v.grantId)
           .map(({ hash, role, name, hostId, created }) => ({
             id: hash,
             role,
@@ -527,6 +580,17 @@ export class RegistryDO extends DurableObject<Env> {
             hostId,
             created,
           }));
+        for (const grant of (
+          await s.list<EmailGrant>({ prefix: 'emailGrant:' })
+        ).values())
+          if (grant.active)
+            credentials.push({
+              id: grant.id,
+              role: 'web',
+              name: grant.email,
+              hostId: grant.hostId,
+              created: grant.created,
+            });
         return json({ pending, credentials });
       }
       if (
@@ -602,6 +666,7 @@ export class RegistryDO extends DurableObject<Env> {
               created: Date.now(),
               expires: Number.MAX_SAFE_INTEGER,
             } satisfies Auth);
+            request.approvedBy = agent?.hash ?? d.approvedBy;
             request.state = 'approved';
             request.result = {
               token: value,
@@ -630,6 +695,15 @@ export class RegistryDO extends DurableObject<Env> {
                 'Invalid or expired login request',
                 401,
               );
+            if (
+              request.identity &&
+              request.identity.accountId !== d.identity?.accountId
+            )
+              throw new AppError(
+                'FORBIDDEN',
+                'Email does not match the pairing request',
+                403,
+              );
             if (d.web !== (request.role === 'web'))
               throw new AppError('FORBIDDEN', 'Wrong login transport', 403);
             if (request.state === 'pending') return { state: 'pending' };
@@ -644,6 +718,20 @@ export class RegistryDO extends DurableObject<Env> {
             const host = await tx.get<Host>('host:' + request.hostId);
             if (!auth || !host || host.version !== 2 || host.disabled)
               throw new AppError('UNAUTHORIZED', 'Authorization revoked', 401);
+            if (request.identity) {
+              const grant = await createEmailGrant(
+                tx,
+                request.identity,
+                request.hostId,
+                request.approvedBy,
+              );
+              Object.assign(auth, {
+                accountId: grant.accountId,
+                email: grant.email,
+                grantId: grant.generation,
+              });
+              await tx.put('auth:' + auth.hash, auth);
+            }
             if (request.role !== 'web') {
               request.delivered = true;
               await tx.put(key, request);
@@ -701,6 +789,13 @@ export class RegistryDO extends DurableObject<Env> {
           version: 2,
           name: 'Administrator',
           ownerVersion: await digest(this.env.OWNER_SECRET),
+          ...(d.identity
+            ? {
+                accountId: d.identity.accountId,
+                email: d.identity.email,
+                ownerSource: 'secret' as const,
+              }
+            : {}),
           created: Date.now(),
           expires,
         } satisfies Auth);
@@ -728,6 +823,7 @@ export class RegistryDO extends DurableObject<Env> {
             'Administrator secret rotated; log in again',
             401,
           );
+        await validateEmailAuth(s, this.env, a);
         if (a.apiKeyId && !(await s.get('apiKey:' + a.apiKeyId)))
           throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
         if (a.hostId) {
@@ -890,6 +986,11 @@ export class RegistryDO extends DurableObject<Env> {
       if (host) await tx.put('host:' + host.id, { ...host, disabled: true });
       for (const [key, value] of await tx.list<Auth>({ prefix: 'auth:' }))
         if (value.hostId === auth.hostId) await tx.delete(key);
+      for (const [key, grant] of await tx.list<EmailGrant>({
+        prefix: 'emailGrant:',
+      }))
+        if (grant.hostId === auth.hostId && grant.active)
+          await tx.put(key, { ...grant, active: false, revoked: Date.now() });
       // CC login keys cannot be reused after their target A is revoked.
       for (const [key, value] of await tx.list<ApiKey>({ prefix: 'apiKey:' }))
         if (value.hostId === auth.hostId) await tx.delete(key);

@@ -1,5 +1,13 @@
 # 开发与本机测试
 
+## Cloudflare Access 开发与验证
+
+`config/cloudflare-service-token.json` 是按项目约定随源码保存的共享入口 Token，CMake 的 `coc_access_defaults` 目标生成构建目录下的常量头文件；Worker 直接导入同一配置。无需在 CI 另行注入 Token。运行时覆盖文件通过 `--access-config` / `cloudflareAccessFile` / `COC_ACCESS_CONFIG` 选择；只有可信 HTTPS origin 收到请求头。
+
+本地默认不启用 Access。需验证 Worker 配置时，在忽略的 `.dev.vars` 设置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，保留原有 `OWNER_SECRET`。JWT 测试使用临时 RSA 密钥和模拟 JWKS，不接受线上 JWT。`npm test` 包含邮箱持久授权与管理员来源测试；`npm run test:tls` 额外测试带 Token 的 HTTPS/WSS 和无代理 TUI 桥接；网页构建后运行 `npm run test:access:web` 验证新浏览器和管理入口，使用合成身份且不调用模型。
+
+共享 Token 的所有者明确允许其明文进入项目；用户 CoC Key、OWNER_SECRET、Cookie、真实运行状态和 `.local/` 仍不可进入源码。日志和诊断不打印凭据值。实际 Cloudflare 边缘、Service Auth Header 转发和各发布平台仍需在发布流程验证；本地测试不替代 exact-commit Actions 门禁。详见 [接入说明](cloudflare-access-coc-auth.md)。
+
 ## CI 错误与重连同步
 
 `python3 scripts/ci-command.py ...` 保留原命令输出及退出码，失败注释只保留转义后最后 3500 字符，避免 GitHub 截断导致末尾断言丢失。`python3 tests/ci-command.py` 已纳入 CI。E2E 网络故障注入后必须等待 Agent 的协议协商完成（权威主机 online），上游 WebSocket OPEN 不足以证明可接管会话。

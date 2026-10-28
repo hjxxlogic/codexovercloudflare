@@ -1,3 +1,4 @@
+#include "coc/access.hpp"
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/login.hpp"
@@ -237,7 +238,7 @@ class Cli {
     refresh_state();
     std::unique_ptr<TuiBridge> bridge;
     auto url = remote_address(u, "/ws/v1/cli/" + id);
-    if (proxy_enabled()) {
+    if (proxy_enabled() || access_enabled(u)) {
       bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id);
       url = bridge->url();
     }
@@ -435,6 +436,8 @@ public:
                         ? read_json(credentials_)
                         : Json::object();
     configure_proxy(command == "proxy" ? "" : option("proxy", settings.value("proxy", "")));
+    const auto access_file =
+        configure_access(option("access-config", settings.value("cloudflareAccessFile", "")));
     update_settings(settings);
     auto release_relay = [&] {
       if (!option("relay").empty())
@@ -500,6 +503,8 @@ public:
       auto data = store();
       data["displayName"] = name;
       data["proxy"] = option("proxy", settings.value("proxy", ""));
+      if (!access_file.empty())
+        data["cloudflareAccessFile"] = access_file;
       auto &entries = data["entries"];
       for (auto it = entries.begin(); it != entries.end();) {
         if (key(*it) == key(result))
@@ -654,7 +659,8 @@ public:
              "reject|sessions|connect|"
              "attach|stop|history|cache-"
              "clear|doctor|update> [options]\n"
-             "Options: --proxy URL --relay URL --host ID --name NAME --message TEXT --project ID "
+             "Options: --proxy URL --access-config FILE --relay URL --host ID --name NAME "
+             "--message TEXT --project ID "
              "--config PATH "
              "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "

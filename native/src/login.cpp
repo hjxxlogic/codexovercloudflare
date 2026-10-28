@@ -28,7 +28,7 @@ Options::Options(int argc, char **argv) {
           key != "project" && key != "project-id" && key != "before" && key != "seq" &&
           key != "offset" && key != "offline" && key != "cache-dir" && key != "request-id" &&
           key != "revision" && key != "cursor" && key != "session" && key != "approval-id" &&
-          key != "proxy")
+          key != "proxy" && key != "access-config")
         throw Error("USAGE", "Unknown option: " + a);
       if (++i >= argc)
         throw Error("USAGE", "Missing value: " + a);

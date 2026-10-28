@@ -46,8 +46,9 @@ if output.exists():
 shutil.copytree(args.artifacts / 'verified-web', output)
 downloads = output / 'downloads'
 downloads.mkdir(exist_ok=True)
-if any(downloads.iterdir()):
-    parser.error('Verified web artifact must not contain unverified downloads')
+for existing in downloads.iterdir():
+    if existing.name != 'USER_GUIDE.md' or existing.read_bytes() != Path('docs/USER_GUIDE.md').read_bytes():
+        parser.error('Verified web artifact must not contain unverified downloads')
 for path in selected:
     shutil.copy2(path, downloads / path.name)
 shutil.copy2('docs/USER_GUIDE.md', downloads / 'USER_GUIDE.md')

@@ -1,3 +1,4 @@
+import { setEmailAccount, ensureEmailHost, forgetEmailHost } from './api.ts';
 import { observe, recoverNotifications } from './notifications.ts';
 import {
   t,
@@ -152,6 +153,15 @@ function App() {
       document.removeEventListener('keydown', escape);
     };
   }, [menuOpen]);
+  const [emailIdentity, setEmailIdentity] = useState<{
+    enabled: boolean;
+    email?: string;
+    accountId?: string;
+    autoAdmin?: boolean;
+    legacy?: { hostId: string; name: string }[];
+  }>({ enabled: false });
+  const accountRef = useRef('');
+  const autoAdminAttempt = useRef('');
   const [logged, setLogged] = useState(false),
     [admin, setAdmin] = useState(false),
     [deviceMessage, setDeviceMessage] = useState(''),
@@ -291,11 +301,48 @@ function App() {
     return snapshotPending.current;
   }
   async function readSnapshot() {
+    try {
+      const identity: typeof emailIdentity = await api('/auth/email');
+      const nextAccount = identity.accountId || '';
+      if (accountRef.current && nextAccount !== accountRef.current) {
+        socket.current?.close();
+        setSelected(undefined);
+        setText('');
+        setEvents([]);
+        setProjects([]);
+        setSessions([]);
+        setHost('');
+        rememberHost('');
+        setAdmin(false);
+        setGrant(undefined);
+      }
+      accountRef.current = nextAccount;
+      setEmailAccount(nextAccount);
+      setEmailIdentity(identity);
+      if (identity.autoAdmin && autoAdminAttempt.current !== nextAccount) {
+        autoAdminAttempt.current = nextAccount;
+        await api('/auth/email/admin', {});
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        report(error);
+        setChecking(false);
+        if (error instanceof ApiError && error.code.startsWith('ACCESS_')) {
+          socket.current?.close();
+          setSelected(undefined);
+          setHost('');
+          setHosts([]);
+          setLogged(false);
+          setAdmin(false);
+        }
+        return;
+      }
+    }
     const results = await Promise.allSettled([api('/hosts'), api('/auth/me')]);
     if (results[0].status === 'fulfilled') {
       const available = results[0].value;
       setHosts(available);
-      setLogged(true);
+      setLogged(available.length > 0);
       const remembered = lastHost();
       if (remembered && !available.some((h: any) => h.id === remembered))
         rememberHost('');
@@ -400,23 +447,41 @@ function App() {
   }, [admin, mode, revision, readAdminSnapshot]);
   useEffect(() => {
     if (!logged) return;
-    const stops = hosts.map((h) =>
-      observe(`/ws/v1/hosts/${h.id}`, (event) => {
-        if (
-          event.type === 'subscribed' ||
-          (event.type === 'change' &&
-            ['host', 'registry', 'requests', 'sessions'].includes(event.scope))
-        ) {
-          void refresh();
-          if (event.scope === 'sessions' || event.type === 'subscribed')
-            setRevision((value) => value + 1);
-        }
-        if (event.type === 'change' && event.scope === 'request-results')
-          setResultRevision((value) => value + 1);
-      }),
-    );
-    return () => stops.forEach((stop) => stop());
-  }, [logged, hosts.map((h) => h.id).join(',')]);
+    let disposed = false;
+    const stops: (() => void)[] = [];
+    const observedHosts = emailIdentity.enabled
+      ? hosts.filter((h) => h.id === host)
+      : hosts;
+    for (const h of observedHosts)
+      void ensureEmailHost(h.id)
+        .then(() => {
+          if (disposed) return;
+          stops.push(
+            observe(`/ws/v1/hosts/${h.id}`, (event) => {
+              if (event.type === 'disconnected' && emailIdentity.enabled)
+                void refresh();
+              if (
+                event.type === 'subscribed' ||
+                (event.type === 'change' &&
+                  ['host', 'registry', 'requests', 'sessions'].includes(
+                    event.scope,
+                  ))
+              ) {
+                void refresh();
+                if (event.scope === 'sessions' || event.type === 'subscribed')
+                  setRevision((value) => value + 1);
+              }
+              if (event.type === 'change' && event.scope === 'request-results')
+                setResultRevision((value) => value + 1);
+            }),
+          );
+        })
+        .catch(report);
+    return () => {
+      disposed = true;
+      stops.forEach((stop) => stop());
+    };
+  }, [logged, hosts.map((h) => h.id).join(','), host, emailIdentity.accountId]);
   useEffect(() => {
     if (mode !== 'cw' || !host || online || !wakeConfigured) return;
     const controller = new AbortController();
@@ -631,7 +696,7 @@ function App() {
       controller.abort();
       cache?.close();
     };
-  }, [host]);
+  }, [host, emailIdentity.accountId]);
   useEffect(() => {
     if (catalogHost !== host || catalogScope.current !== host || !project)
       return;
@@ -1718,6 +1783,29 @@ function App() {
     setNewKey('');
     setError('');
   };
+  const emailControls = emailIdentity.enabled && (
+    <section className="card">
+      <p>
+        {t('当前邮箱：')}
+        {emailIdentity.email}
+      </p>
+      <p>{t('已授权服务器随邮箱保存，换浏览器登录后自动恢复。')}</p>
+      {emailIdentity.legacy?.map((legacy) => (
+        <button
+          key={legacy.hostId}
+          onClick={() => {
+            if (confirm(t('将此浏览器的旧服务器授权关联到当前邮箱？')))
+              void api('/auth/email/migrate', { hostId: legacy.hostId })
+                .then(() => refresh())
+                .catch(report);
+          }}
+        >
+          {t('关联旧授权：')}
+          {legacy.name} · {legacy.hostId}
+        </button>
+      ))}
+    </section>
+  );
   const connectionControls = logged && (
     <section className="card">
       <h2>{t('登录与授权')}</h2>
@@ -1727,6 +1815,21 @@ function App() {
   const loginForm = !checking && (adminLogin ? !admin : !logged || adding) && (
     <form onSubmit={login} className="card login-card">
       <h2>{adminLogin ? t('管理员登录') : t('连接远程服务器')}</h2>
+      {adminLogin && emailIdentity.autoAdmin && (
+        <button
+          type="button"
+          onClick={() =>
+            void api('/auth/email/admin', {})
+              .then(() => refresh())
+              .catch(report)
+          }
+        >
+          {t('使用管理员邮箱进入管理')}
+        </button>
+      )}
+      {!adminLogin && emailIdentity.enabled && (
+        <p>{t('首次批准后，此邮箱可在其他浏览器直接连接该服务器。')}</p>
+      )}
       {adminLogin ? (
         <label>
           {t('所有者密钥')}
@@ -1891,6 +1994,8 @@ function App() {
               void api('/auth/forget', { hostId: host })
                 .then(() => {
                   rememberHost('');
+                  forgetEmailHost(host);
+                  setHost('');
                   socket.current?.close();
                   setSelected(undefined);
                   return refresh();
@@ -1898,7 +2003,7 @@ function App() {
                 .catch(report);
           }}
         >
-          {t('移除本地授权')}
+          {t(emailIdentity.enabled ? '断开当前浏览器连接' : '移除本地授权')}
         </button>
         <button
           disabled={!online || !host || !project || creating}
@@ -2172,6 +2277,11 @@ function App() {
       {error && (
         <div role="alert" className="error">
           {t(error)}
+          {error.includes('ACCESS_') && (
+            <button onClick={() => location.assign('/')}>
+              {t('重新验证邮箱')}
+            </button>
+          )}
           <button onClick={() => setError('')}>{t('关闭')}</button>
         </div>
       )}
@@ -2288,6 +2398,12 @@ function App() {
                   >
                     <th scope="row">
                       {d.name}
+                      {d.email && (
+                        <p>
+                          {t('已验证邮箱：')}
+                          {d.email}
+                        </p>
+                      )}
                       <details>
                         <summary>{t('请求标识')}</summary>
                         <p className="id">{d.id}</p>
@@ -2401,6 +2517,12 @@ function App() {
                   <tr key={d.id} data-credential-id={d.id}>
                     <th scope="row">
                       {d.name}
+                      {d.email && (
+                        <p>
+                          {t('已验证邮箱：')}
+                          {d.email}
+                        </p>
+                      )}
                       <details>
                         <summary>{t('授权标识与服务器')}</summary>
                         <p className="id">
@@ -2724,6 +2846,7 @@ function App() {
                         </p>
                       )}
                       {projectPicker}
+                      {emailControls}
                       {connectionControls}
                       {loginForm}
                     </section>

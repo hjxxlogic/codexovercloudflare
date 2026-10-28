@@ -1,4 +1,5 @@
 #include "coc/network.hpp"
+#include "coc/access.hpp"
 #include "coc/proxy.hpp"
 #include "coc/tls.hpp"
 #include <boost/asio/ssl.hpp>
@@ -181,6 +182,11 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
   http::request<http::string_body> req{body.is_null() ? http::verb::get : http::verb::post, path,
                                        11};
   req.set(http::field::host, u.authority);
+  const auto access = access_credentials(u);
+  if (!access.first.empty()) {
+    req.set("CF-Access-Client-Id", access.first);
+    req.set("CF-Access-Client-Secret", access.second);
+  }
   req.set(http::field::content_type, "application/json");
   req.set(http::field::origin, u.origin);
   req.set(http::field::user_agent, "coc/demand-v1");
@@ -281,6 +287,11 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
   if (failure)
     throw Error("HTTP_NETWORK", "Relay transport failed: " + failure.message());
   auto response = parser.release();
+  if ((response.result_int() >= 300 && response.result_int() < 400) ||
+      response[http::field::content_type].find("text/html") != beast::string_view::npos)
+    throw Error(
+        "ACCESS_REQUIRED",
+        "Relay returned a login page or redirect; check Cloudflare Access credentials and policy");
   if (response.result_int() < 200 || response.result_int() >= 300) {
     auto data = Json::parse(response.body(), nullptr, false);
     if (!data.is_object())

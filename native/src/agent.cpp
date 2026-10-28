@@ -1,3 +1,4 @@
+#include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
@@ -1587,7 +1588,7 @@ public:
           // JSON escapes untrusted names/messages so they cannot inject terminal commands.
           Json notice = {{"event", "client_approval_required"}};
           for (const auto *key :
-               {"id", "role", "name", "requestedHostId", "message", "code", "expires"})
+               {"id", "role", "name", "requestedHostId", "message", "email", "code", "expires"})
             notice[key] = request.value(key, Json());
           std::cerr
               << "Client login approval required. Verify the pairing code, role and message.\n"
@@ -1735,7 +1736,8 @@ int coc_main(int argc, char **argv) {
              "[--config "
              "PATH] "
              "[--relay URL] "
-             "[--proxy URL] [--name NAME] [--project PATH] [--project-id ID] [--api-key]\n"
+             "[--proxy URL] [--access-config FILE] [--name NAME] [--project PATH] [--project-id "
+             "ID] [--api-key]\n"
              "login --api-key: read COC_API_KEY or prompt securely; otherwise approve the "
              "displayed request in the management website. logout only "
              "removes local credentials.\n"
@@ -1751,6 +1753,8 @@ int coc_main(int argc, char **argv) {
         std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
     coc::configure_proxy(command == "proxy" ? ""
                                             : options.get("proxy", settings.value("proxy", "")));
+    const auto access_file = coc::configure_access(
+        options.get("access-config", settings.value("cloudflareAccessFile", "")));
     if (command == "update") {
       auto config = std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
       auto update = coc::prepare_update(
@@ -1809,6 +1813,8 @@ int coc_main(int argc, char **argv) {
           options.get("name", config.value("displayName", coc::asio::ip::host_name())));
       config["displayName"] = name;
       config["proxy"] = options.get("proxy", settings.value("proxy", ""));
+      if (!access_file.empty())
+        config["cloudflareAccessFile"] = access_file;
       auto grant = coc::device_login(options.get("relay", "https://r.xlogic.cc"), "agent", name, "",
                                      options.api_key);
       config["relayUrl"] = grant.at("relay");

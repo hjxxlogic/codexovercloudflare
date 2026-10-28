@@ -5,6 +5,14 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 export interface Env {
   OWNER_SECRET: string;
+  ACCESS_ENABLED?: string;
+  ACCESS_TEAM_DOMAIN?: string;
+  ACCESS_AUD?: string;
+  ADMIN_EMAIL?: string;
+  CF_ACCESS_CLIENT_ID?: string;
+  CF_ACCESS_CLIENT_SECRET?: string;
+  ACCESS_PUBLIC_DOWNLOADS?: string;
+  ACCESS_PUBLIC_HEALTH?: string;
   REGISTRY: DurableObjectNamespace;
   HOSTS: DurableObjectNamespace;
   ASSETS: Fetcher;
@@ -19,6 +27,11 @@ export type Auth = {
   created: number;
   apiKeyId?: string;
   ownerVersion?: string;
+  accountId?: string;
+  email?: string;
+  grantId?: string;
+  ownerSource?: 'email' | 'secret';
+  adminEmailVersion?: string;
 };
 export const json = (
   data: unknown,

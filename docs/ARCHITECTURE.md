@@ -1,5 +1,15 @@
 # 技术架构与选型
 
+## Cloudflare Access 与邮箱持久授权增补（2026-10-28）
+
+可选 `ACCESS_ENABLED` 在 Worker 外部入口校验固定团队 JWKS 的 RS256 JWT、issuer、audience 和时间；机器请求还必须匹配项目共享 Token 的两个字段。来源配置 `config/cloudflare-service-token.json` 同时供 CMake 生成原生常量、Worker 和 Python 运维工具使用，网页不导入。`run_worker_first: true` 覆盖 Assets，公开下载 / 健康检查需显式且与边缘一致；本地开发缺省保留 CoC 认证。
+
+RegistryDO 以 issuer / 邮箱摘要作为账户 ID，持久保存 `emailAccount` 和按账户 / 主机索引的 `emailGrant`。首次 CW 配对领取的同一事务才建立授权；新浏览器按授权恢复独立 web Cookie，Auth 绑定账户和授权代次。恢复与撤销串行化，旧代次不能复活。HostRelay 保留原有角色、会话、票据和撤销机制；邮箱授权撤销关闭全部匹配凭据连接，A 撤销级联失效。
+
+管理员邮箱仅通过已验证用户 JWT 匹配 `ADMIN_EMAIL` 后签发 owner；其他邮箱保留 OWNER_SECRET 登录。owner 记录绑定账户、登录来源、配置版本及原有 ownerVersion；配置变化后自动登录来源失效，原生机器身份不会转换成邮箱 owner。管理权限与网页会话控制权保持独立。现有无邮箱网页授权必须显式迁移，不能按申请名称或留言认领。
+
+浏览器先读取邮箱与授权列表，选择 A 时恢复网页凭据；邮箱切换清除旧页面会话，缓存继续按凭据隔离。Access 过期不删除持久授权。新增流程、API、生命周期和配置边界见 [接入说明](cloudflare-access-coc-auth.md)。
+
 ## 管理快照与本地操作恢复 · 2026-10-27
 
 管理页通过同一个 `readAdminSnapshot` 并发读取设备、API Key 和主机快照，在三者均成功后一次更新对应 React 状态。本地管理操作成功后显式等待此读取，不依赖自身变更通知；手动管理刷新也等待快照后才结束加载。通知与本地刷新合并到同一个在途 Promise，期间发生新刷新时丢弃旧批并补读，避免变更前快照覆盖本人操作结果。通知恢复和有限重连保持原策略，没有新增周期查询；分开的 HTTP 读取不声称服务端原子快照。

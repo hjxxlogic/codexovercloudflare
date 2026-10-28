@@ -1,5 +1,17 @@
 # 本机测试记录
 
+## Cloudflare Access、邮箱授权及管理员邮箱 · 2026-10-28（本地未发布）
+
+- 实现项目共享 Token 的原生内置默认值与 Worker 双字段硬校验、JWT 验证、邮箱持久 A 授权、跨浏览器恢复、旧凭据迁移及管理员邮箱自动登录。按项目要求，入口 Token 明文保存在 `config/cloudflare-service-token.json`；实际 CoC Key / owner 密钥不进入源码。
+- `npm test` 通过：CTest native-core 和 Vitest 11 文件 / 113 项，其中新增 8 项 Access / 邮箱授权测试覆盖签名 / issuer / audience / 到期拒绝、两个 Service Token 字段、机器伪造邮箱、跨邮箱 Cookie、两台离线 A 的恢复、首次领取、管理员邮箱 / 密钥、配置轮换、全浏览器撤销和旧授权迁移。
+- 原生 HTTPS/WSS 的可信 CA、错误 CA、错误主机名、直连与 HTTP CONNECT 六组测试通过，校验共享字段到达 Relay 且不进入 CONNECT 请求。额外 native-access 测试通过：无网络代理时 TUI 使用 loopback 桥接，远程 WS 同时携带共享 Token 和短期票据，非可信 origin 无 Token，登录 HTML 被拒绝。
+- 两个全新 Chromium 上下文恢复同一邮箱的 A 列表，无配对调用；管理员邮箱自动登录，其他邮箱输入管理员密钥后进入管理。 Bookworm 容器中重复通过并检查中文截图：[邮箱恢复列表](assets/cloudflare-access-2026-10-28/email-hosts.png)、[邮箱管理页](assets/cloudflare-access-2026-10-28/email-admin.png)。该 UI 测试使用合成身份；真实 JWT 与持久状态由 Worker / RegistryDO 单元测试验证，不声称已完成真实 Cloudflare 登录。
+- 现有完整 UI 稳定性回归通过，覆盖语言、恢复、缓存隔离、文件下载、审批、模式切换、管理表格和分页历史。首次因已有截图文件不可写中止，改用新的 `.local/access-ui-regression/` 输出目录后通过。
+- Agent 部署测试 8 项、云端产物测试 3 项、Access 运维工具测试 4 项、发布来源 / 四平台合成产物检查通过。Access 运维测试验证 HTTPS origin 限定、Header 经标准输入、禁止凭据重定向和 HTML 下载拒绝。
+- TypeScript、ESLint / Prettier、clang-format、原生 / 网页构建、Worker dry-run 通过。逐值核对：用户提供文件与项目配置一致，两个原生二进制和 Worker 产物包含同一配置，网页静态资源不包含共享 Secret。
+- 宿主完整 E2E 因 glibc 不足无法启动 workerd；改用独立源码副本、Bookworm 原生构建及已验证网页产物后，完整 E2E 通过（真实 Wrangler / Durable Objects、确定性 Codex peer、Chromium），覆盖原有配对、Key 角色 / 目标隔离、TUI、重连与运行任务保留、Web 历史、在线撤销等流程。容器未挂载生产配置 / 数据库，没有调用模型、更新线上策略、部署 Worker 或重启生产 Agent。
+- 本地验证不能替代同一提交的完整 Actions，尚无本次源码的 CI / Windows / musl 发布验证或实际 Cloudflare 边缘联调。上线仍需配置正确的 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，并验证 Token Header 转发和策略覆盖。
+
 ## CW 发送状态与模型选择 · 2026-10-28
 
 - 功能提交 `f9d758b46b83d0ede0d5d28595d8b1de3e4cc720` 的 [GitHub Actions 40661577555](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40661577555) 已完成且成功。逐项核对 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部通过；分支 publish-release 正常跳过。[CI 记录](assets/cw-models-2026-10-28/ci.json)。后续文档记录提交不包含功能代码变更。

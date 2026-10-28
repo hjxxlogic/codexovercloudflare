@@ -93,6 +93,11 @@ try {
           cert: readFileSync(join(dir, scenario.cert + '.pem')),
         },
         (req, res) => {
+          assert.equal(req.headers['cf-access-client-id'], 'tls-test-client');
+          assert.equal(
+            req.headers['cf-access-client-secret'],
+            'tls-test-secret',
+          );
           if (req.url === '/api/v1/agent/requests') {
             approvalRequests++;
             assert.equal(req.method, 'GET');
@@ -118,6 +123,8 @@ try {
       let resolveProjects!: () => void;
       const projects = new Promise<void>((r) => (resolveProjects = r));
       wss.on('connection', (ws, req) => {
+        assert.equal(req.headers['cf-access-client-id'], 'tls-test-client');
+        assert.equal(req.headers['cf-access-client-secret'], 'tls-test-secret');
         ws.on('ping', (payload) => {
           assert.equal(payload.toString(), 'coc-keepalive');
           protocolPings++;
@@ -153,6 +160,7 @@ try {
           '203.0.113.10:' + (server.address() as any).port,
         );
         assert.equal(request.headers.authorization, undefined);
+        assert.equal(request.headers['cf-access-client-secret'], undefined);
         tunnels++;
         const upstream = connect(
           (server.address() as any).port,
@@ -176,7 +184,13 @@ try {
         (proxied ? '203.0.113.10' : 'localhost') +
         ':' +
         (server.address() as any).port;
+      save('access.json', {
+        origins: [origin],
+        clientId: 'tls-test-client',
+        clientSecret: 'tls-test-secret',
+      });
       const env = {
+        COC_ACCESS_CONFIG: join(dir, 'access.json'),
         ...process.env,
         SSL_CERT_FILE: scenario.trusted ? join(dir, 'ca.pem') : '/dev/null',
         SSL_CERT_DIR: dir,

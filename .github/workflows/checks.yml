@@ -56,10 +56,11 @@ jobs:
       - run: npm run test:release
       - run: python3 tests/agent-deploy.py
       - run: python3 tests/cloud-deploy.py
+      - run: python3 tests/cloudflare-access-tools.py
       - run: python3 tests/ci-command.py
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
-      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:billing:web
+      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
         env:
           COC_ARTIFACT_DIR: .local/screenshots
       - uses: actions/upload-artifact@v4

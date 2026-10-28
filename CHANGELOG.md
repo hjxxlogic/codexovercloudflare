@@ -1,5 +1,12 @@
 # 更新日志
 
+## 0.5.14 · Cloudflare Access 与邮箱授权 · 2026-10-28
+
+- Agent / CLI 从项目明文共享配置编译 Service Token 默认常量，覆盖 HTTPS、WSS、下载更新及无代理 TUI 桥接；Worker 同时验证 Access JWT 和机器 Token 的两个字段。
+- 网页按已验证邮箱持久保存全部 Agent 授权，换浏览器自动恢复；支持旧网页授权显式迁移及按邮箱 / 主机跨浏览器撤销。
+- 配置管理员邮箱自动进入管理，其他邮箱继续使用管理员密钥；共享 Token 不授予 CoC 主机或管理权限。
+- Access 显式启用，未配置时保留原登录流程；本次尚未部署。配置及验证边界见 [接入说明](docs/cloudflare-access-coc-auth.md)。
+
 ## 未发布 · 云端 CI 产物部署 · 2026-10-28
 
 - Actions 保留 Worker / 网页及来源信息；新增云端部署脚本校验 CI 门禁、产物摘要和来源，保留已发布下载包，直接上传 CI Worker 并核对线上资源。

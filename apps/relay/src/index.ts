@@ -1,3 +1,12 @@
+import {
+  accessEnabled,
+  requireMachineAccess,
+  accessUser,
+  requireAccessUser,
+  verifyAccess,
+  bindBrowser,
+  adminEmailMatches,
+} from './access.ts';
 import { z } from 'zod';
 import {
   AppError,
@@ -58,6 +67,7 @@ async function authenticate(
       'Credential role or target host does not match',
       403,
     );
+  bindBrowser(req, env, auth);
   return auth;
 }
 async function authenticateAgent(req: Request, env: Env) {
@@ -105,8 +115,13 @@ export default {
     try {
       const u = new URL(req.url),
         p = u.pathname;
+      const publicAccessPath =
+        (env.ACCESS_PUBLIC_DOWNLOADS === 'true' &&
+          (p === '/downloads' || p.startsWith('/downloads/'))) ||
+        (env.ACCESS_PUBLIC_HEALTH === 'true' && p === '/api/v1/healthz');
+      if (!publicAccessPath) await verifyAccess(req, env);
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.13', demand: 1, protocol: 1 });
+        return json({ ok: true, version: '0.5.14', demand: 1, protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const response = await env.ASSETS.fetch(req);
         const headers = new Headers(response.headers);
@@ -132,10 +147,77 @@ export default {
           'WebSocket upgrade required',
           426,
         );
+      if (p === '/api/v1/auth/email' && req.method === 'GET') {
+        if (!accessEnabled(env)) return json({ enabled: false });
+        const identity = requireAccessUser(req);
+        const legacy = [];
+        for (const [name, value] of cookies(req)) {
+          if (!/^coc_web_[\w-]+$/.test(name)) continue;
+          try {
+            const auth: Auth = await registryCall(env, 'auth', {
+              token: value,
+            });
+            if (
+              auth.role === 'web' &&
+              !auth.accountId &&
+              name === 'coc_web_' + auth.hostId
+            )
+              legacy.push({ hostId: auth.hostId, name: auth.name });
+          } catch {
+            /* Invalid legacy cookies cannot be migrated. */
+          }
+        }
+        return json({
+          enabled: true,
+          email: identity.email,
+          accountId: identity.accountId,
+          autoAdmin: adminEmailMatches(env, identity),
+          legacy,
+        });
+      }
+      if (p === '/api/v1/auth/email/admin' && req.method === 'POST') {
+        const result = await registryCall(env, 'emailAdminLogin', {
+          identity: requireAccessUser(req),
+          token: cookies(req).get('coc_admin'),
+          ip: req.headers.get('cf-connecting-ip') || 'local',
+        });
+        return json({ expires: result.expires }, 200, {
+          'Set-Cookie': cookieHeader(req, 'coc_admin', result.token, 28800),
+        });
+      }
+      if (
+        ['/api/v1/auth/email/restore', '/api/v1/auth/email/migrate'].includes(
+          p,
+        ) &&
+        req.method === 'POST'
+      ) {
+        const hostId = idSchema.parse((await body(req)).hostId);
+        const result = await registryCall(
+          env,
+          p.endsWith('/migrate') ? 'emailMigrate' : 'emailRestore',
+          {
+            identity: requireAccessUser(req),
+            hostId,
+            token: cookies(req).get('coc_web_' + hostId),
+          },
+        );
+        return json({ hostId }, 200, {
+          'Set-Cookie': cookieHeader(
+            req,
+            'coc_web_' + hostId,
+            result.token,
+            2592000,
+          ),
+        });
+      }
       if (p === '/api/v1/auth/login' && req.method === 'POST') {
         const d = await body(req);
         const result = await registryCall(env, 'login', {
           secret: d.secret,
+          identity:
+            accessEnabled(env) && !bearer(req)
+              ? requireAccessUser(req)
+              : undefined,
           ip: req.headers.get('cf-connecting-ip') || 'local',
         });
         return json(
@@ -145,6 +227,7 @@ export default {
         );
       }
       if (p === '/api/v1/auth/api-key' && req.method === 'POST') {
+        await requireMachineAccess(req, env);
         const d = await body(req);
         return json(
           await registryCall(env, 'apiKeyLogin', {
@@ -155,8 +238,13 @@ export default {
       }
       if (p === '/api/v1/auth/device/start' && req.method === 'POST') {
         const d = await body(req);
+        if (d.role !== 'web') await requireMachineAccess(req, env);
         const result = await registryCall(env, 'deviceStart', {
           ...d,
+          identity:
+            d.role === 'web' && accessEnabled(env)
+              ? requireAccessUser(req)
+              : undefined,
           ip: req.headers.get('cf-connecting-ip') || 'local',
         });
         if (d.role !== 'web') return json(result);
@@ -181,7 +269,11 @@ export default {
             headers: {
               Upgrade: 'websocket',
               'x-subscription': encodeURIComponent(
-                JSON.stringify({ id, secret }),
+                JSON.stringify({
+                  id,
+                  secret,
+                  accountId: accessUser(req)?.accountId,
+                }),
               ),
             },
           }),
@@ -240,6 +332,7 @@ export default {
           id,
           pollSecret: pending || d.pollSecret,
           web: !!pending,
+          identity: accessUser(req),
         });
         if (pending && result.state === 'approved') {
           const { token, ...visible } = result;
@@ -277,7 +370,7 @@ export default {
         });
       }
       if (p.startsWith('/api/v1/admin/')) {
-        await authenticate(req, env, undefined, true);
+        const owner = await authenticate(req, env, undefined, true);
         if (p === '/api/v1/admin/releases' && req.method === 'POST') {
           const d = await body(req);
           const manifestResponse = await env.ASSETS.fetch(
@@ -361,7 +454,23 @@ export default {
         const action = p.match(/^\/api\/v1\/admin\/(approve|reject|revoke)$/);
         if (action && req.method === 'POST') {
           const d = await body(req);
-          if (action[1] === 'revoke') {
+          if (
+            action[1] === 'revoke' &&
+            typeof d.id === 'string' &&
+            d.id.startsWith('emailGrant:')
+          ) {
+            const result = await registryCall(env, 'emailGrantRevoke', {
+              id: d.id,
+            });
+            for (const auth of result.revoked as Auth[])
+              await hostStub(env, result.hostId).fetch(
+                'https://internal/revoke-auth',
+                {
+                  method: 'POST',
+                  body: JSON.stringify({ hash: auth.hash, agent: false }),
+                },
+              );
+          } else if (action[1] === 'revoke') {
             const auth: Auth = await registryCall(env, 'credentialRevoke', d);
             await hostStub(env, auth.hostId!).fetch(
               'https://internal/revoke-auth',
@@ -377,13 +486,33 @@ export default {
             await registryCall(
               env,
               action[1] === 'approve' ? 'deviceApprove' : 'deviceReject',
-              d,
+              { ...d, approvedBy: owner.hash },
             );
           return json({ ok: true });
         }
         throw new AppError('NOT_FOUND', 'Unknown management route', 404);
       }
       if (p === '/api/v1/hosts' && req.method === 'GET') {
+        if (accessEnabled(env) && !bearer(req)) {
+          const hosts = await registryCall(env, 'emailHosts', {
+            identity: requireAccessUser(req),
+          });
+          return json(
+            await Promise.all(
+              hosts.map(async (h: any) => {
+                const status = (await (
+                  await hostStub(env, h.id).fetch('https://internal/status')
+                ).json()) as any;
+                const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
+                return {
+                  ...visible,
+                  ...status,
+                  wakeConfigured: !!(wakeUrlOverride ?? agentWakeUrl),
+                };
+              }),
+            ),
+          );
+        }
         const auths: Auth[] = [];
         if (bearer(req)) {
           const a: Auth = await registryCall(env, 'authHost', {

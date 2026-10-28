@@ -1,3 +1,4 @@
+#include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/common.hpp"
 #include "coc/external.hpp"
@@ -44,6 +45,38 @@ struct Temp {
   ~Temp() { std::filesystem::remove_all(path); }
 };
 void core() {
+  {
+    Temp dir;
+    const auto file = std::filesystem::path(dir.path) / "access.json";
+    Json config = {{"origins", Json::array({"https://relay.example.test"})},
+                   {"clientId", "test-service-id"},
+                   {"clientSecret", "test-service-secret"}};
+    save_private(file, config);
+    configure_access(file.string());
+    check(access_enabled(relay_url("https://RELAY.example.test:443")),
+          "Access origin canonicalization");
+    check(access_credentials(relay_url("https://relay.example.test")).second ==
+              "test-service-secret",
+          "Shared Access credentials");
+    check(!access_enabled(relay_url("https://relay.example.test:444")) &&
+              !access_enabled(relay_url("https://other.example.test")) &&
+              !access_enabled(relay_url("http://localhost")),
+          "Access credentials restricted to exact HTTPS origin");
+    config["clientSecret"] = "secret\r\nInjected: header";
+    save_private(file, config);
+    rejects([&] { configure_access(file.string()); }, "CONFIG_ERROR");
+    check(!access_enabled(relay_url("https://relay.example.test")),
+          "Failed configuration leaves no active token");
+    config["clientSecret"] = "test-service-secret";
+    config["origins"] = Json::array({"http://localhost"});
+    save_private(file, config);
+    rejects([&] { configure_access(file.string()); }, "CONFIG_ERROR");
+    config["origins"] = Json::array({"https://relay.example.test"});
+    save_private(file, config);
+    chmod(file.c_str(), 0644);
+    rejects([&] { configure_access(file.string()); }, "CONFIG_ERROR");
+    configure_access("");
+  }
   for (const auto &fixture :
        read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/wake-url-fixtures.json")) {
     if (fixture.at("valid") == true)
