@@ -12,6 +12,7 @@ let approvals = 0,
   frames = 0,
   pings = 0;
 let peer: WebSocket | undefined;
+let replyToPing = true;
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (req.url === '/api/v1/agent/requests') {
@@ -19,13 +20,18 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify({ hostId: 'host', pending: [] }));
   } else res.writeHead(404).end('{}');
 });
-const sockets = new WebSocketServer({ server });
+const sockets = new WebSocketServer({ server, autoPong: false });
 sockets.on('connection', (ws) => {
   peer = ws;
   connections++;
+  if (connections > 1) replyToPing = true;
   ws.send(JSON.stringify({ type: 'hello', minProtocol: 1, demand: 1 }));
   ws.on('message', () => frames++);
-  ws.on('ping', () => pings++);
+  ws.on('ping', (payload) => {
+    assert.equal(payload.toString(), 'coc-keepalive');
+    pings++;
+    if (replyToPing) ws.pong(payload);
+  });
 });
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const relayUrl = `http://127.0.0.1:${(server.address() as any).port}`;
@@ -58,8 +64,8 @@ agent.stdout.on('data', (value) => {
   output += value;
 });
 const delay = (ms: number) => new Promise((done) => setTimeout(done, ms));
-async function wait(test: () => boolean, label: string) {
-  const until = Date.now() + 10000;
+async function wait(test: () => boolean, label: string, timeout = 10000) {
+  const until = Date.now() + timeout;
   while (!test()) {
     if (Date.now() >= until) throw new Error(label + '\n' + output);
     await delay(30);
@@ -69,7 +75,18 @@ try {
   await wait(() => frames === 1 && approvals === 1, 'initial synchronization');
   const idle = { frames, approvals, connections, pings };
   await delay(Number(process.env.COC_IDLE_MS || 95000));
-  assert.deepEqual({ frames, approvals, connections, pings }, idle, output);
+  assert.deepEqual(
+    { frames, approvals, connections },
+    {
+      frames: idle.frames,
+      approvals: idle.approvals,
+      connections: idle.connections,
+    },
+    output,
+  );
+  assert.ok(
+    pings >= Math.floor(Number(process.env.COC_IDLE_MS || 95000) / 30000),
+  );
   assert.equal(agent.exitCode, null);
   peer!.send(
     JSON.stringify({ type: 'change', scope: 'requests', revision: 1 }),
@@ -89,14 +106,39 @@ try {
     }),
   );
   await wait(() => confirmed, 'on-demand round trip');
+  const healthyPings = pings;
+  replyToPing = false;
+  const lostAt = Date.now();
+  // Data frames must not substitute for protocol Pong or mask a broken heartbeat.
+  const traffic = setInterval(() => {
+    if (peer?.readyState === 1) peer.send(JSON.stringify({ type: 'pong' }));
+  }, 1000);
+  try {
+    await wait(
+      () => connections === 2 && approvals === 3,
+      'Pong timeout reconnect',
+      100000,
+    );
+  } finally {
+    clearInterval(traffic);
+  }
+  assert.ok(
+    Date.now() - lostAt >= 55000,
+    'must not close before Pong deadline',
+  );
+  assert.match(output, /WebSocket Pong timeout after 90 seconds/);
+  assert.equal(agent.exitCode, null);
+  assert.ok(pings > healthyPings);
   console.log(
     JSON.stringify({
       scenario: 'A-only',
       elapsedIdleMs: Number(process.env.COC_IDLE_MS || 95000),
       periodicFrames: 0,
       periodicApprovalReads: 0,
-      protocolPings: 0,
+      protocolPings: healthyPings,
       idleReconnects: 0,
+      missingPongReconnect: 'passed',
+      missingPongRecoveryMs: Date.now() - lostAt,
       approvalEvent: 'passed',
       probe: 'passed',
     }),

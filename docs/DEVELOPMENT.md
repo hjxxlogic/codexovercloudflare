@@ -1,5 +1,9 @@
 # 开发与本机测试
 
+## Agent 协议心跳回归 · 2026-10-28
+
+`npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。默认约三分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。
+
 ## 0.5.12 通知与计费回归
 
 控制 API 测试须发送 `X-CoC-Async: 1`，处理 202 回执，通过主机订阅收到完成通知后领取结果，不能继续假设 HTTP 等待 Agent。`tests/helpers/async-http.ts` 只为集成测试实现该客户端协议。测试 Relay hello 需要 `demand:1`；新 Agent 拒绝不支持的 Relay。`npm run protocol:generate` 同步 probe 控制 schema。

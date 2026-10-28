@@ -83,7 +83,8 @@ try {
     for (const proxied of [false, true]) {
       let httpRequests = 0,
         approvalRequests = 0,
-        wsRequests = 0;
+        wsRequests = 0,
+        protocolPings = 0;
       let resolveApprovals!: () => void;
       const approvals = new Promise<void>((r) => (resolveApprovals = r));
       const server = createServer(
@@ -117,6 +118,10 @@ try {
       let resolveProjects!: () => void;
       const projects = new Promise<void>((r) => (resolveProjects = r));
       wss.on('connection', (ws, req) => {
+        ws.on('ping', (payload) => {
+          assert.equal(payload.toString(), 'coc-keepalive');
+          protocolPings++;
+        });
         wsRequests++;
         assert.equal(
           req.headers.authorization,
@@ -234,6 +239,10 @@ try {
           } finally {
             clearTimeout(timeout);
           }
+          // Verify protocol control frames through both TLS and HTTP CONNECT.
+          await new Promise((r) => setTimeout(r, 31000));
+          assert.equal(protocolPings, 1);
+          assert.equal(agent.exitCode, null);
           assert.equal(httpRequests, 1);
           assert.equal(approvalRequests, 1);
           assert.equal(wsRequests, 1);

@@ -200,6 +200,7 @@ public:
             });
           },
           [this](unsigned code) { asio::post(io_, [this, code] { disconnected(code); }); });
+      socket_->keepalive();
       socket_->start();
     });
   }

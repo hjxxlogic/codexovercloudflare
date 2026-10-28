@@ -2,6 +2,8 @@
 
 日期：2026-10-26。状态：**0.5.12 已实现、测试并部署；部署与测试身份见 TEST_REPORT，未验证线上节省**。
 
+**2026-10-28 修订：以下“无协议保活 / 无超时”是 0.5.12 历史决定，已由用户要求的协议 Ping/Pong 方案替代。** Agent 每 30 秒发协议 Ping，90 秒无匹配 Pong 时有限重连；协议帧由 WebSocket 运行时处理，不进入 HostRelay 业务 handler，不触发 Registry 调用或存储操作。正常协议 Ping 不收 DO 请求费，重连及业务照常计量。保留无 JSON 心跳、无周期业务鉴权 / 审批 / 更新查询及 DO 休眠。传输 Pong 不替代业务 probe；本次不宣称平台长期用量已实测。
+
 本文依据当前代码和用户提供的 [Durable Objects 文档索引](https://cloudflaredoc.ubitools.com/durable-objects/llms.txt)，并用 Cloudflare 官方文档核对计费和 API 语义。下文保留设计依据及旧代码基线，实施差异见第 8 节；价格与额度是查阅日快照，实际以账户账单为准。
 
 ## 1. 结论与范围

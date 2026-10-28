@@ -20,13 +20,13 @@ HostRelay 的控制路径为持久异步状态机：保存调用者 scope、Agen
 
 `/ws/v1/hosts/HOST` 是独立的入站 Hibernation 通道，无需会话和 A 在线，不授予控制权；Registry `/ws/v1/admin` 与 `/api/v1/auth/device/events?id=ID` 分别验证管理员和申请秘密。秘密仅用 Bearer 或 HttpOnly Cookie，Origin 规则保留。先订阅，再收到 revision 边界后读权威快照；通知为失效信号，无正文增量依赖，重复 / 乱序被忽略，断口和重连重读快照。跨 DO 各自有 revision，不声称全局原子性。Registry→Host 短调用失败不持续重试。
 
-A 删除 heartbeat 与后台审批轮询；Beast 明确关闭 idle timeout / keep_alive_pings，只保留连接操作期限。维护 timer 仅执行本地回收和已触发更新的安装检查，不周期下载。CW 无状态定时查询，CC 的等待和交互共享各自单调度器，最多十秒一轮。Host 出站 receipt 累计预算存 attachment，跨休眠保留；真实转发使用独立接收者队列和按需鉴权。活动鉴权保留五秒缓存、同 hash 在途合并及撤销 token 防护。
+A 不发送 JSON heartbeat 或后台审批轮询；Beast 的自动 idle timeout / keep_alive_pings 仍关闭，由仅 Agent 启用的 transport 定时器每 30 秒发送协议 Ping，90 秒无匹配 Pong 关闭连接并触发原有有限重连。控制帧与业务写入串行；计时在 relay_io 网络线程上执行，普通入站数据不重置 Pong 期限，关闭时取消定时器。维护 timer 仅执行本地回收和已触发更新的安装检查，不周期下载。CW 无状态定时查询，CC 的等待和交互共享各自单调度器，最多十秒一轮。Host 出站 receipt 累计预算存 attachment，跨休眠保留；真实转发使用独立接收者队列和按需鉴权。活动鉴权保留五秒缓存、同 hash 在途合并及撤销 token 防护。
 
 `due:` 排序到期索引只存临时设备、限流、owner、票据、握手与回执期限；alarm 每批至多 64 项，完成后只安排真实下一期限。历史库按每页 64 项有界迁移；永久设备授权不加入队列。构造器不调度，无到期工作时删除 alarm；没有连接的票据仍可清理。保留 agentEpoch、lease 和权威请求身份。
 
 `registry_call` 按 Worker / Host 归因，`host_frame` 记录角色、字节、处理时间与缓存命中 / 合并计数，`control_accepted` / `registry_change` 标记实际操作；不写计量存储，不记录凭据、正文或唤醒 URL。当前日志仍是平台 10% 采样，不能直接当完整用量；分别以 A、A–CW、A–CC 场景核对平台请求 / duration / SQLite 指标。
 
-> 计费优化设计：见 [Durable Objects 计费优化方案（2026-10-26）](do-billing-optimization-2026-10-26.md)。最新目标为 A 空闲无心跳、超时探测或周期复核；CW 使用事件通知和刷新按钮，CC 运行期间每 10 秒刷新。C 查询或操作时按需确认 A，业务鉴权缓存仍最多 5 秒。实现说明见下节，平台长稳与节费证据见测试记录。
+> 计费优化设计：见 [Durable Objects 计费优化方案（2026-10-26）](do-billing-optimization-2026-10-26.md)。2026-10-28 调整为 A 使用协议 Ping/Pong 检测连接存活，不恢复 JSON 心跳或周期业务复核；CW 使用事件通知和刷新按钮，CC 运行期间每 10 秒刷新。C 查询或操作时按需确认 A，业务鉴权缓存仍最多 5 秒。实现说明见下节，平台长稳与节费证据见测试记录。
 
 ## 代理与实例名称补充（2026-10-26）
 
@@ -251,7 +251,7 @@ Agent 链路使用项目自定义信封，例如：
 ### 7.1 断线与重复提交
 
 - Agent 以 1 秒起步、最大 30 秒、带随机抖动的指数退避重连；成功握手后重置计数；连续失败最多五次，之后等待显式重连。
-- Agent 不发送心跳，不因无消息重连；登记连接与查询时的实际确认分开显示。
+- Agent 使用 30 秒协议 Ping / 90 秒 Pong 期限发现失效连接；登记连接与查询时的实际确认分开显示。
 - HostRelayDO 持久化递增 `connectionEpoch`，只接受当前 Agent 连接；旧连接及旧控制端帧直接拒绝，Agent 同样检查版本。
 - 状态变更写入本地事务记录后才回复 accepted；请求身份与确定结果长期保留。已转交 Codex 但未确认结果的请求记为 unknown，不自动重试。
 - 保证应用层去重，不声称网络与 Codex 子进程之间具备 exactly-once。崩溃窗口通过查询线程历史和人工确认处理。
@@ -278,7 +278,7 @@ CLI 断线后不重放已经发送的请求和响应。M0 验证同一 app-serve
 | Agent SQLite         | 会话索引、请求日志、网页事件与正文块    | 历史与请求结果长期保留；审批仅 runtime 内存 |
 | 服务器 Codex home    | Codex 原生配置、认证和线程历史          | 遵循 Codex 自身配置与人工管理               |
 
-DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。Agent 不发心跳，DO 也不设周期连接 alarm；真实业务、有限清理和日志仍可能产生成本。
+DO 使用 Hibernation API 接受连接，唤醒后从 attachments 和持久记录重建映射；路由不依赖构造函数之前的内存 Map。Agent 的协议 Ping/Pong 由 WebSocket 运行时处理，不进入 DO 业务 handler；DO 不设周期连接 alarm；真实业务、有限清理和日志仍可能产生成本。
 
 事件正文不落云端存储；DO 只做有界转发，慢端溢出后关闭客户端连接。网页从 Agent 恢复，CLI 明确提示重新附着。SQLite 不按历史总量或时间清理会话正文；磁盘由运维管理，客户端缓存支持显式清理。
 

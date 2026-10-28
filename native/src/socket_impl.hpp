@@ -4,6 +4,7 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
+#include <iostream>
 namespace coc {
 namespace beast = boost::beast;
 namespace websocket = beast::websocket;
@@ -22,6 +23,7 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   ssl::context ctx_{ssl::context::tls_client};
   tcp::resolver resolver_;
   asio::steady_timer opening_;
+  asio::steady_timer heartbeat_;
   websocket::stream<Transport> ws_;
   Url url_;
   std::string token_, path_;
@@ -32,11 +34,13 @@ class Connection final : public Socket, public std::enable_shared_from_this<Conn
   std::deque<std::string> writes_;
   size_t queued_ = 0;
   bool open_ = false, ended_ = false;
+  bool keepalive_ = false, writing_ = false, ping_pending_ = false;
+  std::chrono::steady_clock::time_point last_pong_;
 
 public:
   Connection(asio::io_context &io, Url u, std::string t, SocketMessage m, SocketClosed c,
              std::string path)
-      : io_(io), resolver_(io), opening_(io),
+      : io_(io), resolver_(io), opening_(io), heartbeat_(io),
 #ifdef COC_TLS
         ws_(io, ctx_),
 #else
@@ -46,6 +50,11 @@ public:
         closed_(std::move(c)) {
   }
   bool ready() const override { return open_ && !ended_; }
+  void keepalive() override {
+    if (open_)
+      throw Error("CONFIG_ERROR", "Enable WebSocket keepalive before connecting");
+    keepalive_ = true;
+  }
   void read_limit(size_t value) override {
     if (value > max_queue || open_)
       throw Error("CONFIG_ERROR", "Invalid local read limit");
@@ -142,7 +151,33 @@ public:
       }
       self->opening_.cancel();
       self->open_ = true;
+      if (self->keepalive_) {
+        self->last_pong_ = std::chrono::steady_clock::now();
+        self->ws_.control_callback([weak = self->weak_from_this()](auto kind, auto payload) {
+          if (auto connection = weak.lock())
+            if (kind == websocket::frame_type::pong && payload == "coc-keepalive")
+              connection->last_pong_ = std::chrono::steady_clock::now();
+        });
+        self->heartbeat();
+      }
       self->read();
+    });
+  }
+  void heartbeat() {
+    auto self = shared_from_this();
+    heartbeat_.expires_at(std::min(std::chrono::steady_clock::now() + std::chrono::seconds(30),
+                                   last_pong_ + std::chrono::seconds(90)));
+    heartbeat_.async_wait([self](auto ec) {
+      if (ec || self->ended_)
+        return;
+      if (std::chrono::steady_clock::now() - self->last_pong_ >= std::chrono::seconds(90)) {
+        std::cerr << "WebSocket Pong timeout after 90 seconds; reconnecting\n";
+        self->finish();
+        return;
+      }
+      self->ping_pending_ = true;
+      self->write();
+      self->heartbeat();
     });
   }
   void read() {
@@ -176,24 +211,39 @@ public:
       finish();
       return;
     }
-    bool idle = writes_.empty();
     queued_ += text.size();
     writes_.push_back(std::move(text));
-    if (idle)
-      write();
+    write();
   }
   void write() {
+    if (ended_ || writing_)
+      return;
     auto self = shared_from_this();
+    if (ping_pending_) {
+      ping_pending_ = false;
+      writing_ = true;
+      ws_.async_ping(websocket::ping_data("coc-keepalive"), [self](auto ec) {
+        self->writing_ = false;
+        if (ec)
+          self->finish();
+        else
+          self->write();
+      });
+      return;
+    }
+    if (writes_.empty())
+      return;
+    writing_ = true;
     ws_.text(true);
     ws_.async_write(asio::buffer(writes_.front()), [self](auto ec, size_t) {
+      self->writing_ = false;
       if (ec) {
         self->finish();
         return;
       }
       self->queued_ -= self->writes_.front().size();
       self->writes_.pop_front();
-      if (!self->ended_ && !self->writes_.empty())
-        self->write();
+      self->write();
     });
   }
   void finish() {
@@ -202,6 +252,7 @@ public:
     ended_ = true;
     open_ = false;
     opening_.cancel();
+    heartbeat_.cancel();
     resolver_.cancel();
     boost::system::error_code ec;
     beast::get_lowest_layer(ws_).socket().close(ec);
