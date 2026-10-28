@@ -55,6 +55,7 @@ jobs:
       - run: npm run test:backup
       - run: npm run test:release
       - run: python3 tests/agent-deploy.py
+      - run: python3 tests/cloud-deploy.py
       - run: python3 tests/ci-command.py
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
@@ -66,6 +67,18 @@ jobs:
         with:
           name: browser-evidence
           path: .local/screenshots
+      - name: Record cloud artifact provenance
+        run: |
+          python3 scripts/build-metadata.py > dist/web/deploy-source.json
+          cp dist/web/deploy-source.json dist/worker/deploy-source.json
+          mkdir -p dist/web/downloads
+          cp docs/USER_GUIDE.md dist/web/downloads/USER_GUIDE.md
+          cp wrangler.jsonc dist/worker/deploy-config.jsonc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-worker
+          path: dist/worker
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: verified-web

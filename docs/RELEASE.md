@@ -201,3 +201,14 @@ Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 pr
 ### 0.5.7 无人值守审批补充
 
 同步发布新增共享服务审批接入。allowApprovals 默认关闭；需原 session 所属 app-server 可通过私有 Unix socket 或本机 WebSocket 访问。Windows 使用本机 WebSocket。禁止将只读历史进程冒充原审批通道；无法接入的独立 stdio 会话明确提示限制。发布验证分别覆盖真实 Codex 协议和生产 Relay 上的临时 fixture，不调用真实模型或接管用户已有会话。
+
+## 分支云端更新（不发布新原生版本）
+
+先提交并推送源码，在 GitHub Actions 中完成同一提交的六项必要作业。`regression` 保存 `verified-worker` 和 `verified-web`，包含构建来源，Worker 同时保存部署配置。切换到该干净提交后执行：
+
+```bash
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
+```
+
+默认仅准备；`--apply` 校验完整 Actions 门禁、GitHub artifact SHA256、提交 / 干净来源及网页和 Worker 的来源摘要一致后，通过 Wrangler `--no-bundle --keep-vars` 上传 CI 产物。部署目标来自 CI 保存的配置；当前 JSONC 配置仅使用尾随逗号，新增注释前需扩展解析。保留线上下载清单和包，逐包验证 SHA256；手册使用此次 CI 源码。此流程不创建 GitHub Release，不把分支包冒充已发布版本。发布后检查 health 及网页、脚本、样式、手册、清单 / 校验和的线上字节。凭据由已有 Wrangler 登录提供，不写入文档或仓库。证据位于忽略的 `.local/deploy-cloud/<run-id>/`。Agent 仍单独使用 `deploy-agent.py`，等待空闲，不随云端脚本重启。
