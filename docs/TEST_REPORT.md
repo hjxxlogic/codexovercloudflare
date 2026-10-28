@@ -6,6 +6,8 @@
 - 脚本真实准备模式已下载并校验上述运行的公开 musl artifact，核对 GitHub SHA256、包摘要与提交后通过 SSH 读取目标状态；目标仍有一个 runtime，准备模式未改动服务。初次发现 Ubuntu 20.04 curl 不支持 `--retry-all-errors`，已改为兼容的显式重试 / 续传并补回归。
 - 自动化提交 `7c876a148adbad62ce7cb33973c2f6c663ce6cb7` 的 [Actions 40646225180](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40646225180) 五项构建 / sanitizer 成功，但最终 E2E 回归失败；部署脚本立即停止，未安装该运行产物。日志显示 Agent 重连后立即接管，测试只等待上游 WS OPEN，存在未完成 capabilities 协商就继续的竞态；补充权威主机 online 等待，最终结论以新 CI 为准。
 - 原 CI 注释过长导致末尾断言被 GitHub 截断，现改为转义后保留最后 3500 字符；`python3 tests/ci-command.py` 验证大量日志下仍保留最后错误和原退出码，已加入 regression。
+- 最终源码 `8ce86a1713cef6377d601bcc1cf0561ef220017e` 已通过脚本推送；[Actions 40647697874](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40647697874) 的 regression、sanitizers、Windows x64、musl、Ubuntu 20.04、Debian 12 六项检查全部成功，分支 publish-release 正常跳过。后续重复查询 GitHub API 返回 403，未完成该运行的新产物准备，不计为部署成功。
+- 用户选择等待现有会话结束后安装。目标机心跳修复部署使用已核验的 `168ccf0` Actions 产物，脚本等待 runtime 及其他工作全部空闲；截至 2026-10-28 15:17（Asia/Shanghai）仍有运行会话，尚未替换或重启服务，不将 CI 成功记为目标机已升级。
 - 心跳源码 `168ccf0d57d2ffa866486dec0dabfc90e06b357b` 的 [Actions 40644251548](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40644251548) 六项检查全部成功；分支发布作业正常跳过。部署脚本与项目规则后续提交需要独立等待 CI，不用前一次成功冒充新提交结果。
 
 ## Agent WebSocket 协议心跳 · 2026-10-28
