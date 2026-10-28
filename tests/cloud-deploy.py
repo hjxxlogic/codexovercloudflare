@@ -1,5 +1,6 @@
 """Artifact integrity and extraction boundary checks; executed by GitHub Actions."""
 import hashlib
+import gzip
 import importlib.util
 import json
 import pathlib
@@ -77,7 +78,7 @@ class CloudArtifactTests(unittest.TestCase):
         for platform in ('linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'):
             package = ('coc-0.5.14-windows-x64.zip' if platform == 'windows-x64'
                        else 'coc-0.5.14-linux-x86_64-' + platform[len('linux-'):] + '.tar.gz')
-            content = {package: platform.encode(), source: b'same source archive'}
+            content = {package: platform.encode(), source: gzip.compress(b'same source archive', mtime=len(bundles) + 1)}
             manifest = {**identity, 'files': list(content)}
             if bad_source and platform == 'linux-musl':
                 manifest['commit'] = 'b' * 40
@@ -99,6 +100,8 @@ class CloudArtifactTests(unittest.TestCase):
             bundles, identity = self.native_bundles(root)
             manifest = cloud.publish_downloads(bundles, identity, site)
             self.assertEqual(len(manifest['files']), 5)
+            with zipfile.ZipFile(bundles['linux-ubuntu20.04'][0]) as archive:
+                self.assertEqual((site / 'downloads/codex-over-cloudflare-0.5.14-source.tar.gz').read_bytes(), archive.read('codex-over-cloudflare-0.5.14-source.tar.gz'))
             self.assertEqual((site / 'downloads/previous.tar.gz').read_bytes(), b'previous')
             self.assertEqual(json.loads((site / 'downloads/index.json').read_text())['commit'], COMMIT)
 

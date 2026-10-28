@@ -6,7 +6,7 @@
 
 Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`；现有 deploy-cloud.py 的 `--keep-vars` 保留服务端变量。运维下载函数只向项目配置中的 origin 携带共享 Token；校验网页使用规范的 `/`、`/downloads/` 路径，拒绝凭据请求的重定向，可用 `COC_ACCESS_CONFIG` 指定不同部署配置。`ACCESS_PUBLIC_DOWNLOADS` / `ACCESS_PUBLIC_HEALTH` 例外必须与 Cloudflare 策略一致。
 
-使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要，旧下载归档保留，线上新包重新下载核对。大文件断流由新的 curl 进程读取最新偏移续传，避免 curl 内部重试回退已收到的数据；连续三次无进展停止，已验证 CI ZIP 可复用。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
+使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要；源码归档采用 Ubuntu 产物，与现有发行组装规则一致，不要求各平台 gzip 压缩字节相同，旧下载归档保留，线上新包重新下载核对。大文件断流由新的 curl 进程读取最新偏移续传，避免 curl 内部重试回退已收到的数据；连续三次无进展停止，已验证 CI ZIP 可复用。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
 
 ## 从 GitHub Actions 部署 Linux Agent
 
