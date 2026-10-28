@@ -143,7 +143,8 @@ def main():
             raise RuntimeError('Expected exactly one ' + name + ' artifact')
         artifact = matches[0]
         archive = output / (name + '.zip')
-        agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+        if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
+            agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
         destination = output / folder
         if destination.exists():
             shutil.rmtree(destination)
@@ -173,7 +174,8 @@ def main():
                 raise RuntimeError('Expected exactly one ' + name + ' artifact')
             artifact = matches[0]
             archive = output / (name + '.zip')
-            agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+            if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
+                agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
             bundles[name] = (archive, artifact['digest'])
             selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
         published = publish_downloads(bundles, identities[0], output / 'site')

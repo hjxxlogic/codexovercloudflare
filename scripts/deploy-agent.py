@@ -35,9 +35,14 @@ def curl(url, output=None):
         args.remove('--location')
         args += ['--header', '@-', '--write-out', '\n%{http_code} %{content_type}']
     if output:
-        args += ['--continue-at', '-', '--output', str(output)]
-    # Older supported Ubuntu curl lacks --retry-all-errors. Resume interrupted downloads ourselves.
-    for attempt in range(3 if output else 1):
+        # curl's internal retries rewind the output to the original offset, losing
+        # progress after a reset. Retry in fresh processes so -C - resumes new bytes.
+        args[args.index('--retry') + 1] = '0'
+        args += ['--speed-limit', '1024', '--speed-time', '20',
+                 '--continue-at', '-', '--output', str(output)]
+    stalls = 0
+    for attempt in range(24 if output else 1):
+        before = output.stat().st_size if output and output.exists() else 0
         result = subprocess.run(args, capture_output=True, **({'input': headers} if headers else {}))
         if result.returncode == 0:
             if headers:
@@ -48,8 +53,12 @@ def curl(url, output=None):
             return result.stdout
         if output and result.returncode == 33:
             pathlib.Path(output).unlink(missing_ok=True)  # Server did not support Range.
-        if attempt < (2 if output else 0):
-            log('Download interrupted; retrying verified artifact download')
+        after = output.stat().st_size if output and output.exists() else 0
+        stalls = stalls + 1 if after <= before else 0
+        if not output or stalls >= 3:
+            break
+        if attempt < 23:
+            log('Download interrupted; resuming verified artifact from ' + str(after) + ' bytes')
             time.sleep(2)
     if result.stderr:
         log(result.stderr.decode(errors='replace').strip())

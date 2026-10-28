@@ -52,6 +52,9 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 2)
                 self.assertIn('--continue-at', run.call_args.args[0])
                 self.assertNotIn('--retry-all-errors', run.call_args.args[0])
+                args = run.call_args.args[0]
+                self.assertEqual(args[args.index('--retry') + 1], '0')
+                self.assertIn('--speed-time', args)
             self.assertEqual(partial.read_bytes(), b'partial')
 
     def test_run_must_be_successful_exact_source_and_workflow(self):
