@@ -7,6 +7,7 @@ import stat
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('cloud', ROOT / 'scripts/deploy-cloud.py')
@@ -55,6 +56,19 @@ class CloudArtifactTests(unittest.TestCase):
                     cloud.unpack(path, digest, COMMIT, root / 'out')
             self.assertFalse((root / 'escape').exists())
 
+
+    def test_preserve_uses_canonical_download_page_without_credential_redirect(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            site, cache = root / 'site', root / 'cache'
+            site.mkdir()
+            cache.mkdir()
+            replies = {'https://relay.test/downloads/index.json': b'{"files": []}',
+                       'https://relay.test/downloads/SHA256SUMS': b'',
+                       'https://relay.test/downloads/': b'<html>downloads</html>'}
+            with patch.object(cloud.agent, 'curl', side_effect=lambda url: replies[url]):
+                cloud.preserve_downloads('https://relay.test', site, cache)
+            self.assertEqual((site / 'downloads/index.html').read_bytes(), replies['https://relay.test/downloads/'])
 
     def native_bundles(self, root, bad_source=False):
         identity = {'version': '0.5.14', 'commit': COMMIT, 'sourceDigest': 'c' * 64, 'protocol': 1}

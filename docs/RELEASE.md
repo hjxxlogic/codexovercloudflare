@@ -4,7 +4,7 @@
 
 原生包与 Worker 从同一提交的 `config/cloudflare-service-token.json` 使用共享入口 Token；修改该配置需重新构建双方。无需 CI 私有 Token 注入。实际 CoC Key、OWNER_SECRET 和设备数据库继续保持私密。启用 Access 前必须先提供兼容原生包，确保旧程序可以升级。
 
-Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`；现有 deploy-cloud.py 的 `--keep-vars` 保留服务端变量。运维下载函数只向项目配置中的 origin 携带共享 Token，拒绝跨来源重定向，可用 `COC_ACCESS_CONFIG` 指定不同部署配置。`ACCESS_PUBLIC_DOWNLOADS` / `ACCESS_PUBLIC_HEALTH` 例外必须与 Cloudflare 策略一致。
+Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`；现有 deploy-cloud.py 的 `--keep-vars` 保留服务端变量。运维下载函数只向项目配置中的 origin 携带共享 Token；校验网页使用规范的 `/`、`/downloads/` 路径，拒绝凭据请求的重定向，可用 `COC_ACCESS_CONFIG` 指定不同部署配置。`ACCESS_PUBLIC_DOWNLOADS` / `ACCESS_PUBLIC_HEALTH` 例外必须与 Cloudflare 策略一致。
 
 使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要，旧下载归档保留，线上新包重新下载核对。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
 

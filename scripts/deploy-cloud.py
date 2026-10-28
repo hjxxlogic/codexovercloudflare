@@ -57,7 +57,7 @@ def preserve_downloads(base, site, cache):
         shutil.copyfile(cached, target / name)
     (target / 'index.json').write_bytes(manifest_bytes)
     (target / 'SHA256SUMS').write_bytes(sums_bytes)
-    (target / 'index.html').write_bytes(agent.curl(base + '/downloads/index.html'))
+    (target / 'index.html').write_bytes(agent.curl(base + '/downloads/'))
     return manifest
 
 
@@ -202,7 +202,7 @@ def main():
     for path in [output / 'site/index.html', *sorted((output / 'site/assets').glob('*')),
                  output / 'site/downloads/USER_GUIDE.md', output / 'site/downloads/index.json',
                  output / 'site/downloads/SHA256SUMS']:
-        if path.is_file() and agent.curl(base + '/' + path.relative_to(output / 'site').as_posix()) != path.read_bytes():
+        if path.is_file() and agent.curl(base + ('/' if path == output / 'site/index.html' else '/' + path.relative_to(output / 'site').as_posix())) != path.read_bytes():
             raise RuntimeError('Online asset differs from staged artifact: ' + path.name)
     if published:
         hashes = {}
