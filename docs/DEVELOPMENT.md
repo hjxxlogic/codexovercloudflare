@@ -1,5 +1,9 @@
 # 开发与本机测试
 
+## CI 错误与重连同步
+
+`python3 scripts/ci-command.py ...` 保留原命令输出及退出码，失败注释只保留转义后最后 3500 字符，避免 GitHub 截断导致末尾断言丢失。`python3 tests/ci-command.py` 已纳入 CI。E2E 网络故障注入后必须等待 Agent 的协议协商完成（权威主机 online），上游 WebSocket OPEN 不足以证明可接管会话。
+
 ## CI 与部署脚本回归
 
 项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证推送前的干净工作区 / 目标仓库、来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。

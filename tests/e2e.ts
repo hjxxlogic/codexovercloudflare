@@ -2334,6 +2334,13 @@ try {
     'Agent reconnect',
     15000,
   );
+  await wait(
+    async () =>
+      (await api('/hosts')).some(
+        (host: any) => host.id === enrolled.hostId && host.online,
+      ),
+    'Agent protocol negotiation after reconnect',
+  );
   const restored = await web(reconnectSession.id, true);
   restored.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
   await wait(

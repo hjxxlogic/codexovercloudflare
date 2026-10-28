@@ -23,8 +23,11 @@ for line in process.stdout:
     lines.append(line.rstrip())
 status = process.wait()
 if status:
-    summary = '\n'.join(lines)[-12000:]
+    # GitHub truncates annotation messages at 4096 characters. Keep the error/stack tail,
+    # including after percent/newline escaping, instead of losing it behind relay logs.
+    summary = '\n'.join(lines)
     for literal, escaped in [('%', '%25'), ('\r', '%0D'), ('\n', '%0A')]:
         summary = summary.replace(literal, escaped)
+    summary = summary[-3500:]
     print('::error title=CI command failed::' + summary, flush=True)
 raise SystemExit(status)
