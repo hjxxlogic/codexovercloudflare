@@ -66,6 +66,24 @@ def check_jobs(jobs):
             raise RuntimeError('Required Actions job did not pass: ' + name)
 
 
+def push_source(repository, commit):
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=ROOT, text=True).strip()
+
+    if git('status', '--porcelain'):
+        raise RuntimeError('Commit all source changes before --push; working tree must be clean')
+    if git('rev-parse', 'HEAD') != commit:
+        raise RuntimeError('--push requires the current HEAD commit')
+    branch = git('symbolic-ref', '--quiet', '--short', 'HEAD')
+    origin = git('remote', 'get-url', '--push', 'origin')
+    expected = {'git@github.com:' + repository, 'git@github.com:' + repository + '.git',
+                'https://github.com/' + repository, 'https://github.com/' + repository + '.git'}
+    if origin not in expected:
+        raise RuntimeError('origin push URL does not match the requested GitHub repository')
+    log('Pushing source commit ' + commit + ' on branch ' + branch)
+    subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/' + branch], cwd=ROOT, check=True)
+
+
 def wait_run(repository, commit, run_id, timeout):
     deadline = time.monotonic() + timeout
     previous = None
@@ -156,6 +174,7 @@ def main():
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
     parser.add_argument('--commit', help='Git revision; defaults to HEAD')
     parser.add_argument('--run-id', type=int)
+    parser.add_argument('--push', action='store_true', help='Push clean HEAD to origin before waiting for CI')
     parser.add_argument('--ssh', required=True, help='SSH alias or user@host')
     parser.add_argument('--binary', required=True, help='Absolute path of the existing remote Agent')
     parser.add_argument('--service', default='coc-agent.service', help='Existing systemd user service')
@@ -181,6 +200,8 @@ def main():
                                            (args.commit or 'HEAD') + '^{commit}'], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r'[0-9a-f]{40}', args.commit):
         parser.error('Expected a full source commit')
+    if args.push:
+        push_source(args.repository, args.commit)
     run, jobs = wait_run(args.repository, args.commit, args.run_id, args.timeout)
     output = args.output.resolve() / str(run['id'])
     output.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,7 @@
 
 ## CI 部署自动化 · 2026-10-28
 
-- `python3 tests/agent-deploy.py` 七项测试通过：精确提交 / 工作流 / 六项必需作业门禁、artifact 摘要与归档穿越 / 链接拒绝、候选来源身份、未知 / 过期指标及忙碌工作不视为空闲、繁忙不停止服务、启动失败还原备份及旧版 curl 的中断续传重试。测试无网络、SSH 或系统服务修改；已纳入 Actions regression。
+- `python3 tests/agent-deploy.py` 八项测试通过：推送拒绝脏工作区 / 错误仓库、精确提交 / 工作流 / 六项必需作业门禁、artifact 摘要与归档穿越 / 链接拒绝、候选来源身份、未知 / 过期指标及忙碌工作不视为空闲、繁忙不停止服务、启动失败还原备份及旧版 curl 的中断续传重试。测试无网络、SSH 或系统服务修改；已纳入 Actions regression。
 - 脚本真实准备模式已下载并校验上述运行的公开 musl artifact，核对 GitHub SHA256、包摘要与提交后通过 SSH 读取目标状态；目标仍有一个 runtime，准备模式未改动服务。初次发现 Ubuntu 20.04 curl 不支持 `--retry-all-errors`，已改为兼容的显式重试 / 续传并补回归。
 - 心跳源码 `168ccf0d57d2ffa866486dec0dabfc90e06b357b` 的 [Actions 40644251548](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40644251548) 六项检查全部成功；分支发布作业正常跳过。部署脚本与项目规则后续提交需要独立等待 CI，不用前一次成功冒充新提交结果。
 

@@ -11,12 +11,12 @@
 python3 scripts/deploy-agent.py --commit HEAD \
   --ssh ubuntu@server --binary /opt/coc/coc-agent
 
-# 显式安装：等待空闲，备份当前运行的程序，原子替换并验证 120 秒。
-python3 scripts/deploy-agent.py --commit HEAD \
+# 一条命令推送、等待 CI、等待空闲、备份安装并验证 120 秒。
+python3 scripts/deploy-agent.py --push --commit HEAD \
   --ssh ubuntu@server --binary /opt/coc/coc-agent --apply
 ```
 
-`--run-id ID` 可固定一次运行，仍须匹配 `--commit` 的完整来源提交和 checks 工作流。脚本等待完整运行成功，并逐项核对必须检查；通过公开产物解析服务 nightly.link 下载，再对照 GitHub API 独立提供的 artifact SHA256、包内 SHA256SUMS、manifest 提交及远端候选程序的 commit / sourceDigest / protocol / clean 身份验证。凭证不写入命令或证据，TLS 和 SSH 主机校验保持启用。
+`--push` 要求工作区干净、提交为当前 HEAD、origin 与目标 GitHub 仓库一致，正常推送当前分支，不 force-push。省略时假定源码已推送。`--run-id ID` 可固定一次运行，仍须匹配 `--commit` 的完整来源提交和 checks 工作流。脚本等待完整运行成功，并逐项核对必须检查；通过公开产物解析服务 nightly.link 下载，再对照 GitHub API 独立提供的 artifact SHA256、包内 SHA256SUMS、manifest 提交及远端候选程序的 commit / sourceDigest / protocol / clean 身份验证。凭证不写入命令或证据，TLS 和 SSH 主机校验保持启用。
 
 `--service` 默认 `coc-agent.service`，只操作已存在的 systemd **用户服务**，`--binary` 必须是其 MainPID 对应的既有绝对程序路径。默认最多等待 CI 2400 秒、空闲 1800 秒；最近指标缺失、过期或仍有 runtime / 历史读取 / 文件请求时均不当作空闲。空闲检查是最近本机指标快照，不能与新任务提交形成原子互斥；升级窗口请停止提交新任务。只有明确接受中断当前会话时才加 `--allow-restart-active`，不能由自动化自行推断。
 

@@ -2,7 +2,7 @@
 
 ## CI 与部署脚本回归
 
-项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。
+项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证推送前的干净工作区 / 目标仓库、来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。
 
 ## Agent 协议心跳回归 · 2026-10-28
 

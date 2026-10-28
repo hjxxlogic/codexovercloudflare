@@ -2,7 +2,7 @@
 
 ## 使用 CI 构建包更新 Agent
 
-部署 Linux systemd 用户服务 Agent 可运行 `python3 scripts/deploy-agent.py --commit HEAD --ssh USER@HOST --binary /absolute/path/coc-agent --apply`。脚本等待同一提交的 GitHub Actions 完整构建 / 测试成功，验证产物来源与校验和，等待运行会话结束，再备份、替换、重启并观察 120 秒。省略 `--apply` 仅准备和查看状态。默认不停止运行会话；安装窗口请停止提交新任务。完整参数、公开仓库 / musl 支持范围和回滚边界见 [发布操作](RELEASE.md)。
+部署 Linux systemd 用户服务 Agent 可运行 `python3 scripts/deploy-agent.py --push --commit HEAD --ssh USER@HOST --binary /absolute/path/coc-agent --apply`。脚本推送干净的当前分支，等待同一提交的 GitHub Actions 完整构建 / 测试成功，验证产物来源与校验和，等待运行会话结束，再备份、替换、重启并观察 120 秒。省略 `--apply` 仅准备和查看状态。默认不停止运行会话；安装窗口请停止提交新任务。完整参数、公开仓库 / musl 支持范围和回滚边界见 [发布操作](RELEASE.md)。
 
 ## 管理列表同步 · 2026-10-27
 

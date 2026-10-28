@@ -31,6 +31,15 @@ BUILD = {'commit': COMMIT, 'sourceDigest': DIGEST, 'dirty': False,
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_push_rejects_dirty_source_or_another_repository(self):
+        for replies in [[' M native/src/agent.cpp'],
+                        ['', COMMIT, 'master', 'git@github.com:someone/else.git']]:
+            with patch.object(deploy.subprocess, 'check_output', side_effect=replies), \
+                    patch.object(deploy.subprocess, 'run') as push:
+                with self.assertRaises(RuntimeError):
+                    deploy.push_source('hjxxlogic/codexovercloudflare', COMMIT)
+                push.assert_not_called()
+
     def test_interrupted_download_retries_without_new_curl_options(self):
         failed = types.SimpleNamespace(returncode=56, stdout=b'', stderr=b'reset')
         success = types.SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
