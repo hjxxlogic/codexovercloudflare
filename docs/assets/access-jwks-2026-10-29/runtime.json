@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-29",
+  "environment": "Cloudflare temporary Worker preview, compatibility_date 2026-10-24, no production bindings",
+  "before": {
+    "redirect": "error",
+    "result": "TypeError",
+    "message": "Invalid redirect value, must be one of \"follow\" or \"manual\" (\"error\" won't be implemented since it does not make sense at the edge; use \"manual\" and check the response status code)."
+  },
+  "after": {
+    "redirect": "manual",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "bodyBytes": 5116,
+    "rsaKeyCount": 2
+  },
+  "limitations": [
+    "Isolated runtime probe; production browser administrator login remains to be verified.",
+    "Preview session tokens and local network details are excluded."
+  ]
+}

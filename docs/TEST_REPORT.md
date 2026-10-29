@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## Worker Access 公钥获取根因 · 2026-10-29
+
+- 浏览器身份接口确认管理员邮箱已通过 One-time PIN、账户一致且不是机器身份；Worker 返回 `(keys)`。在无生产绑定的 Cloudflare 临时预览中，`fetch(..., { redirect: error })` 真实抛出 `TypeError`，提示边缘仅支持 `follow / manual`。这确认了公钥获取的运行时兼容问题，不能归因于邮箱、AUD 或用户密码。
+- 改为 `redirect: manual` 后，同一隔离预览成功从固定团队 JWKS 地址取得 HTTP 200 / JSON / 两把 RSA 公钥；继续显式拒绝非成功响应。没有部署此预览为生产 Worker，也没有接入生产 DO、用户凭据或模型任务。[运行时证据](assets/access-jwks-2026-10-29/runtime.json)。
+- 新增失败阶段回归，覆盖网络异常、超时、HTTP 403 / 302、错误格式和未知密钥，并验证响应不暴露凭据 / 邮箱 / 底层异常；默认 JWKS 测试要求 `manual` 模式。本地 Vitest 11 文件 / 122 项、类型检查、ESLint、变更文件格式与差异空白检查通过。用户同时修改的 `wrangler.jsonc` 保留原样，其格式不计为本次变更通过；完整 Actions 与真实浏览器上线验收仍需以最终提交结果为准。
+
 ## Access 应用 Cookie 兼容 · 2026-10-29（待部署验收）
 
 - 用户反馈邮箱登录后仍收到 `ACCESS_REQUIRED`；浏览器身份接口刷新后能显示邮箱，Worker 配置的团队域名和 AUD 与边缘登录应用一致。不能据此认定具体 JWT 失败阶段。

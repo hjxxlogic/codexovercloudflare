@@ -165,8 +165,9 @@ beforeEach(() => {
   );
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, options?: RequestInit) => {
       expect(url).toBe(issuer + '/cdn-cgi/access/certs');
+      expect(options?.redirect).toBe('manual');
       return Response.json({
         keys: [{ ...jwk, kid: 'test-key', alg: 'RS256' }],
       });
@@ -176,6 +177,51 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Cloudflare Access signature and shared service token gate', () => {
+  it.each([
+    [
+      'keys_network',
+      () => Promise.reject(new TypeError('private network detail')),
+    ],
+    [
+      'keys_timeout',
+      () => Promise.reject(new DOMException('private detail', 'TimeoutError')),
+    ],
+    [
+      'keys_http_403',
+      async () => new Response('private response', { status: 403 }),
+    ],
+    [
+      'keys_http_302',
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: 'https://evil.test/certs' },
+        }),
+    ],
+    ['keys_format', async () => new Response('<html>private response</html>')],
+    ['key_id', async () => Response.json({ keys: [] })],
+  ])(
+    'reports only the safe %s public-key failure stage',
+    async (stage, fetchKeys) => {
+      env.ACCESS_TEAM_DOMAIN = `https://keys-${crypto.randomUUID()}.cloudflareaccess.com`;
+      vi.stubGlobal('fetch', vi.fn(fetchKeys));
+      const value = await jwt('admin@test.com', {
+        iss: env.ACCESS_TEAM_DOMAIN,
+      });
+      const response = await worker.fetch(
+        new Request('https://relay.test/api/v1/auth/email', {
+          headers: { 'Cf-Access-Jwt-Assertion': value },
+        }),
+        env,
+      );
+      expect(response.status).toBe(401);
+      const data = JSON.stringify(await response.json());
+      expect(data).toContain(`(${stage})`);
+      expect(data).not.toContain('private');
+      expect(data).not.toContain(value);
+      expect(data).not.toContain('admin@test.com');
+    },
+  );
   it('verifies an application cookie when the assertion header is absent', async () => {
     const value = await jwt('admin@test.com');
     const response = await worker.fetch(

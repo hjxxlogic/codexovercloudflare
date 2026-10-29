@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布 · Worker Access 公钥获取 · 2026-10-29
+
+- 修复 Worker 不支持 `fetch` 的 `redirect: error`，导致邮箱登录后仍在公钥验证阶段返回 `ACCESS_REQUIRED` 的问题；改用 `manual` 并显式拒绝非成功响应，继续禁止证书请求跟随重定向。细分网络、超时、HTTP 状态、格式及签名密钥缺失提示，不包含凭据。
+
 ## 未发布 · Access 浏览器 Cookie 验证 · 2026-10-29
 
 - Access assertion 请求头缺失时验证浏览器应用 Cookie，修复浏览器已有应用登录 Cookie 但无法进入网页的兼容场景；保留全部 JWT 校验、请求头优先级及机器身份隔离，并显示不含凭据的固定验证失败阶段。

@@ -7,6 +7,11 @@ export type AccessUser = { accountId: string; email: string; issuer: string };
 type Identity = { user?: AccessUser; expires: number };
 const identities = new WeakMap<Request, Identity>();
 type Key = JsonWebKey & { kid?: string };
+class AccessKeyError extends Error {
+  constructor(readonly stage: string) {
+    super(stage);
+  }
+}
 const keySets = new Map<
   string,
   { keys: Key[]; expires: number; refreshed: number; pending?: Promise<Key[]> }
@@ -117,16 +122,31 @@ async function keysFor(issuer: string, kid: string): Promise<Key[]> {
     return entry.keys;
   const current = entry;
   current.pending = (async () => {
-    const response = await fetch(issuer + '/cdn-cgi/access/certs', {
-      redirect: 'error',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error('JWKS unavailable');
-    const text = await response.text();
-    if (text.length > 65536) throw new Error('JWKS size');
-    const body = JSON.parse(text);
-    if (!Array.isArray(body.keys) || body.keys.length > 32)
-      throw new Error('JWKS shape');
+    let response: Response;
+    try {
+      response = await fetch(issuer + '/cdn-cgi/access/certs', {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (error) {
+      throw new AccessKeyError(
+        error instanceof Error &&
+          ['TimeoutError', 'AbortError'].includes(error.name)
+          ? 'keys_timeout'
+          : 'keys_network',
+      );
+    }
+    if (!response.ok) throw new AccessKeyError(`keys_http_${response.status}`);
+    let body;
+    try {
+      const text = await response.text();
+      if (text.length > 65536) throw new Error('JWKS size');
+      body = JSON.parse(text);
+    } catch {
+      throw new AccessKeyError('keys_format');
+    }
+    if (!body || !Array.isArray(body.keys) || body.keys.length > 32)
+      throw new AccessKeyError('keys_format');
     current.keys = body.keys;
     current.refreshed = Date.now();
     current.expires = Date.now() + 300000;
@@ -185,6 +205,7 @@ export async function verifyAccess(req: Request, env: Env) {
       throw new Error('JWT algorithm');
     stage = 'keys';
     const keys = await keysFor(env.ACCESS_TEAM_DOMAIN, header.kid);
+    stage = 'key_id';
     const jwk = keys.find(
       (k) =>
         k.kid === header.kid &&
@@ -242,7 +263,8 @@ export async function verifyAccess(req: Request, env: Env) {
       };
     }
     identities.set(req, { user, expires: payload.exp * 1000 });
-  } catch {
+  } catch (error) {
+    if (error instanceof AccessKeyError) stage = error.stage;
     throw new AppError(
       'ACCESS_REQUIRED',
       `Cloudflare Access authentication failed (${stage}); sign in again or check the Access application configuration`,
