@@ -682,3 +682,9 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 - 用户明确授权提交 `config/cloudflare-service-token.json` 并要求修改 `AGENTS.md`：豁免只覆盖此文件中的共享 Access 入口凭据及可信 origin，不覆盖 CoC API Key、所有者密钥、会话凭据或其他文件。CI 后续原生构建内置新 Secret；Worker 已移除该配置依赖。文档不记录具体值。
 - 取消此前源码提交的本地自动部署等待，改为等待包含轮换值的新提交全部 CI 必需作业通过。
+
+## Access 准入职责分离最终验收 · 2026-10-29
+
+- 发布源码 `1d22f4562e376fafbf979b184638900f15bf7e35`，[Actions 40815244914](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40815244914) 六项必要作业全部成功，包括原生环境覆盖和浏览器 Access 回归。Worker / web 产物摘要、提交、源码摘要均通过部署脚本检查。
+- Worker 部署并删除两个废弃 Access Secret 后，健康接口返回 200，首页及资源与已验证 CI 产物逐字节一致；无邮箱入口身份被邮箱 API 拒绝（403），无效 CoC API Key 被登录接口拒绝（401）。`OWNER_SECRET` 保留。未以真实浏览器重复管理员登录验收，未替换远端原生程序，未发布新原生下载包。
+- 证据：[部署与鉴权矩阵](assets/access-admission-2026-10-29/deployment.json)。凭据配置豁免由用户明确授权，仅覆盖项目共享配置文件；文档和证据不复制实际密钥值。
