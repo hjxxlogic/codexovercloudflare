@@ -996,6 +996,11 @@ try {
     'expanded content beyond 128 Ki characters retains its entire prefix',
   );
   assert.equal(contentCalls, 34);
+  const newest = page.getByRole('button', {
+    name: '返回最新内容',
+    exact: true,
+  });
+  if (await newest.isVisible()) await newest.click();
   const previousMaximum = Math.max(
     ...events.map((event) => event.revision ?? event.seq),
   );

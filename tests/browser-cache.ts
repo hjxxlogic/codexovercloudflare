@@ -31,6 +31,25 @@ try {
   });
   const result = await page.evaluate(async () => {
     const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
+    const transport = new Cache('transport');
+    transport.writeLive(
+      {
+        seq: 1,
+        revision: 10,
+        time: 0,
+        type: 'user',
+        data: { text: 'received' },
+      },
+      () => {},
+      10,
+    );
+    await transport.writeSnapshot([], 10);
+    transport.close();
+    const recovered = new Cache('transport');
+    const atomic = await recovered.latest();
+    if (atomic.checkpoint !== 10 || atomic.events[0]?.revision !== 10)
+      throw new Error('Cursor committed ahead of its events');
+    recovered.close();
     const own = new Cache('own'),
       other = new Cache('own:other');
     const event = (seq: number, revision = seq) => ({
