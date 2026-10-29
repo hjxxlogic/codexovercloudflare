@@ -2,8 +2,8 @@ import { AppError } from '../../../packages/protocol/src/index.ts';
 import { json, type Auth, type Env } from './common.ts';
 import { D1State, d1Enabled } from './state.ts';
 
-// Receipts remain available after the last transport closes. Read/acknowledge
-// in one optimistic transaction so concurrent completion cannot be erased.
+// Reads use one SQL snapshot; acknowledgements use CAS so a concurrent
+// completion cannot be erased. Unrelated live writes must not starve polling.
 export async function d1Receipt(
   env: Env,
   hostId: string,
@@ -14,8 +14,39 @@ export async function d1Receipt(
   if (!d1Enabled(env)) return;
   const state = new D1State(env.STATE_DB, 'host:' + hostId);
   if (!(await state.get('@migrated'))) return;
+  if (!acknowledge) {
+    const prefix = `part:${id}:`;
+    const rows = await env.STATE_DB.prepare(
+      'SELECT key, value FROM relay_state WHERE scope = ? AND (key = ? OR (key >= ? AND key < ?)) ORDER BY key COLLATE BINARY',
+    )
+      .bind('host:' + hostId, 'operation:' + id, prefix, prefix + '\uffff')
+      .all<{ key: string; value: string }>();
+    const values = new Map(
+      rows.results.map((row) => [row.key, JSON.parse(row.value)]),
+    );
+    const operation = decodeReceipt(values.get('operation:' + id), values);
+    return json({
+      state: operation.state,
+      result: operation.result,
+      error: operation.error,
+    });
+  }
   return state.transaction(async (tx) => {
     const index = await tx.get<any>('operation:' + id);
+    const parts = index?.parts
+      ? await tx.list<string>({ prefix: `part:${id}:` })
+      : new Map<string, string>();
+    const operation = decodeReceipt(index, parts);
+    if (operation.state === 'completed')
+      await tx.delete([
+        'operation:' + id,
+        ...parts.keys(),
+        ...(index.wire ? ['wire:' + index.wire] : []),
+      ]);
+    return json({ ok: true });
+  });
+
+  function decodeReceipt(index: any, parts: Map<string, any>) {
     if (!index || index.auth.hash !== auth.hash)
       throw new AppError('NOT_FOUND', 'Unknown operation', 404);
     if (index.expires <= Date.now())
@@ -25,9 +56,6 @@ export async function d1Receipt(
         409,
       );
     let operation = index;
-    const parts = index.parts
-      ? await tx.list<string>({ prefix: `part:${id}:` })
-      : new Map<string, string>();
     if (index.parts) {
       const values = Array.from({ length: index.parts }, (_, i) =>
         parts.get(`part:${id}:${i}`),
@@ -40,21 +68,8 @@ export async function d1Receipt(
         );
       operation = JSON.parse(values.join(''));
     }
-    if (acknowledge) {
-      if (operation.state === 'completed')
-        await tx.delete([
-          'operation:' + id,
-          ...parts.keys(),
-          ...(index.wire ? ['wire:' + index.wire] : []),
-        ]);
-      return json({ ok: true });
-    }
-    return json({
-      state: operation.state,
-      result: operation.result,
-      error: operation.error,
-    });
-  });
+    return operation;
+  }
 }
 
 // No Host DO is woken for offline expiry. A bounded hourly sweep handles rows

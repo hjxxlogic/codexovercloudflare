@@ -418,6 +418,29 @@ describe('D1 relay lifecycle', () => {
     expect(await state.get('part:receipt:0')).toBeUndefined();
     expect(await state.get('wire:request')).toBeUndefined();
   });
+  it('polls a receipt while unrelated transport writes keep changing the scope', async () => {
+    const h = runtime();
+    const state = new D1State(h.db.binding(), 'host:busy');
+    const auth = { hash: 'original' } as Auth;
+    const result = { state: 'completed', result: { accepted: true } };
+    await state.put({
+      '@migrated': true,
+      'operation:receipt': { ...result, auth, expires: Date.now() + 10000 },
+    });
+    const prepare = h.db.prepare.bind(h.db);
+    vi.spyOn(h.db, 'prepare').mockImplementation((sql) => {
+      h.db.sqlite.exec(
+        "UPDATE relay_scopes SET revision = revision + 1 WHERE scope = 'host:busy'",
+      );
+      return prepare(sql);
+    });
+    expect(
+      await (await d1Receipt(h.env, 'busy', 'receipt', auth, false))!.json(),
+    ).toEqual(result);
+    await expect(
+      d1Receipt(h.env, 'busy', 'receipt', { hash: 'other' } as Auth, false),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
   it('expires offline D1 receipts and tickets without touching DOs or resetting fencing', async () => {
     const h = runtime();
     const idle = new D1State(h.db.binding(), 'host:idle');
