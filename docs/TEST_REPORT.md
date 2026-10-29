@@ -6,7 +6,7 @@
 - 改为 `redirect: manual` 后，同一隔离预览成功从固定团队 JWKS 地址取得 HTTP 200 / JSON / 两把 RSA 公钥；继续显式拒绝非成功响应。没有部署此预览为生产 Worker，也没有接入生产 DO、用户凭据或模型任务。[运行时证据](assets/access-jwks-2026-10-29/runtime.json)。
 - 新增失败阶段回归，覆盖网络异常、超时、HTTP 403 / 302、错误格式和未知密钥，并验证响应不暴露凭据 / 邮箱 / 底层异常；默认 JWKS 测试要求 `manual` 模式。本地 Vitest 11 文件 / 122 项、类型检查、ESLint、变更文件格式与差异空白检查通过。用户同时修改的 `wrangler.jsonc` 保留原样，其格式不计为本次变更通过。最终源码 `e717628` 的 [Actions 40805956178](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178) 六项必要作业全部成功，分支 publish-release 正常跳过；[CI 记录](assets/access-jwks-2026-10-29/ci.json)。
 
-- 用户手工更新 Worker 后确认网页入口恢复，但管理员仍需密钥；身份接口返回管理员邮箱且 `autoAdmin: true`。检查发现其本地 `dist/web` 为 `index-szkHxAEH.js`，不含 `/auth/email/admin`，手工发布同时上传了旧网页。已核验最终 CI 的 verified-web 摘要和来源，将 `dist/web` 恢复为包含自动登录的 `index-B2RpgwK1.js`，并按原发布记录逐包核对、保留 0.5.14 四平台与源码下载；旧网页保存在忽略目录备份。网页实际发布 / 管理模式免密确认仍待用户反馈。[恢复证据](assets/access-jwks-2026-10-29/frontend-restore.json)。
+- 用户手工更新 Worker 后确认网页入口恢复，但管理员仍需密钥；身份接口返回管理员邮箱且 `autoAdmin: true`。检查发现其本地 `dist/web` 为 `index-szkHxAEH.js`，不含 `/auth/email/admin`，手工发布同时上传了旧网页。已核验最终 CI 的 verified-web 摘要和来源，将 `dist/web` 恢复为包含自动登录的 `index-B2RpgwK1.js`，并按原发布记录逐包核对、保留 0.5.14 四平台与源码下载；旧网页保存在忽略目录备份。用户随后重新发布并确认管理员权限已恢复；此项为用户真实浏览器确认，不宣称完成自动化生产浏览器回放。[恢复证据](assets/access-jwks-2026-10-29/frontend-restore.json)。
 
 ## Access 应用 Cookie 兼容 · 2026-10-29（待部署验收）
 

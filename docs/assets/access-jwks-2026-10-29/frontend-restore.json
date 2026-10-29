@@ -32,5 +32,6 @@
   "previousLocalSupportsEmailAdmin": false,
   "restoredScript": "index-B2RpgwK1.js",
   "restoredSupportsEmailAdmin": true,
-  "status": "Local dist/web restored; user production validation pending"
+  "status": "User confirmed administrator access restored after publication",
+  "verificationSource": "User production browser confirmation, 2026-10-29"
 }
