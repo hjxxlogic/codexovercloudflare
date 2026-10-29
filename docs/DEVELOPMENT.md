@@ -4,7 +4,7 @@
 
 `config/cloudflare-service-token.json` 是按项目约定随源码保存的共享入口 Token，CMake 的 `coc_access_defaults` 目标生成构建目录下的常量头文件；Worker 直接导入同一配置。无需在 CI 另行注入 Token。运行时覆盖文件通过 `--access-config` / `cloudflareAccessFile` / `COC_ACCESS_CONFIG` 选择；只有可信 HTTPS origin 收到请求头。
 
-本地默认不启用 Access。需验证 Worker 配置时，在忽略的 `.dev.vars` 设置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，保留原有 `OWNER_SECRET`。JWT 测试使用临时 RSA 密钥和模拟 JWKS，不接受线上 JWT。`npm test` 包含邮箱持久授权与管理员来源测试；`npm run test:tls` 额外测试带 Token 的 HTTPS/WSS 和无代理 TUI 桥接；网页构建后运行 `npm run test:access:web` 验证新浏览器和管理入口，使用合成身份且不调用模型。
+生产 `wrangler.jsonc` 已启用 Access 并保存团队域名、AUD 和管理员邮箱（均为非密钥配置）。`npm run dev`、完整 E2E 和原生本地 relay 冒烟启动命令显式覆盖 `ACCESS_ENABLED=false`，保持本地测试不依赖真实邮箱登录。需验证 Worker 配置时，在忽略的 `.dev.vars` 设置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，保留原有 `OWNER_SECRET`，构建网页后直接执行 `npx wrangler dev --ip 127.0.0.1 --port 8787`，避免 `npm run dev` 的关闭覆盖。JWT 测试使用临时 RSA 密钥和模拟 JWKS，不接受线上 JWT。`npm test` 包含邮箱持久授权与管理员来源测试；`npm run test:tls` 额外测试带 Token 的 HTTPS/WSS 和无代理 TUI 桥接；网页构建后运行 `npm run test:access:web` 验证新浏览器和管理入口，使用合成身份且不调用模型。
 
 共享 Token 的所有者明确允许其明文进入项目；用户 CoC Key、OWNER_SECRET、Cookie、真实运行状态和 `.local/` 仍不可进入源码。日志和诊断不打印凭据值。实际 Cloudflare 边缘、Service Auth Header 转发和各发布平台仍需在发布流程验证；本地测试不替代 exact-commit Actions 门禁。详见 [接入说明](cloudflare-access-coc-auth.md)。
 

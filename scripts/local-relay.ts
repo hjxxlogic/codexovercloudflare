@@ -38,6 +38,8 @@ export async function localRelay(dir: string) {
       '/tmp/state',
       '--var',
       'OWNER_SECRET:' + secret,
+      '--var',
+      'ACCESS_ENABLED:false',
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );

@@ -41,6 +41,8 @@ const worker = spawn(
     join(dir, 'worker'),
     '--var',
     'OWNER_SECRET:' + secret,
+    '--var',
+    'ACCESS_ENABLED:false',
   ],
   {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
