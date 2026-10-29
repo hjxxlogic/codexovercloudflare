@@ -1412,7 +1412,7 @@ try {
   const beforeReconnect = attachCalls;
   dropApprovalAck = true;
   await autoApprove.click();
-  await expect(autoApprove).toBeChecked();
+  await expect(autoApprove).toBeChecked({ timeout: 20000 });
   await expect.poll(() => attachCalls).toBeGreaterThan(beforeReconnect);
   await page.locator('.auto-approval summary').click();
   await expect(

@@ -1075,7 +1075,7 @@ function App() {
       setStatus(attempt ? '正在重连' : '正在连接');
       setReady(false);
       try {
-        const t = await api(
+        const ticket = await api(
           `/sessions/${selected.id}/${takeover ? 'takeover' : 'attach'}`,
           {},
           controller.signal,
@@ -1092,7 +1092,7 @@ function App() {
             ws.send(
               JSON.stringify({
                 type: 'auth',
-                ticket: t.ticket,
+                ticket: ticket.ticket,
                 events: 'history',
               }),
             );
@@ -1184,6 +1184,7 @@ function App() {
                 setReady(true);
                 setStatus('已连接');
                 attempt = 0;
+                terminal = false;
                 setPending(false);
                 void checkPending();
                 confirmControl?.();
