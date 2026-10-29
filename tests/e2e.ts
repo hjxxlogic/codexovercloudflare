@@ -227,6 +227,13 @@ async function sessionId(page: Page) {
   return id;
 }
 async function focusedChat(page: Page) {
+  // Earlier external-approval checks may leave this dismissible advisory.
+  // Measure the normal chat layout after closing it, as a user would.
+  const approvalNotice = page.locator('.notice').filter({
+    hasText: '审批决定已发送，等待原客户端确认；请勿重复提交。',
+  });
+  if (await approvalNotice.isVisible())
+    await approvalNotice.getByRole('button', { name: '关闭', exact: true }).click();
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.getByLabel('主机').count(), 0);
   assert.equal(
