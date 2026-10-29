@@ -45,7 +45,7 @@ export function AutoApproval({
           {enabled === undefined ? (
             <small>{t('请升级 Agent 以使用会话自动批准。')}</small>
           ) : (
-            <span role="status">
+            <span aria-live="polite">
               {pending
                 ? t('正在保存…')
                 : enabled
