@@ -10,10 +10,12 @@
 #include "external-approvals.hpp"
 #include "proxy.hpp"
 #include <condition_variable>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <thread>
@@ -44,8 +46,26 @@ struct Temp {
   }
   ~Temp() { std::filesystem::remove_all(path); }
 };
+struct Environment {
+  std::string name;
+  std::optional<std::string> previous;
+  explicit Environment(std::string key) : name(std::move(key)) {
+    if (const auto value = std::getenv(name.c_str()))
+      previous = value;
+    unsetenv(name.c_str());
+  }
+  ~Environment() {
+    if (previous)
+      setenv(name.c_str(), previous->c_str(), 1);
+    else
+      unsetenv(name.c_str());
+  }
+};
 void core() {
   {
+    Environment id_environment("CF_ACCESS_CLIENT_ID");
+    Environment secret_environment("CF_ACCESS_CLIENT_SECRET");
+    Environment file_environment("COC_ACCESS_CONFIG");
     Temp dir;
     const auto file = std::filesystem::path(dir.path) / "access.json";
     Json config = {{"origins", Json::array({"https://relay.example.test"})},
@@ -62,6 +82,29 @@ void core() {
               !access_enabled(relay_url("https://other.example.test")) &&
               !access_enabled(relay_url("http://localhost")),
           "Access credentials restricted to exact HTTPS origin");
+    setenv("CF_ACCESS_CLIENT_ID", "environment-id", 1);
+    rejects([&] { configure_access(file.string()); }, "CONFIG_ERROR");
+    check(!access_enabled(relay_url("https://relay.example.test")),
+          "Partial environment credentials fail closed");
+    setenv("CF_ACCESS_CLIENT_SECRET", "environment-secret", 1);
+    configure_access(file.string());
+    check(access_credentials(relay_url("https://relay.example.test")) ==
+              std::make_pair(std::string("environment-id"), std::string("environment-secret")),
+          "Environment credentials override file credentials");
+    check(access_credentials(relay_url("https://other.example.test")).first.empty(),
+          "Environment credentials preserve the configured origin allowlist");
+    configure_access("");
+    check(access_credentials(relay_url("https://r.xlogic.cc")).second == "environment-secret",
+          "Environment credentials override compiled defaults");
+    setenv("CF_ACCESS_CLIENT_SECRET", "secret\r\nInjected: header", 1);
+    rejects([&] { configure_access(""); }, "CONFIG_ERROR");
+    setenv("CF_ACCESS_CLIENT_SECRET", "", 1);
+    rejects([&] { configure_access(""); }, "CONFIG_ERROR");
+    setenv("CF_ACCESS_CLIENT_SECRET", "environment-secret", 1);
+    unsetenv("CF_ACCESS_CLIENT_ID");
+    rejects([&] { configure_access(""); }, "CONFIG_ERROR");
+    unsetenv("CF_ACCESS_CLIENT_SECRET");
+    unsetenv("CF_ACCESS_CLIENT_ID");
     config["clientSecret"] = "secret\r\nInjected: header";
     save_private(file, config);
     rejects([&] { configure_access(file.string()); }, "CONFIG_ERROR");

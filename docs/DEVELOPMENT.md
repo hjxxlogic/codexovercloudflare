@@ -296,3 +296,7 @@ Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原
 `test:ui` 检查默认关闭、三类审批、关闭后暂停、未知 / 已提交请求跳过、重复快照与开关去重、丢失 ack 后重连不重复、刷新重置，以及 390×480 审批详情与操作可达。E2E 使用共享 app-server 夹具验证真实 Relay / Agent 转发下的三类自动决定和本轮权限 scope，并检查切换会话后开关关闭；不调用模型。自动批准范围说明采用展开层，不占用短屏审批详情的滚动空间。
 
 云端部署使用 `scripts/deploy-cloud.py`，消费 Actions 的 `verified-worker` / `verified-web`，不重新打包本机源码。`tests/cloud-deploy.py` 在 regression 中检查摘要、来源、路径穿越及符号链接拒绝；测试在 GitHub Actions 执行。操作和现有下载包保留策略见 [发布操作](RELEASE.md)。
+
+## 原生 Access 环境覆盖验证
+
+Agent / CLI 共用原生 Access 初始化；`CF_ACCESS_CLIENT_ID` 和 `CF_ACCESS_CLIENT_SECRET` 必须成对提供，覆盖文件及编译凭据但不修改可信 origin。`ctest --test-dir build --output-on-failure` 覆盖默认 / 文件优先级、非法值及隔离；`npx tsx tests/native-access.ts` 使用测试凭据验证环境覆盖后的 HTTPS、WSS 及 TUI 桥接，测试不会连接生产 Access 或调用模型。生产凭据不要写入测试、命令参数或提交。Worker 不读取这两个环境变量。

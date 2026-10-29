@@ -2,7 +2,7 @@
 
 ## Cloudflare Access 与邮箱持久授权增补（2026-10-28）
 
-可选 `ACCESS_ENABLED` 在 Worker 外部入口校验固定团队 JWKS 的 RS256 JWT、issuer、audience 和时间；Service Token 准入完全由 Cloudflare Access 处理；Worker 仅提取已验证 JWT 的邮箱用于账户关联，无邮箱时沿用 CoC 机器凭据鉴权。来源配置 `config/cloudflare-service-token.json` 仅供 CMake 生成原生常量及 Python 运维工具使用，Worker 和网页不导入。`run_worker_first: true` 覆盖 Assets，公开下载 / 健康检查需显式且与边缘一致；本地开发缺省保留 CoC 认证。
+可选 `ACCESS_ENABLED` 在 Worker 外部入口校验固定团队 JWKS 的 RS256 JWT、issuer、audience 和时间；Service Token 准入完全由 Cloudflare Access 处理；Worker 仅提取已验证 JWT 的邮箱用于账户关联，无邮箱时沿用 CoC 机器凭据鉴权。来源配置 `config/cloudflare-service-token.json` 仅供 CMake 生成原生常量及 Python 运维工具使用，Worker 和网页不导入。原生共享 Access 初始化优先使用成对环境凭据，随后是私有文件、编译默认值；凭据覆盖不改变 origin 列表，也不写回磁盘。`run_worker_first: true` 覆盖 Assets，公开下载 / 健康检查需显式且与边缘一致；本地开发缺省保留 CoC 认证。
 
 RegistryDO 以 issuer / 邮箱摘要作为账户 ID，持久保存 `emailAccount` 和按账户 / 主机索引的 `emailGrant`。首次 CW 配对领取的同一事务才建立授权；新浏览器按授权恢复独立 web Cookie，Auth 绑定账户和授权代次。恢复与撤销串行化，旧代次不能复活。HostRelay 保留原有角色、会话、票据和撤销机制；邮箱授权撤销关闭全部匹配凭据连接，A 撤销级联失效。
 

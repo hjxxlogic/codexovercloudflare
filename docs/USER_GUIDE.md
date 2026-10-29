@@ -8,6 +8,8 @@
 
 所有 Agent / CLI 共用 `config/cloudflare-service-token.json` 中的项目入口 Token，编译时内置，连接项目默认中继无需另配。实际权限继续由各自 CoC API Key / 设备凭据控制。独立部署或轮换可用 `--access-config /absolute/path/access.json`，其格式为 `origins` HTTPS 列表、`clientId`、`clientSecret`；登录后保存到 `cloudflareAccessFile`，也支持 `COC_ACCESS_CONFIG` 环境变量。配置文件不得包含 HTTP origin；Linux 要求运行用户拥有且权限为 `0600`。参数只包含文件路径，不传 Token 值。
 
+`coc-agent` 与 `coc-client` 还支持 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET` 环境变量，必须同时设置为非空有效值。优先级为环境变量凭据 > 私有配置文件凭据 > 编译内置凭据；可信 origin 列表仍来自所选文件或内置配置，环境变量不会扩大它。仅提供一个变量、空值或含换行等非法字符会报 `CONFIG_ERROR`，不输出密钥；环境覆盖不写回配置。systemd 服务须在其服务环境中配置变量，终端里的 export 不会改变已运行的进程。此项仅适用于更新后的原生程序，Worker 不读取这些变量。
+
 Worker 优先验证 Access 转发的 `Cf-Access-Jwt-Assertion`；请求头缺失时验证浏览器的 `CF_Authorization` Cookie，二者执行相同的签名、issuer、AUD 和有效期检查。已有但无效的请求头不会回退到 Cookie。
 
 仓库的生产 `wrangler.jsonc` 已启用 Access，并保存对应团队域名、AUD 和管理员邮箱；`OWNER_SECRET` 与 Service Token Secret 覆盖值仍使用独立机密配置。本地 `npm run dev` 显式关闭 Access，专门验证 Access 的启动方式见 [开发说明](DEVELOPMENT.md)。

@@ -672,3 +672,8 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 - 线上短时诊断确认：Access 放行的请求到达 Worker 时仅含签名 assertion，原始 Client ID / Secret 头均缺失；原有 Worker 二次校验因此返回 `ACCESS_SERVICE_REJECTED`。诊断仅输出请求头名称，不记录到公开文档中的凭据。
 - 按用户要求移除 Worker 对共享 Token JSON、环境变量与机器 Client 头的依赖。保留 JWT 签名、issuer、AUD、时间校验与邮箱关联；无邮箱机器请求仍须通过 CoC API Key / 设备授权。新增回归覆盖缺失 Client 头的机器登录、无邮箱权限边界、签名邮箱提取，以及 Client 头不影响邮箱识别。
 - 本地 124 项 Vitest、类型检查与 lint 通过；生产部署须等待本次源码提交的全部 CI 必需作业完成，部署与线上验证另行记录。
+
+## 原生 Access 环境覆盖 · 2026-10-29
+
+- 共享原生初始化支持 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` 成对覆盖文件及内置凭据，保留可信 origin 列表且不写回配置。C++ 回归覆盖文件 / 内置覆盖、单字段、空值、换行与 origin 隔离；原生 HTTPS/WSS 测试使用不同的文件值及环境值，确认请求实际采用环境值。
+- 本地 124 项 Vitest、类型检查、lint 和 C++ 格式检查通过；原生构建、CTest 与真实 HTTPS/WSS 验证进行中，生产部署仍须等待对应源码的全部 CI 必需作业。

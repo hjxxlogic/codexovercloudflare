@@ -53,6 +53,8 @@ Authorization: Bearer <对应的 CoC 凭据或短期票据>
 
 HTTP 控制、配对订阅、异步回执、Agent 上行、历史连接及下载更新共用此配置。CLI 配置 Access 的目标即使没有网络代理，也会使用 loopback `TuiBridge`；Codex TUI 仅取得短期 CoC 票据，由桥接添加 Access 请求头。
 
+原生 Agent / CLI 可用成对的 `CF_ACCESS_CLIENT_ID` 和 `CF_ACCESS_CLIENT_SECRET` 环境变量覆盖凭据；环境变量优先于配置文件及编译默认值，origin 限制仍来自配置文件或编译值。缺失一项、空字符串、非法请求头字符会拒绝启动且不暴露值；不持久化环境覆盖。Worker 不读取这两个变量。
+
 ## Worker 配置与 Cloudflare 策略
 
 | Worker 变量               | 说明                                                                          |

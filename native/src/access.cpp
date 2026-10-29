@@ -28,6 +28,16 @@ void validate_header(const std::string &value) {
 std::string configure_access(const std::string &file) {
   origins.clear();
   credentials = {};
+  std::pair<std::string, std::string> environment_credentials;
+  const auto environment_id = std::getenv("CF_ACCESS_CLIENT_ID");
+  const auto environment_secret = std::getenv("CF_ACCESS_CLIENT_SECRET");
+  if (environment_id || environment_secret) {
+    if (!environment_id || !environment_secret)
+      throw Error("CONFIG_ERROR", "Set both CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET");
+    validate_header(environment_id);
+    validate_header(environment_secret);
+    environment_credentials = {environment_id, environment_secret};
+  }
   auto path = file;
   if (path.empty())
     if (const auto env = std::getenv("COC_ACCESS_CONFIG"))
@@ -42,6 +52,8 @@ std::string configure_access(const std::string &file) {
         throw Error("CONFIG_ERROR", "Compiled Cloudflare Access origins require HTTPS");
       origins.insert(origin_key(url));
     }
+    if (!environment_credentials.first.empty())
+      credentials = std::move(environment_credentials);
     return "";
   }
   try {
@@ -71,6 +83,8 @@ std::string configure_access(const std::string &file) {
       checked.insert(origin_key(url));
     }
     credentials = {std::move(id), std::move(secret)};
+    if (!environment_credentials.first.empty())
+      credentials = std::move(environment_credentials);
     origins = std::move(checked);
     return resolved.u8string();
   } catch (const Error &) {

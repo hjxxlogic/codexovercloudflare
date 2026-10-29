@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布 · 原生 Access 环境覆盖 · 2026-10-29
+
+- Agent / CLI 支持成对的 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET` 环境变量，优先覆盖文件与内置凭据，保持可信 origin 隔离，拒绝缺失、空值及非法请求头字符。
+
 ## 未发布 · Access 准入职责分离 · 2026-10-29
 
 - Worker 移除项目 Service Token 导入、Secret 配置与机器凭据二次校验，修复 Cloudflare Access 移除原始 Client 请求头后机器请求被拒绝的问题；入口策略完全由 Cloudflare 控制。

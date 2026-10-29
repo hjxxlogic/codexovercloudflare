@@ -85,8 +85,8 @@ try {
   const origin = 'https://localhost:' + (server.address() as any).port;
   save('access.json', {
     origins: [origin],
-    clientId: 'native-access-id',
-    clientSecret: 'native-access-secret',
+    clientId: 'file-access-id',
+    clientSecret: 'file-access-secret',
   });
   save('client.json', {
     autoUpdate: false,
@@ -108,6 +108,8 @@ try {
     ...process.env,
     SSL_CERT_FILE: join(dir, 'cert.pem'),
     COC_ACCESS_CONFIG: join(dir, 'access.json'),
+    CF_ACCESS_CLIENT_ID: 'native-access-id',
+    CF_ACCESS_CLIENT_SECRET: 'native-access-secret',
     COC_CREDENTIALS: join(dir, 'client.json'),
     COC_HISTORY_DIR: join(dir, 'history'),
     PATH: join(dir, 'bin') + ':' + process.env.PATH,
@@ -161,7 +163,7 @@ try {
     'Unlisted origins receive no shared credentials',
   );
   console.log(
-    'PASS: native Access HTTPS, WSS TUI bridge without proxy, origin isolation and HTML rejection',
+    'PASS: native Access environment override, HTTPS, WSS TUI bridge without proxy, origin isolation and HTML rejection',
   );
 } finally {
   for (const ws of wss.clients) ws.terminate();
