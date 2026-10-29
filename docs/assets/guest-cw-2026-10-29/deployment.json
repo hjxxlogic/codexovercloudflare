@@ -1,0 +1,198 @@
+{
+  "commit": "a99c36b3b1a90b6987594db94cbfc5b5900027e3",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692",
+  "jobs": [
+    {
+      "name": "regression",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277510640",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "sanitizers",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277510859",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "windows-x64",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277510936",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "linux-musl",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277510988",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277510995",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123277511095",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    },
+    {
+      "name": "publish-release",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692/job/123280635522",
+      "status": "completed",
+      "conclusion": "skipped",
+      "head_sha": "a99c36b3b1a90b6987594db94cbfc5b5900027e3"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12875871083,
+      "digest": "sha256:4f8c27413e3afc7c6cca26c3627165b30cc09d86c08247a9b5bf3111438328df"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12875362982,
+      "digest": "sha256:eb7ec1f25f81867a45308329a1a9f6afce051e7e32a98e1f185baf7ffcddaa43"
+    }
+  ],
+  "sourceDigest": "79d700797a52c57cb09e4a751a2a5033e6481599f6869359a3736e604eba4745",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.14",
+    "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+    "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.14-linux-x86_64-musl.tar.gz",
+      "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.14-windows-x64.zip",
+      "codex-over-cloudflare-0.5.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "preservationSource": "previously verified local download snapshot; package SHA256 rechecked",
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "cloudflareDeployment": {
+    "id": "fe6fc35e-d59c-4851-b977-70e734dfef9e",
+    "created_on": "2026-10-29T05:27:16.517511Z",
+    "versions": [
+      {
+        "version_id": "d076bdd2-96a5-4b3b-b219-fe9242caecd1",
+        "percentage": 100
+      }
+    ]
+  },
+  "anonymousVerification": {
+    "anonymousRequests": true,
+    "logoutTargetInBundle": true,
+    "results": [
+      {
+        "path": "/guest?deployment-check=1",
+        "status": 307,
+        "contentType": null,
+        "redirectPreservesQuery": true
+      },
+      {
+        "path": "/guest/",
+        "status": 200,
+        "contentType": "text/html",
+        "artifactBytesMatch": true
+      },
+      {
+        "path": "/guest/assets/index-BoKGYzKM.js",
+        "status": 200,
+        "contentType": "text/javascript",
+        "artifactBytesMatch": true,
+        "sha256": "c654b7f6f84be31e4fc5bfd814ae66049ed136b8ee1b7129ee7616e1806b8acf"
+      },
+      {
+        "path": "/guest/assets/index-BxUUVHfU.css",
+        "status": 200,
+        "contentType": "text/css",
+        "artifactBytesMatch": true,
+        "sha256": "15a3842355edeec3e2602fe05fe626ff09d6bf230ccab8628d07873ffae4f204"
+      },
+      {
+        "path": "/downloads/index.json",
+        "status": 200,
+        "contentType": "application/json",
+        "artifactBytesMatch": true
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "status": 200,
+        "contentType": null,
+        "artifactBytesMatch": true
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "status": 200,
+        "contentType": "text/plain; charset=utf-8",
+        "artifactBytesMatch": true
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "status": 200,
+        "contentType": "application/json",
+        "emailAuthenticationDisabled": true
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "status": 401,
+        "contentType": "application/json",
+        "errorCode": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/client/identity?hostId=00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "contentType": "application/json",
+        "errorCode": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/admin/devices",
+        "status": 401,
+        "contentType": "application/json",
+        "errorCode": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/ws/v1/hosts/00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "contentType": "application/json",
+        "errorCode": "UNAUTHORIZED"
+      },
+      {
+        "path": "/api/v1/hosts",
+        "status": 302,
+        "contentType": "text/html; charset=UTF-8"
+      }
+    ]
+  },
+  "nativeProgramsDeployed": false,
+  "newNativeDownloadsPublished": false,
+  "limitations": [
+    "No production email login or logout performed; conditional menu and exact logout URL verified by CI Chromium tests.",
+    "Production CoC pairing and authorized WebSocket sessions not exercised; isolated real workerd integration covered pairing, subscription and revocation.",
+    "Preserved native package SHA256 checked against previously verified local snapshot; no production package re-download in this deployment."
+  ]
+}

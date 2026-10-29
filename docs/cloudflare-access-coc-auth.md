@@ -2,7 +2,7 @@
 
 ## 实现状态
 
-本功能已在工作区实现，尚未部署或启用线上 Access。未配置 `ACCESS_ENABLED=true` 时保留原有 CoC 登录方式。原生程序的共享 Service Token 默认值已从项目配置编译入二进制；启用 Worker Access 模式仍需配置团队域名、应用 audience 和管理员邮箱，并在 Cloudflare 配置对应策略。
+本功能已部署至 `https://r.xlogic.cc`，普通入口已启用 Access，`/guest` 和 `/downloads` 前缀公开；访客业务仍须通过 CoC 授权。部署与验收证据见[发布状态](DEPLOYMENT_STATUS.md)。独立部署未配置 `ACCESS_ENABLED=true` 时保留原有 CoC 登录方式。原生程序的共享 Service Token 默认值已从项目配置编译入二进制；启用 Worker Access 模式仍需配置团队域名、应用 audience 和管理员邮箱，并在 Cloudflare 配置对应策略。
 
 本项目使用以下认证规则：
 
