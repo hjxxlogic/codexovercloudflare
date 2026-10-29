@@ -307,9 +307,9 @@ Linux 发行 CI 分别使用 Ubuntu 20.04 / Debian 12 容器构建、CTest、原
 
 `auto-approval.tsx` 在会话组件内维护默认关闭的开关和已提交审批 ID 集合，按主机 / 会话 key 挂载；不使用 localStorage 或 IndexedDB。开启后按原审批通道串行发送命令、文件及本轮权限的 `allow: true`，仅在控制连接和审批转发可用、没有待提交操作时发送。跳过 submitted、unsupported 和未知方法；发送成功后保留尝试 ID，避免重连或重放时用新 requestId 重复决定。服务器仍按原策略检查，不新增 RPC 或放宽权限。
 
-`test:ui` 检查默认关闭、三类审批、关闭后暂停、未知 / 已提交请求跳过、重复快照与开关去重、丢失 ack 后重连不重复、刷新重置，以及 390×480 审批详情与操作可达。E2E 使用共享 app-server 夹具验证真实 Relay / Agent 转发下的三类自动决定和本轮权限 scope，并检查切换会话后开关关闭；不调用模型。自动批准范围说明采用展开层，不占用短屏审批详情的滚动空间。
+`test:ui` 检查默认关闭、三类审批、关闭后暂停、未知 / 已提交请求跳过、重复快照与开关去重、丢失 ack 后重连不重复、刷新恢复 Agent 状态，以及 390×480 审批详情与操作可达。E2E 使用共享 app-server 夹具验证真实 Relay / Agent 转发下的三类自动决定和本轮权限 scope，并检查关闭网页后继续审批、重新打开恢复状态、关闭开关后人工审批以及其他会话默认关闭；不调用模型。自动批准范围说明采用展开层，不占用短屏审批详情的滚动空间。
 
-云端部署使用 `scripts/deploy-cloud.py`，消费 Actions 的 `verified-worker` / `verified-web`，不重新打包本机源码。`tests/cloud-deploy.py` 在 regression 中检查摘要、来源、路径穿越及符号链接拒绝；测试在 GitHub Actions 执行。操作和现有下载包保留策略见 [发布操作](RELEASE.md)。
+云端部署使用 `scripts/deploy-cloud.py`，消费 Actions 的 `verified-worker` / `verified-web`，不重新打包本机源码。`tests/cloud-deploy.py` 在 regression 中检查摘要、来源、路径穿越及符号链接拒绝；测试在 GitHub Actions 执行，并覆盖自动更新通知的身份核对、私有密钥权限及重定向拒绝。操作和现有下载包保留策略见 [发布操作](RELEASE.md)。
 
 ## 原生 Access 环境覆盖验证
 

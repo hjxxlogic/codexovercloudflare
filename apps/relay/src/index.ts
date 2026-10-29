@@ -148,7 +148,7 @@ export default {
         (env.ACCESS_PUBLIC_HEALTH === 'true' && p === '/api/v1/healthz');
       if (!publicAccessPath) await verifyAccess(req, env);
       if (p === '/api/v1/healthz' && req.method === 'GET')
-        return json({ ok: true, version: '0.5.14', demand: 1, protocol: 1 });
+        return json({ ok: true, version: '0.5.15', demand: 1, protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const assetRequest = guest ? new Request(u, req) : req;
         const response = await env.ASSETS.fetch(assetRequest);

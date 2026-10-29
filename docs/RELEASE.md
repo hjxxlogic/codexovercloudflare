@@ -12,6 +12,8 @@ Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EM
 
 使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要；源码归档采用 Ubuntu 产物，与现有发行组装规则一致，不要求各平台 gzip 压缩字节相同，旧下载归档保留，线上新包重新下载核对。大文件断流由新的 curl 进程读取最新偏移续传，避免 curl 内部重试回退已收到的数据；连续三次无进展停止，已验证 CI ZIP 可复用。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
 
+需要通知现有 Agent 自动升级时，在上述命令增加 `--notify-release --owner-secret-file /absolute/private/owner-secret`（D1 部署仍携带 `--state-db-id UUID`）。只有同一提交全部必需 CI 成功、云端部署及线上四平台包摘要复核通过后，脚本才登录并提交版本 / 提交号到发布接口；密钥文件须为当前用户私有，凭据不写入日志且拒绝 HTTP 重定向。通知不直接安装或重启 Agent；仍遵守其自动更新开关、平台匹配及会话空闲规则。0.5.15 包含 CW 文件预览、工具修订同步及 Agent 会话自动批准。
+
 ## 从 GitHub Actions 部署 Linux Agent
 
 构建与测试以推送后的 GitHub Actions 为准；先等待同一源码提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六个检查作业全部成功，再部署对应产物。本地构建仅用于开发验证，不能替代 CI 产物。分支运行的 `publish-release` 跳过是正常行为；本流程不创建发行标签、不发布 Worker 或全站下载。

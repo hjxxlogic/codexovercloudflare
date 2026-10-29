@@ -1,0 +1,156 @@
+{
+  "commit": "3bd75854c5e09967b18e8b8eff8924cbf28f7fcf",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40886237129",
+  "status": "success",
+  "jobs": {
+    "regression": "success",
+    "sanitizers": "success",
+    "windows-x64": "success",
+    "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+    "linux-release (debian12, debian:12)": "success",
+    "linux-musl": "success",
+    "publish-release": "skipped"
+  },
+  "regressionSteps": [
+    {
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/setup-node@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/cache/restore@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install locked dependencies",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check",
+      "conclusion": "success"
+    },
+    {
+      "name": "Build with compiler cache",
+      "conclusion": "success"
+    },
+    {
+      "name": "Native and unit regressions including DO archive and CW recovery",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:tls",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run test:billing",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/native-login.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:backup",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:release",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/agent-deploy.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/cloud-deploy.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/cloudflare-access-tools.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/ci-command.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:update",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npx playwright install --with-deps chromium",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "D1 activation, idle archive and restart recovery",
+      "conclusion": "success"
+    },
+    {
+      "name": "D1 native and Chromium end-to-end regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Record cloud artifact provenance",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Report compiler cache statistics",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/cache/save@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Run actions/setup-node@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ],
+  "deployed": false,
+  "coverage": [
+    "Markdown and plain text preview, original-byte download, image display and real audio/video playback",
+    "Tool completion recovery after a deliberately lost revision; automatic reload of expanded output",
+    "Atomic cache event/checkpoint persistence",
+    "Real native Agent approvals after the CW page closes, policy restoration and disabling",
+    "Both legacy and D1 end-to-end regressions; sanitizer and four native platforms"
+  ]
+}

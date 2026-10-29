@@ -18,6 +18,33 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_release_notification_authenticates_and_checks_identity(self):
+        manifest = {'version': '0.5.15', 'commit': COMMIT}
+        with tempfile.TemporaryDirectory() as directory:
+            secret = pathlib.Path(directory) / 'owner'
+            secret.write_text('synthetic-owner-secret-' * 3)
+            secret.chmod(0o600)
+            with patch.object(cloud, 'release_post', side_effect=[{'token': 'test-token'}, manifest]) as post:
+                self.assertEqual(cloud.notify_release('https://relay.test', manifest, secret), manifest)
+                self.assertEqual(post.call_args_list[0].args[1], '/api/v1/auth/login')
+                self.assertEqual(post.call_args_list[1].args, (
+                    'https://relay.test', '/api/v1/admin/releases', manifest, 'test-token'))
+            with patch.object(cloud, 'release_post', side_effect=[{'token': 'test-token'}, {**manifest, 'commit': 'b' * 40}]):
+                with self.assertRaisesRegex(RuntimeError, 'identity mismatch'):
+                    cloud.notify_release('https://relay.test', manifest, secret)
+
+    def test_release_credentials_reject_redirects_and_nonprivate_secret(self):
+        self.assertIsNone(cloud.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.test'))
+        if cloud.os.name != 'nt':
+            with tempfile.TemporaryDirectory() as directory:
+                secret = pathlib.Path(directory) / 'owner'
+                secret.write_text('synthetic-owner-secret-' * 3)
+                secret.chmod(0o644)
+                with patch.object(cloud, 'release_post') as post:
+                    with self.assertRaisesRegex(RuntimeError, 'private'):
+                        cloud.notify_release('https://relay.test', {}, secret)
+                    post.assert_not_called()
+
     def test_d1_configuration_requires_verified_schema_and_real_database(self):
         with tempfile.TemporaryDirectory() as directory:
             worker = pathlib.Path(directory)

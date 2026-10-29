@@ -9,11 +9,50 @@ import shutil
 import stat
 import subprocess
 import zipfile
+import os
+import urllib.error
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('agent_deploy', ROOT / 'scripts/deploy-agent.py')
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def release_post(base, path, data, token):
+    # Credentials stay in memory, never in subprocess arguments or evidence.
+    headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token}
+    for line in (agent._access.request_headers(base) or b'').decode().splitlines():
+        key, value = line.split(': ', 1)
+        headers[key] = value
+    request = urllib.request.Request(base + path, json.dumps(data).encode(), headers, method='POST')
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=60) as response:
+            return json.loads(response.read(65536))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError('Release API request failed: HTTP ' + str(error.code)) from None
+
+
+def notify_release(base, manifest, secret_file):
+    if os.name != 'nt' and (secret_file.stat().st_mode & 0o077 or secret_file.stat().st_uid != os.geteuid()):
+        raise RuntimeError('Owner secret must be private (0600) and owned by the current user')
+    secret = secret_file.read_text().strip()
+    if len(secret) < 32 or len(secret) > 4096:
+        raise RuntimeError('Invalid owner secret file')
+    login = release_post(base, '/api/v1/auth/login', {'kind': 'cli', 'secret': secret}, 'cli-login')
+    token = login.get('token')
+    if not isinstance(token, str) or not token:
+        raise RuntimeError('Release login returned no token')
+    expected = {key: manifest[key] for key in ('version', 'commit')}
+    result = release_post(base, '/api/v1/admin/releases', expected, token)
+    if result != expected:
+        raise RuntimeError('Release notification identity mismatch')
+    return expected
 
 
 def unpack(archive, digest, commit, output):
@@ -153,7 +192,11 @@ def main():
     parser.add_argument('--preserved-downloads', type=pathlib.Path,
                         help='Previously verified download directory for recovery when the live endpoint is unavailable')
     parser.add_argument('--publish-downloads', action='store_true', help='Publish all four native platforms from this same verified Actions run')
+    parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
+    parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.notify_release and (not args.publish_downloads or not args.owner_secret_file):
+        parser.error('--notify-release requires --publish-downloads and --owner-secret-file')
     if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', name) for name in args.delete_secret):
         parser.error('Invalid secret name')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
@@ -272,6 +315,9 @@ def main():
         evidence['nativeChecksums'] = hashes
     evidence['verification'] = {'health': health, 'publicAssetBytesMatch': True}
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
+    if args.notify_release:
+        evidence['releaseNotification'] = notify_release(base, published, args.owner_secret_file)
+        evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     print('Deployed and verified ' + base + ' from ' + commit)
 
 
