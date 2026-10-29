@@ -14,6 +14,13 @@ export async function d1Receipt(
   if (!d1Enabled(env)) return;
   const state = new D1State(env.STATE_DB, 'host:' + hostId);
   if (!(await state.get('@migrated'))) return;
+  // A live Host owns the transaction queue. Route acknowledgements there so
+  // Workers cannot repeatedly invalidate a handshake's scope revision.
+  if (
+    acknowledge &&
+    (await state.get<{ connected: number }>('presence'))?.connected
+  )
+    return;
   if (!acknowledge) {
     const prefix = `part:${id}:`;
     const rows = await env.STATE_DB.prepare(

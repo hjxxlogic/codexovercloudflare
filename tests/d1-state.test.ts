@@ -6,6 +6,7 @@ import {
 } from '../apps/relay/src/state.ts';
 import { SqliteD1 } from './helpers/d1-state.ts';
 import { MemoryStorage } from './helpers/do-state.ts';
+import { expireAt } from '../apps/relay/src/expiry.ts';
 
 const databases: SqliteD1[] = [];
 function database() {
@@ -18,6 +19,18 @@ afterEach(() => {
 });
 
 describe('D1 authoritative state', () => {
+  it('schedules an indexed record without rewriting the D1 expiry index', async () => {
+    const db = database();
+    const alarms = new MemoryStorage();
+    const state = new D1State(db.binding(), 'host:a', alarms);
+    const expires = Date.now() + 10000;
+    await state.put('operation:one', { expires });
+    const batches = vi.spyOn(db, 'batch');
+    await expireAt(state, 'operation:one', expires);
+    expect(batches).not.toHaveBeenCalled();
+    expect(alarms.alarm).toBe(expires);
+    expect((await state.list({ prefix: 'due:' })).size).toBe(1);
+  });
   it('accepts concurrent transport updates without exhausting scope retries', async () => {
     const db = database();
     const state = new D1State(db.binding(), 'host:busy');
@@ -186,6 +199,79 @@ function runtime() {
 }
 
 describe('D1 relay lifecycle', () => {
+  it('commits operation stages and wire replacement together', async () => {
+    const h = runtime();
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await relay.prepare('host-a');
+    const operation = {
+      id: 'one',
+      state: 'pending',
+      auth: { hash: 'owner' },
+      expires: Date.now() + 10000,
+      wire: 'old',
+    };
+    await relay.saveOperation(operation);
+    h.db.failBatch = () => true;
+    await expect(
+      relay.saveOperation({ ...operation, wire: 'new' }),
+    ).rejects.toThrow('Injected');
+    h.db.failBatch = undefined;
+    expect(await relay.storage.get('wire:old')).toBe('one');
+    expect(await relay.storage.get('wire:new')).toBeUndefined();
+    await relay.saveOperation({ ...operation, wire: 'new' });
+    expect(await relay.storage.get('wire:old')).toBeUndefined();
+    expect(await relay.storage.get('wire:new')).toBe('one');
+    await relay.saveOperation({
+      ...operation,
+      wire: 'new',
+      state: 'completed',
+    });
+    expect(await relay.storage.get('wire:new')).toBeUndefined();
+  });
+  it('routes live receipt acknowledgements to the Host without writing D1', async () => {
+    const h = runtime();
+    const state = new D1State(h.db.binding(), 'host:host-a');
+    await state.put({ '@migrated': true, presence: { connected: 1 } });
+    const batches = vi.spyOn(h.db, 'batch');
+    expect(
+      await d1Receipt(
+        h.env,
+        'host-a',
+        'receipt',
+        { hash: 'owner' } as Auth,
+        true,
+      ),
+    ).toBeUndefined();
+    expect(batches).not.toHaveBeenCalled();
+  });
+  it('keeps notification ordering through hibernation without D1 writes', async () => {
+    const h = runtime();
+    const makeRelay = () =>
+      new HostRelayDO(h.ctx as unknown as DurableObjectState, h.env) as any;
+    const relay = makeRelay();
+    await relay.prepare('host-a');
+    const socket = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      deserializeAttachment: () => ({
+        subscription: true,
+        auth: { hash: 'owner' },
+      }),
+    };
+    h.sockets.push(socket);
+    const batches = vi.spyOn(h.db, 'batch');
+    await relay.changed();
+    expect(h.legacy.values.get('revision')).toBe(1);
+    expect(batches).not.toHaveBeenCalled();
+    const restored = makeRelay();
+    await restored.prepare('host-a');
+    await restored.changed();
+    expect(h.legacy.values.get('revision')).toBe(2);
+  });
   it('allows legacy notification callbacks to authenticate without waiting on their own publisher', async () => {
     const h = runtime();
     const registry = new RegistryDO(h.ctx as unknown as DurableObjectState, {

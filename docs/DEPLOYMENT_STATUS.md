@@ -1,5 +1,17 @@
 # 发布状态：0.5.14
 
+## D1 状态分离及并发连接修复 · 2026-10-29
+
+生产已启用 `STATE_BACKEND=d1`，数据库 `coc-relay-state`（UUID `3120cc4f-de73-43b2-b2c0-26c3626b6f76`），Cron `17 * * * *`。初次部署 `76dde28` 后用户发现 CW 无法连接、`BACKPRESSURE` 和 `Handshake unconfirmed`，不能将最初的健康检查视作稳定性验收。
+
+并发修复 `adbe251` 和回执快照修复 `a744e718389209ac1cf4276d9acc7993910784c0` 已提交。最终 [Actions 40849632526](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40849632526) 六项必需作业全部成功，使用核验 SHA256 / 来源的 CI Worker、web 制品部署。部署 ID `d6384301-7155-4756-9efa-e3b7c2b79648`，Worker 版本 `f8e5ab54-e1aa-4246-8230-b2cf73806963` 接收 100% 流量。后续部署仍须通过 `scripts/deploy-cloud.py --state-db-id 3120cc4f-de73-43b2-b2c0-26c3626b6f76` 保留原绑定。
+
+健康、资源逐字节核验及 13 项公开入口 / 访问隔离检查通过；现有 Agent 凭据的只读请求成功。155 项单元测试、内存临时数据库完整 D1 集成 38 项及 CI 精确源码回归通过。用户确认浏览器仍不稳定，继续减少在线写入与确认争用，原待确认任务缺失请求编号，不能断言执行结果；未重发任务或重启 Agent。
+
+已导出生产 D1 到私有目录，并用内存 SQLite 验证可读取；没有取得旧 DO 原始导出，只保存平台元数据 / 恢复时间依据。Registry 和已访问主机自动迁移；Host 对象 36 个，有数据对象从发布前 27 个变为 25 个，不代表历史对象全部清理。未用 owner 凭据执行全量分页迁移；在线对象等自然断开后清理，不按 opaque ID 删除对象。保留原有授权、配置、运行任务和已验证 0.5.14 下载包，未发布原生包或安装 Agent。
+
+[CI、制品、两次部署、核查及限制](assets/d1-relay-2026-10-29/deployment.json)。完整私有证据在忽略目录 `.local/deploy-cloud/40849632526/`、`.local/d1-rollout/`。
+
 ## CW 访客入口与邮箱登出部署完成 · 2026-10-29
 
 源码 `a99c36b3b1a90b6987594db94cbfc5b5900027e3` 的 [Actions 40822368692](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40822368692) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。通过 `scripts/deploy-cloud.py` 核验 CI Worker / web 产物摘要及来源后部署至 `https://r.xlogic.cc`。部署 ID `fe6fc35e-d59c-4851-b977-70e734dfef9e`，Worker 版本 `d076bdd2-96a5-4b3b-b219-fe9242caecd1` 接收 100% 流量。

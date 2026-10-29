@@ -353,28 +353,39 @@ export class HostRelayDO extends DurableObject<Env> {
 
   private async saveOperation(o: Operation) {
     const encoded = JSON.stringify(o);
-    const previous = await this.storage.get<{ parts?: number }>(
-      'operation:' + o.id,
-    );
-    const parts = Math.max(
-      previous?.parts || 0,
-      Math.ceil(encoded.length / 16000),
-    );
-    const records: Record<string, unknown> = {};
-    for (let i = 0; i < parts; i++)
-      records[`part:${o.id}:${i}`] = encoded.slice(i * 16000, (i + 1) * 16000);
-    records['operation:' + o.id] = {
-      id: o.id,
-      state: o.state,
-      auth: o.auth,
-      expires: o.expires,
-      wire: o.wire,
-      socketId: o.socketId,
-      kind: o.kind,
-      action: o.action,
-      parts,
-    };
-    await this.storage.put(records);
+    await this.storage.transaction(async (tx) => {
+      const previous = await tx.get<{ parts?: number; wire?: string }>(
+        'operation:' + o.id,
+      );
+      const parts = Math.max(
+        previous?.parts || 0,
+        Math.ceil(encoded.length / 16000),
+      );
+      const records: Record<string, unknown> = {};
+      for (let i = 0; i < parts; i++)
+        records[`part:${o.id}:${i}`] = encoded.slice(
+          i * 16000,
+          (i + 1) * 16000,
+        );
+      records['operation:' + o.id] = {
+        id: o.id,
+        state: o.state,
+        auth: o.auth,
+        expires: o.expires,
+        wire: o.wire,
+        socketId: o.socketId,
+        kind: o.kind,
+        action: o.action,
+        parts,
+      };
+      if (o.wire && o.state === 'pending') records['wire:' + o.wire] = o.id;
+      await tx.put(records);
+      if (
+        previous?.wire &&
+        (previous.wire !== o.wire || o.state === 'completed')
+      )
+        await tx.delete('wire:' + previous.wire);
+    });
   }
   private async loadOperation(id: string): Promise<Operation | undefined> {
     const index = await this.storage.get<Operation & { parts?: number }>(
@@ -409,7 +420,10 @@ export class HostRelayDO extends DurableObject<Env> {
     // Notifications have no replay payload; future subscribers read a fresh
     // snapshot. Do not materialize unused host storage for an unobserved change.
     if (!this.ctx.getWebSockets().length) return;
-    const revision = await this.storage.transaction(async (tx) => {
+    // Notification counters describe live transport and need no D1 round trip.
+    // Native DO storage survives hibernation and is cleared after disconnect.
+    const notifications = this.state ? this.ctx.storage : this.storage;
+    const revision = await notifications.transaction(async (tx) => {
       const value = ((await tx.get<number>('revision')) || 0) + 1;
       await tx.put('revision', value);
       return value;
@@ -438,7 +452,6 @@ export class HostRelayDO extends DurableObject<Env> {
     operation.wire = requestId;
     operation.agentEpoch = agent.epoch;
     await this.saveOperation(operation);
-    await this.storage.put('wire:' + requestId, operation.id);
     this.send(ws, { v: 1, type: 'control', requestId, action, data });
     console.log(
       JSON.stringify({
@@ -513,7 +526,6 @@ export class HostRelayDO extends DurableObject<Env> {
     return operation;
   }
   private async complete(o: Operation, result?: any, error?: unknown) {
-    if (o.wire) await this.storage.delete('wire:' + o.wire);
     o.state = 'completed';
     if (error)
       o.error =
@@ -903,7 +915,7 @@ export class HostRelayDO extends DurableObject<Env> {
           sessionId: u.searchParams.get('sessionId')!,
           epoch: 0,
           authenticated: false,
-          deadline: Date.now() + 5000,
+          deadline: Date.now() + 15000,
         });
       throw new AppError('NOT_FOUND', 'Unknown route', 404);
     } catch (e) {
@@ -994,7 +1006,7 @@ export class HostRelayDO extends DurableObject<Env> {
     if (a.subscription)
       this.send(pair[1], {
         type: 'subscribed',
-        revision: (await this.storage.get('revision')) || 0,
+        revision: (await this.ctx.storage.get('revision')) || 0,
         demand: 1,
       });
     if (a.history)
@@ -1137,7 +1149,6 @@ export class HostRelayDO extends DurableObject<Env> {
             operation.agentEpoch === a.epoch &&
             operation.expires > Date.now()
           ) {
-            await this.storage.delete('wire:' + d.requestId);
             try {
               await this.result(operation, d.data, d.error);
             } catch (error) {

@@ -1,0 +1,290 @@
+{
+  "date": "2026-10-29",
+  "target": "https://r.xlogic.cc",
+  "database": {
+    "name": "coc-relay-state",
+    "id": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+    "backend": "d1",
+    "cron": "17 * * * *"
+  },
+  "deployments": [
+    {
+      "commit": "76dde280e65cc8b68c1a2494c88cace2036ea294",
+      "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40841827765",
+      "sourceDigest": "ddf6877a7a4611932ebc43b73ef76c49c8f8b450075986186a141e9a402e47fc",
+      "artifacts": [
+        {
+          "name": "verified-web",
+          "id": 12882869697,
+          "digest": "sha256:7279b01cb2a9a17902ab79018656883b78ed9af1e75e9d3a71570731d1089b01"
+        },
+        {
+          "name": "verified-worker",
+          "id": 12883298125,
+          "digest": "sha256:0977c7c4e1e47b84bca49165ce52f8b66d263f8083d775ad5c9d9f1b236b5c1c"
+        }
+      ],
+      "applied": true,
+      "stateSchemaApplied": true,
+      "verification": {
+        "health": {
+          "ok": true,
+          "version": "0.5.14",
+          "demand": 1,
+          "protocol": 1
+        },
+        "publicAssetBytesMatch": true
+      },
+      "jobs": {
+        "linux-release (debian12, debian:12)": "success",
+        "linux-musl": "success",
+        "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+        "windows-x64": "success",
+        "regression": "success",
+        "sanitizers": "success",
+        "publish-release": "skipped"
+      },
+      "publicVerification": {
+        "anonymousRequests": true,
+        "logoutTargetInBundle": true,
+        "results": [
+          {
+            "path": "/guest?deployment-check=1",
+            "status": 307,
+            "contentType": null,
+            "redirectPreservesQuery": true
+          },
+          {
+            "path": "/guest/",
+            "status": 200,
+            "contentType": "text/html",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/guest/assets/index-C4t790Qp.js",
+            "status": 200,
+            "contentType": "text/javascript",
+            "artifactBytesMatch": true,
+            "sha256": "4d42e75516d71515cb9f556389b6f46d25fb27114dac1560fd20b01f7b8ed999"
+          },
+          {
+            "path": "/guest/assets/index-Bt11baB6.css",
+            "status": 200,
+            "contentType": "text/css",
+            "artifactBytesMatch": true,
+            "sha256": "611bf9e695b2ad9451cb7e68233b00009bb00c44ecaac6d639cc58ecbbe971c9"
+          },
+          {
+            "path": "/downloads/index.json",
+            "status": 200,
+            "contentType": "application/json",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/downloads/SHA256SUMS",
+            "status": 200,
+            "contentType": null,
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/downloads/USER_GUIDE.md",
+            "status": 200,
+            "contentType": "text/plain; charset=utf-8",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/guest/api/v1/auth/email",
+            "status": 200,
+            "contentType": "application/json",
+            "emailAuthenticationDisabled": true
+          },
+          {
+            "path": "/guest/api/v1/hosts",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/api/v1/client/identity?hostId=00000000-0000-4000-8000-000000000000",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/api/v1/admin/devices",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/ws/v1/hosts/00000000-0000-4000-8000-000000000000",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/api/v1/hosts",
+            "status": 302,
+            "contentType": "text/plain; charset=utf-8"
+          }
+        ]
+      },
+      "workerVersion": "13c9232a-1ae0-4d78-ae06-c14d3ca29ef0",
+      "deploymentId": "67ef28e1-4a9e-443a-a64a-b2291e003d8d",
+      "incident": "Concurrent scope CAS retries exhausted; user reported BACKPRESSURE and handshake unconfirmed."
+    },
+    {
+      "commit": "a744e718389209ac1cf4276d9acc7993910784c0",
+      "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40849632526",
+      "sourceDigest": "4b14e51d5e6cc84faf6ffa0d6d5ac39bbf77dccba6178e1ef7308f2c6e9a4fcb",
+      "artifacts": [
+        {
+          "name": "verified-web",
+          "id": 12887800094,
+          "digest": "sha256:b748f0ceaca0d7c4f12bca0407e34604da421c5c360f16f6c47b925b98653756"
+        },
+        {
+          "name": "verified-worker",
+          "id": 12887271828,
+          "digest": "sha256:aa10be26a4cbbb9679dc3f5a65e9ddd824c8c452bf91262135d2fc8241e41d87"
+        }
+      ],
+      "applied": true,
+      "stateSchemaApplied": true,
+      "verification": {
+        "health": {
+          "ok": true,
+          "version": "0.5.14",
+          "demand": 1,
+          "protocol": 1
+        },
+        "publicAssetBytesMatch": true
+      },
+      "jobs": {
+        "sanitizers": "success",
+        "linux-musl": "success",
+        "linux-release (debian12, debian:12)": "success",
+        "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+        "regression": "success",
+        "windows-x64": "success",
+        "publish-release": "skipped"
+      },
+      "publicVerification": {
+        "anonymousRequests": true,
+        "logoutTargetInBundle": true,
+        "results": [
+          {
+            "path": "/guest?deployment-check=1",
+            "status": 307,
+            "contentType": null,
+            "redirectPreservesQuery": true
+          },
+          {
+            "path": "/guest/",
+            "status": 200,
+            "contentType": "text/html",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/guest/assets/index-C4t790Qp.js",
+            "status": 200,
+            "contentType": "text/javascript",
+            "artifactBytesMatch": true,
+            "sha256": "4d42e75516d71515cb9f556389b6f46d25fb27114dac1560fd20b01f7b8ed999"
+          },
+          {
+            "path": "/guest/assets/index-Bt11baB6.css",
+            "status": 200,
+            "contentType": "text/css",
+            "artifactBytesMatch": true,
+            "sha256": "611bf9e695b2ad9451cb7e68233b00009bb00c44ecaac6d639cc58ecbbe971c9"
+          },
+          {
+            "path": "/downloads/index.json",
+            "status": 200,
+            "contentType": "application/json",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/downloads/SHA256SUMS",
+            "status": 200,
+            "contentType": null,
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/downloads/USER_GUIDE.md",
+            "status": 200,
+            "contentType": "text/plain; charset=utf-8",
+            "artifactBytesMatch": true
+          },
+          {
+            "path": "/guest/api/v1/auth/email",
+            "status": 200,
+            "contentType": "application/json",
+            "emailAuthenticationDisabled": true
+          },
+          {
+            "path": "/guest/api/v1/hosts",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/api/v1/client/identity?hostId=00000000-0000-4000-8000-000000000000",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/api/v1/admin/devices",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/guest/ws/v1/hosts/00000000-0000-4000-8000-000000000000",
+            "status": 401,
+            "contentType": "application/json",
+            "errorCode": "UNAUTHORIZED"
+          },
+          {
+            "path": "/api/v1/hosts",
+            "status": 302,
+            "contentType": "text/plain; charset=utf-8"
+          }
+        ]
+      },
+      "workerVersion": "f8e5ab54-e1aa-4246-8230-b2cf73806963",
+      "deploymentId": "d6384301-7155-4756-9efa-e3b7c2b79648",
+      "trafficPercentage": 100,
+      "agentCredentialRead": "existing Agent requests command succeeded without reinstall or restart",
+      "browserRecovery": "user reported recovery remains unstable; further write-path fixes in progress"
+    }
+  ],
+  "objectAudit": {
+    "before": {
+      "HostRelayDO": {
+        "objects": 36,
+        "withData": 27
+      }
+    },
+    "after": {
+      "HostRelayDO": {
+        "objects": 36,
+        "withData": 25
+      }
+    },
+    "limitation": "Historical objects have not all been manually migrated; live objects await natural disconnect. No production object was deleted by identifier."
+  },
+  "backup": {
+    "kind": "private D1 SQL export imported successfully into in-memory SQLite",
+    "sha256": "2bcfbcf8347508df916c27d69b1236a56d4a943d15bd6b0b50b2f27afb83d6c3",
+    "rawDatabaseCommitted": false,
+    "legacyDOExport": "not obtained; metadata and platform recovery timestamp recorded privately"
+  },
+  "preserved": [
+    "original D1 database and credentials",
+    "verified 0.5.14 native download archives",
+    "running Agent service and user tasks"
+  ]
+}

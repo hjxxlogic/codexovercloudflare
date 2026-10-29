@@ -19,6 +19,10 @@ export interface StateStorage extends StateTransaction {
   deleteAlarm(): Promise<unknown>;
 }
 
+export function hasAutomaticExpiry(key: string) {
+  return /^(auth|device|limit|operation|ticket):/.test(key);
+}
+
 // Reads use the primary. Never enable replica reads for authorization or fencing.
 export class D1State implements StateStorage {
   private transactions: Promise<unknown> = Promise.resolve();
@@ -104,7 +108,7 @@ export class D1State implements StateStorage {
             changes.set(name as string, encoded);
             // Commit finite records and their expiry index together. An exit
             // between a write and alarm scheduling must not strand D1 rows.
-            if (/^(auth|device|limit|operation|ticket):/.test(name as string)) {
+            if (hasAutomaticExpiry(name as string)) {
               const record = entry as {
                 expires?: number;
                 until?: number;
