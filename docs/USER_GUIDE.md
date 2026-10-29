@@ -1,6 +1,6 @@
 # 用户手册
 
-## Cloudflare Access、邮箱授权与管理员邮箱（未部署）
+## Cloudflare Access、邮箱授权与管理员邮箱
 
 启用 Access 的站点先通过邮箱验证码登录。同一邮箱首次获批 A 的访问后，授权保存在中继数据库；其他浏览器登录该邮箱即可恢复所有有效 A，无需再次配对或输入连接 Key。新浏览器仍需完成 Cloudflare 邮箱验证。旧浏览器可在“会话记录 → 连接设置”选择“关联旧授权”，明确关联到当前邮箱；历史缓存和草稿不会跨浏览器同步。
 
@@ -8,7 +8,9 @@
 
 所有 Agent / CLI 共用 `config/cloudflare-service-token.json` 中的项目入口 Token，编译时内置，连接项目默认中继无需另配。实际权限继续由各自 CoC API Key / 设备凭据控制。独立部署或轮换可用 `--access-config /absolute/path/access.json`，其格式为 `origins` HTTPS 列表、`clientId`、`clientSecret`；登录后保存到 `cloudflareAccessFile`，也支持 `COC_ACCESS_CONFIG` 环境变量。配置文件不得包含 HTTP origin；Linux 要求运行用户拥有且权限为 `0600`。参数只包含文件路径，不传 Token 值。
 
-Worker 开启 `ACCESS_ENABLED=true` 后必须配置 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`，并保留 `OWNER_SECRET`；未开启时继续原有配对 / 管理登录。出现 Access 登录过期提示时重新打开网站验证邮箱；机器连接失败则核对共享 Token、策略和 CoC 凭据。完整变量、下载策略和跨浏览器迁移见 [Access 接入说明](cloudflare-access-coc-auth.md)。
+Worker 优先验证 Access 转发的 `Cf-Access-Jwt-Assertion`；请求头缺失时验证浏览器的 `CF_Authorization` Cookie，二者执行相同的签名、issuer、AUD 和有效期检查。已有但无效的请求头不会回退到 Cookie。
+
+Worker 开启 `ACCESS_ENABLED=true` 后必须配置 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`，并保留 `OWNER_SECRET`；未开启时继续原有配对 / 管理登录。出现 Access 登录过期提示时重新打开网站验证邮箱；错误中的 `token / keys / signature / claims / identity` 表示失败阶段，不包含登录凭据。`/cdn-cgi/access/get-identity` 返回 `no app token set` 时，浏览器尚未提供应用登录 Cookie，可先重新登录再刷新身份接口；机器连接失败则核对共享 Token、策略和 CoC 凭据。完整变量、下载策略和跨浏览器迁移见 [Access 接入说明](cloudflare-access-coc-auth.md)。
 
 ## 使用 CI 构建包更新 Agent
 

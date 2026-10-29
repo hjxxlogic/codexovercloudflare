@@ -176,6 +176,88 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Cloudflare Access signature and shared service token gate', () => {
+  it('verifies an application cookie when the assertion header is absent', async () => {
+    const value = await jwt('admin@test.com');
+    const response = await worker.fetch(
+      new Request('https://relay.test/api/v1/auth/email', {
+        headers: {
+          Cookie: `other=value; CF_Authorization=${value}; last=value`,
+        },
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      enabled: true,
+      email: 'admin@test.com',
+      autoAdmin: true,
+    });
+    const login = await worker.fetch(
+      new Request('https://relay.test/api/v1/auth/email/admin', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://relay.test',
+          Cookie: `CF_Authorization=${value}`,
+        },
+        body: '{}',
+      }),
+      env,
+    );
+    expect(login.status).toBe(200);
+    expect(login.headers.get('set-cookie')).toContain('coc_admin=');
+  });
+  it('rejects invalid or ambiguous cookies and never falls back from an invalid assertion', async () => {
+    const good = await jwt('user@test.com');
+    const expired = await jwt('user@test.com', { exp: 1 });
+    const wrongAudience = await jwt('user@test.com', { aud: ['other'] });
+    const wrongIssuer = await jwt('user@test.com', {
+      iss: 'https://evil.test',
+    });
+    const parts = good.split('.');
+    parts[1] = encode({ email: 'admin@test.com' });
+    const invalidHeaders: Record<string, string>[] = [
+      { Cookie: `CF_Authorization=${expired}` },
+      { Cookie: `CF_Authorization=${wrongAudience}` },
+      { Cookie: `CF_Authorization=${wrongIssuer}` },
+      { Cookie: `CF_Authorization=${parts.join('.')}` },
+      { Cookie: `CF_Authorization=${good}; CF_Authorization=${good}` },
+      { Cookie: `CF_Authorization=${'a'.repeat(16385)}` },
+      {
+        Cookie: `CF_Authorization=${good}`,
+        'Cf-Access-Jwt-Assertion': 'invalid',
+      },
+      { Cookie: `CF_Authorization=${good}`, 'Cf-Access-Jwt-Assertion': '' },
+    ];
+    for (const headers of invalidHeaders) {
+      await expect(
+        verifyAccess(new Request('https://relay.test', { headers }), env),
+      ).rejects.toMatchObject({ code: 'ACCESS_REQUIRED' });
+    }
+    const preferred = new Request('https://relay.test', {
+      headers: {
+        Cookie: `CF_Authorization=${await jwt('admin@test.com')}`,
+        'Cf-Access-Jwt-Assertion': good,
+      },
+    });
+    await verifyAccess(preferred, env);
+    expect(accessUser(preferred)?.email).toBe('user@test.com');
+  });
+  it('keeps service-token cookie identities subject to both machine fields', async () => {
+    const value = await jwt(null, { email: 'admin@test.com' });
+    const headers = { Cookie: `CF_Authorization=${value}` };
+    await expect(
+      verifyAccess(new Request('https://relay.test', { headers }), env),
+    ).rejects.toMatchObject({ code: 'ACCESS_SERVICE_REJECTED' });
+    const request = new Request('https://relay.test', {
+      headers: {
+        ...headers,
+        'CF-Access-Client-Id': 'test-client-id',
+        'CF-Access-Client-Secret': 'test-client-secret',
+      },
+    });
+    await verifyAccess(request, env);
+    expect(accessUser(request)).toBeUndefined();
+  });
   it('rejects missing JWT, wrong signatures, algorithms, audience, issuer and expired claims', async () => {
     const good = await jwt('user@test.com');
     const parts = good.split('.');

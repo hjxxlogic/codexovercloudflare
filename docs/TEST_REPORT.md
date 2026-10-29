@@ -1,5 +1,12 @@
 # 本机测试记录
 
+## Access 应用 Cookie 兼容 · 2026-10-29（待部署验收）
+
+- 用户反馈邮箱登录后仍收到 `ACCESS_REQUIRED`；浏览器身份接口刷新后能显示邮箱，Worker 配置的团队域名和 AUD 与边缘登录应用一致。不能据此认定具体 JWT 失败阶段。
+- assertion 请求头缺失时改为验证唯一的 `CF_Authorization` 应用 Cookie，保留签名、issuer、AUD、到期和机器双字段校验；已有但无效的 assertion 不回退。错误仅增加固定阶段，不包含 Token、邮箱或底层异常。
+- 本地 Vitest 11 文件 / 116 项通过，包含新增 Cookie 管理员登录、伪造签名 / 过期 / 错误 issuer / AUD / 重复 Cookie / 超长 Token 拒绝、请求头优先和机器邮箱不能提升权限；类型检查、ESLint / Prettier 与差异空白检查通过。尚未以此本地结果代替完整 Actions 或真实浏览器部署验收。
+- 本机实时日志连接因网络失败，已保存日志接口拒绝当前凭据；携带项目共享 Token 的生产请求仍返回登录重定向，需要核对同一应用的 Service Auth 策略关联与所选 Token。没有修改生产授权、用户会话或关闭 JWT 校验。
+
 ## 0.5.14 实际部署 · 2026-10-29
 
 - 源码 `25a6bc80dc35a2d01a4d940d21abddbcca7f737d` 的 [Actions 40710590901](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901) 六项必要作业全部成功。通过仓库云端部署脚本核验并发布同源 Worker、网页和四平台下载包；Worker 版本 `ac25bf62-6f91-45fe-90fd-9189a49e0a6a`。

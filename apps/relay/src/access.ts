@@ -138,6 +138,17 @@ async function keysFor(issuer: string, kid: string): Promise<Key[]> {
     current.pending = undefined;
   }
 }
+function applicationToken(req: Request) {
+  const assertion = req.headers.get('Cf-Access-Jwt-Assertion');
+  if (assertion !== null) return assertion;
+  const tokens = (req.headers.get('Cookie') || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith('CF_Authorization='));
+  if (tokens.length !== 1)
+    throw new Error('Missing or ambiguous application cookie');
+  return tokens[0].slice('CF_Authorization='.length);
+}
 export async function verifyAccess(req: Request, env: Env) {
   if (!accessEnabled(env)) return;
   if (
@@ -159,8 +170,9 @@ export async function verifyAccess(req: Request, env: Env) {
       throw new AppError('ACCESS_CONFIG', 'Invalid ADMIN_EMAIL', 503);
     }
   }
+  let stage = 'token';
   try {
-    const jwt = req.headers.get('Cf-Access-Jwt-Assertion');
+    const jwt = applicationToken(req);
     if (!jwt || jwt.length > 16384) throw new Error('Missing JWT');
     const parts = jwt.split('.');
     if (parts.length !== 3) throw new Error('JWT shape');
@@ -171,6 +183,7 @@ export async function verifyAccess(req: Request, env: Env) {
       header.crit !== undefined
     )
       throw new Error('JWT algorithm');
+    stage = 'keys';
     const keys = await keysFor(env.ACCESS_TEAM_DOMAIN, header.kid);
     const jwk = keys.find(
       (k) =>
@@ -180,6 +193,7 @@ export async function verifyAccess(req: Request, env: Env) {
         (!k.use || k.use === 'sig'),
     );
     if (!jwk) throw new Error('Unknown key');
+    stage = 'signature';
     const key = await crypto.subtle.importKey(
       'jwk',
       jwk,
@@ -196,6 +210,7 @@ export async function verifyAccess(req: Request, env: Env) {
       ))
     )
       throw new Error('Signature');
+    stage = 'claims';
     const payload = JSON.parse(new TextDecoder().decode(decode(parts[1])));
     const now = Date.now() / 1000;
     const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
@@ -211,6 +226,7 @@ export async function verifyAccess(req: Request, env: Env) {
         (!Number.isSafeInteger(payload.iat) || payload.iat > now + 30))
     )
       throw new Error('Claims');
+    stage = 'identity';
     let user: AccessUser | undefined;
     // Service tokens have empty sub and/or common_name; never promote them by an email claim.
     if (
@@ -229,7 +245,7 @@ export async function verifyAccess(req: Request, env: Env) {
   } catch {
     throw new AppError(
       'ACCESS_REQUIRED',
-      'Cloudflare Access authentication required; sign in again or check the service token policy',
+      `Cloudflare Access authentication failed (${stage}); sign in again or check the Access application configuration`,
       401,
     );
   }

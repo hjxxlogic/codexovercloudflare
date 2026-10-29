@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布 · Access 浏览器 Cookie 验证 · 2026-10-29
+
+- Access assertion 请求头缺失时验证浏览器应用 Cookie，修复浏览器已有应用登录 Cookie 但无法进入网页的兼容场景；保留全部 JWT 校验、请求头优先级及机器身份隔离，并显示不含凭据的固定验证失败阶段。
+
 ## 0.5.14 · Cloudflare Access 与邮箱授权 · 2026-10-28
 
 - Agent / CLI 从项目明文共享配置编译 Service Token 默认常量，覆盖 HTTPS、WSS、下载更新及无代理 TUI 桥接；Worker 同时验证 Access JWT 和机器 Token 的两个字段。
