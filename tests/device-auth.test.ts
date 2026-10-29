@@ -79,6 +79,36 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('records only successful authentication, throttles last-seen writes, and never revives revoked credentials', async () => {
+    const agent = await grant('agent');
+    const client = await grant('cli', agent.hostId);
+    const before = (await op('devices')).data.credentials;
+    expect(before.every((d: any) => d.lastSeen === undefined)).toBe(true);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1800000000000);
+    try {
+      const first = await op('auth', { token: client.token });
+      expect(first.status).toBe(200);
+      expect(first.data.lastSeen).toBe(1800000000000);
+      clock.mockReturnValue(1800000020000);
+      expect(
+        (await op('authHash', { hash: first.data.hash })).data.lastSeen,
+      ).toBe(1800000000000);
+      clock.mockReturnValue(1800000060000);
+      expect(
+        (await op('authHost', { token: client.token })).data.lastSeen,
+      ).toBe(1800000060000);
+      const listed = (await op('devices')).data.credentials.find(
+        (d: any) => d.id === first.data.hash,
+      );
+      expect(listed.lastSeen).toBe(1800000060000);
+      await op('credentialRevoke', { id: first.data.hash });
+      expect((await op('auth', { token: client.token })).status).toBe(401);
+      expect(storage.values.has('auth:' + first.data.hash)).toBe(false);
+      expect((await op('auth', { token: 'invalid-token' })).status).toBe(401);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it('excludes legacy hosts from management and release fanout without deleting stored records', async () => {
     const legacy = {
       id: crypto.randomUUID(),

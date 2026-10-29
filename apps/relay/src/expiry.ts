@@ -32,6 +32,13 @@ export async function migrateExpiry(
   const state = await storage.get<{ prefix: number; after?: string }>(
     'expiryMigration',
   );
+  // New objects have no legacy records to migrate. A status read must not
+  // create a database just to persist an empty migration marker. New expiring
+  // records are indexed by expireAt(), even after this in-memory fast path.
+  if (!state && !(await storage.list({ limit: 1 })).size) {
+    migrated.add(storage);
+    return;
+  }
   if (state?.prefix === prefixes.length) {
     migrated.add(storage);
     return;

@@ -304,3 +304,13 @@ Agent / CLI 共用原生 Access 初始化；`CF_ACCESS_CLIENT_ID` 和 `CF_ACCESS
 ## 访客 CW 回归
 
 `npm run test:access:web` 先验证浏览器邮箱授权、条件登出和 guest URL 前缀，再启动隔离的本地 Worker（普通入口启用 Access），验证访客静态资源、公开下载、CoC 配对、真实 WebSocket 订阅与撤销；无需生产凭据或模型。Ubuntu 20.04 无法直接运行当前 workerd 时，在已有测试容器中执行，并挂载工作区与 Chromium 缓存；本地浏览器缓存可用 `PLAYWRIGHT_BROWSERS_PATH` 指定。访客端到端检查使用临时存储及测试 Owner Secret，完成后停止 Worker 并清理临时下载文件。
+
+## 管理分组与排序回归
+
+`admin-table.tsx` 为全部管理表格提供表头按钮与 `aria-sort`，调用方通过与 children 一一对应的 `rowValues` 提供原始排序值；时间必须传数值，不能传格式化日期。`authorized-devices.tsx` 按 hostId 或客户端角色 / 邮箱 / 名称构建授权关系视图，组级时间取最大值，每条撤销仍使用原始授权 ID。排序只影响呈现，不重建凭据。
+
+Registry 成功执行 `auth / authHash / authHost` 时，在同一事务完成校验及 `lastSeen` 更新；每凭据一分钟内不重复写入，邮箱派生凭据同时更新活动邮箱授权。读取设备列表不改变时间，也不推送通知或引入后台定时器。浏览器回归覆盖两种分组、桌面 / 移动布局和全部管理表头双向切换；授权测试覆盖认证时间、限频、邮箱聚合和撤销后不得复活。
+
+## 空 DO 存储回归
+
+`tests/expiry.test.ts` 验证无存储的实例不写迁移标记，重建后保持空，新票据仍由 `expireAt()` 索引。`tests/relay-order.test.ts` 验证无 socket 的全新 HostRelayDO 在 status / notify / revoke-auth 路径不落盘。不要把清理测试改成“会话结束后 deleteAll”：同主机多个会话共用 epoch、租约及有限回执。平台只读审查方法和不能直接删除的候选对象边界见 [审查记录](relay-storage-audit-2026-10-29.md)。

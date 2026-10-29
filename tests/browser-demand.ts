@@ -166,6 +166,7 @@ try {
   await refresh.click();
   await expect(refresh).toBeEnabled();
   await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
+  await page.locator('.device-group > summary').click();
   await expect(
     page.getByRole('table', { name: '已授权设备', exact: true }),
   ).toContainText('build-server');

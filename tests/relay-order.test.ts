@@ -310,6 +310,27 @@ describe('flow control and authorization on activity', () => {
     expect(registryCall).not.toHaveBeenCalled();
     expect(h.agent.close).not.toHaveBeenCalled();
   });
+  it('keeps an unused host empty through status, notifications, and revocation', async () => {
+    const h = harness();
+    h.sockets.length = 0;
+    h.storage.values.clear();
+    const writes = vi.spyOn(h.storage, 'put');
+    for (const path of ['/status', '/notify', '/revoke-auth']) {
+      const response = await h.relay.fetch(
+        new Request('https://internal' + path, {
+          method: path === '/status' ? 'GET' : 'POST',
+          ...(path === '/status'
+            ? {}
+            : { body: JSON.stringify({ scope: 'release', agent: true }) }),
+        }),
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(writes).not.toHaveBeenCalled();
+    expect(h.storage.values.size).toBe(0);
+    expect(h.storage.alarm).toBeNull();
+    expect(registryCall).not.toHaveBeenCalled();
+  });
   it('cleans an offline ticket exactly at its finite deadline', async () => {
     const h = harness();
     h.sockets.length = 0;

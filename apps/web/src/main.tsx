@@ -26,11 +26,7 @@ import './style.css';
 import { eventWindow, mergeEvents } from './events.ts';
 import { api, ApiError, retryable } from './api.ts';
 import { ApprovalQueue, WorkspaceHeader } from './workspace.tsx';
-import {
-  ConversationView,
-  CopyText,
-  type ContentChunk,
-} from './conversation.tsx';
+import { ConversationView, type ContentChunk } from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
 import { FileContext } from './file-links.tsx';
 import {
@@ -43,6 +39,10 @@ import { HistoryCache, type HistoryPage } from './history.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
+import {
+  AuthorizedDevices,
+  type DeviceCredential,
+} from './authorized-devices.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
@@ -171,7 +171,10 @@ function App() {
     [deviceName, setDeviceName] = useState(() => t('网页客户端')),
     [adding, setAdding] = useState(false),
     [checking, setChecking] = useState(true),
-    [devices, setDevices] = useState<{ pending: any[]; credentials: any[] }>({
+    [devices, setDevices] = useState<{
+      pending: any[];
+      credentials: DeviceCredential[];
+    }>({
       pending: [],
       credentials: [],
     }),
@@ -280,6 +283,7 @@ function App() {
       : null;
   };
   const refreshPending = useRef<Promise<void> | undefined>(undefined);
+  const refreshSession = useRef<(() => Promise<void>) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshed, setRefreshed] = useState('');
   const [revision, setRevision] = useState(0);
@@ -508,8 +512,7 @@ function App() {
         if (mode === 'cw' && host) {
           const confirmation = await api(`/hosts/${host}/probe`, {});
           if (!confirmation.online) throw new Error('未确认服务器可达，请重试');
-          if (!socket.current || socket.current.readyState >= WebSocket.CLOSING)
-            setReconnect((value) => value + 1);
+          await refreshSession.current?.();
         }
         setRevision((value) => value + 1);
         setResultRevision((value) => value + 1);
@@ -874,6 +877,10 @@ function App() {
       timer: ReturnType<typeof setTimeout>,
       handshake: ReturnType<typeof setTimeout>,
       attempt = 0;
+    let confirmControl: (() => void) | undefined;
+    let confirmHistory: (() => void) | undefined;
+    let cancelRefresh: (() => void) | undefined;
+    let syncHistory: (() => void) | undefined;
     after.current = 0;
     setEvents([]);
     setApprovals([]);
@@ -1117,6 +1124,7 @@ function App() {
                 attempt = 0;
                 setPending(false);
                 void checkPending();
+                confirmControl?.();
               }
               return;
             }
@@ -1386,6 +1394,7 @@ function App() {
             }),
           );
         };
+        syncHistory = sync;
         hs.onmessage = (message) => {
           if (disposed) return;
           try {
@@ -1469,6 +1478,7 @@ function App() {
                 }
               }
               if (d.direction === 'after' && d.more) sync();
+              else confirmHistory?.();
             } else if (typeof request === 'number') {
               showPage(d);
               void cache
@@ -1495,11 +1505,70 @@ function App() {
         }
       }
     };
+    refreshSession.current = async () => {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let controlConfirmed = selected.state !== 'ready';
+          let historyConfirmed = false;
+          const timer = setTimeout(() => reject(new Error()), 15000);
+          const finish = () => {
+            if (controlConfirmed && historyConfirmed) {
+              clearTimeout(timer);
+              resolve();
+            }
+          };
+          cancelRefresh = () => {
+            clearTimeout(timer);
+            reject(new Error());
+          };
+          confirmControl = () => {
+            controlConfirmed = true;
+            finish();
+          };
+          confirmHistory = () => {
+            historyConfirmed = true;
+            finish();
+          };
+          // OPEN alone cannot detect a stalled browser connection. Confirm both
+          // data channels with real responses, including missed history revisions.
+          if (
+            historySocket.current?.readyState !== WebSocket.OPEN ||
+            !syncHistory ||
+            (!controlConfirmed && socket.current?.readyState !== WebSocket.OPEN)
+          ) {
+            cancelRefresh();
+            return;
+          }
+          if (!controlConfirmed)
+            socket.current!.send(
+              JSON.stringify({
+                action: 'sync',
+                after: Number.MAX_SAFE_INTEGER,
+              }),
+            );
+          syncHistory();
+        });
+      } catch {
+        if (!disposed) {
+          setReconnect((value) => value + 1);
+          throw new Error(
+            t('会话同步未确认，已请求重新连接，请稍后刷新核对。'),
+          );
+        }
+      } finally {
+        cancelRefresh?.();
+        cancelRefresh = undefined;
+        confirmControl = undefined;
+        confirmHistory = undefined;
+      }
+    };
     void connectHistory();
     if (selected.state === 'ready') void connect();
     else setStatus('查看已结束会话的历史');
     return () => {
       disposed = true;
+      refreshSession.current = undefined;
+      cancelRefresh?.();
       for (const request of modelRequests.current.values()) {
         clearTimeout(request.timer);
         request.reject(new Error(t('连接或会话已切换，请重新加载模型。')));
@@ -2181,7 +2250,9 @@ function App() {
                     )
                   }
                 >
-                  <strong>{t('登出')}</strong>
+                  <strong>
+                    {t('登出')} {emailIdentity.email}
+                  </strong>
                   <small>{t('退出当前邮箱登录')}</small>
                 </button>
               )}
@@ -2389,6 +2460,27 @@ function App() {
               )}
               <AdminTable
                 label={t('待授权请求')}
+                rowValues={devices.pending.map((d) => [
+                  d.name,
+                  d.role === 'agent'
+                    ? t('服务器 Agent')
+                    : d.role === 'cli'
+                      ? t('命令行客户端')
+                      : t('网页客户端'),
+                  d.code,
+                  d.message || '',
+                  keyHosts.find(
+                    (h) =>
+                      h.id ===
+                      (d.requestedHostId || approvalHosts[d.id] || d.hostId),
+                  )?.name ||
+                    d.requestedHostId ||
+                    approvalHosts[d.id] ||
+                    d.hostId ||
+                    '',
+                  d.expires,
+                  t('批准') + d.code,
+                ])}
                 columns={[
                   '设备名称',
                   '角色',
@@ -2513,71 +2605,27 @@ function App() {
             </>
           )}
           {adminTab === 'authorized' && (
-            <>
-              <AdminTable
-                label={t('已授权设备')}
-                columns={[
-                  '设备名称',
-                  '角色',
-                  '目标服务器',
-                  '授权时间',
-                  '操作',
-                ].map((label) => t(label))}
-                empty={!devices.credentials.length}
-                emptyText={t('暂无已授权设备')}
-              >
-                {devices.credentials.map((d) => (
-                  <tr key={d.id} data-credential-id={d.id}>
-                    <th scope="row">
-                      {d.name}
-                      {d.email && (
-                        <p>
-                          {t('已验证邮箱：')}
-                          {d.email}
-                        </p>
-                      )}
-                      <details>
-                        <summary>{t('授权标识与服务器')}</summary>
-                        <p className="id">
-                          {d.id} · {d.hostId}
-                        </p>
-                        <CopyText text={d.id} />
-                      </details>
-                    </th>
-                    <td>
-                      {d.role === 'agent'
-                        ? t('服务器 Agent')
-                        : d.role === 'cli'
-                          ? t('命令行客户端')
-                          : t('网页客户端')}
-                    </td>
-                    <td>
-                      {keyHosts.find((host) => host.id === d.hostId)?.name ||
-                        d.hostId}
-                    </td>
-                    <td>
-                      <time dateTime={new Date(d.created).toISOString()}>
-                        {new Date(d.created).toLocaleString(localeTag())}
-                      </time>
-                      <small>{t('长期有效')}</small>
-                    </td>
-                    <td>
-                      <button
-                        disabled={generating}
-                        onClick={() => void manage('revoke', d.id)}
-                      >
-                        {t('撤销')} {d.name}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </AdminTable>
-            </>
+            <AuthorizedDevices
+              credentials={devices.credentials}
+              hosts={keyHosts}
+              busy={generating}
+              revoke={(id) => void manage('revoke', id)}
+            />
           )}
           {adminTab === 'wake' && (
             <>
               <AdminTable
                 label={t('服务器唤醒配置')}
+                rowValues={keyHosts.map((h) => [
+                  h.name,
+                  h.wakeUrlOverride === undefined
+                    ? t('使用 Agent 配置')
+                    : h.wakeUrlOverride
+                      ? t('使用管理员配置')
+                      : t('管理员已禁用唤醒'),
+                  h.wakeUrlOverride ?? h.agentWakeUrl ?? '',
+                  t('保存唤醒配置'),
+                ])}
                 columns={['服务器', '配置来源', '唤醒 URL', '操作'].map(
                   (label) => t(label),
                 )}
@@ -2714,6 +2762,13 @@ function App() {
           )}
           <AdminTable
             label={t('API Key 管理')}
+            rowValues={apiKeys.map((k) => [
+              k.name,
+              k.role === 'agent' ? 'coc-agent' : 'coc-client',
+              keyHosts.find((h) => h.id === k.hostId)?.name || k.hostId || '',
+              k.created,
+              t('撤销') + k.name,
+            ])}
             columns={[
               'Key 名称',
               '使用程序',

@@ -49,6 +49,9 @@ const approvalAnswers: {
   sessionId: string;
 }[] = [];
 let dropApprovalAck = false;
+let stallHistory = false;
+let historyConnections = 0;
+let controlSyncCalls = 0;
 const submitted = new Set<string>();
 const promptCommands: { requestId: string; text: string; model?: string }[] =
   [];
@@ -138,6 +141,47 @@ const server = createServer((req, res) => {
                 role: 'cli',
                 hostId: 'sample',
                 created: 1700000000000,
+                lastSeen: 1700000300000,
+              },
+              {
+                id: 'agent-a',
+                name: 'Agent A',
+                role: 'agent',
+                hostId: 'sample',
+                created: 1700000000000,
+              },
+              {
+                id: 'agent-b',
+                name: 'Agent B',
+                role: 'agent',
+                hostId: 'second',
+                created: 1700000000000,
+                lastSeen: 1700000200000,
+              },
+              {
+                id: 'web-a',
+                name: 'user@example.test',
+                email: 'user@example.test',
+                role: 'web',
+                hostId: 'sample',
+                created: 1700000000000,
+                lastSeen: 1700000100000,
+              },
+              {
+                id: 'web-b',
+                name: 'user@example.test',
+                email: 'user@example.test',
+                role: 'web',
+                hostId: 'second',
+                created: 1700000100000,
+                lastSeen: 1700000200000,
+              },
+              {
+                id: 'other-client',
+                name: '另一个 CC',
+                role: 'cli',
+                hostId: 'second',
+                created: 1700000200000,
               },
             ]
           : [],
@@ -154,7 +198,10 @@ const server = createServer((req, res) => {
             },
           ]
         : [];
-    else if (path === '/admin/hosts') body = adminSamples ? [adminHost] : [];
+    else if (path === '/admin/hosts')
+      body = adminSamples
+        ? [adminHost, { id: 'second', name: '第二服务器', disabled: false }]
+        : [];
     else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
     else if (path === '/client/identity') body = { identity };
@@ -246,11 +293,13 @@ wss.on('connection', (ws, request) => {
     request.url?.includes(otherSession.id) ? otherSession : session,
   );
   const history = request.url?.includes('/history/');
+  if (history) historyConnections++;
   if (history) ws.send(JSON.stringify({ type: 'history-ready' }));
   else controls.add(ws);
   ws.on('message', (raw) => {
     const data = JSON.parse(String(raw));
     if (data.type === 'receipt') return;
+    if (history && stallHistory) return;
     if (history && data.operation === 'content') {
       contentCalls++;
       const text =
@@ -325,8 +374,10 @@ wss.on('connection', (ws, request) => {
       );
     else if (data.type === 'auth')
       ws.send(JSON.stringify({ type: 'attached', epoch: 1 }));
-    else if (data.action === 'sync') sync(ws);
-    else if (data.action === 'models') {
+    else if (data.action === 'sync') {
+      controlSyncCalls++;
+      sync(ws);
+    } else if (data.action === 'models') {
       ws.send(
         JSON.stringify(
           modelListFailure
@@ -534,17 +585,64 @@ try {
   submitted.clear();
   const languageDraft = '中英文切换保留草稿 / keep this draft';
   await page.getByLabel('任务内容').fill(languageDraft);
-  const languageAttachCalls = attachCalls;
+  const returnLatest = page.getByRole('button', {
+    name: '返回最新内容',
+    exact: true,
+  });
+  if (await returnLatest.isVisible()) {
+    await returnLatest.click();
+    await expect(returnLatest).toHaveCount(0);
+  }
+  let languageAttachCalls = attachCalls;
+  const beforeControlSync = controlSyncCalls;
+  // Persist a message without delivering a live notification on either channel.
+  events.push({
+    seq: 8,
+    type: 'user',
+    data: { text: '刷新补回漏掉的消息' },
+    time: 8,
+  });
+  await expect(
+    page.getByText('刷新补回漏掉的消息', { exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
     page.getByRole('button', { name: '刷新状态', exact: true }),
   ).toBeEnabled();
   await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
+  await expect(
+    page.getByText('刷新补回漏掉的消息', { exact: true }),
+  ).toBeVisible();
+  assert(
+    controlSyncCalls > beforeControlSync,
+    'refresh confirms session state',
+  );
   assert.equal(
     attachCalls,
     languageAttachCalls,
     'manual refresh preserves the active controller',
   );
+  // Simulate an OPEN history channel that stops answering while probe succeeds.
+  const beforeHistoryReconnect = historyConnections;
+  stallHistory = true;
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled({ timeout: 20000 });
+  await expect(page.getByRole('alert')).toContainText(
+    '会话同步未确认，已请求重新连接，请稍后刷新核对。',
+  );
+  stallHistory = false;
+  await expect
+    .poll(() => historyConnections)
+    .toBeGreaterThan(beforeHistoryReconnect);
+  await expect.poll(() => attachCalls).toBeGreaterThan(languageAttachCalls);
+  await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
+  languageAttachCalls = attachCalls;
   await openMenu(page);
   await page.getByLabel('语言 / Language').selectOption('en');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -1464,12 +1562,97 @@ try {
       await expect(
         page.getByRole('table', { name, exact: true }),
       ).toBeVisible();
+      const table = page.getByRole('table', { name, exact: true });
+      const headers = table.locator(':scope > thead > tr > th');
+      for (const header of await headers.all()) {
+        const button = header.getByRole('button');
+        await button.click();
+        const direction = await header.getAttribute('aria-sort');
+        assert(['ascending', 'descending'].includes(direction || ''));
+        await button.click();
+        await expect(header).toHaveAttribute(
+          'aria-sort',
+          direction === 'ascending' ? 'descending' : 'ascending',
+        );
+      }
+      if (tab === 'authorized') {
+        await page.getByLabel('折叠方式').selectOption('client');
+        const webGroup = table.locator('.device-group').filter({
+          has: page
+            .locator('summary')
+            .filter({ hasText: /^CW · user@example.test/ }),
+        });
+        await webGroup.locator(':scope > summary').click();
+        await expect(webGroup.locator('[data-credential-id]')).toHaveCount(2);
+        await expect(
+          webGroup.locator('[data-credential-id="web-a"]'),
+        ).toContainText('示例服务器');
+        await expect(
+          webGroup.locator('[data-credential-id="web-b"]'),
+        ).toContainText('第二服务器');
+        const seenHeader = webGroup.getByRole('columnheader', {
+          name: '上次看到',
+        });
+        await seenHeader.getByRole('button').click();
+        if ((await seenHeader.getAttribute('aria-sort')) !== 'ascending')
+          await seenHeader.getByRole('button').click();
+        await expect(
+          webGroup.locator('[data-credential-id]').first(),
+        ).toHaveAttribute('data-credential-id', 'web-a');
+        await seenHeader.getByRole('button').click();
+        await expect(
+          webGroup.locator('[data-credential-id]').first(),
+        ).toHaveAttribute('data-credential-id', 'web-b');
+        if (width === 1280) {
+          let revoked = '';
+          await page.route('**/api/v1/admin/revoke', async (route) => {
+            revoked = route.request().postDataJSON().id;
+            await route.fulfill({ json: { ok: true } });
+          });
+          page.once('dialog', (dialog) => void dialog.accept());
+          await webGroup
+            .locator('[data-credential-id]')
+            .first()
+            .getByRole('button', { name: /^撤销/ })
+            .click();
+          await expect.poll(() => revoked).toBe('web-b');
+          await expect(
+            webGroup.getByRole('button', { name: /^撤销/ }).first(),
+          ).toBeEnabled();
+          await page.unroute('**/api/v1/admin/revoke');
+        }
+        await page
+          .locator('.admin-table-scroll')
+          .evaluateAll((elements) =>
+            elements.forEach((element) => (element.scrollLeft = 0)),
+          );
+        await page.screenshot({
+          path: join(artifacts, `admin-group-client-${width}.png`),
+          fullPage: true,
+        });
+        await page.getByLabel('折叠方式').selectOption('agent');
+        const agentGroup = table.locator('.device-group').filter({
+          has: page
+            .locator('summary')
+            .filter({ hasText: /^Agent · 示例服务器/ }),
+        });
+        await agentGroup.locator(':scope > summary').click();
+        await expect(agentGroup.locator('[data-credential-id]')).toHaveCount(3);
+        await expect(
+          agentGroup.locator('[data-credential-id="agent-a"]'),
+        ).toContainText('暂无记录');
+      }
       assert(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
         `${name}: no page overflow at ${width}px`,
       );
+      await page
+        .locator('.admin-table-scroll')
+        .evaluateAll((elements) =>
+          elements.forEach((element) => (element.scrollLeft = 0)),
+        );
       await page.screenshot({
         path: join(artifacts, `admin-table-${tab}-${width}.png`),
         fullPage: true,
@@ -1487,7 +1670,7 @@ try {
   }
   assert.deepEqual(failures, []);
   console.log(
-    'PASS: Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
+    'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 } finally {
   await browser.close();

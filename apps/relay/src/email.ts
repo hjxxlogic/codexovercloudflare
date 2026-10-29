@@ -12,6 +12,7 @@ export type EmailGrant = {
   email: string;
   hostId: string;
   created: number;
+  lastSeen?: number;
   active: boolean;
   generation: string;
   approvedBy?: string;

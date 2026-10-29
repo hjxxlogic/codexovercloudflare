@@ -1165,6 +1165,32 @@ progress {
   color: #b9c2d1;
   font-weight: 600;
 }
+.admin-table .admin-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.device-grouping {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.device-grouping select {
+  width: auto;
+}
+.admin-table .device-group > summary {
+  overflow-wrap: anywhere;
+  padding: 8px 0;
+  font-weight: 600;
+}
 .admin-table tbody th {
   font-weight: 600;
 }

@@ -14,6 +14,13 @@ export const english: Record<string, string> = {
   重新验证邮箱: 'Sign in with email again',
   刷新状态: 'Refresh status',
   刷新中: 'Refreshing',
+  折叠方式: 'Group by',
+  '按 Agent 折叠': 'Group by Agent',
+  '按 CW/CC 折叠': 'Group by CW/CC',
+  上次看到: 'Last seen',
+  暂无记录: 'No record',
+  '会话同步未确认，已请求重新连接，请稍后刷新核对。':
+    'Session sync unconfirmed. Reconnection requested; refresh again shortly to verify.',
   未确认: 'Unconfirmed',
   最近确认: 'Last confirmed',
   '连接状态未确认，点击刷新核对': 'Connection unconfirmed; refresh to check',

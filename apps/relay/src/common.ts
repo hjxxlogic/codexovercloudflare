@@ -22,6 +22,7 @@ export type Auth = {
   version: 2;
   name: string;
   created: number;
+  lastSeen?: number;
   apiKeyId?: string;
   ownerVersion?: string;
   accountId?: string;

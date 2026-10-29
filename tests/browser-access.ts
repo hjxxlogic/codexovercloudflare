@@ -167,12 +167,14 @@ try {
     if (i === 1) {
       await page.getByRole('button', { name: '关闭面板', exact: true }).click();
       await page.getByRole('button', { name: '功能菜单', exact: true }).click();
-      await expect(page.getByRole('button', { name: /^登出/ })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: /^登出 user@example\.test/ }),
+      ).toBeVisible();
       await page
         .getByRole('combobox', { name: '语言 / Language' })
         .selectOption('en');
       await expect(
-        page.getByRole('button', { name: /^Sign out/ }),
+        page.getByRole('button', { name: /^Sign out user@example\.test/ }),
       ).toBeVisible();
       await page.screenshot({
         path: join(artifacts, 'email-sign-out.png'),
@@ -211,10 +213,10 @@ try {
     adminPage.getByRole('tab', { name: '已授权设备', exact: true }),
   ).toBeVisible();
   await adminPage.getByRole('tab', { name: '已授权设备', exact: true }).click();
+  await adminPage.locator('.device-group > summary').click();
   await expect(
     adminPage.getByRole('rowheader', {
-      name: 'user@example.test',
-      exact: true,
+      name: /^user@example\.test/,
     }),
   ).toBeVisible();
   await expect(

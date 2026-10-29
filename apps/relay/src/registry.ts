@@ -577,8 +577,10 @@ export class RegistryDO extends DurableObject<Env> {
           (await s.list<Auth>({ prefix: 'auth:' })).values(),
         )
           .filter((v) => v.version === 2 && v.role !== 'owner' && !v.grantId)
-          .map(({ hash, role, name, hostId, created }) => ({
+          .map(({ hash, role, name, hostId, created, lastSeen, email }) => ({
             id: hash,
+            lastSeen,
+            email,
             role,
             name,
             hostId,
@@ -592,6 +594,8 @@ export class RegistryDO extends DurableObject<Env> {
               id: grant.id,
               role: 'web',
               name: grant.email,
+              lastSeen: grant.lastSeen,
+              email: grant.email,
               hostId: grant.hostId,
               created: grant.created,
             });
@@ -811,34 +815,50 @@ export class RegistryDO extends DurableObject<Env> {
           op !== 'authHash'
             ? await digest(z.string().max(500).parse(d.token))
             : z.string().parse(d.hash);
-        const a = await s.get<Auth>('auth:' + hash);
-        if (!a || a.version !== 2 || a.expires <= Date.now())
-          throw new AppError(
-            'UNAUTHORIZED',
-            'Expired or invalid credentials',
-            401,
-          );
-        if (
-          a.role === 'owner' &&
-          a.ownerVersion !== (await digest(this.env.OWNER_SECRET))
-        )
-          throw new AppError(
-            'UNAUTHORIZED',
-            'Administrator secret rotated; log in again',
-            401,
-          );
-        await validateEmailAuth(s, this.env, a);
-        if (a.apiKeyId && !(await s.get('apiKey:' + a.apiKeyId)))
-          throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
-        if (a.hostId) {
-          const h = await s.get<Host>('host:' + a.hostId);
-          if (!h || h.version !== 2 || h.disabled)
-            throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
-        }
         return json(
-          op === 'authHost'
-            ? { ...a, host: await s.get<Host>('host:' + a.hostId) }
-            : a,
+          await s.transaction(async (tx) => {
+            const a = await tx.get<Auth>('auth:' + hash);
+            if (!a || a.version !== 2 || a.expires <= Date.now())
+              throw new AppError(
+                'UNAUTHORIZED',
+                'Expired or invalid credentials',
+                401,
+              );
+            if (
+              a.role === 'owner' &&
+              a.ownerVersion !== (await digest(this.env.OWNER_SECRET))
+            )
+              throw new AppError(
+                'UNAUTHORIZED',
+                'Administrator secret rotated; log in again',
+                401,
+              );
+            await validateEmailAuth(tx, this.env, a);
+            if (a.apiKeyId && !(await tx.get('apiKey:' + a.apiKeyId)))
+              throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
+            if (a.hostId) {
+              const h = await tx.get<Host>('host:' + a.hostId);
+              if (!h || h.version !== 2 || h.disabled)
+                throw new AppError('UNAUTHORIZED', 'Device disabled', 401);
+            }
+            const now = Date.now();
+            if (
+              a.role !== 'owner' &&
+              (a.lastSeen === undefined || now - a.lastSeen >= 60000)
+            ) {
+              a.lastSeen = now;
+              await tx.put('auth:' + hash, a);
+              if (a.grantId) {
+                const key = `emailGrant:${a.accountId}:${a.hostId}`;
+                const grant = await tx.get<EmailGrant>(key);
+                if (grant?.active && grant.generation === a.grantId)
+                  await tx.put(key, { ...grant, lastSeen: now });
+              }
+            }
+            return op === 'authHost'
+              ? { ...a, host: await tx.get<Host>('host:' + a.hostId) }
+              : a;
+          }),
         );
       }
       if (op === 'setInstanceName') {

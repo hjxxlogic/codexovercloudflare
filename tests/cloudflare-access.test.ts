@@ -738,6 +738,16 @@ describe('email grants and administrator identity', () => {
     );
     await pair('user@test.com', b.hostId);
     await pair('other@test.com', a.hostId);
+    expect(
+      (
+        await request(
+          `/api/v1/client/identity?hostId=${a.hostId}`,
+          'user@test.com',
+          undefined,
+          first.cookie,
+        )
+      ).status,
+    ).toBe(200);
     const admin = await request(
       '/api/v1/auth/email/admin',
       'admin@test.com',
@@ -752,6 +762,8 @@ describe('email grants and administrator identity', () => {
     const grant = devices.data.credentials.find(
       (a_: any) => a_.hostId === a.hostId && a_.name === 'user@test.com',
     );
+    expect(grant.email).toBe('user@test.com');
+    expect(grant.lastSeen).toEqual(expect.any(Number));
     expect(
       (
         await request(

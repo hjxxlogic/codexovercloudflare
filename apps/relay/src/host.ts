@@ -281,6 +281,9 @@ export class HostRelayDO extends DurableObject<Env> {
       .find((ws) => (ws.deserializeAttachment() as Attachment).id === id);
   }
   private async changed(scope = 'host', owner?: string, operationId?: string) {
+    // Notifications have no replay payload; future subscribers read a fresh
+    // snapshot. Do not materialize unused host storage for an unobserved change.
+    if (!this.ctx.getWebSockets().length) return;
     const revision =
       ((await this.ctx.storage.get<number>('revision')) || 0) + 1;
     await this.ctx.storage.put('revision', revision);

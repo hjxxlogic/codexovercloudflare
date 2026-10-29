@@ -1,5 +1,18 @@
 # 本机测试记录
 
+## HostRelayDO 存储审查与空对象写入 · 2026-10-29（本地未发布）
+
+- 只读清单得到 36 个 HostRelayDO，27 个有数据、9 个无数据；近 24 小时分别有 4 个 / 0 个观察到活动。另有 1 个 RegistryDO 有数据。窗口内 namespace 存储最大值分别为 598,016 / 36,864 字节，不能当作当前单对象大小。没有读取生产 KV 正文或执行删除。具体口径、生命周期审查及限制见 [审查记录](relay-storage-audit-2026-10-29.md)。
+- 修复空存储迁移标记及无人连接通知 revision 的写入；新增 3 项回归，覆盖重建后的空对象、状态 / 通知 / 撤销不落盘，以及后续新票据仍索引并调度。全量 Vitest 11 文件 / 139 项、类型检查、ESLint / Prettier 及差异空白检查通过；保留之前的 CW / 管理页面修改。此轮未重复运行原生测试或浏览器回归，源码变更仅为 Host / 通用期限迁移逻辑，未部署到生产。
+
+## CW 刷新恢复、邮箱及管理表格 · 2026-10-29（本地未发布）
+
+- `npm test` 通过：CTest native-core 与 Vitest 11 文件 / 136 项；新增成功认证时间、分钟内限频、authHash / authHost 时间更新及撤销不得复活验证。邮箱回归确认派生凭据成功认证后聚合时间，撤销仍作用于全部相关浏览器。
+- Bookworm / Chromium 合成 UI 回归验证顶部刷新补回漏消息、历史 WebSocket 保持 OPEN 却不响应时 15 秒后请求重连、正常刷新不重建控制连接且保留草稿。设备表覆盖按 Agent / CW/CC 分组、同邮箱关联两台 Agent、各列表头切换排序、时间正反排序、无记录、桌面 / 390px 布局。邮箱 / guest 浏览器回归验证双语登出文字后的邮箱，管理员分组展开流程和原有访客路径隔离。
+- 排序后点击撤销确认请求携带原始授权 ID。`browser-demand.ts` 模拟 24 小时，CW / 管理员周期请求均为 0；漏通知时刷新和设备 / Key 撤销仍同步主机列表。类型检查、ESLint / Prettier、网页构建和差异空白检查通过；网页构建仍提示现有单包超过 500 kB。
+- 截图：[Agent 桌面](assets/cw-management-2026-10-29/admin-table-authorized-1280.png)、[Agent 手机](assets/cw-management-2026-10-29/admin-table-authorized-390.png)、[CW/CC 桌面](assets/cw-management-2026-10-29/admin-group-client-1280.png)、[CW/CC 手机](assets/cw-management-2026-10-29/admin-group-client-390.png)、[邮箱登出](assets/cw-management-2026-10-29/email-sign-out.png)。
+- 所有证据使用合成授权 / 会话；没有调用模型、部署 Worker、更新生产凭据或重启 Agent。本地检查不替代同一提交的 GitHub Actions 与实际发布验证。
+
 ## Worker Access 公钥获取根因 · 2026-10-29
 
 - 浏览器身份接口确认管理员邮箱已通过 One-time PIN、账户一致且不是机器身份；Worker 返回 `(keys)`。在无生产绑定的 Cloudflare 临时预览中，`fetch(..., { redirect: error })` 真实抛出 `TypeError`，提示边缘仅支持 `follow / manual`。这确认了公钥获取的运行时兼容问题，不能归因于邮箱、AUD 或用户密码。
