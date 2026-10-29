@@ -7,6 +7,7 @@ import {
 } from '../apps/web/src/file-links.tsx';
 import { ConversationView } from '../apps/web/src/conversation.tsx';
 import { downloadFile } from '../apps/web/src/download.ts';
+import { fileType, filePreviewUrl } from '../apps/web/src/file-types.ts';
 
 const root = '/workspace/example';
 function demandResponse(body: string) {
@@ -115,10 +116,42 @@ describe('chat file paths', () => {
       'docs/code.txt',
       'docs/plain.txt',
     ])
-      expect(html).toContain(`aria-label="下载 ${path}"`);
+      expect(html).toContain(`aria-label="预览 ${path}"`);
     expect(html).toContain('href="https://example.com/a.txt"');
     expect(html).not.toContain('href="/etc/passwd"');
-    expect(html).toContain('下载 docs/script.txt');
+    expect(html).toContain('预览 docs/script.txt');
+  });
+});
+
+describe('file preview selection', () => {
+  it('renders documents as text and only uses explicit image/media MIME types', () => {
+    for (const path of ['README.md', 'report.MARKDOWN'])
+      expect(fileType(path).kind).toBe('markdown');
+    for (const path of [
+      'index.html',
+      'index.ts',
+      '.env',
+      'Dockerfile',
+      'log.txt',
+    ])
+      expect(fileType(path).kind).toBe('text');
+    expect(fileType('photo.PNG')).toEqual({ kind: 'image', mime: 'image/png' });
+    expect(fileType('movie.mp4').kind).toBe('video');
+    expect(fileType('sound.wav').kind).toBe('audio');
+    expect(fileType('unknown.zip').kind).toBe('download');
+  });
+  it('keeps the guest prefix and file identity in the fragment without including credentials', () => {
+    vi.stubGlobal('location', new URL('https://relay.test/guest/'));
+    try {
+      const url = new URL(filePreviewUrl('host', 'project', 'docs/a & b.md'));
+      expect(url.pathname).toBe('/guest/');
+      expect(url.search).toBe('');
+      expect(new URLSearchParams(url.hash.slice(1)).get('path')).toBe(
+        'docs/a & b.md',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

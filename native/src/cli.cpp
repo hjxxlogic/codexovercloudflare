@@ -301,6 +301,17 @@ class Cli {
     std::shared_ptr<Socket> reader;
     bool finished = false, reconnect_reader = false, history_pending = false, history_ready = false;
     int64_t history_requested = 0;
+    int64_t received_revision = tail.value("receivedRevision", int64_t(-1)), maximum_revision = 0;
+    std::function<void()> read_history = [&] {
+      if (!history_ready || history_pending || finished)
+        return;
+      history_pending = true;
+      history_requested = now();
+      Json command = {{"operation", "page"}, {"requestId", uuid()}};
+      command[received_revision < 0 ? "before" : "after"] =
+          received_revision < 0 ? 0 : received_revision;
+      reader->send(command);
+    };
     std::function<void()> reconnect = [&] {
       reader = connect_socket(
           history_io, u, c.at("token"),
@@ -309,9 +320,7 @@ class Cli {
               reader->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
             if (d.value("type", "") == "history-ready") {
               history_ready = true;
-              history_pending = true;
-              history_requested = now();
-              reader->send({{"operation", "page"}, {"before", 0}, {"requestId", "initial"}});
+              read_history();
             }
             if (d.value("type", "") == "history" || d.value("type", "") == "error")
               history_pending = false;
@@ -330,7 +339,15 @@ class Cli {
                 if (!found)
                   tail["events"].push_back(event);
               }
+              maximum_revision = std::max(maximum_revision, d.value("snapshotSeq", int64_t(0)));
+              const bool more = d.value("direction", "before") == "after" && d.value("more", false);
+              received_revision =
+                  std::max(received_revision, more ? d.value("cursor", int64_t(0))
+                                                   : d.value("snapshotSeq", int64_t(0)));
+              tail["receivedRevision"] = received_revision;
               persist_tail();
+              if (more || maximum_revision > received_revision)
+                read_history();
             }
             if (d.value("type", "") == "event") {
               auto &events = tail["events"];
@@ -345,7 +362,17 @@ class Cli {
                 }
               if (!found)
                 events.push_back(event);
+              if (d.contains("maxRevision") && d["maxRevision"].is_number_integer()) {
+                const auto maximum = d["maxRevision"].get<int64_t>();
+                maximum_revision = std::max(maximum_revision, maximum);
+                if (received_revision >= 0 &&
+                    d.value("previousRevision", int64_t(-1)) == received_revision)
+                  received_revision = std::max(received_revision, maximum);
+              }
+              tail["receivedRevision"] = received_revision;
               persist_tail();
+              if (received_revision >= 0 && maximum_revision > received_revision)
+                read_history();
             }
           },
           [&](unsigned code) {
@@ -377,9 +404,7 @@ class Cli {
         reconnect_reader = false;
         reconnect();
       } else if (history_ready && !history_pending) {
-        history_pending = true;
-        history_requested = now();
-        reader->send({{"operation", "page"}, {"before", 0}, {"requestId", uuid()}});
+        read_history();
       }
     };
     reconnect();

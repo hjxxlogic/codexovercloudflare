@@ -1,14 +1,13 @@
 import { api } from './api.ts';
 
 const chunkSize = 64 * 1024;
-export async function downloadFile(
+export async function readFile(
   host: string,
   project: string,
   remotePath: string,
   signal: AbortSignal,
   onProgress?: (offset: number, size: number) => void,
 ) {
-  const name = remotePath.split('/').pop()!;
   const call = (data: object, signal: AbortSignal) =>
     api(`/hosts/${host}/files`, { ...data, projectId: project }, signal);
   const parts: BlobPart[] = [];
@@ -18,6 +17,8 @@ export async function downloadFile(
   );
   const size = first.size as number;
   const version = first.version as string;
+  if (!Number.isSafeInteger(size) || size < 0 || typeof version !== 'string')
+    throw new Error('下载内容发生变化或不完整，请重试。');
   let offset = 0;
   const append = (result: any, requested: number) => {
     const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
@@ -54,9 +55,12 @@ export async function downloadFile(
     onProgress?.(offset, size);
   }
   signal.throwIfAborted();
-  const url = URL.createObjectURL(
-    new Blob(parts, { type: 'application/octet-stream' }),
-  );
+  onProgress?.(offset, size);
+  return new Blob(parts, { type: 'application/octet-stream' });
+}
+
+export function saveFile(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
@@ -64,5 +68,16 @@ export async function downloadFile(
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  onProgress?.(offset, size);
+}
+
+export async function downloadFile(
+  host: string,
+  project: string,
+  remotePath: string,
+  signal: AbortSignal,
+  onProgress?: (offset: number, size: number) => void,
+) {
+  const blob = await readFile(host, project, remotePath, signal, onProgress);
+  signal.throwIfAborted();
+  saveFile(blob, remotePath.split('/').pop()!);
 }

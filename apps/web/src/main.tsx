@@ -36,6 +36,7 @@ import {
   type WorkspaceState,
 } from './workspace-state.ts';
 import { HistoryCache, type HistoryPage } from './history.ts';
+import { HistorySync } from './history-sync.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
@@ -43,6 +44,7 @@ import {
   AuthorizedDevices,
   type DeviceCredential,
 } from './authorized-devices.tsx';
+import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
@@ -250,6 +252,16 @@ function App() {
       }
     >(),
   );
+  const policyRequests = useRef(
+    new Map<
+      string,
+      {
+        resolve: () => void;
+        reject: (error: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >(),
+  );
   const draft = useRef('');
   draft.current = text;
   const online = hosts.find((h) => h.id === host)?.online === true;
@@ -393,10 +405,19 @@ function App() {
         recoverNotifications();
         void refresh();
         setRevision((value) => value + 1);
+        if (
+          historySocket.current?.readyState === WebSocket.OPEN &&
+          socket.current?.readyState === WebSocket.OPEN
+        )
+          void refreshSession.current?.().catch(report);
       }
     };
+    window.addEventListener('online', visible);
     document.addEventListener('visibilitychange', visible);
-    return () => document.removeEventListener('visibilitychange', visible);
+    return () => {
+      document.removeEventListener('visibilitychange', visible);
+      window.removeEventListener('online', visible);
+    };
   }, []);
   const adminSnapshotPending = useRef<Promise<void> | undefined>(undefined);
   const adminSnapshotDirty = useRef(false);
@@ -897,8 +918,15 @@ function App() {
       displayTimer = undefined;
       const pending = [...displayEvents.values()];
       displayEvents.clear();
-      if (disposed || olderView.current || !pending.length) return;
+      if (disposed || !pending.length) return;
       setEvents((v) => {
+        if (olderView.current) {
+          const visible = new Set(v.map((event) => event.seq));
+          return mergeEvents([
+            ...v,
+            ...pending.filter((event) => visible.has(event.seq)),
+          ]);
+        }
         const merged = eventWindow([...v, ...pending]);
         if (v.length && merged[0]?.seq > v[0].seq) setHasOlder(true);
         setOlderCursor(merged[0]?.seq ?? 0);
@@ -911,7 +939,7 @@ function App() {
       seen.set(e.seq, revision);
       if (seen.size > 2000) seen.delete(seen.keys().next().value!);
       after.current = Math.max(after.current, e.seq);
-      if (!olderView.current) {
+      {
         displayEvents.set(e.seq, e);
         if (
           displayEvents.size >= 200 ||
@@ -963,6 +991,15 @@ function App() {
             : current,
         );
       }
+      if (
+        e.type === 'autoApprovalChanged' &&
+        typeof d.autoApproval === 'boolean'
+      )
+        setSelected((current) =>
+          current?.id === selected.id
+            ? { ...current, autoApproval: d.autoApproval }
+            : current,
+        );
       if (e.type === 'approval')
         setApprovals((v) => [
           ...v.filter((a) => a.approvalId !== d.approvalId),
@@ -1061,13 +1098,38 @@ function App() {
             );
         };
         ws.onmessage = (message) => {
-          if (disposed) return;
+          if (disposed || socket.current !== ws) return;
           try {
             const d = JSON.parse(message.data);
             if (d.receiptId)
               ws.send(
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
+            if (
+              typeof d.requestId === 'string' &&
+              d.requestId.startsWith('policy-') &&
+              ['ack', 'error'].includes(d.type)
+            ) {
+              const request = policyRequests.current.get(d.requestId);
+              if (request) {
+                clearTimeout(request.timer);
+                policyRequests.current.delete(d.requestId);
+                if (d.type === 'error')
+                  request.reject(new Error(d.error.message));
+                else if (typeof d.result?.autoApproval === 'boolean') {
+                  setSelected((current) =>
+                    current?.id === selected.id
+                      ? { ...current, autoApproval: d.result.autoApproval }
+                      : current,
+                  );
+                  request.resolve();
+                } else
+                  request.reject(
+                    new Error(t('自动批准设置未确认，请重新连接核对。')),
+                  );
+              }
+              return;
+            }
             const modelRequest = modelRequests.current.get(d.requestId);
             if (modelRequest && (d.type === 'ack' || d.type === 'error')) {
               clearTimeout(modelRequest.timer);
@@ -1181,6 +1243,7 @@ function App() {
           }
         };
         ws.onclose = (e) => {
+          if (socket.current !== ws) return;
           clearTimeout(handshake);
           if (disposed) return;
           for (const request of modelRequests.current.values()) {
@@ -1188,6 +1251,13 @@ function App() {
             request.reject(new Error(t('连接已断开，请重新加载模型。')));
           }
           modelRequests.current.clear();
+          for (const request of policyRequests.current.values()) {
+            clearTimeout(request.timer);
+            request.reject(
+              new Error(t('自动批准设置未确认，请重新连接核对。')),
+            );
+          }
+          policyRequests.current.clear();
           setReady(false);
           setPending(false);
           setStatus('已断开');
@@ -1223,7 +1293,11 @@ function App() {
     let historyTimer: ReturnType<typeof setTimeout>;
     let historyAttempts = 0;
     let cache: HistoryCache | undefined;
-    let checkpoint: number | undefined;
+    const historySync = new HistorySync();
+    let syncRequest: string | undefined;
+    let historyReplyTimer: ReturnType<typeof setTimeout> | undefined;
+    let historyReady = false;
+    let syncTimer: ReturnType<typeof setTimeout> | undefined;
     const requests = new Map<string, number | 'sync'>();
     let pageLoading = false;
     let pageTimer: ReturnType<typeof setTimeout>;
@@ -1372,7 +1446,7 @@ function App() {
           });
           if (disposed) return;
           if (stored) {
-            checkpoint = stored.checkpoint;
+            historySync.restore(stored.checkpoint);
             setEvents((v) => eventWindow([...stored.events, ...v]));
             setOlderCursor(stored.events[0]?.seq ?? 0);
             setHasOlder(stored.events.length > 0);
@@ -1383,20 +1457,40 @@ function App() {
             relayPath('/ws/v1/history/' + selected.id),
         );
         historySocket.current = hs;
-        const sync = () => {
+        const sync = (force = false) => {
+          if (force && syncRequest) {
+            requests.delete(syncRequest);
+            syncRequest = undefined;
+          }
+          if (
+            disposed ||
+            historySocket.current !== hs ||
+            !historyReady ||
+            syncRequest
+          )
+            return;
+          clearTimeout(syncTimer);
+          syncTimer = undefined;
           const requestId = crypto.randomUUID();
           requests.set(requestId, 'sync');
+          syncRequest = requestId;
+          clearTimeout(historyReplyTimer);
+          historyReplyTimer = setTimeout(() => {
+            if (historySocket.current === hs) hs.close();
+          }, 15000);
           hs.send(
             JSON.stringify({
               operation: 'page',
               requestId,
-              ...(checkpoint === undefined ? {} : { after: checkpoint }),
+              ...(historySync.received === undefined
+                ? {}
+                : { after: historySync.received }),
             }),
           );
         };
-        syncHistory = sync;
+        syncHistory = () => sync(true);
         hs.onmessage = (message) => {
-          if (disposed) return;
+          if (disposed || historySocket.current !== hs) return;
           try {
             const d = JSON.parse(message.data);
             if (d.receiptId)
@@ -1404,16 +1498,26 @@ function App() {
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
             if (d.type === 'history-ready') {
-              historyAttempts = 0;
+              historyReady = true;
               sync();
               return;
             }
             if (d.type === 'event') {
               add(d.event);
-              cache?.writeLive(d.event, cacheError);
+              historySync.observe(d.maxRevision, d.previousRevision);
+              cache?.writeLive(d.event, cacheError, historySync.received);
+              if (historySync.missing && !syncRequest && !syncTimer)
+                syncTimer = setTimeout(() => {
+                  syncTimer = undefined;
+                  sync();
+                }, 100);
               return;
             }
             if (d.type === 'error') {
+              if (d.requestId === syncRequest) {
+                syncRequest = undefined;
+                hs.close();
+              }
               if (
                 !d.requestId ||
                 typeof requests.get(d.requestId) === 'number'
@@ -1438,6 +1542,7 @@ function App() {
               return;
             }
             if (d.type !== 'history') return;
+            historyAttempts = 0;
             if (d.text !== undefined) {
               if (contentReads.get(d.seq)?.requestId !== d.requestId) return;
               finishRead(d.seq);
@@ -1461,13 +1566,15 @@ function App() {
             const request = requests.get(d.requestId);
             requests.delete(d.requestId);
             if (request === 'sync') {
-              // Advance only from the replay response, never from interleaved live events.
-              checkpoint = d.direction === 'before' ? d.snapshotSeq : d.cursor;
+              clearTimeout(historyReplyTimer);
+              // Complete the missing range; later live frames cannot rewind either watermark.
+              syncRequest = undefined;
+              historySync.snapshot(d);
               for (const e of d.events) add(e, false);
               void cache
-                ?.write(
+                ?.writeSnapshot(
                   d.events,
-                  checkpoint,
+                  historySync.received,
                   d.direction === 'before' ? 0 : undefined,
                   d.direction === 'before' ? d : undefined,
                 )
@@ -1478,7 +1585,8 @@ function App() {
                   setHasOlder(d.more);
                 }
               }
-              if (d.direction === 'after' && d.more) sync();
+              if ((d.direction === 'after' && d.more) || historySync.missing)
+                sync();
               else confirmHistory?.();
             } else if (typeof request === 'number') {
               showPage(d);
@@ -1491,6 +1599,12 @@ function App() {
           }
         };
         hs.onclose = () => {
+          if (disposed || historySocket.current !== hs) return;
+          clearTimeout(historyReplyTimer);
+          historyReady = false;
+          syncRequest = undefined;
+          clearTimeout(syncTimer);
+          syncTimer = undefined;
           for (const seq of contentReads.keys()) finishRead(seq);
           requests.clear();
           pageGeneration++;
@@ -1506,7 +1620,8 @@ function App() {
         }
       }
     };
-    refreshSession.current = async () => {
+    let sessionSync: Promise<void> | undefined;
+    const confirmSession = async () => {
       try {
         await new Promise<void>((resolve, reject) => {
           let controlConfirmed = selected.state !== 'ready';
@@ -1563,6 +1678,13 @@ function App() {
         confirmHistory = undefined;
       }
     };
+    refreshSession.current = () => {
+      if (!sessionSync)
+        sessionSync = confirmSession().finally(() => {
+          sessionSync = undefined;
+        });
+      return sessionSync;
+    };
     void connectHistory();
     if (selected.state === 'ready') void connect();
     else setStatus('查看已结束会话的历史');
@@ -1575,6 +1697,11 @@ function App() {
         request.reject(new Error(t('连接或会话已切换，请重新加载模型。')));
       }
       modelRequests.current.clear();
+      for (const request of policyRequests.current.values()) {
+        clearTimeout(request.timer);
+        request.reject(new Error(t('自动批准设置未确认，请重新连接核对。')));
+      }
+      policyRequests.current.clear();
       clearTimeout(displayTimer);
       displayEvents.clear();
       controller.abort();
@@ -1583,6 +1710,8 @@ function App() {
         .catch(() => {})
         .finally(() => cache?.close());
       clearTimeout(historyTimer);
+      clearTimeout(historyReplyTimer);
+      clearTimeout(syncTimer);
       clearTimeout(pageTimer);
       historySocket.current?.close();
       historySocket.current = null;
@@ -1627,6 +1756,27 @@ function App() {
     },
     [ready, online, selected?.id, selected?.external],
   );
+  const setAutoApproval = (enabled: boolean): Promise<void> => {
+    const ws = socket.current;
+    if (!ready || !online || ws?.readyState !== WebSocket.OPEN)
+      return Promise.reject(new Error(t('请先连接会话。')));
+    return new Promise((resolve, reject) => {
+      const requestId = 'policy-' + crypto.randomUUID();
+      const timer = setTimeout(() => {
+        policyRequests.current.delete(requestId);
+        reject(new Error(t('自动批准设置未确认，请重新连接核对。')));
+        void refreshSession.current?.().catch(report);
+      }, 15000);
+      policyRequests.current.set(requestId, { resolve, reject, timer });
+      try {
+        ws.send(JSON.stringify({ action: 'autoApproval', requestId, enabled }));
+      } catch (e) {
+        clearTimeout(timer);
+        policyRequests.current.delete(requestId);
+        reject(e);
+      }
+    });
+  };
   const openModels = () => {
     if (selected?.external) {
       setError('外部会话请在原客户端切换模型。');
@@ -3367,21 +3517,15 @@ function App() {
                         )}
                         <AutoApproval
                           key={`${host}:${selected.id}`}
-                          approvals={approvals}
+                          enabled={selected.autoApproval}
                           ready={
                             ready &&
                             online &&
                             (!selected.external ||
-                              !!selected.approvalForwarding)
+                              !!selected.approvalForwarding ||
+                              selected.autoApproval === true)
                           }
-                          pending={pending}
-                          onApprove={(approvalId) =>
-                            send({
-                              action: 'approval',
-                              approvalId,
-                              allow: true,
-                            }) === true
-                          }
+                          onChange={setAutoApproval}
                         />
                         <small
                           className={
@@ -3446,4 +3590,10 @@ function App() {
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  new URLSearchParams(location.hash.slice(1)).get('preview') === 'file' ? (
+    <FilePreview />
+  ) : (
+    <App />
+  ),
+);

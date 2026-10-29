@@ -1263,3 +1263,59 @@ progress {
   font-size: 10px;
   white-space: nowrap;
 }
+
+.file-preview-page {
+  display: block;
+  width: min(100%, 1120px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+.file-preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  background: var(--bg, #17191e);
+  border-bottom: 1px solid var(--border, #3a3d46);
+}
+.file-preview-toolbar h1 {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.file-preview-document,
+.file-preview-text {
+  padding: 24px 0;
+  overflow-wrap: anywhere;
+}
+.file-preview-text {
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+.file-media {
+  display: block;
+  max-width: 100%;
+  margin: 12px 0;
+}
+.file-media img,
+.file-media video,
+.file-media audio {
+  display: block;
+  max-width: 100%;
+  max-height: 65vh;
+  margin-bottom: 8px;
+}
+.file-media video {
+  width: min(100%, 720px);
+}
+@media (max-width: 600px) {
+  .file-preview-page {
+    padding: 0 12px 24px;
+  }
+}

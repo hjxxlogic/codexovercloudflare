@@ -17,6 +17,8 @@ export class HistoryCache {
   private liveBytes = 0;
   private liveTimer?: ReturnType<typeof setTimeout>;
   private liveJob?: Promise<void>;
+  private liveCheckpoint?: number;
+  private checkpointSafe = true;
   private liveError: (error: unknown) => void = () => {};
   private closed = false;
   private draftTimer?: ReturnType<typeof setTimeout>;
@@ -49,7 +51,11 @@ export class HistoryCache {
   private range() {
     return IDBKeyRange.bound([this.scope], [this.scope, []], false, true);
   }
-  writeLive(event: Event, onError: (error: unknown) => void) {
+  writeLive(
+    event: Event,
+    onError: (error: unknown) => void,
+    checkpoint?: number,
+  ) {
     if (this.closed) return;
     const old = this.live.get(event.seq);
     if (old && (old.revision ?? old.seq) >= (event.revision ?? event.seq))
@@ -57,6 +63,7 @@ export class HistoryCache {
     const bytes =
       this.liveBytes - (old ? eventBytes(old) : 0) + eventBytes(event);
     if (bytes > 192 * 1024 || (!old && this.live.size >= 400)) {
+      this.checkpointSafe = false;
       onError(
         new Error(
           'Local cache write budget exhausted; replay remains available',
@@ -65,6 +72,8 @@ export class HistoryCache {
       return;
     }
     this.live.set(event.seq, event);
+    if (checkpoint !== undefined)
+      this.liveCheckpoint = Math.max(this.liveCheckpoint ?? 0, checkpoint);
     this.liveBytes = bytes;
     this.liveError = onError;
     if (!this.liveTimer && !this.liveJob) {
@@ -78,9 +87,14 @@ export class HistoryCache {
     if (this.liveJob) await this.liveJob;
     if (!this.live.size) return;
     const events = [...this.live.values()];
+    const checkpoint = this.liveCheckpoint;
+    this.liveCheckpoint = undefined;
     this.live.clear();
     this.liveBytes = 0;
-    const job = this.write(events).catch((error) => this.liveError(error));
+    const job = this.write(events, checkpoint).catch((error) => {
+      this.checkpointSafe = false;
+      this.liveError(error);
+    });
     this.liveJob = job;
     await job;
     if (this.liveJob === job) this.liveJob = undefined;
@@ -178,7 +192,7 @@ export class HistoryCache {
             store.put({ scope: this.scope, seq: event.seq, event });
         };
       }
-      if (checkpoint !== undefined) {
+      if (checkpoint !== undefined && this.checkpointSafe) {
         const store = tx.objectStore('pages');
         const previous = store.get([this.scope, 'checkpoint']);
         previous.onsuccess = () =>
@@ -194,6 +208,22 @@ export class HistoryCache {
         reject(tx.error || new Error('Local history write aborted'));
       tx.onerror = () => reject(tx.error);
     });
+  }
+  async writeSnapshot(
+    events: Event[],
+    checkpoint: number | undefined,
+    before?: number,
+    page?: HistoryPage,
+  ) {
+    // A snapshot can acknowledge live frames already received in RAM. Commit
+    // those frames first; never persist a cursor past a failed cache write.
+    await this.flushLive();
+    try {
+      await this.write(events, checkpoint, before, page);
+    } catch (error) {
+      this.checkpointSafe = false;
+      throw error;
+    }
   }
   async recent(): Promise<HistoryPage | undefined> {
     const latest = await this.latest();
@@ -327,6 +357,8 @@ export class HistoryCache {
   }
   async clear() {
     this.generation++;
+    this.liveCheckpoint = undefined;
+    this.checkpointSafe = true;
     clearTimeout(this.liveTimer);
     this.liveTimer = undefined;
     this.live.clear();

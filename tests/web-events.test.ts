@@ -14,6 +14,44 @@ const delta = (seq: number, text: string, itemId = 'reply'): Event => ({
 });
 
 describe('web reply assembly', () => {
+  it('replaces an expanded tool with its large completion while retaining the content cursor and summary', () => {
+    const started: Event = {
+      seq: 10,
+      time: 1,
+      type: 'item/started',
+      data: {
+        item: { id: 'tool', type: 'commandExecution', command: 'build' },
+      },
+    };
+    const completed: Event = {
+      seq: 20,
+      revision: 25,
+      contentSeq: 20,
+      time: 2,
+      type: 'item/completed',
+      data: { item: { id: 'tool', type: 'commandExecution', exitCode: 0 } },
+    };
+    const result = visibleEvents([started, completed]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      seq: 10,
+      revision: 25,
+      contentSeq: 20,
+      type: 'item/completed',
+      data: { item: { command: 'build', exitCode: 0 } },
+    });
+    expect(
+      visibleEvents([
+        {
+          seq: 1,
+          time: 1,
+          type: 'item/completed',
+          contentSeq: 1,
+          data: { message: 'legacy large body' },
+        },
+      ]),
+    ).toHaveLength(1);
+  });
   it('restores a scrambled stream by sequence without mutating stored events', () => {
     const fragments = [
       'Hi',

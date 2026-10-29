@@ -165,7 +165,7 @@ export default {
         headers.set('Referrer-Policy', 'no-referrer');
         headers.set(
           'Content-Security-Policy',
-          "default-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         );
         return new Response(response.body, {
           status: response.status,

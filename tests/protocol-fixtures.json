@@ -1,10 +1,30 @@
 [
-  { "input": { "action": "sync" }, "output": { "action": "sync", "after": 0 } },
   {
-    "input": { "action": "sync", "after": 9007199254740991 },
-    "output": { "action": "sync", "after": 9007199254740991 }
+    "input": {
+      "action": "sync"
+    },
+    "output": {
+      "action": "sync",
+      "after": 0
+    }
   },
-  { "input": { "action": "sync", "after": 9007199254740992 }, "error": true },
+  {
+    "input": {
+      "action": "sync",
+      "after": 9007199254740991
+    },
+    "output": {
+      "action": "sync",
+      "after": 9007199254740991
+    }
+  },
+  {
+    "input": {
+      "action": "sync",
+      "after": 9007199254740992
+    },
+    "error": true
+  },
   {
     "input": {
       "action": "prompt",
@@ -12,18 +32,30 @@
       "text": " 你好🙂 \n",
       "ignored": true
     },
-    "output": { "action": "prompt", "requestId": "r1", "text": "你好🙂" }
+    "output": {
+      "action": "prompt",
+      "requestId": "r1",
+      "text": "你好🙂"
+    }
   },
   {
     "input": {
       "action": "prompt",
       "requestId": "r2",
-      "text": "\u3000你好\u00a0"
+      "text": "　你好 "
     },
-    "output": { "action": "prompt", "requestId": "r2", "text": "你好" }
+    "output": {
+      "action": "prompt",
+      "requestId": "r2",
+      "text": "你好"
+    }
   },
   {
-    "input": { "action": "prompt", "requestId": "r", "text": "\u3000" },
+    "input": {
+      "action": "prompt",
+      "requestId": "r",
+      "text": "　"
+    },
     "error": true
   },
   {
@@ -41,10 +73,22 @@
     }
   },
   {
-    "input": { "action": "interrupt", "requestId": "r4" },
-    "output": { "action": "interrupt", "requestId": "r4" }
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4"
+    },
+    "output": {
+      "action": "interrupt",
+      "requestId": "r4"
+    }
   },
-  { "input": { "action": "exec", "requestId": "r5" }, "error": true },
+  {
+    "input": {
+      "action": "exec",
+      "requestId": "r5"
+    },
+    "error": true
+  },
   {
     "input": {
       "action": "models",
@@ -140,6 +184,46 @@
       "requestId": "model2",
       "text": "hello",
       "model": "x\n"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "autoApproval",
+      "requestId": "policy-1",
+      "enabled": true
+    },
+    "output": {
+      "action": "autoApproval",
+      "requestId": "policy-1",
+      "enabled": true
+    }
+  },
+  {
+    "input": {
+      "action": "autoApproval",
+      "requestId": "policy-2",
+      "enabled": false,
+      "extra": "discard"
+    },
+    "output": {
+      "action": "autoApproval",
+      "requestId": "policy-2",
+      "enabled": false
+    }
+  },
+  {
+    "input": {
+      "action": "autoApproval",
+      "requestId": "policy-3",
+      "enabled": "true"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "autoApproval",
+      "requestId": "policy-4"
     },
     "error": true
   }

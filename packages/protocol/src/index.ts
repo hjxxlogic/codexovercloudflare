@@ -77,6 +77,7 @@ export const sessionSchema = z.object({
   queueEnabled: z.boolean().optional(),
   approvalConfigured: z.boolean().optional(),
   approvalForwarding: z.boolean().optional(),
+  autoApproval: z.boolean().optional(),
   externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
   sandbox: z.enum(['read-only', 'workspace-write']).optional(),
@@ -113,6 +114,11 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     cursor: z.string().max(4096).optional(),
   }),
   z.object({ action: z.literal('interrupt'), requestId: idSchema }),
+  z.object({
+    action: z.literal('autoApproval'),
+    requestId: idSchema,
+    enabled: z.boolean(),
+  }),
   z.object({
     action: z.literal('approval'),
     requestId: idSchema,

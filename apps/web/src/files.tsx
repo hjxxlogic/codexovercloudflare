@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { HistoryCache } from './history.ts';
 import { api, ApiError } from './api.ts';
 import { downloadFile } from './download.ts';
+import { FileResource } from './file-links.tsx';
 
 type Entry = { name: string; directory: boolean; size: number };
 const chunkSize = 64 * 1024;
@@ -303,7 +304,14 @@ export function WorkspaceFiles({
             ) : (
               <>
                 <span className="file-name">
-                  {entry.name}
+                  <FileResource
+                    host={host}
+                    project={project}
+                    path={path ? `${path}/${entry.name}` : entry.name}
+                    disabled={busy || entry.size > limit}
+                  >
+                    {entry.name}
+                  </FileResource>
                   <small>
                     {sizeLabel(entry.size)}
                     {entry.size > limit ? t(' · 超过单文件传输上限') : ''}

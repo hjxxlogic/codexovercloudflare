@@ -2,6 +2,7 @@
 #include "network.hpp"
 #include <set>
 namespace coc {
+Json approval_decision(const Json &rpc, bool allow);
 // Connects to the original server. It never starts a turn or changes its policy.
 class ExternalApprovals : public std::enable_shared_from_this<ExternalApprovals> {
   asio::io_context &io_;

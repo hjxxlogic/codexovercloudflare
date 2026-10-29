@@ -1,5 +1,9 @@
 # 本机测试记录
 
+## CW 预览、修订同步与后台自动批准（验证中）
+
+新增文档预览下载、图片 / 音视频展开、丢失工具完成事件后按游标补齐、展开输出修订更新及关闭 CW 后原生 Agent 自动批准的回归。最终结果以对应源码的 GitHub Actions 为准，尚未部署本次功能。
+
 ## 活动 DO / 空闲 D1 分层 · 2026-10-29（CI 通过，已部署）
 
 本地 175 项单元测试通过；20 个并发控制与对象重建的同夹具对比，旧提交 `b7ef5b7` 准备 569 条主机 D1 SQL，新实现为 0，结果完整恢复。该计数不包含生产授权开销，不代表网络时延或生产费用。新增真实空闲归档 / 重启 / 再激活测试、失败恢复与回执取消测试均已写入仓库，最终源码 `fc89396aedee08eea8110376b5e206a9d72155e1` 的 [Actions 40866589978](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978) 已完成，regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功。新增快照竞争及并发门故障回归也在该运行通过。旧 / D1 模式的完整原生 / Chromium 回归、真实空闲归档与重启再激活均成功；下载的 D1 验收制品已核对 SHA256，确认 epoch 1 → 2 → 3、归档发布、重启结果保留和离线确认不复活。分支 publish-release 按预期跳过；随后通过已校验 CI 制品部署，Worker `b7d06f6b-387d-49b3-866f-b84a227c446d` 接收 100% 流量。发布前 D1 快照完整性、发布后健康 / 资源字节及 13 项公开入口隔离检查通过；未重启 Agent 或重发任务，真实 CW 与长期稳定性未验收。[部署证据](assets/d1-active-session-2026-10-29/deployment.json)。[CI 与验收制品证据](assets/d1-active-session-2026-10-29/ci.json)。详见[方案评估](d1-active-session-review.md)。

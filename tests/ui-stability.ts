@@ -5,6 +5,7 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
 import { chromium, expect, type Page } from '@playwright/test';
 import { WebSocketServer, WebSocket } from 'ws';
+import type { Event } from '../packages/protocol/src/index.ts';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
@@ -14,6 +15,7 @@ const session = {
   mode: 'web',
   state: 'ready',
   running: false,
+  autoApproval: false,
   createdAt: Date.now(),
   updatedAt: Date.now(),
   threadId: 'thread',
@@ -51,6 +53,9 @@ const approvalAnswers: {
 let dropApprovalAck = false;
 let stallHistory = false;
 let historyConnections = 0;
+let toolRevision = 90,
+  toolReads = 0,
+  historyPages = 0;
 let controlSyncCalls = 0;
 const submitted = new Set<string>();
 const promptCommands: { requestId: string; text: string; model?: string }[] =
@@ -85,7 +90,7 @@ const adminPending = [
     expires: Date.now() + 300000,
   },
 ];
-const events = [
+const events: Event[] = [
   { seq: 1, type: 'user', data: { text: '示例任务' }, time: 1 },
   ...[2, 3, 4].map((seq) => ({
     seq,
@@ -105,7 +110,7 @@ const events = [
     type: 'item/agentMessage/delta',
     data: {
       delta:
-        '任务已完成。\n\n[下载报告](/workspace/example/docs/report.bin:12) · `docs/report.bin` · docs/missing.txt · [项目外文件](/etc/passwd) · [外部网站](https://example.com/)',
+        '任务已完成。\n\n[下载报告](/workspace/example/docs/report.bin:12) · `docs/report.bin` · docs/missing.txt · [项目外文件](/etc/passwd) · [外部网站](https://example.com/) · [文档](docs/report.md) · [文本](docs/plain.txt) · [图片](docs/pixel.png) · [声音](docs/tone.wav) · [视频](docs/clip.webm)',
     },
     time: 5,
   },
@@ -259,6 +264,31 @@ const server = createServer((req, res) => {
 });
 const sockets = new Set<WebSocket>();
 const controls = new Set<WebSocket>();
+const histories = new Set<WebSocket>();
+const automaticAttempts = new Set<string>();
+const applyAutomatic = () => {
+  if (!session.autoApproval) return;
+  for (const approval of approvals) {
+    if (
+      approval.submitted ||
+      approval.unsupported ||
+      ![
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+      ].includes(approval.method) ||
+      automaticAttempts.has(approval.approvalId)
+    )
+      continue;
+    automaticAttempts.add(approval.approvalId);
+    approvalAnswers.push({
+      approvalId: approval.approvalId,
+      requestId: 'agent-auto-' + approval.approvalId,
+      allow: true,
+      sessionId: session.id,
+    });
+  }
+};
 const wss = new WebSocketServer({ server });
 const controlSessions = new WeakMap<WebSocket, typeof session>();
 const sync = (ws: WebSocket) =>
@@ -287,20 +317,41 @@ wss.on('connection', (ws, request) => {
   ws.on('close', () => {
     sockets.delete(ws);
     controls.delete(ws);
+    histories.delete(ws);
   });
   controlSessions.set(
     ws,
     request.url?.includes(otherSession.id) ? otherSession : session,
   );
   const history = request.url?.includes('/history/');
-  if (history) historyConnections++;
+  if (history) {
+    historyConnections++;
+    histories.add(ws);
+  }
   if (history) ws.send(JSON.stringify({ type: 'history-ready' }));
   else controls.add(ws);
   ws.on('message', (raw) => {
     const data = JSON.parse(String(raw));
     if (data.type === 'receipt') return;
     if (history && stallHistory) return;
+    if (history && data.operation === 'page') historyPages++;
     if (history && data.operation === 'content') {
+      if (data.seq === 90) {
+        toolReads++;
+        ws.send(
+          JSON.stringify({
+            type: 'history',
+            requestId: data.requestId,
+            seq: 90,
+            revision: toolRevision,
+            offset: 0,
+            text: 'tool output ' + toolRevision,
+            nextOffset: 14,
+            more: false,
+          }),
+        );
+        return;
+      }
       contentCalls++;
       const text =
         data.offset === 0
@@ -367,8 +418,8 @@ wss.on('connection', (ws, request) => {
           requestId: data.requestId,
           events,
           more: false,
-          cursor: 1,
-          snapshotSeq: 5,
+          cursor: Math.max(...events.map((e) => e.revision ?? e.seq)),
+          snapshotSeq: Math.max(...events.map((e) => e.revision ?? e.seq)),
           direction: data.after === undefined ? 'before' : 'after',
         }),
       );
@@ -377,6 +428,23 @@ wss.on('connection', (ws, request) => {
     else if (data.action === 'sync') {
       controlSyncCalls++;
       sync(ws);
+    } else if (data.action === 'autoApproval') {
+      const selected = controlSessions.get(ws)!;
+      selected.autoApproval = data.enabled;
+      applyAutomatic();
+      if (dropApprovalAck) {
+        dropApprovalAck = false;
+        ws.close();
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: 'ack',
+            requestId: data.requestId,
+            result: { autoApproval: data.enabled },
+          }),
+        );
+        sync(ws);
+      }
     } else if (data.action === 'models') {
       ws.send(
         JSON.stringify(
@@ -715,7 +783,8 @@ try {
     offset: number;
     version?: string;
   }[] = [];
-  await page.route('**/api/v1/hosts/sample/files', async (route) => {
+  const previewFiles = new Map<string, Buffer>();
+  await page.context().route('**/api/v1/hosts/sample/files', async (route) => {
     const data = route.request().postDataJSON();
     if (data.operation !== 'read') return route.continue();
     fileReads.push(data);
@@ -725,21 +794,25 @@ try {
         status: 404,
         json: { error: { code: 'NOT_FOUND', message: 'File not found' } },
       });
-    const chunk = downloadBytes.subarray(data.offset, data.offset + 65536);
+    const bytes = previewFiles.get(data.path) || downloadBytes;
+    const chunk = bytes.subarray(data.offset, data.offset + 65536);
     await route.fulfill({
       headers: { 'X-CoC-Demand': '1' },
       json: {
         data: chunk.toString('base64'),
-        size: downloadBytes.length,
+        size: bytes.length,
         offset: data.offset + chunk.length,
         version: 'report-v1',
       },
     });
   });
+  const missingWindow = page.context().waitForEvent('page');
   await page
-    .getByRole('link', { name: '下载 docs/missing.txt', exact: true })
+    .getByRole('link', { name: '预览 docs/missing.txt', exact: true })
     .click();
-  await expect(page.getByText(/下载失败：NOT_FOUND/)).toBeVisible();
+  const missingPreview = await missingWindow;
+  await expect(missingPreview.getByRole('alert')).toContainText('NOT_FOUND');
+  await missingPreview.close();
   for (const viewport of [
     { width: 1280, height: 900 },
     { width: 390, height: 844 },
@@ -761,6 +834,136 @@ try {
     await page.screenshot({
       path: join(artifacts, `chat-download-${viewport.width}.png`),
     });
+  }
+  const markdown =
+    '# Rendered report\n\n| Result | Value |\n| --- | --- |\n| Status | OK |\n\n```js\nconst safe = true;\n```\n\n<script>window.previewUnsafe = true</script>\n[bad](javascript:alert(1))';
+  const plain =
+    '<script>window.previewUnsafe = true</script>\n正文 <img src=x onerror=alert(1)>';
+  previewFiles.set('docs/report.md', Buffer.from(markdown));
+  previewFiles.set('docs/plain.txt', Buffer.from(plain));
+  for (const [path, content] of [
+    ['docs/report.md', markdown],
+    ['docs/plain.txt', plain],
+  ]) {
+    const opened = page.context().waitForEvent('page');
+    await page.getByRole('link', { name: '预览 ' + path, exact: true }).click();
+    const preview = await opened;
+    await expect(
+      preview.getByRole('button', { name: '下载', exact: true }),
+    ).toBeEnabled();
+    assert.equal(await preview.evaluate(() => window.opener), null);
+    if (path.endsWith('.md')) {
+      await expect(
+        preview.getByRole('heading', { name: 'Rendered report' }),
+      ).toBeVisible();
+      await expect(preview.locator('table')).toHaveCount(1);
+      await expect(preview.locator('pre code')).toContainText(
+        'const safe = true;',
+      );
+      await expect(preview.locator('a[href^="javascript:"]')).toHaveCount(0);
+    } else {
+      await expect(preview.locator('pre')).toHaveText(content);
+      await expect(preview.locator('img')).toHaveCount(0);
+    }
+    assert.equal(
+      await preview.evaluate(() => (window as any).previewUnsafe),
+      undefined,
+    );
+    const saved = preview.waitForEvent('download');
+    await preview.getByRole('button', { name: '下载', exact: true }).click();
+    assert.equal(readFileSync((await (await saved).path())!, 'utf8'), content);
+    await preview.screenshot({
+      path: join(
+        artifacts,
+        path.endsWith('.md')
+          ? 'file-markdown-preview.png'
+          : 'file-text-preview.png',
+      ),
+      fullPage: true,
+    });
+    await preview.close();
+  }
+  previewFiles.set(
+    'docs/pixel.png',
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aEFcAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  );
+  const wav = Buffer.alloc(44 + 8000, 128);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24);
+  wav.writeUInt32LE(8000, 28);
+  wav.writeUInt16LE(1, 32);
+  wav.writeUInt16LE(8, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(8000, 40);
+  previewFiles.set('docs/tone.wav', wav);
+  const video = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 32;
+    const stream = canvas.captureStream(10);
+    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const blobs: Blob[] = [];
+    recorder.ondataavailable = (event) => blobs.push(event.data);
+    const stopped = new Promise<void>((done) => {
+      recorder.onstop = () => done();
+    });
+    recorder.start();
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = 'blue';
+    context.fillRect(0, 0, 32, 32);
+    let frame = 0;
+    const animate = setInterval(() => {
+      context.fillStyle = frame++ % 2 ? 'red' : 'blue';
+      context.fillRect(0, 0, 32, 32);
+    }, 50);
+    await new Promise((done) => setTimeout(done, 1000));
+    clearInterval(animate);
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track) => track.stop());
+    return [...new Uint8Array(await new Blob(blobs).arrayBuffer())];
+  });
+  previewFiles.set('docs/clip.webm', Buffer.from(video));
+  for (const [path, tag] of [
+    ['docs/pixel.png', 'img'],
+    ['docs/tone.wav', 'audio'],
+    ['docs/clip.webm', 'video'],
+  ]) {
+    await page.getByRole('link', { name: '展开 ' + path, exact: true }).click();
+    const media = page.getByLabel('预览 ' + path, { exact: true }).locator(tag);
+    await expect(media).toBeVisible();
+    if (tag === 'img')
+      await expect
+        .poll(() =>
+          media.evaluate((el) => (el as HTMLImageElement).naturalWidth),
+        )
+        .toBeGreaterThan(0);
+    else {
+      await expect(media).toHaveAttribute('controls', '');
+      await media.evaluate((el) => (el as HTMLMediaElement).play());
+      await expect
+        .poll(() =>
+          media.evaluate((el) => (el as HTMLMediaElement).currentTime),
+        )
+        .toBeGreaterThan(0);
+    }
+    const reads = fileReads.length;
+    await page.getByRole('link', { name: '收起 ' + path, exact: true }).click();
+    await expect(media).toHaveCount(0);
+    await page.getByRole('link', { name: '展开 ' + path, exact: true }).click();
+    assert.equal(
+      fileReads.length,
+      reads,
+      'expansion reuses the pinned file snapshot',
+    );
+    await page.getByRole('link', { name: '收起 ' + path, exact: true }).click();
   }
   assert(fileReads.every((read) => read.projectId === 'project'));
   assert.equal(
@@ -793,6 +996,95 @@ try {
     'expanded content beyond 128 Ki characters retains its entire prefix',
   );
   assert.equal(contentCalls, 34);
+  const previousMaximum = Math.max(
+    ...events.map((event) => event.revision ?? event.seq),
+  );
+  const changingTool: any = {
+    seq: 90,
+    revision: 90,
+    contentSeq: 90,
+    type: 'item/started',
+    time: 90,
+    data: {
+      item: {
+        id: 'live-tool',
+        type: 'commandExecution',
+        command: 'live-tool-test',
+        status: 'inProgress',
+      },
+    },
+  };
+  (events as any[]).push(changingTool);
+  for (const ws of histories)
+    ws.send(
+      JSON.stringify({
+        type: 'event',
+        event: changingTool,
+        previousRevision: previousMaximum,
+        maxRevision: 90,
+      }),
+    );
+  const toolRow = page.locator('.tool-output[data-event-seq="90"]');
+  await toolRow.locator('xpath=..').locator(':scope > summary').click();
+  await toolRow.locator('summary').click();
+  await expect(toolRow).toContainText('tool output 90');
+  const pagesBeforeGap = historyPages;
+  toolRevision = 91;
+  changingTool.revision = 91;
+  changingTool.type = 'item/completed';
+  changingTool.data.item.exitCode = 0;
+  const following: any = {
+    seq: 92,
+    revision: 92,
+    time: 92,
+    type: 'item/agentMessage/delta',
+    data: { delta: '工具之后的正文' },
+  };
+  (events as any[]).push(following);
+  // Lose the tool completion itself; a newer Agent watermark must recover it.
+  for (const ws of histories)
+    ws.send(
+      JSON.stringify({
+        type: 'event',
+        event: following,
+        previousRevision: 91,
+        maxRevision: 92,
+      }),
+    );
+  await expect(toolRow.locator('summary')).toContainText('退出码 0');
+  await expect(toolRow).toContainText('tool output 91');
+  assert(
+    historyPages > pagesBeforeGap,
+    'a missing revision triggers incremental recovery',
+  );
+  const pagesAfterGap = historyPages;
+  toolRevision = 93;
+  changingTool.revision = 93;
+  for (const ws of histories)
+    ws.send(
+      JSON.stringify({
+        type: 'event',
+        event: changingTool,
+        previousRevision: 92,
+        maxRevision: 93,
+      }),
+    );
+  await expect(toolRow).toContainText('tool output 93');
+  assert.equal(
+    historyPages,
+    pagesAfterGap,
+    'an unbroken live chain needs no redundant history fetch',
+  );
+  assert.equal(
+    toolReads,
+    3,
+    'expanded tool content follows each new revision once',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'live-tool-revision-recovery.png'),
+    fullPage: true,
+  });
+
   await page.getByLabel('任务内容').fill('切换后仍应保留的草稿');
   const callsBeforeModeSwitch = attachCalls;
   await openMenu(page);
@@ -1114,7 +1406,7 @@ try {
   await expect.poll(() => attachCalls).toBeGreaterThan(beforeReconnect);
   await page.locator('.auto-approval summary').click();
   await expect(
-    page.getByText('已自动提交 4 项审批', { exact: true }),
+    page.getByText('Agent 已启用自动批准', { exact: true }),
   ).toBeVisible();
   const approvalDetails = (await page
     .locator('.auto-approval-details')
@@ -1136,9 +1428,15 @@ try {
   });
   await page.locator('.auto-approval summary').click();
   await page.reload();
-  await expect(autoApprove).not.toBeChecked();
+  await expect(autoApprove).toBeChecked();
   await expect(page.getByText('等待你的确认 · 1 / 1')).toBeVisible();
-  assert.equal(approvalAnswers.length, 4, 'reload resets automatic approval');
+  assert.equal(
+    approvalAnswers.length,
+    4,
+    'reload restores the Agent policy without replaying decisions',
+  );
+  await autoApprove.uncheck();
+  await expect(autoApprove).not.toBeChecked();
   approvals = [];
   for (const ws of controls) sync(ws);
   await page.setViewportSize({ width: 390, height: 844 });

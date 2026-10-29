@@ -14,6 +14,7 @@
 #include <iostream>
 #include <map>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <set>
 #include <thread>
 namespace coc {
@@ -28,9 +29,11 @@ struct Runtime {
   std::shared_ptr<ExternalApprovals> external_approvals;
   std::string observer_error;
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
+  int64_t published_revision = 0;
   bool submitted = false, busy = false, interrupt_pending = false;
   size_t priority = 0;
   std::map<std::string, Approval> approvals;
+  std::set<std::string> auto_attempted;
   std::map<std::string, std::string> requests;
   std::deque<Json> commands;
 };
@@ -233,11 +236,19 @@ public:
   }
   void publish(const std::string &id, const Json &event) {
     auto r = runtimes_.find(id);
-    if (r != runtimes_.end())
+    if (r != runtimes_.end()) {
+      const auto previous = r->second->published_revision;
+      const auto maximum = std::max(previous, event.value("revision", event["seq"].get<int64_t>()));
+      r->second->published_revision = maximum;
       send({{"type", "event"},
             {"sessionId", id},
             {"epoch", r->second->epoch},
-            {"payload", {{"type", "event"}, {"event", event}}}});
+            {"payload",
+             {{"type", "event"},
+              {"event", event},
+              {"previousRevision", previous},
+              {"maxRevision", maximum}}}});
+    }
   }
   void flush_events() {
     if (buffered_events_.empty())
@@ -399,7 +410,7 @@ public:
     else if (type == "web") {
       const auto payload = d.at("payload");
       const auto action = payload.value("action", "");
-      if (action == "interrupt" || action == "approval") {
+      if (action == "interrupt" || action == "approval" || action == "autoApproval") {
         if (rt->priority >= 8) {
           notice(id,
                  {{"type", "error"},
@@ -688,6 +699,7 @@ public:
         {"sandbox", config_["sandbox"]},
         {"state", d.at("mode") == "cli" && !d.value("external", false) ? "ready" : "starting"},
         {"running", false},
+        {"autoApproval", false},
         {"createdAt", now()}};
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
@@ -896,6 +908,7 @@ public:
               Json{{"method", approval.at("method")}, {"params", approval.at("params")}}, now(),
               false, approval.value("unsupported", false)};
           emit(id, "approval", approval);
+          auto_approve(id, key);
         },
         [this, id](Json resolved) {
           auto it = runtimes_.find(id);
@@ -918,6 +931,13 @@ public:
                {{"running", s.value("running", false)},
                 {"externalStatus", s.value("externalStatus", "unknown")},
                 {"approvalForwarding", connected}});
+          if (connected) {
+            std::vector<std::string> pending;
+            for (const auto &[key, approval] : it->second->approvals)
+              pending.push_back(key);
+            for (const auto &key : pending)
+              auto_approve(id, key);
+          }
           if (!connected) {
             for (auto &[key, approval] : it->second->approvals)
               emit(id, "approvalResolved",
@@ -1276,7 +1296,8 @@ public:
           "mcpServer/elicitation/request"};
       auto key = id_key(m["id"]);
       bool basic = method == "item/commandExecution/requestApproval" ||
-                   method == "item/fileChange/requestApproval";
+                   method == "item/fileChange/requestApproval" ||
+                   method == "item/permissions/requestApproval";
       if (!supported.count(method) || (s["mode"] == "web" && !basic)) {
         rt->process->send(
             {{"id", m["id"]},
@@ -1293,6 +1314,7 @@ public:
              {{"approvalId", key},
               {"method", method},
               {"params", m.value("params", Json::object())}});
+        auto_approve(id, key);
         return;
       }
     }
@@ -1348,6 +1370,37 @@ public:
                                        {"unsupported", a.unsupported}});
       notice(id, replay);
       done(nullptr, nullptr);
+      return;
+    }
+    if (action == "autoApproval") {
+      if (s["state"] != "ready")
+        throw Error("SESSION_CLOSED", "An active session is required");
+      if (cmd.at("enabled") == true && s.value("external", false) &&
+          (!config_["externalSessions"].value("allowApprovals", false) ||
+           !s.value("approvalForwarding", false)))
+        throw Error("APPROVAL_UNAVAILABLE", "Original approval forwarding is unavailable");
+      const auto key = id + ":" + cmd.at("requestId").get<std::string>();
+      auto cached = store_.begin(key, web_fingerprint(cmd));
+      if (cached["cached"] == true) {
+        notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", cached["value"]}});
+        done(cached["value"], nullptr);
+        return;
+      }
+      store_.submitted(key);
+      s["autoApproval"] = cmd.at("enabled");
+      store_.save(s);
+      Json result = {{"autoApproval", s["autoApproval"]}};
+      store_.finish(key, result);
+      emit(id, "autoApprovalChanged", result);
+      notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
+      done(result, nullptr);
+      if (s["autoApproval"] == true) {
+        std::vector<std::string> pending;
+        for (const auto &[approval, value] : rt->approvals)
+          pending.push_back(approval);
+        for (const auto &approval : pending)
+          auto_approve(id, approval);
+      }
       return;
     }
     if (s.value("external", false)) {
@@ -1461,14 +1514,53 @@ public:
     auto m = it->second.rpc;
     auto method = m.at("method");
     if (method == "item/commandExecution/requestApproval" ||
-        method == "item/fileChange/requestApproval")
-      rt->process->send(
-          {{"id", m["id"]}, {"result", {{"decision", allow ? "accept" : "decline"}}}});
+        method == "item/fileChange/requestApproval" || method == "item/permissions/requestApproval")
+      rt->process->send({{"id", m["id"]}, {"result", approval_decision(m, allow)}});
     else
       rt->process->send(
           {{"id", m["id"]}, {"error", {{"code", -32000}, {"message", "Approval timed out"}}}});
     rt->approvals.erase(it);
     emit(id, "approvalResolved", {{"approvalId", key}, {"allow", allow}});
+  }
+  void auto_approve(const std::string &id, const std::string &key) {
+    auto runtime = runtimes_.find(id);
+    if (runtime == runtimes_.end())
+      return;
+    auto rt = runtime->second;
+    const auto s = store_.get(id);
+    auto approval = rt->approvals.find(key);
+    if (s["state"] != "ready" || s["mode"] != "web" || !s.value("autoApproval", false) ||
+        approval == rt->approvals.end() || approval->second.submitted ||
+        approval->second.unsupported)
+      return;
+    const auto method = approval->second.rpc.value("method", "");
+    if (method != "item/commandExecution/requestApproval" &&
+        method != "item/fileChange/requestApproval" && method != "item/permissions/requestApproval")
+      return;
+    if (s.value("external", false) && !s.value("approvalForwarding", false))
+      return;
+    if (!rt->auto_attempted.insert(key).second)
+      return;
+    try {
+      if (s.value("external", false)) {
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256(reinterpret_cast<const unsigned char *>(key.data()), key.size(), hash);
+        std::string request = "auto-";
+        for (auto byte : hash) {
+          request += "0123456789abcdef"[byte >> 4];
+          request += "0123456789abcdef"[byte & 15];
+        }
+        external_answer(
+            id,
+            {{"action", "approval"}, {"requestId", request}, {"approvalId", key}, {"allow", true}},
+            [](Json, Json) {});
+      } else
+        answer(id, key, true);
+    } catch (const std::exception &error) {
+      emit(id, "warning",
+           {{"message", "Automatic approval unconfirmed; inspect the original request: " +
+                            error_data(error).at("message").get<std::string>()}});
+    }
   }
   void on_exit(const std::string &id) {
     if (!runtimes_.count(id))
@@ -1483,6 +1575,7 @@ public:
     else if (s["state"] != "closed")
       s["state"] = "failed";
     s["running"] = false;
+    s["autoApproval"] = false;
     if (s.value("external", false))
       s["approvalForwarding"] = false;
     store_.save(s);
@@ -1494,6 +1587,7 @@ public:
     auto it = runtimes_.find(id);
     s["state"] = it == runtimes_.end() ? "closed" : "closing";
     s["running"] = false;
+    s["autoApproval"] = false;
     if (s.value("external", false))
       s["approvalForwarding"] = false;
     store_.save(s);
@@ -1617,7 +1711,8 @@ public:
               expired.push_back(key);
           for (auto &key : expired)
             answer(id, key, false);
-          if (r->detached && now() - r->detached > 1800000)
+          if (r->detached && now() - r->detached > 1800000 &&
+              !store_.get(id).value("autoApproval", false))
             stop(id);
         }
         size_t approvals = 0, commands = 0;

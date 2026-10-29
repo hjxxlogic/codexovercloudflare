@@ -2109,6 +2109,11 @@ try {
   });
   assert.equal(await autoApprove.isChecked(), false);
   await autoApprove.check();
+  await wait(
+    async () =>
+      (await autoApprove.isChecked()) && (await autoApprove.isEnabled()),
+    'Agent policy confirmed',
+  );
   const automaticRequests = [
     sharedApprovals.add('external-history'),
     sharedApprovals.add('external-history', 'item/fileChange/requestApproval'),
@@ -2133,6 +2138,58 @@ try {
   await visitorPage.locator('.auto-approval summary').click();
   pass(
     'CW explicit opt-in automatically answers command, file and turn permission approvals through the original server',
+  );
+  const autoSessionToken = token;
+  token = '';
+  const autoSession = (await api('/sessions?hostId=' + enrolled.hostId)).find(
+    (s: any) => s.external && s.state === 'ready',
+  );
+  token = autoSessionToken;
+  assert.equal(autoSession.autoApproval, true);
+  await visitorPage.goto('about:blank');
+  const unattended = sharedApprovals.add(
+    'external-history',
+    'item/fileChange/requestApproval',
+  );
+  await wait(
+    () => sharedApprovals.decisions.has(unattended),
+    'Agent approves after the CW page is closed',
+  );
+  assert.deepEqual(sharedApprovals.decisions.get(unattended), {
+    decision: 'accept',
+  });
+  await visitorPage.goto(origin);
+  const restoredPolicy = visitorPage.getByRole('checkbox', {
+    name: '自动批准当前会话',
+    exact: true,
+  });
+  await wait(
+    async () => await restoredPolicy.isChecked(),
+    'reopen restores the Agent policy',
+  );
+  await restoredPolicy.uncheck();
+  await wait(
+    async () =>
+      !(await restoredPolicy.isChecked()) && (await restoredPolicy.isEnabled()),
+    'Agent policy disabled',
+  );
+  const manualOnly = sharedApprovals.add(
+    'external-history',
+    'item/fileChange/requestApproval',
+  );
+  await visitorPage.getByRole('region', { name: '待确认请求' }).waitFor();
+  assert.equal(
+    sharedApprovals.decisions.has(manualOnly),
+    false,
+    'disabled Agent policy leaves new approvals pending',
+  );
+  await visitorPage.getByRole('button', { name: '拒绝', exact: true }).click();
+  await wait(
+    () => sharedApprovals.decisions.has(manualOnly),
+    'manual approval remains available after disabling',
+  );
+  pass(
+    'Agent session policy persists across page closure, continues approvals and restores on reopen; disabling leaves new requests manual',
   );
   if (await visitorPage.locator('.notice').isVisible())
     await visitorPage

@@ -470,6 +470,10 @@ Json web_command(Json v) {
         throw Error("INVALID_REQUEST", "Invalid model cursor");
       out["cursor"] = v["cursor"];
     }
+  } else if (a == "autoApproval") {
+    if (!v.contains("enabled") || !v["enabled"].is_boolean())
+      throw Error("INVALID_REQUEST", "Invalid automatic approval setting");
+    out["enabled"] = v["enabled"];
   } else if (a == "approval") {
     auto s = v.at("approvalId").get<std::string>();
     if (s.empty() || s.size() > 200 || !v.at("allow").is_boolean())
@@ -492,6 +496,8 @@ std::string web_fingerprint(const Json &c) {
     out += ",\"cursor\":" + c.at("cursor").dump();
   if (c.at("action") == "approval")
     out += ",\"approvalId\":" + c.at("approvalId").dump() + ",\"allow\":" + c.at("allow").dump();
+  if (c.at("action") == "autoApproval")
+    out += ",\"enabled\":" + c.at("enabled").dump();
   return out + "}";
 }
 } // namespace coc

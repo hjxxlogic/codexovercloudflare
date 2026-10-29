@@ -7,7 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { downloadFile } from './download.ts';
+import { downloadFile, readFile, saveFile } from './download.ts';
+import { fileType, filePreviewUrl } from './file-types.ts';
 
 export const FileContext = createContext<{
   host: string;
@@ -151,15 +152,6 @@ export function FileLink({
   );
   const context = useContext(FileContext);
   const path = context && href ? projectFilePath(href, context.root) : null;
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-  const transfer = useRef<AbortController | null>(null);
-  useEffect(() => {
-    transfer.current = null;
-    setStatus('');
-    setBusy(false);
-    return () => transfer.current?.abort();
-  }, [context?.host, context?.project, path]);
   if (!context || !path) {
     // Local paths outside the project remain visible without navigating away.
     return href && /^(https?:|mailto:)/i.test(href) ? (
@@ -171,32 +163,100 @@ export function FileLink({
     );
   }
   return (
+    <FileResource host={context.host} project={context.project} path={path}>
+      {label}
+    </FileResource>
+  );
+}
+
+export function FileResource({
+  host,
+  project,
+  path,
+  children,
+  disabled = false,
+}: {
+  host: string;
+  project: string;
+  path: string;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  const type = fileType(path);
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [media, setMedia] = useState<{ url: string; blob: Blob }>();
+  const [expanded, setExpanded] = useState(false);
+  const transfer = useRef<AbortController | null>(null);
+  useEffect(() => {
+    transfer.current = null;
+    setStatus('');
+    setBusy(false);
+    setExpanded(false);
+    setMedia(undefined);
+    return () => {
+      transfer.current?.abort();
+    };
+  }, [host, project, path]);
+  useEffect(
+    () => () => {
+      if (media) URL.revokeObjectURL(media.url);
+    },
+    [media],
+  );
+  const text = type.kind === 'text' || type.kind === 'markdown';
+  const downloadable = type.kind === 'download';
+  const action = text
+    ? '预览 {0}'
+    : downloadable
+      ? '下载 {0}'
+      : expanded
+        ? '收起 {0}'
+        : '展开 {0}';
+  return (
     <>
       <a
-        href={href}
-        title={t('下载 {0}', path)}
-        aria-label={t('下载 {0}', path)}
-        aria-disabled={busy}
+        href={text ? filePreviewUrl(host, project, path) : '#'}
+        target={text ? '_blank' : undefined}
+        rel={text ? 'noopener noreferrer' : undefined}
+        title={t(action, path)}
+        aria-label={t(action, path)}
+        aria-disabled={disabled || busy}
         onClick={(event) => {
+          if (disabled || busy) {
+            event.preventDefault();
+            return;
+          }
+          if (text) return;
           event.preventDefault();
+          if (!downloadable && media) {
+            setExpanded((v) => !v);
+            return;
+          }
           if (transfer.current) return;
           const controller = new AbortController();
           transfer.current = controller;
           setBusy(true);
-          setStatus('正在下载…');
-          void downloadFile(
-            context.host,
-            context.project,
-            path,
-            controller.signal,
-          )
+          setStatus(downloadable ? '正在下载…' : '正在读取…');
+          const work = downloadable
+            ? downloadFile(host, project, path, controller.signal)
+            : readFile(host, project, path, controller.signal).then((blob) => {
+                controller.signal.throwIfAborted();
+                setMedia({
+                  url: URL.createObjectURL(blob.slice(0, blob.size, type.mime)),
+                  blob,
+                });
+                setExpanded(true);
+              });
+          void work
             .then(() => {
-              if (!controller.signal.aborted) setStatus('已交给浏览器下载');
+              if (!controller.signal.aborted)
+                setStatus(downloadable ? '已交给浏览器下载' : '');
             })
             .catch((error: unknown) => {
               if (!controller.signal.aborted)
                 setStatus(
-                  `下载失败：${error instanceof Error ? error.message : String(error)}`,
+                  `读取失败：${error instanceof Error ? error.message : String(error)}`,
                 );
             })
             .finally(() => {
@@ -205,13 +265,45 @@ export function FileLink({
             });
         }}
       >
-        {label}
+        {children}
       </a>
       {status && (
         <small className="file-link-status" role="status">
           {' '}
           {t(status)}
         </small>
+      )}
+      {expanded && media && (
+        <span className="file-media" aria-label={t('预览 {0}', path)}>
+          {type.kind === 'image' ? (
+            <img
+              src={media.url}
+              alt={path}
+              onError={() => setStatus('浏览器无法显示此文件，请下载查看。')}
+            />
+          ) : type.kind === 'audio' ? (
+            <audio
+              src={media.url}
+              controls
+              preload="metadata"
+              onError={() => setStatus('浏览器不支持此媒体格式，请下载查看。')}
+            />
+          ) : (
+            <video
+              src={media.url}
+              controls
+              playsInline
+              preload="metadata"
+              onError={() => setStatus('浏览器不支持此媒体格式，请下载查看。')}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => saveFile(media.blob, path.split('/').pop()!)}
+          >
+            {t('下载')}
+          </button>
+        </span>
       )}
     </>
   );

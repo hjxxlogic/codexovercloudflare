@@ -1,5 +1,26 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  文件预览: 'File preview',
+  无法预览此文件: 'This file cannot be previewed',
+  图片: 'Image',
+  '预览 {0}': 'Preview {0}',
+  '展开 {0}': 'Expand {0}',
+  '收起 {0}': 'Collapse {0}',
+  '读取失败：{0}': 'Read failed: {0}',
+  '浏览器无法显示此文件，请下载查看。':
+    'Your browser cannot display this file. Download it to view.',
+  '浏览器不支持此媒体格式，请下载查看。':
+    'Your browser does not support this media format. Download it to play.',
+  '由 Agent 执行，关闭网页后继续生效；仅当前会话，停止会话后关闭。包含命令、文件修改和本轮额外权限。':
+    'Runs on the Agent, including after this page closes. Applies only to this session and ends when it stops. Includes commands, file changes and extra permissions for the current turn.',
+  '请升级 Agent 以使用会话自动批准。':
+    'Upgrade the Agent to use session automatic approval.',
+  '正在保存…': 'Saving\u2026',
+  'Agent 已启用自动批准': 'Automatic approval is enabled on the Agent',
+  自动批准已关闭: 'Automatic approval is off',
+  '自动批准设置未确认，请重新连接核对。':
+    'Automatic approval setting unconfirmed. Reconnect to verify.',
+
   '当前邮箱：': 'Signed in email: ',
   '已验证邮箱：': 'Verified email: ',
   '已授权服务器随邮箱保存，换浏览器登录后自动恢复。':

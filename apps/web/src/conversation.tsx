@@ -2,6 +2,8 @@ import { t, useLanguage } from './i18n.ts';
 import {
   memo,
   useState,
+  useEffect,
+  useRef,
   useContext,
   Children,
   isValidElement,
@@ -102,6 +104,31 @@ const EventView = memo(
       event.type === 'user' || event.type === 'item/agentMessage/delta';
     const chunk =
       cached?.revision === (event.revision ?? 0) ? cached : undefined;
+    const requested = useRef('');
+    useEffect(() => {
+      if (!expanded) {
+        requested.current = '';
+        return;
+      }
+      if (chat || event.contentSeq === undefined || chunk || reading) return;
+      const identity = `${event.contentSeq}:${event.revision ?? 0}`;
+      if (requested.current === identity) return;
+      // Coalesce rapidly changing tool revisions. Only expanded content is read;
+      // a stale response cannot satisfy a newer revision or cause an idle poll.
+      const timer = setTimeout(() => {
+        requested.current = identity;
+        onRead(event.contentSeq!, 0, event.revision ?? 0);
+      }, 150);
+      return () => clearTimeout(timer);
+    }, [
+      expanded,
+      chat,
+      event.contentSeq,
+      event.revision,
+      chunk,
+      reading,
+      onRead,
+    ]);
     const content =
       !chat && !expanded
         ? undefined
@@ -137,11 +164,10 @@ const EventView = memo(
                   a: ({ children, href }) => (
                     <FileLink href={href}>{children}</FileLink>
                   ),
-                  img: ({ alt }) => (
-                    <span>
-                      {t('[图片：')}
-                      {alt}]
-                    </span>
+                  img: ({ alt, src }) => (
+                    <FileLink href={typeof src === 'string' ? src : undefined}>
+                      {alt || t('图片')}
+                    </FileLink>
                   ),
                 }}
               >
@@ -197,6 +223,7 @@ const EventView = memo(
     ) : (
       <details
         className="tool-output"
+        data-event-seq={event.seq}
         key={event.seq}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
       >
@@ -227,9 +254,9 @@ export const ConversationView = memo(function ConversationView({
     <EventView
       key={event.seq}
       event={event}
-      cached={chunks[event.seq]}
+      cached={chunks[event.contentSeq ?? event.seq]}
       onRead={onRead}
-      reading={reading[event.seq]}
+      reading={reading[event.contentSeq ?? event.seq]}
     />
   );
   return groupToolEvents(

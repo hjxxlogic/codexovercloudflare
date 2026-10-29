@@ -138,6 +138,35 @@ void core() {
             !newer_release("0.5.1", "0.5.2") && !newer_release("0.5.2", "0.5.2"),
         "Only numerically newer stable releases install");
   rejects([] { newer_release("1.2.3/../../bad", "0.5.2"); }, "UPDATE_FAILED");
+  const auto permissions_rpc =
+      Json{{"method", "item/permissions/requestApproval"},
+           {"params",
+            {{"permissions",
+              {{"network", {{"enabled", true}}}, {"fileSystem", nullptr}, {"unexpected", true}}}}}};
+  check(approval_decision(permissions_rpc, true) ==
+            Json({{"permissions", {{"network", {{"enabled", true}}}}}, {"scope", "turn"}}),
+        "Automatic permissions remain turn-scoped and include only requested fields");
+  check(approval_decision(permissions_rpc, false) ==
+            Json({{"permissions", Json::object()}, {"scope", "turn"}}),
+        "Deny grants no additional permissions");
+  rejects(
+      [] {
+        approval_decision({{"method", "item/tool/requestUserInput"}, {"params", Json::object()}},
+                          true);
+      },
+      "UNSUPPORTED_APPROVAL");
+  rejects(
+      [] {
+        approval_decision({{"method", "item/commandExecution/requestApproval"},
+                           {"params", {{"availableDecisions", Json::array({"acceptForSession"})}}}},
+                          true);
+      },
+      "UNSUPPORTED_APPROVAL");
+  check(web_fingerprint(web_command(
+            {{"action", "autoApproval"}, {"requestId", "policy"}, {"enabled", true}})) !=
+            web_fingerprint(web_command(
+                {{"action", "autoApproval"}, {"requestId", "policy"}, {"enabled", false}})),
+        "Policy deduplication distinguishes enabling from disabling");
   for (auto &fixture :
        read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/protocol-fixtures.json")) {
     if (fixture.value("error", false))
@@ -319,6 +348,22 @@ void external_test() {
   auto content = store.content("external", large["seq"], 0, large["revision"]);
   check(content["text"] == std::string(4096, 'x') && content["more"] == true,
         "Rewritten body is readable");
+  const auto tool = store.event("external", "item/completed",
+                                {{"item",
+                                  {{"id", "large-tool"},
+                                   {"type", "commandExecution"},
+                                   {"command", "build"},
+                                   {"exitCode", 0},
+                                   {"aggregatedOutput", std::string(30000, 'x')}}}});
+  check(tool.contains("contentSeq") && tool["data"]["item"]["id"] == "large-tool" &&
+            tool["data"]["item"]["exitCode"] == 0,
+        "Large live tool retains identity and completion metadata");
+  const auto tool_page = store.history("external");
+  bool found_tool = false;
+  for (const auto &entry : tool_page["events"])
+    if (entry["seq"] == tool["seq"])
+      found_tool = entry["data"]["item"]["id"] == "large-tool";
+  check(found_tool, "Large replayed tool uses the same metadata as the live event");
   auto older = store.external_item(
       "external", "older-turn", {{"id", "old"}, {"type", "agentMessage"}, {"text", "older"}}, true);
   check(older["seq"] < 0, "Archived external item precedes live window");

@@ -200,11 +200,14 @@ Json ExternalApprovals::answer(const std::string &key, bool allow) {
     throw Error("RESULT_UNKNOWN",
                 "A decision was already submitted; await original server confirmation");
   const auto &rpc = it->second;
-  if (rpc.at("method") != "item/commandExecution/requestApproval" &&
-      rpc.at("method") != "item/fileChange/requestApproval" &&
-      rpc.at("method") != "item/permissions/requestApproval")
-    throw Error("UNSUPPORTED_APPROVAL", "This interaction must be handled by its original client");
-  if (rpc.at("method") == "item/permissions/requestApproval") {
+  const auto result = approval_decision(rpc, allow);
+  submitted_.insert(key);
+  socket_->send({{"id", rpc.at("id")}, {"result", result}});
+  return {{"state", "approval-submitted"}, {"decisionConfirmed", false}};
+}
+Json approval_decision(const Json &rpc, bool allow) {
+  const auto method = rpc.at("method").get<std::string>();
+  if (method == "item/permissions/requestApproval") {
     Json permissions = Json::object();
     const auto requested = rpc.at("params").at("permissions");
     if (!requested.is_object())
@@ -213,11 +216,11 @@ Json ExternalApprovals::answer(const std::string &key, bool allow) {
       for (const auto &field : {"network", "fileSystem"})
         if (requested.contains(field) && !requested.at(field).is_null())
           permissions[field] = requested.at(field);
-    submitted_.insert(key);
-    socket_->send(
-        {{"id", rpc.at("id")}, {"result", {{"permissions", permissions}, {"scope", "turn"}}}});
-    return {{"state", "approval-submitted"}, {"decisionConfirmed", false}};
+    return {{"permissions", permissions}, {"scope", "turn"}};
   }
+  if (method != "item/commandExecution/requestApproval" &&
+      method != "item/fileChange/requestApproval")
+    throw Error("UNSUPPORTED_APPROVAL", "This interaction must be handled by its original client");
   const auto decisions = rpc.at("params").value("availableDecisions", Json::array());
   std::string decision = allow ? "accept" : "decline";
   if (decisions.is_array() && !decisions.empty() &&
@@ -227,10 +230,9 @@ Json ExternalApprovals::answer(const std::string &key, bool allow) {
     else
       throw Error("UNSUPPORTED_APPROVAL", "Requested one-time decision is not available");
   }
-  submitted_.insert(key);
-  socket_->send({{"id", rpc.at("id")}, {"result", {{"decision", decision}}}});
-  return {{"state", "approval-submitted"}, {"decisionConfirmed", false}};
+  return {{"decision", decision}};
 }
+
 void ExternalApprovals::failed(const std::string &message) {
   if (stopped_)
     return;

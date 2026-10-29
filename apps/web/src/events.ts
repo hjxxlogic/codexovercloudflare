@@ -70,27 +70,36 @@ export function visibleEvents(events: Event[]) {
     seen.add(event.seq);
     if (!visible.has(event.type) && event.contentSeq === undefined) continue;
     const data = event.data as any;
-    if (event.contentSeq !== undefined) {
-      result.push(event);
-      continue;
-    }
     if (['user', 'turn/started', 'turn/completed'].includes(event.type)) {
       fragments.clear();
       tools.clear();
     }
     if (['item/started', 'item/completed'].includes(event.type)) {
       if (
+        event.contentSeq === undefined &&
         !['commandExecution', 'fileChange', 'mcpToolCall'].includes(
           data.item?.type,
         )
       )
         continue;
-      const previous = data.item.id ? tools.get(data.item.id) : undefined;
+      const previous = data.item?.id ? tools.get(data.item.id) : undefined;
       if (previous !== undefined) {
-        result[previous] = { ...event, seq: result[previous].seq };
+        const older = result[previous];
+        result[previous] = {
+          ...event,
+          seq: older.seq,
+          data: {
+            ...data,
+            item: { ...(older.data as any).item, ...data.item },
+          },
+        };
         continue;
       }
-      if (data.item.id) tools.set(data.item.id, result.length);
+      if (data.item?.id) tools.set(data.item.id, result.length);
+    }
+    if (event.contentSeq !== undefined) {
+      result.push(event);
+      continue;
     }
     if (event.type.endsWith('/outputDelta')) {
       const index = data.itemId ? tools.get(data.itemId) : undefined;

@@ -95,6 +95,28 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "autoApproval"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "approval"
           },
           "requestId": {
@@ -377,6 +399,9 @@
         "type": "boolean"
       },
       "approvalForwarding": {
+        "type": "boolean"
+      },
+      "autoApproval": {
         "type": "boolean"
       },
       "externalStatus": {

@@ -1,47 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { t } from './i18n.ts';
 
-const supported = new Set([
-  'item/commandExecution/requestApproval',
-  'item/fileChange/requestApproval',
-  'item/permissions/requestApproval',
-]);
-
 export function AutoApproval({
-  approvals,
+  enabled,
   ready,
-  pending,
-  onApprove,
+  onChange,
 }: {
-  approvals: {
-    approvalId: string;
-    method: string;
-    submitted?: boolean;
-    unsupported?: boolean;
-  }[];
+  enabled?: boolean;
   ready: boolean;
-  pending: boolean;
-  onApprove: (id: string) => boolean;
+  onChange: (enabled: boolean) => Promise<void>;
 }) {
-  const [enabled, setEnabled] = useState(false);
-  const [submitted, setSubmitted] = useState(0);
-  const attempted = useRef(new Set<string>());
-  useEffect(() => {
-    if (!enabled || !ready || pending) return;
-    const next = approvals.find(
-      (approval) =>
-        !approval.submitted &&
-        !approval.unsupported &&
-        supported.has(approval.method) &&
-        !attempted.current.has(approval.approvalId),
-    );
-    if (!next) return;
-    // Keep attempts through reconnects and toggles: a lost acknowledgement is not a new approval.
-    attempted.current.add(next.approvalId);
-    if (onApprove(next.approvalId)) setSubmitted((value) => value + 1);
-    else attempted.current.delete(next.approvalId);
-  }, [enabled, ready, pending, approvals, onApprove]);
-
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
   return (
     <section
       className={`auto-approval${enabled ? ' is-enabled' : ''}`}
@@ -50,9 +20,17 @@ export function AutoApproval({
       <label>
         <input
           type="checkbox"
-          checked={enabled}
-          disabled={!ready && !enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
+          checked={enabled === true}
+          disabled={!ready || pending || enabled === undefined}
+          onChange={(event) => {
+            setPending(true);
+            setError('');
+            void onChange(event.target.checked)
+              .catch((e) =>
+                setError(e instanceof Error ? e.message : String(e)),
+              )
+              .finally(() => setPending(false));
+          }}
         />
         {t('自动批准当前会话')}
       </label>
@@ -60,15 +38,22 @@ export function AutoApproval({
         <summary>{t('含额外权限')}</summary>
         <div className="auto-approval-details">
           <small>
-            {t('包含命令、文件修改和本轮额外权限；切换会话或刷新后关闭。')}
+            {t(
+              '由 Agent 执行，关闭网页后继续生效；仅当前会话，停止会话后关闭。包含命令、文件修改和本轮额外权限。',
+            )}
           </small>
-          {enabled && (
+          {enabled === undefined ? (
+            <small>{t('请升级 Agent 以使用会话自动批准。')}</small>
+          ) : (
             <span role="status">
-              {ready
-                ? t('已自动提交 {0} 项审批', submitted)
-                : t('自动批准已暂停，等待连接恢复')}
+              {pending
+                ? t('正在保存…')
+                : enabled
+                  ? t('Agent 已启用自动批准')
+                  : t('自动批准已关闭')}
             </span>
           )}
+          {error && <small role="alert">{t(error)}</small>}
         </div>
       </details>
     </section>

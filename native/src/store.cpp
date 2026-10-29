@@ -475,12 +475,21 @@ Json Store::project(const std::string &id, Json e) {
     if (!key.empty())
       run("INSERT OR REPLACE INTO streams VALUES(?,?,?)", {id, key, e["seq"]});
   }
-  auto rows = query("SELECT seq,CASE WHEN length(CAST(value AS BLOB))>16384 THEN "
-                    "json_object('type',json_extract(value,'$.type'),'time',json_extract(value,'$."
-                    "time'),'revision',revision,'contentSeq',seq,"
-                    "'data',json_object('message','Large content; expand to read')) ELSE value END "
-                    "AS value FROM history WHERE seq=?",
-                    {e["seq"]});
+  auto rows = query(
+      "SELECT seq,CASE WHEN length(CAST(value AS BLOB))>16384 THEN "
+      "json_object('type',json_extract(value,'$.type'),'time',json_extract(value,'$."
+      "time'),'revision',revision,'contentSeq',seq,"
+      "'data',json_object('message','Large content; expand to read',"
+      "'turnId',json_extract(value,'$.data.turnId'),'itemId',json_extract(value,'$.data.itemId'),"
+      "'item',CASE WHEN json_type(value,'$.data.item')='object' THEN "
+      "json_object('id',json_extract(value,'$.data.item.id'),'type',json_extract(value,'$.data."
+      "item.type'),"
+      "'status',json_extract(value,'$.data.item.status'),'exitCode',json_extract(value,'$.data."
+      "item.exitCode'),"
+      "'command',substr(json_extract(value,'$.data.item.command'),1,240)) ELSE NULL END)) ELSE "
+      "value END "
+      "AS value FROM history WHERE seq=?",
+      {e["seq"]});
   auto result = Json::parse(rows[0]["value"].get<std::string>());
   result["seq"] = rows[0]["seq"];
   return result;
@@ -501,7 +510,15 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
       "SELECT seq,revision,CASE WHEN length(CAST(value AS BLOB))>16384 THEN "
       "json_object('type',json_extract(value,'$.type'),'time',json_extract(value,'$.time'),'"
       "revision',revision,'contentSeq',seq,"
-      "'data',json_object('message','Large content; expand to read')) ELSE value END AS value "
+      "'data',json_object('message','Large content; expand to read',"
+      "'turnId',json_extract(value,'$.data.turnId'),'itemId',json_extract(value,'$.data.itemId'),"
+      "'item',CASE WHEN json_type(value,'$.data.item')='object' THEN "
+      "json_object('id',json_extract(value,'$.data.item.id'),'type',json_extract(value,'$.data."
+      "item.type'),"
+      "'status',json_extract(value,'$.data.item.status'),'exitCode',json_extract(value,'$.data."
+      "item.exitCode'),"
+      "'command',substr(json_extract(value,'$.data.item.command'),1,240)) ELSE NULL END)) ELSE "
+      "value END AS value "
       "FROM history WHERE session=? AND " +
           order + " LIMIT 201",
       arguments);
