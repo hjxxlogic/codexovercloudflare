@@ -2,6 +2,8 @@
 
 ## Cloudflare Access 与邮箱授权增补（2026-10-28）
 
+- 同一个 Cloudflare Access 应用必须分别关联普通用户 `Allow` 策略及服务令牌 `Service Auth` 策略，不能合并为一条策略。
+
 - 只有 Web 用户需要验证邮箱。A / CC 和相关工具共用项目明文 Service Token，编译默认值来自同一配置；Cloudflare Access 独立负责 Service Token 准入；Worker 不依赖项目 Token 配置或 Client 字段，只使用已验证邮箱关联用户 Key，CoC API Key 继续决定原生角色及目标。A / CC 支持成对环境变量覆盖文件或内置 Client ID / Secret，但不得扩大可信 origin；缺失、空值或非法值必须拒绝。
 - 一个已验证邮箱在数据库中关联全部获批 A。新浏览器完成邮箱登录后恢复授权，不重复配对；未获批邮箱不能访问其他人的 A，原生 Agent Key 不下发给网页。
 - 唯一配置的管理员邮箱自动获得 owner，其他邮箱凭正确管理员密钥进入管理。自动管理、密钥管理、web 会话角色独立；邮箱或配置切换不能复用错误身份的 Cookie。

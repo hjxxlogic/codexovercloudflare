@@ -676,4 +676,4 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 ## 原生 Access 环境覆盖 · 2026-10-29
 
 - 共享原生初始化支持 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` 成对覆盖文件及内置凭据，保留可信 origin 列表且不写回配置。C++ 回归覆盖文件 / 内置覆盖、单字段、空值、换行与 origin 隔离；原生 HTTPS/WSS 测试使用不同的文件值及环境值，确认请求实际采用环境值。
-- 本地 124 项 Vitest、类型检查、lint 和 C++ 格式检查通过；原生构建、CTest 与真实 HTTPS/WSS 验证进行中，生产部署仍须等待对应源码的全部 CI 必需作业。
+- 本地 124 项 Vitest、类型检查、lint、C++ 格式检查与原生构建通过；CTest native-core（39.34 秒）及真实本机 HTTPS/WSS / TUI 桥接环境覆盖验证通过，不调用模型。生产部署仍须等待对应源码的全部 CI 必需作业。

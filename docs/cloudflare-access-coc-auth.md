@@ -71,7 +71,14 @@ HTTP 控制、配对订阅、异步回执、Agent 上行、历史连接及下载
 
 Cloudflare 侧采用 **hostname-based Access** 应用，覆盖网页、API 和 WS。当前 Worker-level Access 不支持 WebSocket；本项目不使用该保护模式。[官方限制](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
 
-在同一应用中配置浏览器 `Allow` 策略（One-time PIN）和允许项目共享 Token 的 `Service Auth` 策略。浏览器后续 API / WS 复用 Access Cookie；机器请求使用 Service Token。两者共用路径，不能把整个 `/api/*`、`/ws/*` 设置为仅浏览器或仅机器可用。这里的“跳过 Access”表示 Service Auth 免交互放行，不是对业务接口配置无条件 Bypass。
+同一个 Access 应用必须关联以下两条独立策略，不能合并：
+
+1. 普通用户策略：Action 为 `Allow`，Include 匹配允许的邮箱、邮箱域或 One-time PIN 登录方式，供浏览器用户使用。
+2. 服务策略：Action 为 `Service Auth`，Include 选择 `Service Token` 并指定项目使用的 Token，供 Agent / CLI / 运维工具使用。
+
+不要把邮箱和 Service Token 条件合并到同一条 `Allow` 策略中，也不要把普通用户放入 `Service Auth` 策略。在 `Allow` 中选择 Service Token 不能替代第二条策略；请确认两条策略都已关联到当前业务域名对应的应用。
+
+浏览器后续 API / WS 复用 Access Cookie；机器请求使用 Service Token。两者共用路径，不能把整个 `/api/*`、`/ws/*` 设置为仅浏览器或仅机器可用。这里的“跳过 Access”表示 Service Auth 免交互放行，不是对业务接口配置无条件 Bypass。
 
 浏览器 Allow 可以限制指定邮箱 / 邮箱域，也可明确选择 `Include → Login Methods → One-time PIN` 允许所有验证邮箱进入申请页面。验证邮箱本身不会授予任意 A 权限。管理员邮箱也必须通过这层策略。[Access 策略](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
 
