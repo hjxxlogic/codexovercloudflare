@@ -1,0 +1,41 @@
+{
+  "commit": "e717628dde82eb0466ae202e0163f30727819d73",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178",
+  "jobs": [
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224843301"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224843657"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224843681"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224843699"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224843721"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123224844035"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178/job/123228346632"
+    }
+  ]
+}

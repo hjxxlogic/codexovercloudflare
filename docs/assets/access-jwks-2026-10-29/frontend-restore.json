@@ -1,0 +1,36 @@
+{
+  "commit": "e717628dde82eb0466ae202e0163f30727819d73",
+  "run": 40805956178,
+  "artifact": {
+    "name": "verified-web",
+    "id": 12868273631,
+    "digest": "sha256:693b224c59a8003ced59f1905ee4a596a531f4fd8cbb440123885a02b51063b6"
+  },
+  "preservedDownloads": {
+    "version": "0.5.14",
+    "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+    "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.14-linux-x86_64-musl.tar.gz",
+      "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.14-windows-x64.zip",
+      "codex-over-cloudflare-0.5.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "nativeChecksums": {
+    "coc-0.5.14-linux-x86_64-debian12.tar.gz": "6dc619226567dade5ab390c2649f473fb3483ff78122d82f3dc9c9b1d5f32d0b",
+    "coc-0.5.14-linux-x86_64-musl.tar.gz": "eae1312645a0f779bf2cc396c60f3f18529449b6c2dc1cc9d6e7603ca9fdb22b",
+    "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz": "6a4bb8d76778d176ba6fcb5c7d5e1ccdc9f48af131c40ae4cf2128c7fafe7cd1",
+    "coc-0.5.14-windows-x64.zip": "1f91e68678be4a91627f2e95067aeb6e17ff835511eeed7c9980f068cfd26d3f",
+    "codex-over-cloudflare-0.5.14-source.tar.gz": "5646079fbc959cadeb481dc1e3bf64fff9d5aca04a9a006255f20c6bc5469cae"
+  },
+  "previousLocalScript": "index-szkHxAEH.js",
+  "previousLocalSupportsEmailAdmin": false,
+  "restoredScript": "index-B2RpgwK1.js",
+  "restoredSupportsEmailAdmin": true,
+  "status": "Local dist/web restored; user production validation pending"
+}
