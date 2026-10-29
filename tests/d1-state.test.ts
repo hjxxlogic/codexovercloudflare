@@ -204,6 +204,33 @@ function runtime() {
 }
 
 describe('D1 relay lifecycle', () => {
+  it('catches archive failure inside the concurrency gate and retains a retry alarm without resetting the object', async () => {
+    const h = runtime();
+    const reset = vi.fn();
+    h.ctx.blockConcurrencyWhile = async (callback) => {
+      try {
+        return await callback();
+      } catch (error) {
+        reset();
+        throw error;
+      }
+    };
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await relay.prepare('host-a');
+    await relay.cleanup();
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + HOST_IDLE_MS + 1);
+    await relay.alarm();
+    h.db.failBatch = () => true;
+    await relay.alarm();
+    expect(reset).not.toHaveBeenCalled();
+    expect(h.deleteAll).not.toHaveBeenCalled();
+    expect(h.legacy.alarm).toBe(Date.now() + 60000);
+    expect(await relay.storage.get('presence')).toBeDefined();
+  });
   it('runs concurrent online controls and restores hibernated state with zero Host D1 queries', async () => {
     const h = runtime();
     h.legacy.values.set('agentEpoch', 3);

@@ -1417,19 +1417,19 @@ export class HostRelayDO extends DurableObject<Env> {
   async alarm() {
     await this.prepare(undefined, false);
     if (this.state && this.inactive()) {
-      let result: 'waiting' | 'pending' | 'archived';
-      try {
-        result = await this.ctx.blockConcurrencyWhile(async () => {
+      const result = await this.ctx.blockConcurrencyWhile(async () => {
+        try {
           if (!this.inactive()) return 'waiting';
-          return this.state!.archivePage();
-        });
-      } catch {
-        // A D1 outage must not exhaust platform alarm retries and strand an
-        // idle local snapshot. Keep the source and retry at a bounded rate.
-        await this.ctx.storage.setAlarm(Date.now() + 60_000);
-        console.log(JSON.stringify({ event: 'host_archive_deferred' }));
-        return;
-      }
+          return await this.state!.archivePage();
+        } catch {
+          // Catch INSIDE the gate: an exception escaping its callback resets
+          // the DO even when the returned promise is caught by its caller.
+          await this.ctx.storage.setAlarm(Date.now() + 60_000);
+          console.log(JSON.stringify({ event: 'host_archive_deferred' }));
+          return 'deferred';
+        }
+      });
+      if (result === 'deferred') return;
       if (result === 'archived') {
         this.migrationReady = false;
         return;
