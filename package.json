@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "npm run build:web && wrangler dev --ip 127.0.0.1 --port 8787 --var ACCESS_ENABLED:false",
+    "dev:d1": "npm run build:web && tsx scripts/dev-state.ts",
     "build:web": "tsx scripts/build-web.ts",
     "build": "npm run build:native && npm run build:web && tsc --noEmit && wrangler deploy --dry-run --outdir dist/worker",
     "agent": "./build/coc-agent",
@@ -16,6 +17,8 @@
     "format": "prettier --write apps packages tests scripts examples config README.md docs/USER_GUIDE.md docs/DEVELOPMENT.md docs/TEST_REPORT.md package.json tsconfig.json wrangler.jsonc vitest.config.ts eslint.config.js .prettierrc.json",
     "test": "npm run test:cpp && vitest run",
     "test:e2e": "tsx tests/e2e.ts",
+    "test:e2e:d1": "COC_STATE_BACKEND=d1 tsx tests/e2e.ts",
+    "test:d1:migration": "tsx tests/d1-migration.ts",
     "test:codex": "./build/coc-tests --codex",
     "setup:local": "tsx scripts/setup-local.ts",
     "test:native": "tsx scripts/native-cli-smoke.ts",

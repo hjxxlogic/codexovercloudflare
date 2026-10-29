@@ -122,6 +122,24 @@ def publish_downloads(bundles, identity, site):
     (target / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex Downloads</title><h1>Codex over Cloudflare ' + version + '</h1><p>Linux x86_64 / Windows x64</p><ul>' + links + '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></html>', encoding='utf-8')
     return manifest
 
+
+def configure_state_db(config, worker, database_id):
+    if not database_id:
+        return
+    if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', database_id) or database_id.startswith('00000000-'):
+        raise RuntimeError('An explicit production D1 database UUID is required')
+    migrations = worker / 'state-migrations'
+    if not (migrations / '0001_relay_state.sql').is_file():
+        raise RuntimeError('Verified Worker artifact does not include the D1 schema')
+    config.setdefault('vars', {})['STATE_BACKEND'] = 'd1'
+    config['d1_databases'] = [entry for entry in config.get('d1_databases', []) if entry['binding'] != 'STATE_DB'] + [{
+        'binding': 'STATE_DB', 'database_name': 'coc-relay-state',
+        'database_id': database_id, 'migrations_dir': str(migrations),
+    }]
+    crons = config.setdefault('triggers', {}).setdefault('crons', [])
+    if '17 * * * *' not in crons:
+        crons.append('17 * * * *')
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
@@ -129,6 +147,7 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--state-db-id', help='Enable D1 using this existing database UUID; required again on subsequent D1 deployments')
     parser.add_argument('--delete-secret', action='append', default=[],
                         help='Remove an obsolete Worker secret after publishing the verified code')
     parser.add_argument('--preserved-downloads', type=pathlib.Path,
@@ -172,6 +191,7 @@ def main():
     # The deployment configuration is archived by CI along with the Worker.
     config['main'] = str(output / 'worker/index.js')
     config['assets']['directory'] = str(output / 'site')
+    configure_state_db(config, output / 'worker', args.state_db_id)
     routes = config['routes']
     if len(routes) != 1 or not routes[0].get('custom_domain') or not re.fullmatch(r'[a-zA-Z0-9.-]+', routes[0]['pattern']):
         raise RuntimeError('Expected one explicit custom domain deployment target')
@@ -198,6 +218,8 @@ def main():
     evidence = {'commit': commit, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
+    if args.state_db_id:
+        evidence['stateDatabase'] = args.state_db_id
     if args.preserved_downloads:
         evidence['preservationSource'] = 'previously verified local download snapshot; package SHA256 rechecked'
     evidence_path = output / 'deployment.json'
@@ -205,6 +227,16 @@ def main():
     if not args.apply:
         print('Verified artifacts prepared: ' + str(output))
         return
+    if args.state_db_id:
+        result = subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
+                                 'd1', 'migrations', 'apply', 'STATE_DB', '--remote', '--config', str(config_path)],
+                                cwd=ROOT, input='y\n', text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        (output / 'd1-migrations.log').write_text(result.stdout)
+        print(result.stdout, flush=True)
+        if result.returncode:
+            raise RuntimeError('D1 migration failed; Worker was not published')
+        evidence['stateSchemaApplied'] = True
+        evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     command = ['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'), 'deploy',
                '--config', str(config_path), '--no-bundle', '--keep-vars',
                '--message', 'Actions ' + str(run['id']) + ' commit ' + commit]

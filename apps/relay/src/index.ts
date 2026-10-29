@@ -7,6 +7,8 @@ import {
   adminEmailMatches,
 } from './access.ts';
 import { z } from 'zod';
+import { collectIdleState, d1Receipt } from './host-state.ts';
+import { d1Enabled } from './state.ts';
 import {
   AppError,
   idSchema,
@@ -16,6 +18,8 @@ import {
   body,
   failure,
   hostStub,
+  hostStatus,
+  hostHasConnections,
   json,
   registryCall,
   registry,
@@ -122,6 +126,9 @@ function internal(
   });
 }
 export default {
+  async scheduled(_event: ScheduledController, env: Env) {
+    await collectIdleState(env);
+  },
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
       const u = new URL(req.url);
@@ -331,6 +338,14 @@ export default {
       );
       if (receipt && ['GET', 'POST'].includes(req.method)) {
         const auth = await authenticate(req, env, receipt[1]);
+        const stored = await d1Receipt(
+          env,
+          receipt[1],
+          receipt[2],
+          auth,
+          req.method === 'POST',
+        );
+        if (stored) return stored;
         return hostStub(env, receipt[1]).fetch(
           internal(
             req,
@@ -398,6 +413,30 @@ export default {
       }
       if (p.startsWith('/api/v1/admin/')) {
         const owner = await authenticate(req, env, undefined, true);
+        if (p === '/api/v1/admin/state/migrate' && req.method === 'POST') {
+          if (!d1Enabled(env))
+            throw new AppError(
+              'NOT_CONFIGURED',
+              'Enable D1 state before migration',
+              409,
+            );
+          const d = z
+            .object({ after: idSchema.optional() })
+            .parse(await body(req));
+          const page = await registryCall(env, 'migrationHosts', d);
+          for (const id of page.ids)
+            await hostStub(env, id)
+              .fetch('https://internal/status', { headers: { 'x-host': id } })
+              .then(async (r) => {
+                if (!r.ok)
+                  throw new AppError(
+                    'MIGRATION_FAILED',
+                    'Host migration failed; retry the same page',
+                    503,
+                  );
+              });
+          return json(page);
+        }
         if (p === '/api/v1/admin/releases' && req.method === 'POST') {
           const d = await body(req);
           const manifestResponse = await env.ASSETS.fetch(
@@ -466,16 +505,18 @@ export default {
             await body(req),
           );
           for (const auth of revoked)
-            await hostStub(env, auth.hostId!).fetch(
-              'https://internal/revoke-auth',
-              {
-                method: 'POST',
-                body: JSON.stringify({
-                  hash: auth.hash,
-                  agent: auth.role === 'agent',
-                }),
-              },
-            );
+            if (await hostHasConnections(env, auth.hostId!))
+              await hostStub(env, auth.hostId!).fetch(
+                'https://internal/revoke-auth',
+                {
+                  method: 'POST',
+                  headers: { 'x-host': auth.hostId! },
+                  body: JSON.stringify({
+                    hash: auth.hash,
+                    agent: auth.role === 'agent',
+                  }),
+                },
+              );
           return json({ ok: true });
         }
         const action = p.match(/^\/api\/v1\/admin\/(approve|reject|revoke)$/);
@@ -490,25 +531,29 @@ export default {
               id: d.id,
             });
             for (const auth of result.revoked as Auth[])
-              await hostStub(env, result.hostId).fetch(
+              if (await hostHasConnections(env, result.hostId))
+                await hostStub(env, result.hostId).fetch(
+                  'https://internal/revoke-auth',
+                  {
+                    method: 'POST',
+                    headers: { 'x-host': result.hostId },
+                    body: JSON.stringify({ hash: auth.hash, agent: false }),
+                  },
+                );
+          } else if (action[1] === 'revoke') {
+            const auth: Auth = await registryCall(env, 'credentialRevoke', d);
+            if (await hostHasConnections(env, auth.hostId!))
+              await hostStub(env, auth.hostId!).fetch(
                 'https://internal/revoke-auth',
                 {
                   method: 'POST',
-                  body: JSON.stringify({ hash: auth.hash, agent: false }),
+                  headers: { 'x-host': auth.hostId! },
+                  body: JSON.stringify({
+                    hash: auth.hash,
+                    agent: auth.role === 'agent',
+                  }),
                 },
               );
-          } else if (action[1] === 'revoke') {
-            const auth: Auth = await registryCall(env, 'credentialRevoke', d);
-            await hostStub(env, auth.hostId!).fetch(
-              'https://internal/revoke-auth',
-              {
-                method: 'POST',
-                body: JSON.stringify({
-                  hash: auth.hash,
-                  agent: auth.role === 'agent',
-                }),
-              },
-            );
           } else
             await registryCall(
               env,
@@ -527,9 +572,7 @@ export default {
           return json(
             await Promise.all(
               hosts.map(async (h: any) => {
-                const status = (await (
-                  await hostStub(env, h.id).fetch('https://internal/status')
-                ).json()) as any;
+                const status = await hostStatus(env, h.id);
                 const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
                 return {
                   ...visible,
@@ -568,9 +611,7 @@ export default {
           await Promise.all(
             auths.map(async (a) => {
               const h = (a as Auth & { host: any }).host;
-              const status: any = await (
-                await hostStub(env, h.id).fetch('https://internal/status')
-              ).json();
+              const status: any = await hostStatus(env, h.id);
               const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
               return {
                 ...visible,

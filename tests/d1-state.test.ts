@@ -1,0 +1,444 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  D1State,
+  migrateState,
+  type StateStorage,
+} from '../apps/relay/src/state.ts';
+import { SqliteD1 } from './helpers/d1-state.ts';
+import { MemoryStorage } from './helpers/do-state.ts';
+
+const databases: SqliteD1[] = [];
+function database() {
+  const db = new SqliteD1();
+  databases.push(db);
+  return db;
+}
+afterEach(() => {
+  for (const db of databases.splice(0)) db.sqlite.close();
+});
+
+describe('D1 authoritative state', () => {
+  it('commits finite state with its expiry index even before alarm scheduling', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'host:a');
+    const expires = Date.now() + 300000;
+    await state.put('operation:one', { expires, state: 'pending' });
+    const key = `due:${String(expires).padStart(16, '0')}:operation:one`;
+    expect(await state.get(key)).toEqual({ key: 'operation:one', at: expires });
+    db.failBatch = () => true;
+    await expect(state.put('operation:two', { expires })).rejects.toThrow(
+      'Injected',
+    );
+    db.failBatch = undefined;
+    expect(await state.get('operation:two')).toBeUndefined();
+    expect((await state.list({ prefix: 'due:' })).size).toBe(1);
+  });
+  it('isolates hosts and orders bounded prefix pages with buffered changes', async () => {
+    const db = database();
+    const a = new D1State(db.binding(), 'host:a'),
+      b = new D1State(db.binding(), 'host:b');
+    await a.put({
+      'lease:2': { epoch: 2 },
+      'lease:1': { epoch: 1 },
+      other: true,
+    });
+    await b.put('lease:1', { epoch: 90 });
+    expect(await a.get('lease:1')).toEqual({ epoch: 1 });
+    expect(await b.get('lease:1')).toEqual({ epoch: 90 });
+    expect([
+      ...(await a.list({ prefix: 'lease:', startAfter: 'lease:1', limit: 1 })),
+    ]).toEqual([['lease:2', { epoch: 2 }]]);
+    await a.transaction(async (tx) => {
+      await tx.delete('lease:1');
+      await tx.put('lease:0', { epoch: 3 });
+      expect([...(await tx.list({ prefix: 'lease:', limit: 1 }))]).toEqual([
+        ['lease:0', { epoch: 3 }],
+      ]);
+    });
+    expect(await a.get('lease:1')).toBeUndefined();
+    expect(await b.get('lease:1')).toEqual({ epoch: 90 });
+  });
+  it('retries competing epochs without losing either update or leaking partial writes', async () => {
+    const db = database();
+    const a = new D1State(db.binding(), 'host:a'),
+      b = new D1State(db.binding(), 'host:a');
+    await a.put('epoch', 10);
+    let arrivals = 0,
+      release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const increment = (state: D1State, id: string) =>
+      state.transaction(async (tx) => {
+        const epoch = (await tx.get<number>('epoch'))!;
+        if (++arrivals <= 2) {
+          if (arrivals === 2) release();
+          await barrier;
+        }
+        await tx.put('epoch', epoch + 1);
+        await tx.put(id, epoch + 1);
+        return epoch + 1;
+      });
+    const epochs = await Promise.all([increment(a, 'a'), increment(b, 'b')]);
+    expect(epochs.sort()).toEqual([11, 12]);
+    expect(await a.get('epoch')).toBe(12);
+    expect(new Set([await a.get('a'), await a.get('b')])).toEqual(
+      new Set([11, 12]),
+    );
+  });
+  it('does not commit a rejected callback and fails closed when D1 writes fail', async () => {
+    const db = database(),
+      state = new D1State(db.binding(), 'registry');
+    await state.put('auth:key', { active: true });
+    await expect(
+      state.transaction(async (tx) => {
+        await tx.delete('auth:key');
+        throw new Error('rejected');
+      }),
+    ).rejects.toThrow('rejected');
+    db.failBatch = () => true;
+    await expect(state.delete('auth:key')).rejects.toThrow('Injected');
+    db.failBatch = undefined;
+    expect(await state.get('auth:key')).toEqual({ active: true });
+  });
+  it('resumes failed migration pages without marking incomplete data authoritative', async () => {
+    const db = database(),
+      state = new D1State(db.binding(), 'host:a');
+    const legacy = new MemoryStorage();
+    for (let i = 0; i < 130; i++)
+      legacy.values.set('lease:' + String(i).padStart(3, '0'), {
+        epoch: i + 1,
+      });
+    let batches = 0;
+    db.failBatch = () => ++batches === 2;
+    await expect(
+      migrateState(legacy as unknown as StateStorage, state),
+    ).rejects.toThrow('Injected');
+    expect(await state.get('@migrated')).toBeUndefined();
+    expect(await state.get('@migrationCursor')).toBe('lease:063');
+    expect(legacy.values.size).toBe(130);
+    db.failBatch = undefined;
+    await migrateState(legacy as unknown as StateStorage, state);
+    expect((await state.list({ prefix: 'lease:' })).size).toBe(130);
+    expect(await state.get('@migrated')).toMatchObject({ version: 1 });
+    expect(await state.get('@migrationCursor')).toBeUndefined();
+    await state.put('lease:000', { epoch: 999 });
+    await migrateState(legacy as unknown as StateStorage, state);
+    expect(await state.get('lease:000')).toEqual({ epoch: 999 });
+  });
+});
+
+vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {
+    constructor(
+      public ctx: any,
+      public env: any,
+    ) {}
+  },
+}));
+import { HostRelayDO } from '../apps/relay/src/host.ts';
+import { RegistryCore, RegistryDO } from '../apps/relay/src/registry.ts';
+import { collectIdleState, d1Receipt } from '../apps/relay/src/host-state.ts';
+import {
+  hostStatus,
+  registryCall,
+  type Auth,
+  type Env,
+} from '../apps/relay/src/common.ts';
+
+function runtime() {
+  const db = database(),
+    legacy = new MemoryStorage();
+  const sockets: any[] = [];
+  const deleteAll = vi.fn(async () => {
+    legacy.values.clear();
+    legacy.alarm = null;
+  });
+  const ctx = {
+    storage: Object.assign(legacy, { deleteAll }),
+    getWebSockets: (tag?: string) =>
+      tag ? sockets.filter((ws) => ws.tags?.includes(tag)) : sockets,
+    blockConcurrencyWhile: async <T>(callback: () => Promise<T>) => callback(),
+    waitUntil: () => {},
+  };
+  const env = {
+    STATE_BACKEND: 'd1',
+    STATE_DB: db.binding(),
+    OWNER_SECRET: 'x'.repeat(64),
+  } as unknown as Env;
+  return { db, legacy, sockets, deleteAll, ctx, env };
+}
+
+describe('D1 relay lifecycle', () => {
+  it('allows legacy notification callbacks to authenticate without waiting on their own publisher', async () => {
+    const h = runtime();
+    const registry = new RegistryDO(h.ctx as unknown as DurableObjectState, {
+      ...h.env,
+      STATE_BACKEND: undefined,
+    });
+    const core = vi
+      .spyOn(RegistryCore.prototype, 'fetch')
+      .mockImplementation(async (request) => {
+        if (new URL(request.url).pathname === '/publish')
+          return registry.fetch(new Request('https://internal/authHash'));
+        return Response.json({ authorized: true });
+      });
+    try {
+      const response = await registry.fetch(
+        new Request('https://internal/publish'),
+      );
+      expect(await response.json()).toEqual({ authorized: true });
+    } finally {
+      core.mockRestore();
+    }
+  });
+  it('migrates offline state before deleting local storage and reads later status without a DO', async () => {
+    const h = runtime();
+    h.legacy.values.set('agentEpoch', 7);
+    h.legacy.values.set('lease:session', { epoch: 9, active: false });
+    h.legacy.values.set('operation:receipt', {
+      state: 'completed',
+      result: { id: 'original' },
+      expires: Date.now() + 300000,
+      auth: { hash: 'owner' },
+    });
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    );
+    const response = await relay.fetch(
+      new Request('https://internal/status', {
+        headers: { 'x-host': 'host-a' },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(h.deleteAll).toHaveBeenCalledOnce();
+    expect(h.legacy.values.size).toBe(0);
+    const state = new D1State(h.db.binding(), 'host:host-a');
+    expect(await state.get('agentEpoch')).toBe(7);
+    expect(await state.get('lease:session')).toEqual({
+      epoch: 9,
+      active: false,
+    });
+    expect(await state.get('operation:receipt')).toMatchObject({
+      result: { id: 'original' },
+    });
+    h.env.HOSTS = {
+      get: () => {
+        throw new Error('Offline lookup must not wake a DO');
+      },
+    } as unknown as DurableObjectNamespace;
+    expect(await hostStatus(h.env, 'host-a')).toMatchObject({
+      online: false,
+      confirmed: false,
+    });
+  });
+  it('retains the legacy copy on migration failure', async () => {
+    const h = runtime();
+    h.legacy.values.set('agentEpoch', 77);
+    h.db.failBatch = () => true;
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    );
+    expect(
+      (
+        await relay.fetch(
+          new Request('https://internal/status', {
+            headers: { 'x-host': 'host-a' },
+          }),
+        )
+      ).ok,
+    ).toBe(false);
+    expect(h.deleteAll).not.toHaveBeenCalled();
+    expect(h.legacy.values.get('agentEpoch')).toBe(77);
+  });
+  it('does not clear a host with a connected subscriber', async () => {
+    const h = runtime();
+    h.sockets.push({
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      deserializeAttachment: () => ({ subscription: true, hostId: 'host-a' }),
+    });
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    );
+    await relay.fetch(
+      new Request('https://internal/notify', {
+        method: 'POST',
+        headers: { 'x-host': 'host-a' },
+        body: JSON.stringify({ scope: 'registry' }),
+      }),
+    );
+    expect(h.deleteAll).not.toHaveBeenCalled();
+  });
+  it('migrates registry authorization and bypasses RegistryDO for later reads', async () => {
+    const h = runtime();
+    h.legacy.values.set('host:host-a', {
+      id: 'host-a',
+      name: 'retained',
+      version: 2,
+      disabled: false,
+    });
+    const registry = new RegistryDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    );
+    expect(
+      (
+        await registry.fetch(
+          new Request('https://internal/hosts', { method: 'POST', body: '{}' }),
+        )
+      ).status,
+    ).toBe(200);
+    expect([...h.legacy.values.keys()]).toEqual(['@d1Migrated']);
+    h.env.REGISTRY = {
+      get: () => {
+        throw new Error('Read must not wake RegistryDO');
+      },
+    } as unknown as DurableObjectNamespace;
+    expect(await registryCall(h.env, 'hosts')).toMatchObject([
+      { id: 'host-a', name: 'retained' },
+    ]);
+    const rollback = new RegistryDO(h.ctx as unknown as DurableObjectState, {
+      ...h.env,
+      STATE_BACKEND: 'legacy',
+    });
+    expect(
+      (
+        await rollback.fetch(
+          new Request('https://internal/hosts', { method: 'POST', body: '{}' }),
+        )
+      ).status,
+    ).toBe(503);
+    const wrongDatabase = database();
+    const switched = new RegistryDO(h.ctx as unknown as DurableObjectState, {
+      ...h.env,
+      STATE_DB: wrongDatabase.binding(),
+    });
+    expect(
+      (
+        await switched.fetch(
+          new Request('https://internal/hosts', { method: 'POST', body: '{}' }),
+        )
+      ).status,
+    ).toBe(503);
+    expect(
+      await new D1State(wrongDatabase.binding(), 'registry').get('host:host-a'),
+    ).toBeUndefined();
+  });
+  it('keeps the rollback guard through an interrupted legacy registry cleanup', async () => {
+    const h = runtime();
+    h.legacy.values.set('host:host-a', {
+      id: 'host-a',
+      version: 2,
+      disabled: false,
+    });
+    const remove = vi
+      .spyOn(h.legacy, 'delete')
+      .mockRejectedValueOnce(new Error('Interrupted cleanup'));
+    const first = new RegistryDO(h.ctx as unknown as DurableObjectState, h.env);
+    const request = () =>
+      new Request('https://internal/hosts', { method: 'POST', body: '{}' });
+    expect((await first.fetch(request())).ok).toBe(false);
+    expect(h.legacy.values.get('@d1Migrated')).toBe(true);
+    expect(h.legacy.values.has('host:host-a')).toBe(true);
+    expect(
+      await new D1State(h.db.binding(), 'registry').get('@migrated'),
+    ).toBeDefined();
+    const rollback = new RegistryDO(h.ctx as unknown as DurableObjectState, {
+      ...h.env,
+      STATE_BACKEND: undefined,
+    });
+    expect((await rollback.fetch(request())).status).toBe(503);
+    remove.mockRestore();
+    const retry = new RegistryDO(h.ctx as unknown as DurableObjectState, h.env);
+    expect((await retry.fetch(request())).status).toBe(200);
+    expect([...h.legacy.values.keys()]).toEqual(['@d1Migrated']);
+  });
+  it('keeps fencing reads in memory until the owning DO commits a change', async () => {
+    const h = runtime();
+    h.legacy.values.set('agentEpoch', 5);
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await relay.prepare('host-a');
+    const prepare = vi.spyOn(h.db, 'prepare');
+    for (let i = 0; i < 20; i++)
+      expect(await relay.fence('agentEpoch')).toBe(5);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await relay.storage.put('agentEpoch', 6);
+    expect(await relay.fence('agentEpoch')).toBe(6);
+  });
+  it('retrieves split receipts offline, rejects other credentials and acknowledges only completed results', async () => {
+    const h = runtime();
+    const state = new D1State(h.db.binding(), 'host:host-a');
+    const auth = { hash: 'original' } as Auth;
+    const result = { state: 'completed', result: { value: 'retained' } };
+    await state.put({
+      '@migrated': true,
+      'operation:receipt': {
+        ...result,
+        auth,
+        expires: Date.now() + 10000,
+        parts: 1,
+        wire: 'request',
+      },
+      'part:receipt:0': JSON.stringify(result),
+      'wire:request': 'receipt',
+    });
+    expect(
+      await (await d1Receipt(h.env, 'host-a', 'receipt', auth, false))!.json(),
+    ).toEqual(result);
+    await expect(
+      d1Receipt(h.env, 'host-a', 'receipt', { hash: 'other' } as Auth, true),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await state.get('operation:receipt')).toBeDefined();
+    await d1Receipt(h.env, 'host-a', 'receipt', auth, true);
+    expect(await state.get('operation:receipt')).toBeUndefined();
+    expect(await state.get('part:receipt:0')).toBeUndefined();
+    expect(await state.get('wire:request')).toBeUndefined();
+  });
+  it('expires offline D1 receipts and tickets without touching DOs or resetting fencing', async () => {
+    const h = runtime();
+    const idle = new D1State(h.db.binding(), 'host:idle');
+    const live = new D1State(h.db.binding(), 'host:live');
+    const at = Date.now() - 1000;
+    for (const [state, connected] of [
+      [idle, 0],
+      [live, 1],
+    ] as const) {
+      await state.put({
+        presence: { connected },
+        agentEpoch: 9,
+        'operation:expired': { expires: at, parts: 1, wire: 'wire' },
+        'part:expired:0': 'expired',
+        'wire:wire': 'expired',
+        [`due:${String(at).padStart(16, '0')}:operation:expired`]: {
+          key: 'operation:expired',
+          at,
+        },
+        'ticket:expired': { expires: at, epoch: 7, sessionId: 'session' },
+        'lease:session': { epoch: 7, active: true },
+        [`due:${String(at).padStart(16, '0')}:ticket:expired`]: {
+          key: 'ticket:expired',
+          at,
+        },
+      });
+    }
+    await collectIdleState(h.env);
+    expect(await idle.get('operation:expired')).toBeUndefined();
+    expect(await idle.get('part:expired:0')).toBeUndefined();
+    expect(await idle.get('wire:wire')).toBeUndefined();
+    expect(await idle.get('ticket:expired')).toBeUndefined();
+    expect(await idle.get('lease:session')).toEqual({
+      epoch: 7,
+      active: false,
+    });
+    expect(await idle.get('agentEpoch')).toBe(9);
+    expect(await live.get('operation:expired')).toBeDefined();
+  });
+});

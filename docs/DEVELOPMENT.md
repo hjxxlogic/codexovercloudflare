@@ -1,5 +1,11 @@
 # 开发与本机测试
 
+## D1 模式开发
+
+`npm run dev:d1` 生成 `.local/wrangler-d1.json`，应用本地 D1 schema 后启动开发服务；需要已有 `.dev.vars`，与原模式共用 `.wrangler/state`。`npm run test:d1:migration` 验证真实旧 DO 迁移及重启，`npm run test:e2e:d1` 运行 D1 的原生 / 浏览器完整回归；CI 两种模式均执行。旧宿主系统使用下文容器及独立原生构建目录。schema、并发失败及部署制品测试见 [D1 说明](d1-relay-state.md)。
+
+若本地磁盘造成集成测试超时，Docker 添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，让测试创建的 Wrangler / 原生 SQLite 数据库驻留内存。仍运行真实 D1 SQL、迁移和重启；不替换成放宽持久性或鉴权的假服务，也不改变生产超时策略。单元测试的 SQLite 已使用 `:memory:`。临时数据随测试容器退出丢弃，日志与截图仍保存到忽略目录。
+
 ## Cloudflare Access 开发与验证
 
 `config/cloudflare-service-token.json` 是按项目约定随源码保存的共享入口 Token，CMake 的 `coc_access_defaults` 目标生成构建目录下的常量头文件；Worker 直接导入同一配置。无需在 CI 另行注入 Token。运行时覆盖文件通过 `--access-config` / `cloudflareAccessFile` / `COC_ACCESS_CONFIG` 选择；只有可信 HTTPS origin 收到请求头。

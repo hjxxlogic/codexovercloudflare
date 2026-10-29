@@ -1,3 +1,10 @@
+import {
+  D1State,
+  d1Enabled,
+  migrateState,
+  type StateStorage,
+  type StateTransaction,
+} from './state.ts';
 import { accessEnabled, type AccessUser } from './access.ts';
 import {
   createEmailGrant,
@@ -20,6 +27,7 @@ import {
   json,
   token,
   hostStub,
+  hostHasConnections,
   type Auth,
   type Env,
 } from './common.ts';
@@ -39,16 +47,25 @@ type Host = {
   agentWakeUrl?: string;
   wakeUrlOverride?: string;
 };
-export class RegistryDO extends DurableObject<Env> {
+export class RegistryCore {
+  constructor(
+    private ctx: DurableObjectState,
+    private env: Env,
+    private store?: StateStorage,
+  ) {}
+  private get storage(): StateStorage {
+    return this.store || (this.ctx.storage as unknown as StateStorage);
+  }
+
   async fetch(req: Request): Promise<Response> {
     try {
       const op = new URL(req.url).pathname.slice(1);
       if (op === 'subscribe') return await this.subscribe(req);
-      await migrateExpiry(this.ctx.storage, ['device:', 'limit:', 'auth:']);
+      await migrateExpiry(this.storage, ['device:', 'limit:', 'auth:']);
       const d = await body(req.clone() as Request);
       const release =
         op === 'releasePublish'
-          ? await this.ctx.storage.get<any>('release')
+          ? await this.storage.get<any>('release')
           : undefined;
       const previous = [
         'deviceApprove',
@@ -56,10 +73,10 @@ export class RegistryDO extends DurableObject<Env> {
         'agentDeviceApprove',
         'agentDeviceReject',
       ].includes(op)
-        ? await this.ctx.storage.get<any>('device:' + d.id)
+        ? await this.storage.get<any>('device:' + d.id)
         : undefined;
       const credential = ['setInstanceName', 'agentSetWakeUrl'].includes(op)
-        ? await this.ctx.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
+        ? await this.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
         : undefined;
       const response = await this.dispatch(req);
       const mutations = [
@@ -168,7 +185,7 @@ export class RegistryDO extends DurableObject<Env> {
     } else {
       const id = idSchema.parse(d.id),
         pollHash = await digest(z.string().max(500).parse(d.secret));
-      const request = await this.ctx.storage.get<any>('device:' + id);
+      const request = await this.storage.get<any>('device:' + id);
       if (
         !request ||
         (request.identity && request.identity.accountId !== d.accountId) ||
@@ -190,7 +207,7 @@ export class RegistryDO extends DurableObject<Env> {
     pair[1].send(
       JSON.stringify({
         type: 'subscribed',
-        revision: (await this.ctx.storage.get('revision')) || 0,
+        revision: (await this.storage.get('revision')) || 0,
         demand: 1,
       }),
     );
@@ -201,9 +218,8 @@ export class RegistryDO extends DurableObject<Env> {
     deviceId?: string,
     affectedHosts: string[] = [],
   ) {
-    const revision =
-      ((await this.ctx.storage.get<number>('revision')) || 0) + 1;
-    await this.ctx.storage.put('revision', revision);
+    const revision = ((await this.storage.get<number>('revision')) || 0) + 1;
+    await this.storage.put('revision', revision);
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as {
         kind: string;
@@ -235,25 +251,27 @@ export class RegistryDO extends DurableObject<Env> {
     }
     const hosts =
       scope === 'release'
-        ? [...(await this.ctx.storage.list<Host>({ prefix: 'host:' })).values()]
+        ? [...(await this.storage.list<Host>({ prefix: 'host:' })).values()]
             .filter((h) => h.version === 2 && !h.disabled)
             .map((h) => h.id)
         : [...new Set(affectedHosts)];
     const release =
       scope === 'release'
-        ? await this.ctx.storage.get<{ version: string }>('release')
+        ? await this.storage.get<{ version: string }>('release')
         : undefined;
     await Promise.allSettled(
-      hosts.map(async (id) =>
-        hostStub(this.env, id).fetch('https://internal/notify', {
+      hosts.map(async (id) => {
+        if (!(await hostHasConnections(this.env, id))) return;
+        return hostStub(this.env, id).fetch('https://internal/notify', {
           method: 'POST',
+          headers: { 'x-host': id },
           body: JSON.stringify({
             scope,
             revision,
             ...(release ? { version: release.version } : {}),
           }),
-        }),
-      ),
+        });
+      }),
     );
     console.log(
       JSON.stringify({
@@ -277,7 +295,7 @@ export class RegistryDO extends DurableObject<Env> {
     try {
       const d = await body(req),
         op = new URL(req.url).pathname.slice(1),
-        s = this.ctx.storage;
+        s = this.storage;
       if (
         op === 'login' ||
         op === 'deviceStart' ||
@@ -947,6 +965,18 @@ export class RegistryDO extends DurableObject<Env> {
             (host) => host.version === 2,
           ),
         );
+      if (op === 'migrationHosts') {
+        const after = d.after ? 'host:' + idSchema.parse(d.after) : undefined;
+        const hosts = await s.list<Host>({
+          prefix: 'host:',
+          startAfter: after,
+          limit: 4,
+        });
+        const ids = [...hosts.keys()].map((key) =>
+          idSchema.parse(key.slice(5)),
+        );
+        return json({ ids, after: ids.at(-1), done: hosts.size < 4 });
+      }
       if (op === 'host') {
         const h = await s.get<Host>('host:' + idSchema.parse(d.id));
         if (!h || h.version !== 2 || h.disabled)
@@ -958,7 +988,7 @@ export class RegistryDO extends DurableObject<Env> {
       return failure(e);
     }
   }
-  private async approvingAgent(tx: DurableObjectTransaction, hash: unknown) {
+  private async approvingAgent(tx: StateTransaction, hash: unknown) {
     const id = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
@@ -983,7 +1013,7 @@ export class RegistryDO extends DurableObject<Env> {
     return agent;
   }
   private async createHost(
-    tx: DurableObjectTransaction,
+    tx: StateTransaction,
     name: string,
     id = crypto.randomUUID(),
   ) {
@@ -1000,7 +1030,7 @@ export class RegistryDO extends DurableObject<Env> {
     } satisfies Host);
     return id;
   }
-  private async revokeCredential(tx: DurableObjectTransaction, hash: string) {
+  private async revokeCredential(tx: StateTransaction, hash: string) {
     const auth = await tx.get<Auth>('auth:' + hash);
     if (!auth || auth.role === 'owner') return undefined;
     await tx.delete('auth:' + hash);
@@ -1022,7 +1052,7 @@ export class RegistryDO extends DurableObject<Env> {
     return auth;
   }
   async alarm() {
-    const s = this.ctx.storage;
+    const s = this.storage;
     await migrateExpiry(s, ['device:', 'limit:', 'auth:']);
     for (const [index, { key }] of await dueEntries(s)) {
       let deviceId: string | undefined;
@@ -1049,5 +1079,96 @@ export class RegistryDO extends DurableObject<Env> {
         ws.close(4001, 'Subscription expired');
     }
     await nextExpiry(s);
+  }
+}
+
+export class RegistryDO extends DurableObject<Env> {
+  private core?: RegistryCore;
+  private preparing?: Promise<void>;
+  private async prepare() {
+    if (this.core) return;
+    if (!d1Enabled(this.env)) {
+      if (await this.ctx.storage.get('@d1Migrated'))
+        throw new AppError(
+          'STATE_MIGRATED',
+          'Restore the D1 binding; legacy state is no longer authoritative',
+          503,
+        );
+      this.core = new RegistryCore(this.ctx, this.env);
+      return;
+    }
+    if (!this.preparing)
+      this.preparing = this.ctx
+        .blockConcurrencyWhile(async () => {
+          let storage: StateStorage = this.ctx
+            .storage as unknown as StateStorage;
+          if (d1Enabled(this.env)) {
+            const target = new D1State(this.env.STATE_DB, 'registry', storage);
+            if (
+              (await this.ctx.storage.get('@d1Migrated')) &&
+              !(await target.get('@migrated'))
+            )
+              throw new AppError(
+                'STATE_MIGRATED',
+                'D1 state is missing; restore the original database before continuing',
+                503,
+              );
+            await migrateState(storage, target);
+            // D1 is now authoritative. Keep only the rollback guard locally,
+            // never an old authorization copy that could be imported again.
+            await this.ctx.storage.put('@d1Migrated', true);
+            let after: string | undefined;
+            for (;;) {
+              const page = await this.ctx.storage.list({
+                startAfter: after,
+                limit: 64,
+              });
+              const keys = [...page.keys()].filter(
+                (key) => key !== '@d1Migrated',
+              );
+              if (keys.length) await this.ctx.storage.delete(keys);
+              after = [...page.keys()].at(-1);
+              if (page.size < 64) break;
+            }
+            await this.ctx.storage.deleteAlarm();
+            await nextExpiry(target);
+            storage = target;
+          }
+          this.core = new RegistryCore(this.ctx, this.env, storage);
+        })
+        .finally(() => {
+          this.preparing = undefined;
+        });
+    await this.preparing;
+  }
+  private requests: Promise<unknown> = Promise.resolve();
+  async fetch(req: Request) {
+    try {
+      await this.prepare();
+      // Native storage supplies input gates in legacy mode. Do not hold an
+      // extra queue across publish(): a notified Host can call back for auth.
+      if (!d1Enabled(this.env)) return this.core!.fetch(req);
+      const result = this.requests.then(() => this.core!.fetch(req));
+      this.requests = result.catch(() => {});
+      return await result;
+    } catch (error) {
+      return failure(error);
+    }
+  }
+  async alarm() {
+    await this.prepare();
+    if (!d1Enabled(this.env)) return this.core!.alarm();
+    const result = this.requests.then(() => this.core!.alarm());
+    this.requests = result.catch(() => {});
+    return result;
+  }
+  async webSocketMessage(ws: WebSocket) {
+    ws.close(4000, 'Notification channel is read only');
+  }
+  async webSocketClose(ws: WebSocket) {
+    ws.close(1000, 'Closed');
+  }
+  async webSocketError(ws: WebSocket) {
+    ws.close(1011, 'Transport error');
   }
 }

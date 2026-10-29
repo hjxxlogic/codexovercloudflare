@@ -1,3 +1,9 @@
+import {
+  D1State,
+  d1Enabled,
+  migrateState,
+  type StateStorage,
+} from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
 import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
 import {
@@ -76,6 +82,124 @@ type Operation = {
   error?: { code: string; message: string; status?: number };
 };
 export class HostRelayDO extends DurableObject<Env> {
+  private state?: D1State;
+  private preparing?: Promise<void>;
+  private fences = new Map<string, Promise<any>>();
+  private handlers = 0;
+  private migrationReady = false;
+  private get storage(): StateStorage {
+    return this.state || (this.ctx.storage as unknown as StateStorage);
+  }
+  private async prepare(hostId?: string) {
+    if (!d1Enabled(this.env) || this.migrationReady) return;
+    if (!hostId)
+      hostId =
+        (
+          this.ctx.getWebSockets()[0]?.deserializeAttachment() as
+            Attachment | undefined
+        )?.hostId || (await this.ctx.storage.get<string>('@d1Host'));
+    // Legacy alarms can precede the first named request. Preserve their old
+    // cleanup path until a request supplies the authenticated host identity.
+    if (!hostId) return;
+    const id = idSchema.parse(hostId);
+    if (!this.preparing)
+      this.preparing = this.ctx
+        .blockConcurrencyWhile(async () => {
+          const target = new D1State(
+            this.env.STATE_DB!,
+            'host:' + id,
+            this.ctx.storage as unknown as StateStorage,
+            (keys) => {
+              for (const key of keys) this.fences.delete(key);
+            },
+          );
+          await migrateState(
+            this.ctx.storage as unknown as StateStorage,
+            target,
+          );
+          await this.ctx.storage.put('@d1Host', id);
+          this.state = target;
+          await this.presence();
+          await nextExpiry(target);
+          this.migrationReady = true;
+        })
+        .finally(() => {
+          this.preparing = undefined;
+        });
+    await this.preparing;
+  }
+  // Fencing values change only through this object's committed transactions.
+  // Hibernation discards this cache; the first frame reloads from D1. Streaming
+  // frames then need no database access until a takeover/reconnect changes it.
+  private async fence<T>(key: string): Promise<T | undefined> {
+    if (!this.state) return this.storage.get<T>(key);
+    let value = this.fences.get(key);
+    if (!value) {
+      if (this.fences.size >= 128)
+        this.fences.delete(this.fences.keys().next().value!);
+      value = this.storage.get<T>(key).catch((error) => {
+        if (this.fences.get(key) === value) this.fences.delete(key);
+        throw error;
+      });
+      this.fences.set(key, value);
+    }
+    const result = await value;
+    return this.fences.get(key) === value ? result : this.fence<T>(key);
+  }
+  private async presence() {
+    if (!this.state) return;
+    await this.state.transaction(async (tx) => {
+      const epoch = (await tx.get<number>('agentEpoch')) || 0;
+      const agent = this.agent();
+      const a = agent?.deserializeAttachment() as Attachment | undefined;
+      await tx.put('presence', {
+        online: !!agent && a?.protocol === 1 && a.epoch === epoch,
+        connected: this.ctx.getWebSockets().filter((ws) => ws.readyState < 2)
+          .length,
+        epoch,
+        updatedAt: Date.now(),
+        build: a?.build,
+        protocol: a?.protocol,
+      });
+    });
+  }
+  private async cleanup() {
+    if (
+      !this.migrationReady ||
+      this.handlers ||
+      this.incomingBytes ||
+      this.forwardingBytes
+    )
+      return;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (
+        this.handlers ||
+        this.incomingBytes ||
+        this.forwardingBytes ||
+        this.ctx.getWebSockets().some((ws) => ws.readyState < 2)
+      )
+        return;
+      // All authoritative state was committed to D1 before this gate. Holding
+      // the gate prevents an arriving upgrade from racing deleteAll().
+      await this.presence();
+      await this.ctx.storage.deleteAll();
+    });
+  }
+  async fetch(req: Request) {
+    this.handlers++;
+    try {
+      await this.prepare(req.headers.get('x-host') || undefined);
+      return await this.handleFetch(req);
+    } catch (error) {
+      return failure(error);
+    } finally {
+      this.handlers--;
+      await this.cleanup().catch(() =>
+        console.log(JSON.stringify({ event: 'relay_cleanup_deferred' })),
+      );
+    }
+  }
+
   private authorization = new Map<
     string,
     { expires: number; checked: number }
@@ -121,11 +245,12 @@ export class HostRelayDO extends DurableObject<Env> {
       .catch(() => {
         client.close(4001, 'Authorization or forwarding failed');
       })
-      .finally(() => {
+      .finally(async () => {
         queue!.bytes -= bytes;
         queue!.count--;
         this.forwardingBytes -= bytes;
         if (queue!.tail === current) this.forwards.delete(client);
+        await this.cleanup();
       });
     queue.tail = current;
     this.ctx.waitUntil(current);
@@ -228,7 +353,7 @@ export class HostRelayDO extends DurableObject<Env> {
 
   private async saveOperation(o: Operation) {
     const encoded = JSON.stringify(o);
-    const previous = await this.ctx.storage.get<{ parts?: number }>(
+    const previous = await this.storage.get<{ parts?: number }>(
       'operation:' + o.id,
     );
     const parts = Math.max(
@@ -249,16 +374,16 @@ export class HostRelayDO extends DurableObject<Env> {
       action: o.action,
       parts,
     };
-    await this.ctx.storage.put(records);
+    await this.storage.put(records);
   }
   private async loadOperation(id: string): Promise<Operation | undefined> {
-    const index = await this.ctx.storage.get<Operation & { parts?: number }>(
+    const index = await this.storage.get<Operation & { parts?: number }>(
       'operation:' + id,
     );
     if (!index || !index.parts) return index;
     const parts = await Promise.all(
       Array.from({ length: index.parts }, (_, i) =>
-        this.ctx.storage.get<string>(`part:${id}:${i}`),
+        this.storage.get<string>(`part:${id}:${i}`),
       ),
     );
     if (parts.some((part) => part === undefined))
@@ -266,10 +391,10 @@ export class HostRelayDO extends DurableObject<Env> {
     return JSON.parse(parts.join(''));
   }
   private async deleteOperation(id: string) {
-    const index = await this.ctx.storage.get<{ parts?: number; wire?: string }>(
+    const index = await this.storage.get<{ parts?: number; wire?: string }>(
       'operation:' + id,
     );
-    await this.ctx.storage.delete([
+    await this.storage.delete([
       'operation:' + id,
       ...(index?.wire ? ['wire:' + index.wire] : []),
       ...Array.from({ length: index?.parts || 0 }, (_, i) => `part:${id}:${i}`),
@@ -284,9 +409,11 @@ export class HostRelayDO extends DurableObject<Env> {
     // Notifications have no replay payload; future subscribers read a fresh
     // snapshot. Do not materialize unused host storage for an unobserved change.
     if (!this.ctx.getWebSockets().length) return;
-    const revision =
-      ((await this.ctx.storage.get<number>('revision')) || 0) + 1;
-    await this.ctx.storage.put('revision', revision);
+    const revision = await this.storage.transaction(async (tx) => {
+      const value = ((await tx.get<number>('revision')) || 0) + 1;
+      await tx.put('revision', value);
+      return value;
+    });
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment;
       if (a.subscription && (!owner || a.auth.hash === owner))
@@ -305,13 +432,13 @@ export class HostRelayDO extends DurableObject<Env> {
         503,
       );
     await this.authorized(agent.auth.hash);
-    if (agent.epoch !== (await this.ctx.storage.get('agentEpoch')))
+    if (agent.epoch !== (await this.storage.get('agentEpoch')))
       throw new AppError('STALE_AGENT', 'Agent replaced', 409);
     const requestId = crypto.randomUUID();
     operation.wire = requestId;
     operation.agentEpoch = agent.epoch;
     await this.saveOperation(operation);
-    await this.ctx.storage.put('wire:' + requestId, operation.id);
+    await this.storage.put('wire:' + requestId, operation.id);
     this.send(ws, { v: 1, type: 'control', requestId, action, data });
     console.log(
       JSON.stringify({
@@ -329,7 +456,7 @@ export class HostRelayDO extends DurableObject<Env> {
       expires: Date.now() + 300000,
       state: 'pending',
     };
-    const existing = await this.ctx.storage.transaction(async (tx) => {
+    const existing = await this.storage.transaction(async (tx) => {
       const pending = await tx.list<Operation>({
         prefix: 'operation:',
         limit: 257,
@@ -368,7 +495,7 @@ export class HostRelayDO extends DurableObject<Env> {
     });
     if (existing) return existing;
     await expireAt(
-      this.ctx.storage,
+      this.storage,
       'operation:' + operation.id,
       operation.expires,
     );
@@ -386,7 +513,7 @@ export class HostRelayDO extends DurableObject<Env> {
     return operation;
   }
   private async complete(o: Operation, result?: any, error?: unknown) {
-    if (o.wire) await this.ctx.storage.delete('wire:' + o.wire);
+    if (o.wire) await this.storage.delete('wire:' + o.wire);
     o.state = 'completed';
     if (error)
       o.error =
@@ -400,6 +527,10 @@ export class HostRelayDO extends DurableObject<Env> {
     else o.result = result;
     const ws = this.socket(o.socketId);
     if (o.socketId) {
+      if (this.state && (!ws || ws.readyState >= 2)) {
+        await this.saveOperation(o);
+        return;
+      }
       await this.deleteOperation(o.id);
       if (!ws) return;
       const a = ws.deserializeAttachment() as Attachment;
@@ -490,7 +621,7 @@ export class HostRelayDO extends DurableObject<Env> {
       return this.command(o.action, o.data, o);
     }
     if (o.stage === 'attach') {
-      await this.ctx.storage.transaction(async (tx) => {
+      await this.storage.transaction(async (tx) => {
         const key = 'lease:' + o.data.sessionId,
           lease = await tx.get<Lease>(key);
         if (
@@ -536,7 +667,7 @@ export class HostRelayDO extends DurableObject<Env> {
         Date.now() + 60000,
         o.reservation?.expires ?? Number.MAX_SAFE_INTEGER,
       );
-    await this.ctx.storage.put(key, {
+    await this.storage.put(key, {
       sessionId: o.data.sessionId,
       mode: o.info.mode,
       hash: o.auth.hash,
@@ -544,7 +675,7 @@ export class HostRelayDO extends DurableObject<Env> {
       takeover: o.data.takeover === true,
       ...(o.reservation ? { epoch: o.reservation.epoch } : {}),
     } satisfies Ticket);
-    await expireAt(this.ctx.storage, key, expires);
+    await expireAt(this.storage, key, expires);
     await this.complete(o, {
       ticket: value,
       mode: o.info.mode,
@@ -552,10 +683,10 @@ export class HostRelayDO extends DurableObject<Env> {
       expiresIn: Math.max(1, Math.floor((expires - Date.now()) / 1000)),
     });
   }
-  async fetch(req: Request) {
+  private async handleFetch(req: Request) {
     try {
       const u = new URL(req.url),
-        s = this.ctx.storage;
+        s = this.storage;
       await migrateExpiry(s, ['ticket:']);
       if (u.pathname === '/notify') {
         const d = await body(req);
@@ -659,7 +790,7 @@ export class HostRelayDO extends DurableObject<Env> {
           role: 'agent',
           auth,
           hostId,
-          epoch: ((await s.get<number>('agentEpoch')) || 0) + 1,
+          epoch: 0,
           authenticated: true,
           deadline: auth.expires,
         });
@@ -786,7 +917,7 @@ export class HostRelayDO extends DurableObject<Env> {
     ownerHash?: string,
   ) {
     const key = 'ticket:' + (await digest(value));
-    return this.ctx.storage.transaction(async (tx) => {
+    return this.storage.transaction(async (tx) => {
       const t = await tx.get<Ticket>(key);
       if (
         !t ||
@@ -805,7 +936,7 @@ export class HostRelayDO extends DurableObject<Env> {
     });
   }
   async reserve(sessionId: string, takeover: boolean) {
-    return this.ctx.storage.transaction(async (tx) => {
+    return this.storage.transaction(async (tx) => {
       const key = 'lease:' + sessionId;
       const lease = (await tx.get<Lease>(key)) || { epoch: 0, active: false };
       if (lease.pending && lease.pending.expires > Date.now())
@@ -837,7 +968,11 @@ export class HostRelayDO extends DurableObject<Env> {
       for (const ws of this.ctx.getWebSockets())
         if (!(ws.deserializeAttachment() as Attachment).subscription)
           ws.close(1012, 'Agent reconnected');
-      await this.ctx.storage.put('agentEpoch', a.epoch);
+      a.epoch = await this.storage.transaction(async (tx) => {
+        const epoch = ((await tx.get<number>('agentEpoch')) || 0) + 1;
+        await tx.put('agentEpoch', epoch);
+        return epoch;
+      });
     }
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [
@@ -847,7 +982,7 @@ export class HostRelayDO extends DurableObject<Env> {
     a.id = crypto.randomUUID();
     pair[1].serializeAttachment(a);
     if (!a.authenticated)
-      await expireAt(this.ctx.storage, 'handshake:' + a.id, a.deadline);
+      await expireAt(this.storage, 'handshake:' + a.id, a.deadline);
     if (a.role === 'agent')
       this.send(pair[1], {
         v: 1,
@@ -859,7 +994,7 @@ export class HostRelayDO extends DurableObject<Env> {
     if (a.subscription)
       this.send(pair[1], {
         type: 'subscribed',
-        revision: (await this.ctx.storage.get('revision')) || 0,
+        revision: (await this.storage.get('revision')) || 0,
         demand: 1,
       });
     if (a.history)
@@ -872,6 +1007,7 @@ export class HostRelayDO extends DurableObject<Env> {
         data: { sessionId: a.sessionId },
         stage: 'get',
       });
+    await this.presence();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -914,6 +1050,7 @@ export class HostRelayDO extends DurableObject<Env> {
         }),
       );
       this.authMetrics = { hits: 0, misses: 0, coalesced: 0 };
+      await this.cleanup();
     }
   }
   private async handleMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -922,6 +1059,7 @@ export class HostRelayDO extends DurableObject<Env> {
       if (typeof raw !== 'string')
         throw new AppError('INVALID_REQUEST', 'Text frames required');
       const a = ws.deserializeAttachment() as Attachment;
+      await this.prepare(a.hostId);
       if (a.deadline <= Date.now())
         throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
       await this.authorized(a.auth.hash);
@@ -955,6 +1093,8 @@ export class HostRelayDO extends DurableObject<Env> {
       if (a.role === 'agent') {
         if (d.v !== undefined && d.v !== 1)
           throw new AppError('PROTOCOL_MISMATCH', 'Unsupported protocol', 409);
+        if (a.epoch !== (await this.fence('agentEpoch')))
+          throw new AppError('STALE_AGENT', 'Old Agent connection');
         if (d.type === 'capabilities') {
           if (d.protocol !== 1)
             throw new AppError(
@@ -975,17 +1115,16 @@ export class HostRelayDO extends DurableObject<Env> {
               displayName: d.displayName,
             });
           ws.serializeAttachment(a);
+          await this.presence();
           await this.changed();
           return;
         }
-        if (a.epoch !== (await this.ctx.storage.get('agentEpoch')))
-          throw new AppError('STALE_AGENT', 'Old Agent connection');
         if (d.type === 'ping') {
           this.send(ws, { type: 'pong' });
           return;
         }
         if (d.type === 'result') {
-          const operationId = await this.ctx.storage.get<string>(
+          const operationId = await this.storage.get<string>(
             'wire:' + d.requestId,
           );
           const operation = operationId
@@ -998,7 +1137,7 @@ export class HostRelayDO extends DurableObject<Env> {
             operation.agentEpoch === a.epoch &&
             operation.expires > Date.now()
           ) {
-            await this.ctx.storage.delete('wire:' + d.requestId);
+            await this.storage.delete('wire:' + d.requestId);
             try {
               await this.result(operation, d.data, d.error);
             } catch (error) {
@@ -1085,16 +1224,14 @@ export class HostRelayDO extends DurableObject<Env> {
         });
         return;
       }
-      const lease = await this.ctx.storage.get<{ epoch: number }>(
-        'lease:' + a.sessionId,
-      );
-      if (lease?.epoch !== a.epoch)
-        throw new AppError('STALE_CONTROLLER', 'Controller replaced');
       const agent = this.agent();
       if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline');
       await this.authorized(
         (agent.deserializeAttachment() as Attachment).auth.hash,
       );
+      const lease = await this.fence<Lease>('lease:' + a.sessionId);
+      if (lease?.epoch !== a.epoch)
+        throw new AppError('STALE_CONTROLLER', 'Controller replaced');
       this.send(agent, {
         v: 1,
         type: a.role === 'cli' ? 'rpc' : 'web',
@@ -1129,16 +1266,27 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   async webSocketClose(ws: WebSocket) {
+    this.handlers++;
+    try {
+      await this.prepare((ws.deserializeAttachment() as Attachment).hostId);
+      await this.closeSocket(ws);
+      await this.presence();
+    } finally {
+      this.handlers--;
+      await this.cleanup();
+    }
+  }
+  private async closeSocket(ws: WebSocket) {
     const a = ws.deserializeAttachment() as Attachment;
-    if (a.id)
+    if (a.id && !this.state)
       for (const o of (
-        await this.ctx.storage.list<Operation>({ prefix: 'operation:' })
+        await this.storage.list<Operation>({ prefix: 'operation:' })
       ).values()) {
         if (o.socketId === a.id) await this.deleteOperation(o.id);
       }
     if (a.history || a.subscription) return;
     if (a.role === 'agent') {
-      if (a.epoch !== (await this.ctx.storage.get('agentEpoch'))) return;
+      if (a.epoch !== (await this.storage.get('agentEpoch'))) return;
       for (const c of this.ctx.getWebSockets())
         if (c !== ws && !(c.deserializeAttachment() as Attachment).subscription)
           c.close(1012, 'Agent disconnected');
@@ -1146,7 +1294,7 @@ export class HostRelayDO extends DurableObject<Env> {
       return;
     }
     if (!a.authenticated) return;
-    const detached = await this.ctx.storage.transaction(async (tx) => {
+    const detached = await this.storage.transaction(async (tx) => {
       const key = 'lease:' + a.sessionId;
       const current = await tx.get<Lease>(key);
       if (current?.epoch !== a.epoch) return false;
@@ -1173,7 +1321,17 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.webSocketClose(ws);
   }
   async alarm() {
-    const s = this.ctx.storage;
+    this.handlers++;
+    try {
+      await this.prepare();
+      await this.expire();
+    } finally {
+      this.handlers--;
+      await this.cleanup();
+    }
+  }
+  private async expire() {
+    const s = this.storage;
     await migrateExpiry(s, ['ticket:']);
     for (const [index, { key }] of await dueEntries(s)) {
       if (key.startsWith('handshake:')) {

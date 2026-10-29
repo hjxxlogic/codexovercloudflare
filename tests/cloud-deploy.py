@@ -18,6 +18,25 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_d1_configuration_requires_verified_schema_and_real_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = pathlib.Path(directory)
+            config = {'vars': {'ACCESS_ENABLED': 'true'}}
+            cloud.configure_state_db(config, worker, None)
+            self.assertNotIn('d1_databases', config)
+            for invalid in ('../bad', '00000000-0000-0000-0000-000000000001'):
+                with self.assertRaises(RuntimeError):
+                    cloud.configure_state_db(config, worker, invalid)
+            database_id = '12345678-1234-1234-1234-123456789abc'
+            with self.assertRaises(RuntimeError):
+                cloud.configure_state_db(config, worker, database_id)
+            (worker / 'state-migrations').mkdir()
+            (worker / 'state-migrations/0001_relay_state.sql').write_text('CREATE TABLE test(id);')
+            cloud.configure_state_db(config, worker, database_id)
+            self.assertEqual(config['vars'], {'ACCESS_ENABLED': 'true', 'STATE_BACKEND': 'd1'})
+            self.assertEqual(config['d1_databases'][0]['database_id'], database_id)
+            self.assertEqual(config['triggers']['crons'], ['17 * * * *'])
+
     def artifact(self, root, extra=None, commit=COMMIT, dirty=False):
         path = root / 'artifact.zip'
         with zipfile.ZipFile(path, 'w') as bundle:

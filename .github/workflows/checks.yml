@@ -68,6 +68,9 @@ jobs:
         with:
           name: browser-evidence
           path: .local/screenshots
+      - run: python3 scripts/ci-command.py npm run test:d1:migration && python3 scripts/ci-command.py npm run test:e2e:d1
+        env:
+          COC_ARTIFACT_DIR: .local/screenshots-d1
       - name: Record cloud artifact provenance
         run: |
           python3 scripts/build-metadata.py > dist/web/deploy-source.json
@@ -75,6 +78,7 @@ jobs:
           mkdir -p dist/web/downloads
           cp docs/USER_GUIDE.md dist/web/downloads/USER_GUIDE.md
           cp wrangler.jsonc dist/worker/deploy-config.jsonc
+          cp -R migrations/d1 dist/worker/state-migrations
       - uses: actions/upload-artifact@v4
         with:
           name: verified-worker

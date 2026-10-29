@@ -1,5 +1,9 @@
 # 发布操作
 
+## 可选 D1 发布
+
+运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续每次部署继续携带同一 UUID。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。当前生产未启用，完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
+
 ## 0.5.14 Cloudflare Access 发布准备
 
 原生包与 Worker 从同一提交的 `config/cloudflare-service-token.json` 使用共享入口 Token；修改该配置需重新构建双方。无需 CI 私有 Token 注入。实际 CoC Key、OWNER_SECRET 和设备数据库继续保持私密。启用 Access 前必须先提供兼容原生包，确保旧程序可以升级。

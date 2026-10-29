@@ -3,6 +3,7 @@ import {
   errorData,
   MAX_FRAME,
 } from '../../../packages/protocol/src/index.ts';
+import { D1State, d1Enabled } from './state.ts';
 export interface Env {
   OWNER_SECRET: string;
   ACCESS_ENABLED?: string;
@@ -12,6 +13,8 @@ export interface Env {
   ACCESS_PUBLIC_HEALTH?: string;
   REGISTRY: DurableObjectNamespace;
   HOSTS: DurableObjectNamespace;
+  STATE_BACKEND?: string;
+  STATE_DB?: D1Database;
   ASSETS: Fetcher;
 }
 export type Auth = {
@@ -90,7 +93,7 @@ export async function registryCall(
   source: 'worker' | 'host' = 'worker',
 ): Promise<any> {
   const started = Date.now();
-  const r = await registry(env).fetch('https://internal/' + op, {
+  const request = new Request('https://internal/' + op, {
     method: 'POST',
     headers: {
       'x-coc-email-auth':
@@ -98,6 +101,32 @@ export async function registryCall(
     },
     body: JSON.stringify(data),
   });
+  let r: Response;
+  const reads = [
+    'auth',
+    'authHash',
+    'authHost',
+    'host',
+    'hosts',
+    'apiKeys',
+    'devices',
+    'emailHosts',
+    'migrationHosts',
+  ];
+  if (
+    d1Enabled(env) &&
+    reads.includes(op) &&
+    (await new D1State(env.STATE_DB, 'registry').get('@migrated'))
+  ) {
+    const { RegistryCore } = await import('./registry.ts');
+    const storage = new D1State(env.STATE_DB, 'registry');
+    const core = new RegistryCore(
+      { getWebSockets: () => [] } as unknown as DurableObjectState,
+      env,
+      storage,
+    );
+    r = await core.fetch(request);
+  } else r = await registry(env).fetch(request);
   console.log(
     JSON.stringify({
       event: 'registry_call',
@@ -113,4 +142,34 @@ export async function registryCall(
 }
 export function hostStub(env: Env, id: string) {
   return env.HOSTS.get(env.HOSTS.idFromName(id));
+}
+
+export async function hostStatus(env: Env, id: string): Promise<any> {
+  if (d1Enabled(env)) {
+    const storage = new D1State(env.STATE_DB, 'host:' + id);
+    if ((await storage.get('@migrated')) && (await storage.get('presence'))) {
+      const presence = await storage.get<any>('presence');
+      return {
+        online: presence?.online === true,
+        confirmed: false,
+        reachability: presence?.online ? 'unconfirmed' : 'offline',
+        build: presence?.build,
+        protocol: presence?.protocol,
+      };
+    }
+  }
+  // A legacy host is touched once to migrate its state and inspect attachments.
+  return (
+    await hostStub(env, id).fetch('https://internal/status', {
+      headers: { 'x-host': id },
+    })
+  ).json();
+}
+
+export async function hostHasConnections(env: Env, id: string) {
+  if (!d1Enabled(env)) return true;
+  const storage = new D1State(env.STATE_DB, 'host:' + id);
+  if (!(await storage.get('@migrated'))) return true;
+  const presence = await storage.get<{ connected: number }>('presence');
+  return !presence || presence.connected > 0;
 }

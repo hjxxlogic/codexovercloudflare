@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## D1 持久状态与在线 DO 分离 · 2026-10-29（本地未发布）
+
+- 在 `8473348` 后的工作树实现 D1 模式。Vitest 覆盖真实内存 SQLite schema / SQL、scope 隔离、CAS 竞争、原子到期索引、失败续传、断开后清理、离线回执隔离、缓存提交失效、禁止旧授权回退及中断清理时保留防回退标记。Registry 旧模式回调不被串行队列阻塞的回归也纳入测试。
+- `npm run typecheck`、`npm run lint`、153 项 Vitest、原生 CTest、7 项部署脚本测试及 Worker dry-run 通过。真实 Wrangler 迁移测试通过：先以旧 DO 模式建立授权和 epoch，再切换 D1，原凭据有效、epoch 递增，完成回执跨断线 / Worker 重启保留。
+- D1 与旧 DO 两种模式的完整端到端各通过 38 项检查，包含配对、隔离、唤醒、并发附着、显式接管、重复提交、历史分片、原生 CLI、Chromium 流式输出及撤销。已授权设备撤销用例先展开新增折叠组，再按原授权 ID 操作。防回退标记清理的最终调整另以单元故障注入和真实迁移重启复验。
+- 按用户要求，测试使用内存数据库：单元 SQLite 为 `:memory:`，真实集成在 Bookworm 容器用 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，Wrangler 与原生 SQLite 临时库驻留内存。原生测试程序在容器独立目录编译，使用既有 Chromium 缓存；未调用真实模型。磁盘版曾遇到本地 I/O 超时，开发时热更新也曾中断测试；切换 tmpfs 并固定源码后完成验证，未放宽生产超时。原生 CTest 因沙箱禁止 socket 首次失败，授权后原命令通过。
+- 本机日志 / 截图在忽略目录：`.local/d1-e2e-memory-final.log`、`.local/legacy-e2e-memory-final.log`、`.local/d1-migration-memory-final.log`、`.local/screenshots-d1/`、`.local/screenshots-legacy/`。没有创建远程 D1、发布 Worker 或删除生产 DO；尚无此次提交的 CI 和 Cloudflare 长稳 / 配额 / 实际存储回收证据。配置、回收积压及恢复限制见 [迁移说明](d1-relay-state.md)。
+
 ## HostRelayDO 存储审查与空对象写入 · 2026-10-29（本地未发布）
 
 - 只读清单得到 36 个 HostRelayDO，27 个有数据、9 个无数据；近 24 小时分别有 4 个 / 0 个观察到活动。另有 1 个 RegistryDO 有数据。窗口内 namespace 存储最大值分别为 598,016 / 36,864 字节，不能当作当前单对象大小。没有读取生产 KV 正文或执行删除。具体口径、生命周期审查及限制见 [审查记录](relay-storage-audit-2026-10-29.md)。

@@ -1,3 +1,4 @@
+import type { StateTransaction } from './state.ts';
 import { AppError, idSchema } from '../../../packages/protocol/src/index.ts';
 import { digest, token, type Auth, type Env } from './common.ts';
 import {
@@ -19,21 +20,21 @@ export type EmailGrant = {
 };
 export const grantKey = (accountId: string, hostId: string) =>
   `emailGrant:${accountId}:${hostId}`;
-export async function account(tx: DurableObjectTransaction, user: AccessUser) {
+export async function account(tx: StateTransaction, user: AccessUser) {
   if (!user || !/^[a-f0-9]{64}$/.test(user.accountId))
     throw new AppError('ACCESS_USER_REQUIRED', 'Verified email required', 403);
   const key = 'emailAccount:' + user.accountId;
   if (!(await tx.get(key))) await tx.put(key, { ...user, created: Date.now() });
   return user;
 }
-export async function validHost(tx: DurableObjectTransaction, hostId: string) {
+export async function validHost(tx: StateTransaction, hostId: string) {
   const host = await tx.get<any>('host:' + idSchema.parse(hostId));
   if (!host || host.version !== 2 || host.disabled)
     throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
   return host;
 }
 export async function createEmailGrant(
-  tx: DurableObjectTransaction,
+  tx: StateTransaction,
   user: AccessUser,
   hostId: string,
   approvedBy?: string,
@@ -58,7 +59,7 @@ export async function createEmailGrant(
   return grant;
 }
 export async function validateEmailAuth(
-  tx: DurableObjectStorage | DurableObjectTransaction,
+  tx: StateTransaction,
   env: Env,
   auth: Auth,
 ) {
@@ -80,7 +81,7 @@ export async function validateEmailAuth(
     );
 }
 export async function emailOperation(
-  tx: DurableObjectTransaction,
+  tx: StateTransaction,
   env: Env,
   op: string,
   d: any,

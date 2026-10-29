@@ -1,6 +1,7 @@
 import { resolveAsync } from './helpers/async-http.ts';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { localStateConfig } from '../scripts/state-config.ts';
 import {
   mkdtempSync,
   rmSync,
@@ -28,11 +29,35 @@ await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 const port = (server.address() as any).port;
 await new Promise<void>((r) => server.close(() => r()));
 const origin = `http://127.0.0.1:${port}`;
+const stateConfig =
+  process.env.COC_STATE_BACKEND === 'd1'
+    ? localStateConfig(join(dir, 'wrangler.json'))
+    : undefined;
+if (stateConfig) {
+  const migration = spawnSync(
+    process.execPath,
+    [
+      'node_modules/wrangler/bin/wrangler.js',
+      'd1',
+      'migrations',
+      'apply',
+      'STATE_DB',
+      '--local',
+      '--config',
+      stateConfig,
+      '--persist-to',
+      join(dir, 'worker'),
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(migration.status, 0, migration.stdout + migration.stderr);
+}
 const worker = spawn(
   process.execPath,
   [
     'node_modules/wrangler/bin/wrangler.js',
     'dev',
+    ...(stateConfig ? ['--config', stateConfig] : []),
     '--ip',
     '127.0.0.1',
     '--port',
@@ -2345,9 +2370,16 @@ try {
       c.hostId === enrolled.hostId,
   );
   await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
+  const visitorGrantRow = page.locator(
+    `[data-credential-id="${visitorGrant.id}"]`,
+  );
+  const visitorGroup = page
+    .locator('details.device-group')
+    .filter({ has: visitorGrantRow });
+  if ((await visitorGroup.getAttribute('open')) === null)
+    await visitorGroup.locator(':scope > summary').click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page
-    .locator(`[data-credential-id="${visitorGrant.id}"]`)
+  await visitorGrantRow
     .getByRole('button', { name: '撤销 网页客户端', exact: true })
     .click();
   await wait(
