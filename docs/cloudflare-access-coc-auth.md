@@ -6,7 +6,7 @@
 
 本项目使用以下认证规则：
 
-- 只有浏览器用户通过 Cloudflare 验证邮箱；已验证邮箱关联数据库中的全部 Agent（A）网页授权，换浏览器后自动恢复，无需重新配对或输入连接 Key。
+- 普通浏览器入口通过 Cloudflare 验证邮箱，访客入口仅使用 CoC 授权；已验证邮箱关联数据库中的全部 Agent（A）网页授权，换浏览器后自动恢复，无需重新配对或输入连接 Key。
 - 所有 `coc-agent`、`coc-client` 以及项目运维工具使用同一组 Service Token，免邮箱登录通过 Access。Agent / CLI 的实际权限仍由各自的 CoC API Key 或设备凭据控制。
 - 配置的管理员邮箱自动获得 owner 管理权限；其他邮箱用户输入正确的 `OWNER_SECRET` 后也可进入管理。
 - Service Token 准入完全由 Cloudflare Access 策略控制。Worker 验证 JWT 签名、issuer、audience 和时间后，仅按有效邮箱关联用户 Key / 主机授权；无邮箱请求继续使用 CoC API Key / 设备凭据鉴权。Worker 不导入、不保存、不校验项目 Service Token。
@@ -57,21 +57,20 @@ HTTP 控制、配对订阅、异步回执、Agent 上行、历史连接及下载
 
 ## Worker 配置与 Cloudflare 策略
 
-| Worker 变量               | 说明                                                                          |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `ACCESS_ENABLED`          | `true` 开启 JWT 校验及邮箱关联；缺省或 `false` 保留旧部署模式                 |
-| `ACCESS_TEAM_DOMAIN`      | 固定团队 issuer，例如 `https://your-team.cloudflareaccess.com`，不带末尾斜杠  |
-| `ACCESS_AUD`              | 此 Access 应用的 audience tag                                                 |
-| `ADMIN_EMAIL`             | 唯一自动获得管理权限的邮箱；不配置则只支持管理员密钥登录                      |
-| `OWNER_SECRET`            | 继续保留原有管理员密钥，至少 32 字符，供其他邮箱管理登录及 owner 会话版本校验 |
-| `ACCESS_PUBLIC_DOWNLOADS` | `true` 仅豁免 `/downloads`、`/downloads/` 子路径的 Worker Access 校验         |
-| `ACCESS_PUBLIC_HEALTH`    | `true` 仅豁免 `/api/v1/healthz` 的 Worker Access 校验                         |
+| Worker 变量            | 说明                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `ACCESS_ENABLED`       | `true` 开启 JWT 校验及邮箱关联；缺省或 `false` 保留旧部署模式                 |
+| `ACCESS_TEAM_DOMAIN`   | 固定团队 issuer，例如 `https://your-team.cloudflareaccess.com`，不带末尾斜杠  |
+| `ACCESS_AUD`           | 此 Access 应用的 audience tag                                                 |
+| `ADMIN_EMAIL`          | 唯一自动获得管理权限的邮箱；不配置则只支持管理员密钥登录                      |
+| `OWNER_SECRET`         | 继续保留原有管理员密钥，至少 32 字符，供其他邮箱管理登录及 owner 会话版本校验 |
+| `ACCESS_PUBLIC_HEALTH` | `true` 仅豁免 `/api/v1/healthz` 的 Worker Access 校验                         |
 
 团队 issuer、audience 缺失或格式错误时，启用模式拒绝受保护请求，不自动降级。管理员邮箱格式错误也会报告配置错误。邮箱匹配保留 local-part 大小写并将域名转小写；管理员配置应使用 Access 返回的邮箱形式，不合并点号或 `+` 别名。
 
 Cloudflare 侧采用 **hostname-based Access** 应用，覆盖网页、API 和 WS。当前 Worker-level Access 不支持 WebSocket；本项目不使用该保护模式。[官方限制](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
 
-同一个 Access 应用必须关联以下两条独立策略，不能合并：
+受保护的主 Access 应用必须关联以下两条独立策略，不能合并：
 
 1. 普通用户策略：Action 为 `Allow`，Include 匹配允许的邮箱、邮箱域或 One-time PIN 登录方式，供浏览器用户使用。
 2. 服务策略：Action 为 `Service Auth`，Include 选择 `Service Token` 并指定项目使用的 Token，供 Agent / CLI / 运维工具使用。
@@ -82,11 +81,19 @@ Cloudflare 侧采用 **hostname-based Access** 应用，覆盖网页、API 和 W
 
 浏览器 Allow 可以限制指定邮箱 / 邮箱域，也可明确选择 `Include → Login Methods → One-time PIN` 允许所有验证邮箱进入申请页面。验证邮箱本身不会授予任意 A 权限。管理员邮箱也必须通过这层策略。[Access 策略](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
 
-`wrangler.jsonc` 已设置 `run_worker_first: true`，让静态资源也经过 Worker 校验；`workers_dev` 与预览 URL 继续关闭。下载、健康检查若选择公开，Cloudflare 边缘例外和 Worker 变量必须一致。否则更新、部署和监控应携带共享 Token。
+`wrangler.jsonc` 已设置 `run_worker_first: true`，让静态资源也经过 Worker 校验；`workers_dev` 与预览 URL 继续关闭。`/downloads` 前缀在 Worker 中默认公开，无需设置 `ACCESS_PUBLIC_DOWNLOADS`。`/guest` 与其子路径提供完整访客 CW：资源、API 和 WS 都走该前缀，不要求 Access JWT 或邮箱，仍执行 CoC 凭据、角色、主机和撤销检查。Cloudflare 边缘也须为这些路径配置公开例外或 Bypass，否则仍会先被 Access 拦截。健康检查是否公开继续由 `ACCESS_PUBLIC_HEALTH` 和对应边缘规则控制。
 
 Worker 优先使用 `Cf-Access-Jwt-Assertion` 校验 RS256 签名、固定 issuer、audience、Token 类型和有效期；仅在请求头不存在时，读取唯一的 `CF_Authorization` Cookie 并执行同一套校验。重复应用 Cookie、超长 Token 和无效签名均拒绝；已有但无效的请求头不能通过 Cookie 回退绕过。Worker 不校验共享 Token；仅从已验证 JWT 的邮箱 claim 建立用户身份，无邮箱时不建立邮箱关联。认证错误只返回固定失败阶段（`token / keys_* / key_id / signature / claims / identity`），不返回 Token、邮箱、预期配置或底层异常。JWKS 来自固定团队证书地址，使用 Worker 支持的 `redirect: manual` 并显式拒绝非成功响应，不跟随重定向；缓存五分钟；未知 key 可触发刷新，间隔至少三十秒。不会使用未验证 JWT 中的地址取钥。Static Assets 内部路由不传递 `ctx.access`，因此不依赖 `ctx.access.getIdentity()`。[JWT 验证](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)、[Static Assets 限制](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
 
 附加的邮箱 Header 不能建立用户身份，只有已验证 JWT 中的有效邮箱 claim 才用于关联用户 Key / 主机授权。没有邮箱时不授予用户或管理员权限；机器 API Key / 设备凭据继续决定角色、主机与撤销状态。Client 请求头是否存在不参与 Worker 鉴权。
+
+## 访客入口与公开下载
+
+`/guest` 以 307 跳转到 `/guest/` 并保留查询参数。网页使用相对资源 URL；访客 API 和 WS 分别位于 `/guest/api/v1/`、`/guest/ws/v1/`。Worker 仅对访客请求关闭邮箱流程，不修改共享 Env 或 Durable Object 全局配置；向内部 Registry 发送由服务端决定的邮箱要求标记，外部请求头不会转发该标记。
+
+访客仍需 CoC 配对审批，或使用有效 API Key / 设备凭据；访客 Cookie 使用独立 `coc_guest_…` 名称与 `/guest` 路径，配对 Cookie 限定 `/guest/api/v1/auth/device`。未批准、无凭据、跨主机、已撤销、错误角色和跨域访问继续拒绝；邮箱自动授权恢复及自动管理员登录不用于访客入口。普通 `/api/` 和 `/ws/` 保持原有 Access 保护，不能通过伪造内部标记关闭邮箱要求。
+
+Cloudflare 的 hostname Access 应用位于 Worker 之前，因此还须在边缘公开访客及下载路径。可以在应用 destination 中配置 public path overrides，或用更具体的路径应用配置 Bypass；匹配范围须覆盖 `/guest` 及子路径、`/downloads` 前缀，不能公开整个普通 `/api/` 或 `/ws/`。更具体路径规则优先，override 如需覆盖子路径必须带相应通配符。见 [Access 应用路径](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)和 [destination overrides](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/create/)。
 
 ## 邮箱与 A 授权持久化
 
@@ -153,7 +160,7 @@ owner 管理权不直接替代网页会话控制权。管理员要操作某个 A
 
 - `npm test`：JWT 签名和字段拒绝、无原始 Client 头的机器 API Key 登录、无邮箱权限隔离、伪造邮箱、跨邮箱隔离、首次领取、跨浏览器恢复、管理员邮箱 / 密钥登录、配置变更、授权撤销及旧凭据迁移。
 - `npm run test:tls`：实际原生 HTTPS/WSS、代理 CONNECT 不携带 Token、证书校验、无网络代理的 TUI 桥接、非可信 origin 不发送 Token、登录 HTML 拒绝。
-- `npm run test:access:web`：两个新浏览器恢复邮箱 A 列表、管理员邮箱自动进入管理、其他邮箱输入密钥管理；使用合成身份，真实 JWT 授权在服务端测试中验证。
+- `npm run test:access:web`：浏览器验证邮箱 A 列表恢复、管理员登录、条件登出及访客 URL 前缀；隔离真实 Worker 验证访客资源、公开下载、CoC 配对、WS 订阅及撤销。浏览器邮箱部分使用合成身份，真实 JWT 校验另由服务端测试覆盖。
 - 部署前仍需用真实 Access 应用验证用户 / Service Auth 策略、转发到 Worker 的请求头、静态资源、Token 过期 / 轮换及 WS 重连。当前未使用线上凭据执行这些集成操作。
 
 测试结果与平台限制见 [TEST_REPORT.md](TEST_REPORT.md)，用户操作见 [USER_GUIDE.md](USER_GUIDE.md)。

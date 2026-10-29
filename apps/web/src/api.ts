@@ -1,4 +1,5 @@
 import { observe } from './notifications.ts';
+import { relayPath } from './routes.ts';
 let emailAccount = '';
 const restoredHosts = new Map<string, Promise<void>>();
 export function setEmailAccount(accountId: string) {
@@ -51,7 +52,7 @@ export async function api(
       (data as { hostId?: string } | undefined)?.hostId;
     if (hostId) await ensureEmailHost(hostId);
   }
-  const response = await fetch('/api/v1' + path, {
+  const response = await fetch(relayPath('/api/v1' + path), {
     method: data === undefined ? 'GET' : 'POST',
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(30000)])

@@ -9,7 +9,6 @@ export interface Env {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
   ADMIN_EMAIL?: string;
-  ACCESS_PUBLIC_DOWNLOADS?: string;
   ACCESS_PUBLIC_HEALTH?: string;
   REGISTRY: DurableObjectNamespace;
   HOSTS: DurableObjectNamespace;
@@ -92,6 +91,10 @@ export async function registryCall(
   const started = Date.now();
   const r = await registry(env).fetch('https://internal/' + op, {
     method: 'POST',
+    headers: {
+      'x-coc-email-auth':
+        env.ACCESS_ENABLED === 'true' ? 'required' : 'optional',
+    },
     body: JSON.stringify(data),
   });
   console.log(

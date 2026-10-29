@@ -9,6 +9,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('browser request recovery', () => {
+  it.each([
+    ['/', '/api/v1/auth/email'],
+    ['/guest/', '/guest/api/v1/auth/email'],
+    ['/guest-other', '/api/v1/auth/email'],
+  ])('uses the matching API namespace at %s', async (pathname, expected) => {
+    vi.stubGlobal('location', new URL('https://relay.test' + pathname));
+    const fetch = vi.fn().mockResolvedValue(response({ enabled: false }));
+    vi.stubGlobal('fetch', fetch);
+    await api('/auth/email');
+    expect(fetch.mock.calls[0][0]).toBe(expected);
+  });
   it('retains a stable mutation identity and applies a deadline', async () => {
     const fetch = vi.fn().mockResolvedValue(response({}));
     vi.stubGlobal('fetch', fetch);

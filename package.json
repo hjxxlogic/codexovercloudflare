@@ -25,7 +25,7 @@
     "format:cpp": "find native -type f \\( -name '*.cpp' -o -name '*.hpp' \\) -exec clang-format -i {} +",
     "lint:cpp": "python3 scripts/check-cpp-format.py",
     "test:tls": "tsx tests/native-tls.ts && tsx tests/native-access.ts",
-    "test:access:web": "tsx tests/browser-access.ts",
+    "test:access:web": "tsx tests/browser-access.ts && tsx tests/guest-access.ts",
     "test:wake": "tsx tests/native-wake.ts && tsx tests/ui-wake.ts",
     "client": "./build/coc-client",
     "test:ui": "tsx tests/ui-stability.ts",

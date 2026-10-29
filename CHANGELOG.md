@@ -1,5 +1,11 @@
 # 更新日志
 
+## 未发布 · CW 邮箱登出与 guest 入口 · 2026-10-29
+
+- 存在邮箱身份时，CW 功能菜单新增“登出”，跳转到指定的 Cloudflare Access 退出地址，支持中英文文案。
+- 新增完整 `/guest` 访客 CW 流程，资源、API 和 WebSocket 都走访客前缀，免 Access 邮箱验证但保留 CoC 配对、权限和撤销；使用独立 Cookie 名称及路径，普通入口继续 Access 保护。
+- `/downloads` 前缀默认公开；Cloudflare 边缘需同步配置访客及下载路径的公开例外。
+
 ## 未发布 · 更新项目共享 Access 凭据 · 2026-10-29
 
 - 按用户授权，仅在 `AGENTS.md` 豁免项目共享 Access Token 配置文件并提交轮换值，使后续 CI 构建的 Agent / CLI 使用当前入口凭据；其他密钥继续禁止提交。Worker 不导入此文件。

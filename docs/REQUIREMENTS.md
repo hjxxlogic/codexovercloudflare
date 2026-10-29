@@ -2,9 +2,9 @@
 
 ## Cloudflare Access 与邮箱授权增补（2026-10-28）
 
-- 同一个 Cloudflare Access 应用必须分别关联普通用户 `Allow` 策略及服务令牌 `Service Auth` 策略，不能合并为一条策略。
+- 受保护的主 Cloudflare Access 应用必须分别关联普通用户 `Allow` 策略及服务令牌 `Service Auth` 策略，不能合并为一条策略。
 
-- 只有 Web 用户需要验证邮箱。A / CC 和相关工具共用项目明文 Service Token，编译默认值来自同一配置；Cloudflare Access 独立负责 Service Token 准入；Worker 不依赖项目 Token 配置或 Client 字段，只使用已验证邮箱关联用户 Key，CoC API Key 继续决定原生角色及目标。A / CC 支持成对环境变量覆盖文件或内置 Client ID / Secret，但不得扩大可信 origin；缺失、空值或非法值必须拒绝。
+- 普通 Web 入口验证邮箱，访客入口仅按 CoC 授权。A / CC 和相关工具共用项目明文 Service Token，编译默认值来自同一配置；Cloudflare Access 独立负责 Service Token 准入；Worker 不依赖项目 Token 配置或 Client 字段，只使用已验证邮箱关联用户 Key，CoC API Key 继续决定原生角色及目标。A / CC 支持成对环境变量覆盖文件或内置 Client ID / Secret，但不得扩大可信 origin；缺失、空值或非法值必须拒绝。
 - 一个已验证邮箱在数据库中关联全部获批 A。新浏览器完成邮箱登录后恢复授权，不重复配对；未获批邮箱不能访问其他人的 A，原生 Agent Key 不下发给网页。
 - 唯一配置的管理员邮箱自动获得 owner，其他邮箱凭正确管理员密钥进入管理。自动管理、密钥管理、web 会话角色独立；邮箱或配置切换不能复用错误身份的 Cookie。
 - 首次授权、迁移和撤销必须事务化；授权撤销作用于该邮箱 / A 的所有浏览器，A 撤销级联失效。未启用 Access 时旧部署行为保留。完整实现与验收见 [Access 说明](cloudflare-access-coc-auth.md)。
@@ -237,3 +237,9 @@ Agent 登录生成的 JSON 必须包含全部可选配置的默认值，嵌套�
 管理页面的待授权、设备、唤醒配置和 API Key 列表以原生表格展示，窄屏滚动局限于表格区域，并保留按行审批、目标锁定、保存及撤销。
 
 CW 可由用户显式开启当前会话自动批准，默认关闭，包含命令、文件修改和本轮额外权限。设置不持久化、不跨标签页，切换会话 / 管理页面或刷新即关闭；断线或审批通道不可用时暂停。不得绕过服务器上限、替代身份授权或修改 Agent 配置。未知、不支持及已提交请求不自动答复；重复同步、同会话重连和反复开关不得自动重复发送已尝试的决定。保留逐项手动操作及请求上下文。
+
+## 访客 CW 与邮箱登出 · 2026-10-29
+
+- `/guest` 及其资源、API、WS 提供完整访客流程，免 Access 邮箱认证，仅按原有 CoC 凭据授权；Cookie 名称和路径与普通入口隔离，普通入口不可被伪造访客标记绕过。
+- `/downloads` 前缀默认免认证；边缘 Access 例外需覆盖访客及下载路径，但不得公开普通 API / WS。
+- 有邮箱身份时，CW 功能菜单提供“登出”，固定跳转用户指定的 Cloudflare Access logout 地址；无邮箱或管理员模式不显示该 CW 项。

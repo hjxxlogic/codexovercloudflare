@@ -99,6 +99,21 @@ async function host() {
     })
   ).data;
 }
+async function guestRequest(
+  path: string,
+  data?: unknown,
+  cookie = '',
+  extra: Record<string, string> = {},
+) {
+  return worker.fetch(
+    new Request('https://relay.test/guest' + path, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { Origin: 'https://relay.test', Cookie: cookie, ...extra },
+      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+    }),
+    env,
+  );
+}
 async function pair(email: string, hostId: string) {
   const start = await request('/api/v1/auth/device/start', email, {
     role: 'web',
@@ -175,6 +190,56 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Cloudflare Access signature and email identity', () => {
+  it.each(['/downloads', '/downloads/', '/downloads/index.json'])(
+    'serves public download path %s without Access authentication',
+    async (path) => {
+      const assets = vi.spyOn(env.ASSETS, 'fetch');
+      const response = await worker.fetch(
+        new Request(`https://relay.test${path}`),
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(assets).toHaveBeenCalledTimes(1);
+      expect((assets.mock.calls[0][0] as Request).url).toBe(
+        `https://relay.test${path}`,
+      );
+      const denied = await worker.fetch(
+        new Request('https://relay.test/api/v1/hosts'),
+        env,
+      );
+      expect(denied.status).toBe(401);
+    },
+  );
+  it('redirects the guest entry to its directory so relative assets stay public', async () => {
+    const response = await worker.fetch(
+      new Request('https://relay.test/guest?mode=cw'),
+      env,
+    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get('Location')).toBe(
+      'https://relay.test/guest/?mode=cw',
+    );
+  });
+  it.each([
+    ['/guest/', '/'],
+    ['/guest/assets/app.js', '/assets/app.js'],
+  ])('serves public guest resource %s as %s', async (path, assetPath) => {
+    const assets = vi
+      .spyOn(env.ASSETS, 'fetch')
+      .mockResolvedValue(new Response('asset'));
+    const response = await worker.fetch(
+      new Request(`https://relay.test${path}?mode=cw`),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('asset');
+    expect((assets.mock.calls[0][0] as Request).url).toBe(
+      `https://relay.test${assetPath}?mode=cw`,
+    );
+    expect(response.headers.get('Content-Security-Policy')).toContain(
+      "frame-ancestors 'none'",
+    );
+  });
   it.each([
     [
       'keys_network',
@@ -371,6 +436,127 @@ describe('Cloudflare Access signature and email identity', () => {
     await expect(
       verifyAccess(new Request('https://relay.test'), env),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('guest CoC authorization', () => {
+  it('pairs a guest without email and uses a separate scoped CoC cookie', async () => {
+    const target = await host();
+    const identity = await guestRequest('/api/v1/auth/email');
+    expect(await identity.json()).toEqual({ enabled: false });
+    const start = await guestRequest('/api/v1/auth/device/start', {
+      role: 'web',
+      name: 'Guest',
+      requestedHostId: target.hostId,
+      identity: { email: 'admin@test.com' },
+    });
+    expect(start.status).toBe(200);
+    const pending = (await start.json()) as any;
+    const pendingCookie = start.headers.get('Set-Cookie')!;
+    expect(pendingCookie).toContain('coc_guest_pending_');
+    expect(pendingCookie).toContain('Path=/guest/api/v1/auth/device;');
+    const waiting = await guestRequest(
+      '/api/v1/auth/device/poll',
+      { id: pending.id },
+      pendingCookie.split(';')[0],
+    );
+    expect(((await waiting.json()) as any).state).toBe('pending');
+    expect((await op('deviceApprove', { id: pending.id })).status).toBe(200);
+    const poll = await guestRequest(
+      '/api/v1/auth/device/poll',
+      { id: pending.id },
+      pendingCookie.split(';')[0],
+    );
+    expect(poll.status).toBe(200);
+    expect(((await poll.json()) as any).state).toBe('approved');
+    const cookie = poll.headers.get('Set-Cookie')!;
+    expect(cookie).toContain('coc_guest_web_' + target.hostId);
+    expect(cookie).toContain('Path=/guest;');
+    const authorized = await guestRequest(
+      '/api/v1/client/identity?hostId=' + target.hostId,
+      undefined,
+      cookie.split(';')[0],
+    );
+    expect(authorized.status).toBe(200);
+    const guestIdentity = ((await authorized.json()) as any).identity;
+    const socketFetch = vi.fn(async () => Response.json({ ok: true }));
+    vi.spyOn(env.HOSTS, 'get').mockReturnValue({
+      fetch: socketFetch,
+    } as unknown as DurableObjectStub);
+    const socket = await guestRequest(
+      '/ws/v1/hosts/' + target.hostId,
+      undefined,
+      cookie.split(';')[0],
+      { Upgrade: 'websocket' },
+    );
+    expect(socket.status).toBe(200);
+    expect((socketFetch.mock.calls as unknown as [Request][])[0][0].url).toBe(
+      'https://internal/subscribe',
+    );
+    const missing = await guestRequest(
+      '/api/v1/client/identity?hostId=' + target.hostId,
+    );
+    expect(missing.status).toBe(401);
+    const other = await host();
+    expect(
+      (
+        await guestRequest(
+          '/api/v1/client/identity?hostId=' + other.hostId,
+          undefined,
+          cookie.split(';')[0],
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (await guestRequest('/api/v1/auth/email/admin', {}, cookie.split(';')[0]))
+        .status,
+    ).toBe(403);
+    const regular = await request(
+      '/api/v1/client/identity?hostId=' + target.hostId,
+      'user@test.com',
+      undefined,
+      cookie.split(';')[0],
+    );
+    expect(regular.status).toBe(401);
+    const list = await request('/api/v1/hosts', 'user@test.com');
+    expect(list.data).toEqual([]);
+    expect((await op('credentialRevoke', { id: guestIdentity })).status).toBe(
+      200,
+    );
+    const revoked = await guestRequest(
+      '/api/v1/client/identity?hostId=' + target.hostId,
+      undefined,
+      cookie.split(';')[0],
+    );
+    expect(revoked.status).toBe(401);
+  });
+  it('keeps CoC authentication and origin checks on guest API and WebSocket routes', async () => {
+    const target = await host();
+    const socket = await guestRequest(
+      '/ws/v1/hosts/' + target.hostId,
+      undefined,
+      '',
+      { Upgrade: 'websocket' },
+    );
+    expect(socket.status).toBe(401);
+    const foreign = await guestRequest(
+      '/api/v1/auth/device/start',
+      { role: 'web', name: 'Guest' },
+      '',
+      { Origin: 'https://evil.test' },
+    );
+    expect(foreign.status).toBe(403);
+    expect(((await foreign.json()) as any).error.code).toBe('BAD_ORIGIN');
+    const admin = await guestRequest('/api/v1/admin/keys');
+    expect(admin.status).toBe(401);
+    const spoofed = await request(
+      '/api/v1/auth/device/start',
+      null,
+      { role: 'web', name: 'Guest' },
+      '',
+      { 'x-coc-email-auth': 'optional' },
+    );
+    expect(spoofed.status).toBe(403);
   });
 });
 

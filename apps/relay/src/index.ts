@@ -27,11 +27,19 @@ export { HostRelayDO } from './host.ts';
 
 const bearer = (r: Request) =>
   r.headers.get('authorization')?.match(/^Bearer (\S+)$/i)?.[1];
+function guestPath(path: string) {
+  return path === '/guest' || path.startsWith('/guest/');
+}
 function cookies(r: Request) {
+  const guest = guestPath(new URL(r.url).pathname);
   return new Map(
-    (r.headers.get('cookie') || '').split(';').map((s) => {
+    (r.headers.get('cookie') || '').split(';').flatMap((s) => {
       const i = s.indexOf('=');
-      return [s.slice(0, i).trim(), s.slice(i + 1)] as [string, string];
+      const name = s.slice(0, i).trim();
+      if (guest && !name.startsWith('coc_guest_')) return [];
+      return [
+        [guest ? name.replace(/^coc_guest_/, 'coc_') : name, s.slice(i + 1)],
+      ] as [string, string][];
     }),
   );
 }
@@ -42,6 +50,10 @@ function cookieHeader(
   maxAge: number,
   path = '/',
 ) {
+  if (guestPath(new URL(req.url).pathname)) {
+    name = name.replace(/^coc_/, 'coc_guest_');
+    path = '/guest' + (path === '/' ? '' : path);
+  }
   return `${name}=${value}; Path=${path}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${new URL(req.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
 async function authenticate(
@@ -112,18 +124,36 @@ function internal(
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
-      const u = new URL(req.url),
-        p = u.pathname;
+      const u = new URL(req.url);
+      const guest = guestPath(u.pathname);
+      if (u.pathname === '/guest') {
+        u.pathname = '/guest/';
+        return Response.redirect(u.toString(), 307);
+      }
+      if (guest) {
+        u.pathname = u.pathname.slice('/guest'.length) || '/';
+        env = { ...env, ACCESS_ENABLED: 'false' };
+      }
+      const p = u.pathname;
       const publicAccessPath =
-        (env.ACCESS_PUBLIC_DOWNLOADS === 'true' &&
-          (p === '/downloads' || p.startsWith('/downloads/'))) ||
+        guest ||
+        p.startsWith('/downloads') ||
         (env.ACCESS_PUBLIC_HEALTH === 'true' && p === '/api/v1/healthz');
       if (!publicAccessPath) await verifyAccess(req, env);
       if (p === '/api/v1/healthz' && req.method === 'GET')
         return json({ ok: true, version: '0.5.14', demand: 1, protocol: 1 });
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
-        const response = await env.ASSETS.fetch(req);
+        const assetRequest = guest ? new Request(u, req) : req;
+        const response = await env.ASSETS.fetch(assetRequest);
         const headers = new Headers(response.headers);
+        const redirect = headers.get('Location');
+        if (guest && redirect) {
+          const destination = new URL(redirect, u);
+          if (destination.origin === u.origin) {
+            destination.pathname = '/guest' + destination.pathname;
+            headers.set('Location', destination.toString());
+          }
+        }
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('Referrer-Policy', 'no-referrer');
         headers.set(

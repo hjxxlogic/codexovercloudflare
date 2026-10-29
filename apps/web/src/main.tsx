@@ -1,5 +1,6 @@
 import { setEmailAccount, ensureEmailHost, forgetEmailHost } from './api.ts';
 import { observe, recoverNotifications } from './notifications.ts';
+import { relayPath } from './routes.ts';
 import {
   t,
   localeTag,
@@ -1037,7 +1038,8 @@ function App() {
         );
         if (disposed) return;
         const ws = new WebSocket(
-          location.origin.replace(/^http/, 'ws') + '/ws/v1/web/' + selected.id,
+          location.origin.replace(/^http/, 'ws') +
+            relayPath('/ws/v1/web/' + selected.id),
         );
         socket.current = ws;
         handshake = setTimeout(() => ws.close(), 15000);
@@ -1370,8 +1372,7 @@ function App() {
         }
         const hs = new WebSocket(
           location.origin.replace(/^http/, 'ws') +
-            '/ws/v1/history/' +
-            selected.id,
+            relayPath('/ws/v1/history/' + selected.id),
         );
         historySocket.current = hs;
         const sync = () => {
@@ -2172,6 +2173,18 @@ function App() {
                   <small>{description}</small>
                 </button>
               ))}
+              {mode === 'cw' && emailIdentity.email && (
+                <button
+                  onClick={() =>
+                    window.location.assign(
+                      'https://r.xlogic.cc/cdn-cgi/access/logout',
+                    )
+                  }
+                >
+                  <strong>{t('登出')}</strong>
+                  <small>{t('退出当前邮箱登录')}</small>
+                </button>
+              )}
               {mode === 'admin' && admin && (
                 <button
                   onClick={() =>

@@ -444,9 +444,13 @@ export class RegistryDO extends DurableObject<Env> {
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
+        // This header is set only by the internal registry caller, never forwarded from clients.
+        const emailRequired =
+          accessEnabled(this.env) &&
+          req.headers.get('x-coc-email-auth') !== 'optional';
         const identity: AccessUser | undefined =
-          role === 'web' && accessEnabled(this.env) ? d.identity : undefined;
-        if (role === 'web' && accessEnabled(this.env) && !identity)
+          role === 'web' && emailRequired ? d.identity : undefined;
+        if (role === 'web' && emailRequired && !identity)
           throw new AppError(
             'ACCESS_USER_REQUIRED',
             'Verified email required',

@@ -282,6 +282,8 @@ export const english: Record<string, string> = {
   设备授权: 'Device access',
   审批与管理设备: 'Approve and manage devices',
   管理访问凭证: 'Manage access credentials',
+  登出: 'Sign out',
+  退出当前邮箱登录: 'Sign out of the email session',
   退出管理: 'Sign out of admin',
   结束当前管理员登录: 'End the administrator session',
   切换到: 'Switch to ',

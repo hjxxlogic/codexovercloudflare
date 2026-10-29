@@ -688,3 +688,11 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 - 发布源码 `1d22f4562e376fafbf979b184638900f15bf7e35`，[Actions 40815244914](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40815244914) 六项必要作业全部成功，包括原生环境覆盖和浏览器 Access 回归。Worker / web 产物摘要、提交、源码摘要均通过部署脚本检查。
 - Worker 部署并删除两个废弃 Access Secret 后，健康接口返回 200，首页及资源与已验证 CI 产物逐字节一致；无邮箱入口身份被邮箱 API 拒绝（403），无效 CoC API Key 被登录接口拒绝（401）。`OWNER_SECRET` 保留。未以真实浏览器重复管理员登录验收，未替换远端原生程序，未发布新原生下载包。
 - 证据：[部署与鉴权矩阵](assets/access-admission-2026-10-29/deployment.json)。凭据配置豁免由用户明确授权，仅覆盖项目共享配置文件；文档和证据不复制实际密钥值。
+
+## CW 邮箱登出与访客入口验证 · 2026-10-29
+
+- CW 菜单在存在邮箱身份时显示“登出”，固定跳转到用户指定的 Cloudflare Access logout URL。真实 Chromium 覆盖中英文、精确跳转、无邮箱隐藏、管理员模式隐藏，并继续通过原有邮箱授权恢复及管理员登录检查；退出目标由测试拦截，未访问线上 logout。截图保留在忽略目录 `.local/browser-access/email-sign-out.png`。
+- `/guest` 保留查询参数并跳转到 `/guest/`；资源、API 和 WS 均走访客前缀。浏览器检查确认访客请求没有落到普通 `/assets/`、`/api/` 或 `/ws/`。访客 Cookie 名称和路径与普通入口隔离，不关联邮箱授权。
+- Worker / Registry 回归覆盖免邮箱配对、内部邮箱要求标记不可从普通入口伪造、Cookie 作用域、无凭据拒绝、跨主机隔离、角色权限、CSRF、WS 授权及撤销。`/downloads` 前缀默认公开，普通 API 仍要求 Access。
+- `npm run test:access:web` 已在现有本地测试容器中完整通过：除浏览器检查外，真实 workerd 在普通入口启用 Access 时完成访客资源加载、公开下载、CoC 配对、真实配对通知与主机 WS 订阅；撤销凭据后 WS 以 4001 关闭，后续请求返回 401。使用隔离存储、临时测试凭据，无模型调用或生产请求。
+- 最终 135 项 Vitest、类型检查、lint、网页构建及 `git diff --check` 通过。本轮功能尚未提交或部署，未修改线上 Access 策略；生产需同步公开访客及下载路径的 Cloudflare 边缘规则。
