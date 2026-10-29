@@ -1,5 +1,10 @@
 # 更新日志
 
+## 未发布 · Access 准入职责分离 · 2026-10-29
+
+- Worker 移除项目 Service Token 导入、Secret 配置与机器凭据二次校验，修复 Cloudflare Access 移除原始 Client 请求头后机器请求被拒绝的问题；入口策略完全由 Cloudflare 控制。
+- Worker 继续验证 Access JWT，按有效邮箱关联已有用户 Key / 主机授权；无邮箱请求继续使用 CoC API Key / 设备凭据，不授予邮箱或管理员权限。
+
 ## 未发布 · 保存生产 Access 配置 · 2026-10-29
 
 - 保存已启用的生产 Access 团队域名、AUD、管理员邮箱与日志采样配置；本地开发及隔离集成测试显式关闭 Access，继续使用测试凭据。

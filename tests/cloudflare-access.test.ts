@@ -136,8 +136,6 @@ beforeEach(() => {
     ACCESS_TEAM_DOMAIN: issuer,
     ACCESS_AUD: 'coc-tests',
     ADMIN_EMAIL: 'admin@test.com',
-    CF_ACCESS_CLIENT_ID: 'test-client-id',
-    CF_ACCESS_CLIENT_SECRET: 'test-client-secret',
     REGISTRY: {
       idFromName: () => 'registry',
       get: () => ({
@@ -176,7 +174,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('Cloudflare Access signature and shared service token gate', () => {
+describe('Cloudflare Access signature and email identity', () => {
   it.each([
     [
       'keys_network',
@@ -288,21 +286,29 @@ describe('Cloudflare Access signature and shared service token gate', () => {
     await verifyAccess(preferred, env);
     expect(accessUser(preferred)?.email).toBe('user@test.com');
   });
-  it('keeps service-token cookie identities subject to both machine fields', async () => {
-    const value = await jwt(null, { email: 'admin@test.com' });
-    const headers = { Cookie: `CF_Authorization=${value}` };
-    await expect(
-      verifyAccess(new Request('https://relay.test', { headers }), env),
-    ).rejects.toMatchObject({ code: 'ACCESS_SERVICE_REJECTED' });
-    const request = new Request('https://relay.test', {
+  it('accepts a signed identity without email and grants no email permissions', async () => {
+    const value = await jwt(null);
+    const req = new Request('https://relay.test', {
+      headers: { Cookie: `CF_Authorization=${value}` },
+    });
+    await verifyAccess(req, env);
+    expect(accessUser(req)).toBeUndefined();
+    expect((await request('/api/v1/healthz', null)).status).toBe(200);
+    expect((await request('/api/v1/hosts', null)).status).toBe(403);
+    const admin = await request('/api/v1/auth/email/admin', null, {}, '', {
+      'Cf-Access-Authenticated-User-Email': 'admin@test.com',
+    });
+    expect(admin.status).toBe(403);
+    expect(admin.data.error.code).toBe('ACCESS_USER_REQUIRED');
+  });
+  it('uses the verified email claim without requiring a particular subject or common name', async () => {
+    const req = new Request('https://relay.test', {
       headers: {
-        ...headers,
-        'CF-Access-Client-Id': 'test-client-id',
-        'CF-Access-Client-Secret': 'test-client-secret',
+        'Cf-Access-Jwt-Assertion': await jwt(null, { email: 'user@test.com' }),
       },
     });
-    await verifyAccess(request, env);
-    expect(accessUser(request)).toBeUndefined();
+    await verifyAccess(req, env);
+    expect(accessUser(req)?.email).toBe('user@test.com');
   });
   it('rejects missing JWT, wrong signatures, algorithms, audience, issuer and expired claims', async () => {
     const good = await jwt('user@test.com');
@@ -331,44 +337,30 @@ describe('Cloudflare Access signature and shared service token gate', () => {
     await verifyAccess(request, env);
     expect(accessUser(request)?.email).toBe('user@test.com');
   });
-  it('requires both configured service fields even when the machine JWT is valid', async () => {
-    const token = await jwt(null, { email: 'admin@test.com' });
-    for (const fields of [
-      {},
-      { 'CF-Access-Client-Id': 'test-client-id' },
-      {
-        'CF-Access-Client-Id': 'test-client-id',
-        'CF-Access-Client-Secret': 'wrong',
-      },
-    ]) {
-      const r = new Request('https://relay.test', {
-        headers: { 'Cf-Access-Jwt-Assertion': token, ...fields } as Record<
-          string,
-          string
-        >,
-      });
-      await expect(verifyAccess(r, env)).rejects.toMatchObject({
-        code: 'ACCESS_SERVICE_REJECTED',
-      });
-    }
-    const r = new Request('https://relay.test', {
-      headers: {
-        'Cf-Access-Jwt-Assertion': token,
-        'CF-Access-Client-Id': 'test-client-id',
-        'CF-Access-Client-Secret': 'test-client-secret',
-      },
+  it('authenticates machines using CoC API keys without original Access credentials', async () => {
+    const key = (await op('apiKeyCreate', { name: 'machine', role: 'agent' }))
+      .data;
+    const login = await request('/api/v1/auth/api-key', null, {
+      role: 'agent',
+      name: 'machine',
+      apiKey: key.apiKey,
     });
-    await verifyAccess(r, env);
-    expect(accessUser(r)).toBeUndefined();
-    expect(
-      (
-        await request('/api/v1/auth/email/admin', null, {}, '', {
-          'CF-Access-Client-Id': 'test-client-id',
-          'CF-Access-Client-Secret': 'test-client-secret',
-          'Cf-Access-Authenticated-User-Email': 'admin@test.com',
-        })
-      ).status,
-    ).toBe(403);
+    expect(login.status).toBe(200);
+    expect(login.data.hostId).toBeTruthy();
+  });
+  it('does not interpret Client headers or a bearer as a second Access authentication scheme', async () => {
+    const response = await request(
+      '/api/v1/auth/email',
+      'user@test.com',
+      undefined,
+      '',
+      {
+        'CF-Access-Client-Id': 'not-a-worker-setting',
+        Authorization: 'Bearer invalid-coc-key',
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.data.email).toBe('user@test.com');
   });
   it('fails closed for incomplete configuration and preserves opt-out development', async () => {
     env.ACCESS_AUD = '';

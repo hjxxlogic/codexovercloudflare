@@ -12,6 +12,8 @@ Worker 优先验证 Access 转发的 `Cf-Access-Jwt-Assertion`；请求头缺失
 
 仓库的生产 `wrangler.jsonc` 已启用 Access，并保存对应团队域名、AUD 和管理员邮箱；`OWNER_SECRET` 与 Service Token Secret 覆盖值仍使用独立机密配置。本地 `npm run dev` 显式关闭 Access，专门验证 Access 的启动方式见 [开发说明](DEVELOPMENT.md)。
 
+Service Token 准入与轮换由 Cloudflare Access 策略负责。Worker 不导入项目 Service Token 配置，也不保存或校验 Client ID / Client Secret；轮换无需更新 Worker。Worker 验证 Access JWT 后，只按其中的邮箱关联已有用户 Key / 主机授权，无邮箱则继续使用 CoC API Key / 设备凭据鉴权。原生 Agent / CLI 的入口凭据仍需单独更新。部署脚本支持重复的 `--delete-secret NAME` 参数，在代码发布后删除已废弃的 Worker Secret 并记录删除结果。入口故障导致下载不可用时，可用 `--preserved-downloads /absolute/path/downloads` 提供此前已验证的下载快照；脚本重新核对清单中的每个包的 SHA256 后保留它们。
+
 Worker 开启 `ACCESS_ENABLED=true` 后必须配置 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`，并保留 `OWNER_SECRET`；未开启时继续原有配对 / 管理登录。出现 Access 登录过期提示时重新打开网站验证邮箱；错误中的 `token / keys_* / key_id / signature / claims / identity` 表示失败阶段，不包含登录凭据。`/cdn-cgi/access/get-identity` 返回 `no app token set` 时，浏览器尚未提供应用登录 Cookie，可先重新登录再刷新身份接口；机器连接失败则核对共享 Token、策略和 CoC 凭据。完整变量、下载策略和跨浏览器迁移见 [Access 接入说明](cloudflare-access-coc-auth.md)。
 
 ## 使用 CI 构建包更新 Agent

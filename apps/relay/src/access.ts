@@ -1,4 +1,3 @@
-import projectAccess from '../../../config/cloudflare-service-token.json';
 import { z } from 'zod';
 import { AppError } from '../../../packages/protocol/src/index.ts';
 import { digest, type Auth, type Env } from './common.ts';
@@ -64,39 +63,6 @@ export function bindBrowser(req: Request, env: Env, auth: Auth) {
     throw new AppError(
       'ACCESS_ACCOUNT_MISMATCH',
       'Sign in again with this email or explicitly migrate the legacy grant',
-      403,
-    );
-}
-export async function requireMachineAccess(req: Request, env: Env) {
-  if (!accessEnabled(env)) return;
-  if (!!env.CF_ACCESS_CLIENT_ID !== !!env.CF_ACCESS_CLIENT_SECRET)
-    throw new AppError(
-      'ACCESS_CONFIG',
-      'Configure the shared Cloudflare service token on the Worker',
-      503,
-    );
-  const id = req.headers.get('CF-Access-Client-Id') || '';
-  const secret = req.headers.get('CF-Access-Client-Secret') || '';
-  if (id.length > 4096 || secret.length > 4096)
-    throw new AppError(
-      'ACCESS_SERVICE_REJECTED',
-      'Invalid project service token',
-      403,
-    );
-  const actual = await digest(JSON.stringify([id, secret]));
-  const expected = await digest(
-    JSON.stringify([
-      env.CF_ACCESS_CLIENT_ID || projectAccess.clientId,
-      env.CF_ACCESS_CLIENT_SECRET || projectAccess.clientSecret,
-    ]),
-  );
-  let difference = 0;
-  for (let i = 0; i < expected.length; i++)
-    difference |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
-  if (difference)
-    throw new AppError(
-      'ACCESS_SERVICE_REJECTED',
-      'Invalid project service token',
       403,
     );
 }
@@ -249,11 +215,10 @@ export async function verifyAccess(req: Request, env: Env) {
       throw new Error('Claims');
     stage = 'identity';
     let user: AccessUser | undefined;
-    // Service tokens have empty sub and/or common_name; never promote them by an email claim.
     if (
-      typeof payload.sub === 'string' &&
-      payload.sub &&
-      !payload.common_name
+      payload.email !== undefined &&
+      payload.email !== null &&
+      payload.email !== ''
     ) {
       const email = normalizeEmail(payload.email);
       user = {
@@ -271,11 +236,4 @@ export async function verifyAccess(req: Request, env: Env) {
       401,
     );
   }
-  if (
-    !accessUser(req) ||
-    req.headers.has('authorization') ||
-    req.headers.has('CF-Access-Client-Id') ||
-    req.headers.has('CF-Access-Client-Secret')
-  )
-    await requireMachineAccess(req, env);
 }

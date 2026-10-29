@@ -1,6 +1,5 @@
 import {
   accessEnabled,
-  requireMachineAccess,
   accessUser,
   requireAccessUser,
   verifyAccess,
@@ -227,7 +226,6 @@ export default {
         );
       }
       if (p === '/api/v1/auth/api-key' && req.method === 'POST') {
-        await requireMachineAccess(req, env);
         const d = await body(req);
         return json(
           await registryCall(env, 'apiKeyLogin', {
@@ -238,7 +236,6 @@ export default {
       }
       if (p === '/api/v1/auth/device/start' && req.method === 'POST') {
         const d = await body(req);
-        if (d.role !== 'web') await requireMachineAccess(req, env);
         const result = await registryCall(env, 'deviceStart', {
           ...d,
           identity:

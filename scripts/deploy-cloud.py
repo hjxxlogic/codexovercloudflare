@@ -36,12 +36,14 @@ def unpack(archive, digest, commit, output):
     return identity
 
 
-def preserve_downloads(base, site, cache):
+def preserve_downloads(base, site, cache, saved=None):
     target = site / 'downloads'
     target.mkdir(exist_ok=True)
-    manifest_bytes = agent.curl(base + '/downloads/index.json')
+    def read(name):
+        return (saved / name).read_bytes() if saved else agent.curl(base + '/downloads/' + name)
+    manifest_bytes = read('index.json')
     manifest = json.loads(manifest_bytes)
-    sums_bytes = agent.curl(base + '/downloads/SHA256SUMS')
+    sums_bytes = read('SHA256SUMS')
     sums = dict(line.split('  ', 1)[::-1] for line in sums_bytes.decode().splitlines())
     for name in manifest['files']:
         if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]+', name):
@@ -51,13 +53,16 @@ def preserve_downloads(base, site, cache):
             raise RuntimeError('Missing published package checksum')
         cached = cache / name
         if not cached.exists() or hashlib.sha256(cached.read_bytes()).hexdigest() != expected:
-            agent.curl(base + '/downloads/' + name, cached)
+            if saved:
+                shutil.copyfile(saved / name, cached)
+            else:
+                agent.curl(base + '/downloads/' + name, cached)
         if hashlib.sha256(cached.read_bytes()).hexdigest() != expected:
             raise RuntimeError('Published package checksum mismatch: ' + name)
         shutil.copyfile(cached, target / name)
     (target / 'index.json').write_bytes(manifest_bytes)
     (target / 'SHA256SUMS').write_bytes(sums_bytes)
-    (target / 'index.html').write_bytes(agent.curl(base + '/downloads/'))
+    (target / 'index.html').write_bytes(read('index.html') if saved else agent.curl(base + '/downloads/'))
     return manifest
 
 
@@ -124,8 +129,14 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--delete-secret', action='append', default=[],
+                        help='Remove an obsolete Worker secret after publishing the verified code')
+    parser.add_argument('--preserved-downloads', type=pathlib.Path,
+                        help='Previously verified download directory for recovery when the live endpoint is unavailable')
     parser.add_argument('--publish-downloads', action='store_true', help='Publish all four native platforms from this same verified Actions run')
     args = parser.parse_args()
+    if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', name) for name in args.delete_secret):
+        parser.error('Invalid secret name')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
         parser.error('Invalid repository')
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', '--end-of-options',
@@ -167,7 +178,7 @@ def main():
     base = 'https://' + routes[0]['pattern']
     cache = ROOT / '.local/deploy-cloud/download-cache'
     cache.mkdir(parents=True, exist_ok=True)
-    manifest = preserve_downloads(base, output / 'site', cache)
+    manifest = preserve_downloads(base, output / 'site', cache, args.preserved_downloads)
     published = None
     if args.publish_downloads:
         bundles = {}
@@ -187,6 +198,8 @@ def main():
     evidence = {'commit': commit, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
+    if args.preserved_downloads:
+        evidence['preservationSource'] = 'previously verified local download snapshot; package SHA256 rechecked'
     evidence_path = output / 'deployment.json'
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     if not args.apply:
@@ -203,6 +216,12 @@ def main():
     evidence['applied'] = True
     evidence['verification'] = 'pending'
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
+    for name in args.delete_secret:
+        subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
+                        'secret', 'delete', name, '--config', str(config_path)],
+                       cwd=ROOT, input='y\n', text=True, check=True)
+        evidence.setdefault('deletedSecrets', []).append(name)
+        evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     health = json.loads(agent.curl(base + '/api/v1/healthz'))
     for path in [output / 'site/index.html', *sorted((output / 'site/assets').glob('*')),
                  output / 'site/downloads/USER_GUIDE.md', output / 'site/downloads/index.json',

@@ -9,8 +9,6 @@ export interface Env {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
   ADMIN_EMAIL?: string;
-  CF_ACCESS_CLIENT_ID?: string;
-  CF_ACCESS_CLIENT_SECRET?: string;
   ACCESS_PUBLIC_DOWNLOADS?: string;
   ACCESS_PUBLIC_HEALTH?: string;
   REGISTRY: DurableObjectNamespace;

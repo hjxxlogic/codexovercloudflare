@@ -666,3 +666,9 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 - 本轮发布下载包及站点，不直接替换已有用户 Agent / CLI 服务，未发送管理员版本通知或操作真实设备、会话。现有程序升级到 0.5.13 后获得新版本检查行为；取消版本号限制不代表所有 Codex 版本的 API 均已验收。
 
 证据：[Actions](assets/release-0.5.13/actions-verification.json)、[产物](assets/release-0.5.13/package-verification.json)、[部署](assets/release-0.5.13/deployment.json)、[线上核验](assets/release-0.5.13/online-verification.json)。本节为发布后的证据提交，不改写发行源码、标签或归档。
+
+## Access 准入职责分离 · 2026-10-29
+
+- 线上短时诊断确认：Access 放行的请求到达 Worker 时仅含签名 assertion，原始 Client ID / Secret 头均缺失；原有 Worker 二次校验因此返回 `ACCESS_SERVICE_REJECTED`。诊断仅输出请求头名称，不记录到公开文档中的凭据。
+- 按用户要求移除 Worker 对共享 Token JSON、环境变量与机器 Client 头的依赖。保留 JWT 签名、issuer、AUD、时间校验与邮箱关联；无邮箱机器请求仍须通过 CoC API Key / 设备授权。新增回归覆盖缺失 Client 头的机器登录、无邮箱权限边界、签名邮箱提取，以及 Client 头不影响邮箱识别。
+- 本地 124 项 Vitest、类型检查与 lint 通过；生产部署须等待本次源码提交的全部 CI 必需作业完成，部署与线上验证另行记录。
