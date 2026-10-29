@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布 · 更新项目共享 Access 凭据 · 2026-10-29
+
+- 按用户授权，仅在 `AGENTS.md` 豁免项目共享 Access Token 配置文件并提交轮换值，使后续 CI 构建的 Agent / CLI 使用当前入口凭据；其他密钥继续禁止提交。Worker 不导入此文件。
+
 ## 未发布 · 原生 Access 环境覆盖 · 2026-10-29
 
 - Agent / CLI 支持成对的 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET` 环境变量，优先覆盖文件与内置凭据，保持可信 origin 隔离，拒绝缺失、空值及非法请求头字符。

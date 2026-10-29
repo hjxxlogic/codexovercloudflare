@@ -13,7 +13,7 @@
 
 ## 项目共享 Service Token
 
-[config/cloudflare-service-token.json](../config/cloudflare-service-token.json) 仅供 Agent、CLI 和运维工具使用，Worker 不导入此配置。按项目要求，该 Token 随源码保存，定位为免邮箱验证的项目入口凭据；CoC API Key、所有者密钥、用户会话凭据仍按原有私密凭据规则管理。
+[config/cloudflare-service-token.json](../config/cloudflare-service-token.json) 仅供 Agent、CLI 和运维工具使用，Worker 不导入此配置。按用户明确授权，`AGENTS.md` 仅对这个文件豁免禁止提交密钥的规则；该 Token 随源码保存，定位为免邮箱验证的项目入口凭据，便于 CI 在轮换后生成包含当前凭据的 Agent / CLI；CoC API Key、所有者密钥、用户会话凭据仍按原有私密凭据规则管理。
 
 配置包括：
 

@@ -49,4 +49,4 @@ Every functional change must update affected documents under `docs/` in the same
 
 ## Security & Configuration
 
-Never commit secrets, `.local/`, `.dev.vars`, or SQLite state. Preserve RPC allowlists, sandbox policies, explicit approvals, and TLS verification. Do not infer production deployment from `r.xlogic.cc`.
+Never commit secrets, `.local/`, `.dev.vars`, or SQLite state, with one explicitly authorized exception: `config/cloudflare-service-token.json` may contain and commit the project's shared Cloudflare Access entry token (`clientId` / `clientSecret` and trusted origins). This exception allows Agent / CLI builds to embed the current shared entry credentials; it does not apply to CoC API keys, owner secrets, session credentials, or any other file. Cloudflare Access controls entry admission; CoC credentials remain authoritative for roles and host permissions. Preserve RPC allowlists, sandbox policies, explicit approvals, and TLS verification. Do not infer production deployment from `r.xlogic.cc`.

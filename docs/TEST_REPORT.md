@@ -677,3 +677,8 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 
 - 共享原生初始化支持 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` 成对覆盖文件及内置凭据，保留可信 origin 列表且不写回配置。C++ 回归覆盖文件 / 内置覆盖、单字段、空值、换行与 origin 隔离；原生 HTTPS/WSS 测试使用不同的文件值及环境值，确认请求实际采用环境值。
 - 本地 124 项 Vitest、类型检查、lint、C++ 格式检查与原生构建通过；CTest native-core（39.34 秒）及真实本机 HTTPS/WSS / TUI 桥接环境覆盖验证通过，不调用模型。生产部署仍须等待对应源码的全部 CI 必需作业。
+
+## 项目共享入口凭据更新 · 2026-10-29
+
+- 用户明确授权提交 `config/cloudflare-service-token.json` 并要求修改 `AGENTS.md`：豁免只覆盖此文件中的共享 Access 入口凭据及可信 origin，不覆盖 CoC API Key、所有者密钥、会话凭据或其他文件。CI 后续原生构建内置新 Secret；Worker 已移除该配置依赖。文档不记录具体值。
+- 取消此前源码提交的本地自动部署等待，改为等待包含轮换值的新提交全部 CI 必需作业通过。
