@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 0.5.14 实际部署 · 2026-10-29
+
+- 源码 `25a6bc80dc35a2d01a4d940d21abddbcca7f737d` 的 [Actions 40710590901](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901) 六项必要作业全部成功。通过仓库云端部署脚本核验并发布同源 Worker、网页和四平台下载包；Worker 版本 `ac25bf62-6f91-45fe-90fd-9189a49e0a6a`。
+- 线上 health 0.5.14 / protocol 1 正常，网页资源、手册、清单和 SHA256SUMS 字节一致；四平台包及源码包重新下载后 SHA256 全部一致。未登录 hosts 401、跨域管理登录 403、首页 200 / CSP 正常。
+- 保留 vars / secrets、DO 数据及现有 Agent 服务；未创建 GitHub Release、重启用户会话或调用模型。真实 Access 邮箱登录及长期稳定性未验收，保留原有 Access 配置不代表已启用边缘 Access。[部署状态](DEPLOYMENT_STATUS.md)及[摘要证据](assets/release-0.5.14/deployment.json)。
+
 ## Cloudflare Access、邮箱授权及管理员邮箱 · 2026-10-28（本地未发布）
 
 - 实现项目共享 Token 的原生内置默认值与 Worker 双字段硬校验、JWT 验证、邮箱持久 A 授权、跨浏览器恢复、旧凭据迁移及管理员邮箱自动登录。按项目要求，入口 Token 明文保存在 `config/cloudflare-service-token.json`；实际 CoC Key / owner 密钥不进入源码。

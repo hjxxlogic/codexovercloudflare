@@ -1,24 +1,13 @@
-# 发布状态：0.5.12 + 管理列表同步修复
+# 发布状态：0.5.14
 
-更新时间：2026-10-27。Worker 与在线手册已更新，原生下载沿用已验证的 v0.5.12 四平台包。
+更新时间：2026-10-29。Worker、网页、在线手册及四平台原生下载包已部署。
 
-## 当前 Worker 与网页
+- 源码 `25a6bc80dc35a2d01a4d940d21abddbcca7f737d`，源码摘要 `64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0`。
+- [Actions 40710590901](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901) 已完成且成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必要作业全部通过；分支 publish-release 正常跳过。
+- 部署目标 `https://r.xlogic.cc`，Worker 版本 `ac25bf62-6f91-45fe-90fd-9189a49e0a6a`。通过 `scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 使用 CI 产物部署，逐一验证 GitHub artifact SHA256 和来源身份，未使用本地构建代替。
+- 下载清单已更新为 0.5.14，包含 Ubuntu 20.04、Debian 12、Linux musl、Windows x64 和源码包；线上五个归档均重新下载并核对 SHA256。源码归档采用已核验的 Ubuntu 产物，与发行合并脚本的规范选择一致。
+- health 返回 `ok: true`、version `0.5.14`、protocol `1`；首页、JS / CSS、手册、下载清单与校验和均与暂存 CI 资源逐字节一致。未登录 hosts 返回 401，跨域管理登录返回 403；首页 200 且包含 CSP。
 
-- 源码 `ea659cf9f76afa97321f9f3aee60d15339f0e883`，管理操作和手动刷新统一等待设备 / Key / 主机快照，避免通知漏失时已授权设备与唤醒列表不一致；同时包含 DO 通知优化及独立的旧协议主机过滤修复。
-- [Actions 40435416363](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40435416363)：regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 六个检查作业全部成功；分支发布作业跳过。
-- 生产 `https://r.xlogic.cc`；Worker `c92768d5-ac11-4c3b-9c79-15ad92499a7e` 于 `2026-10-27T02:02:33.382219Z` 上线，流量 100%。
-- 更新网页入口、新 JS 和在线手册，CSS 复用；保留生产 vars / secrets 和 DO 数据，无新增迁移。本次未发布新原生版本或发送新版本通知。
+保留生产 vars / secrets 和 Durable Object 数据；未直接替换或重启现有 Agent 服务，未创建 GitHub Release，未操作用户会话或调用模型。未验收真实 Cloudflare Access 浏览器邮箱登录、长期稳定性和实际模型任务；本次保留现有 Access 配置，不能据此认定边缘 Access 已启用。
 
-## 当前原生下载
-
-- 源码 `3b41fce53a89707c281f7b27683369383fc620ea`，标签 [v0.5.12](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.12)。
-- Ubuntu 20.04、Debian 12、Linux musl、Windows x64、源码及 SHA256 保持已发布内容。归档从 GitHub Release 获取并在前次 DO 优化部署前与原线上校验和逐一核对；本次继续复用相同内容。
-- 原生发行门禁：[Actions 40343777576](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40343777576) 七个作业成功。
-
-## 验证与边界
-
-本地 Vitest 95 项、类型、lint、Worker dry-run 和 Chromium 丢通知下的管理同步回归通过；源码 CI 包含真实 Wrangler / Chromium 完整回归。线上 health、401 / 403、首页 CSP、HTML / JS / CSS / 手册 / 下载清单与 SHA256 字节、手册 UTF-8 和五个归档 HEAD 通过。用户确认生产同名主机刷新后恢复一致，未将其认定为旧协议记录；未提交生产凭据或操作用户设备 / 会话，无模型调用。
-
-实际平台基线已采集，见 [DO 用量分析](do-usage-2026-10-27.md)。本次优化后的请求 / duration / 行读取收益和真实 24 小时受控验收仍待测量，不以旧基线证明新版本节费。
-
-证据见 [测试记录](TEST_REPORT.md)、[部署与 CI](assets/admin-snapshot-fix-2026-10-27/deployment.json) 和 [线上验证](assets/admin-snapshot-fix-2026-10-27/online-verification.json)。完整本机部署日志在忽略目录 `.local/admin-snapshot-fix/`。
+[部署、CI、产物摘要及线上包校验和](assets/release-0.5.14/deployment.json)。完整本机日志保存在忽略目录 `.local/deploy-cloud/40710590901/`。

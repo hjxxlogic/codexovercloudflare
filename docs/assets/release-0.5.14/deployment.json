@@ -1,0 +1,119 @@
+{
+  "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901",
+  "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+  "target": "https://r.xlogic.cc",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12825614383,
+      "digest": "sha256:ee4d615dc6b83e075db85aa051b5d660c6278b71b4eba6be507cfa9b34591f5c"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12826826837,
+      "digest": "sha256:0959801829a007f69c9f2352e744a8c4337c63deb793b657f1e72f7fa9c8e747"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 12825242890,
+      "digest": "sha256:40a26ee8383ea00451b9df0741fe6ab37c4b77d8b7c974914d7e5696c850875d"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 12824639191,
+      "digest": "sha256:204c8ef7b9a723cba6ef4d846800c66141a32acd09c6e907e5127cb9c3f6b210"
+    },
+    {
+      "name": "linux-musl",
+      "id": 12825184043,
+      "digest": "sha256:4a3be77f42009c7972a0173883415c53b044681673940e114c7959a6a042c902"
+    },
+    {
+      "name": "windows-x64",
+      "id": 12824909300,
+      "digest": "sha256:1f7572650be3765b20428e66cb21d4518d47b666b2eb6bdc66b18e8440e67d49"
+    }
+  ],
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "nativeChecksums": {
+    "coc-0.5.14-linux-x86_64-debian12.tar.gz": "6dc619226567dade5ab390c2649f473fb3483ff78122d82f3dc9c9b1d5f32d0b",
+    "coc-0.5.14-linux-x86_64-musl.tar.gz": "eae1312645a0f779bf2cc396c60f3f18529449b6c2dc1cc9d6e7603ca9fdb22b",
+    "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz": "6a4bb8d76778d176ba6fcb5c7d5e1ccdc9f48af131c40ae4cf2128c7fafe7cd1",
+    "coc-0.5.14-windows-x64.zip": "1f91e68678be4a91627f2e95067aeb6e17ff835511eeed7c9980f068cfd26d3f",
+    "codex-over-cloudflare-0.5.14-source.tar.gz": "5646079fbc959cadeb481dc1e3bf64fff9d5aca04a9a006255f20c6bc5469cae"
+  },
+  "applied": true,
+  "publishedDownloads": {
+    "version": "0.5.14",
+    "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+    "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.14-linux-x86_64-musl.tar.gz",
+      "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.14-windows-x64.zip",
+      "codex-over-cloudflare-0.5.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "jobs": [
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479178"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479537"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479648"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479749"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479820"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122894479901"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40710590901/job/122900368539"
+    }
+  ],
+  "workerVersion": "ac25bf62-6f91-45fe-90fd-9189a49e0a6a",
+  "date": "2026-10-29",
+  "httpChecks": {
+    "unauthenticatedHosts": 401,
+    "crossOriginAdminLogin": 403,
+    "homepage": 200,
+    "homepageCsp": true
+  },
+  "limitations": [
+    "No direct Agent service replacement or restart; no GitHub Release created.",
+    "Real Cloudflare Access browser email login and production model sessions were not tested. Existing Access configuration was preserved; deployment does not establish that edge Access is enabled."
+  ]
+}
