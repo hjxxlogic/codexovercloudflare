@@ -21,6 +21,7 @@ export interface StateStorage extends StateTransaction {
 
 // Reads use the primary. Never enable replica reads for authorization or fencing.
 export class D1State implements StateStorage {
+  private transactions: Promise<unknown> = Promise.resolve();
   constructor(
     readonly db: D1Database,
     readonly scope: string,
@@ -72,7 +73,15 @@ export class D1State implements StateStorage {
       )?.revision ?? 0
     );
   }
-  async transaction<T>(
+  transaction<T>(callback: (tx: StateTransaction) => Promise<T>): Promise<T> {
+    // One live Host handles many sockets. D1 awaits do not supply native DO
+    // input gates: serialize local transactions before competing for the scope
+    // revision. Keep CAS for independent Workers acknowledging receipts.
+    const result = this.transactions.then(() => this.transact(callback));
+    this.transactions = result.catch(() => {});
+    return result;
+  }
+  private async transact<T>(
     callback: (tx: StateTransaction) => Promise<T>,
   ): Promise<T> {
     for (let attempt = 0; attempt < 8; attempt++) {

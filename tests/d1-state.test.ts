@@ -18,6 +18,20 @@ afterEach(() => {
 });
 
 describe('D1 authoritative state', () => {
+  it('accepts concurrent transport updates without exhausting scope retries', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'host:busy');
+    await state.put('epoch', 0);
+    await Promise.all(
+      Array.from({ length: 24 }, () =>
+        state.transaction(async (tx) => {
+          const epoch = (await tx.get<number>('epoch'))!;
+          await tx.put('epoch', epoch + 1);
+        }),
+      ),
+    );
+    expect(await state.get('epoch')).toBe(24);
+  });
   it('commits finite state with its expiry index even before alarm scheduling', async () => {
     const db = database();
     const state = new D1State(db.binding(), 'host:a');
@@ -100,6 +114,8 @@ describe('D1 authoritative state', () => {
     await expect(state.delete('auth:key')).rejects.toThrow('Injected');
     db.failBatch = undefined;
     expect(await state.get('auth:key')).toEqual({ active: true });
+    await state.put('after-failure', true);
+    expect(await state.get('after-failure')).toBe(true);
   });
   it('resumes failed migration pages without marking incomplete data authoritative', async () => {
     const db = database(),

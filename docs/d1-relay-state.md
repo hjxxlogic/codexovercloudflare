@@ -1,10 +1,10 @@
 # D1 持久状态与在线中转
 
-2026-10-29，本地实现；生产仍用原 DO 模式，未创建数据库、发布或清理生产对象。
+2026-10-29，已通过 CI 制品部署 D1 模式；线上并发连接暴露 scope 事务竞争，正在修复验证，尚未完成稳定性验收。
 
 ## 职责与一致性
 
-启用 `STATE_BACKEND=d1`、绑定 `STATE_DB` 后，D1 保存登记、授权、邮箱关系、lastSeen、唤醒配置、Agent epoch、控制租约、调用关联和临时结果。`registry` / `host:<hostId>` scope 用复合主键隔离。授权读取使用主库；事务用 scope 版本比较及原子 batch 提交，冲突重试，耗尽返回 BACKPRESSURE，失败不回退旧授权。
+启用 `STATE_BACKEND=d1`、绑定 `STATE_DB` 后，D1 保存登记、授权、邮箱关系、lastSeen、唤醒配置、Agent epoch、控制租约、调用关联和临时结果。`registry` / `host:<hostId>` scope 用复合主键隔离。授权读取使用主库；同一在线对象的事务先在实例内排队，避免多个 WebSocket、alarm 和 HTTP 请求争抢同一 scope 的版本。不同实例仍通过 scope 版本比较及原子 batch 提交保证一致性，冲突重试，耗尽返回 BACKPRESSURE，失败不回退旧授权。失败事务不阻塞后续请求。
 
 HostRelayDO 保存在线 WebSocket、hibernation attachment、背压队列及调度。只有所有 Agent / CW / CC / 订阅连接关闭，HTTP、alarm、消息和转发均结束后，才在并发门内清空本地存储。D1 写入失败阻止清理；不依赖退出钩子导出。一个会话结束不能清空仍有其他连接的主机；空闲连接继续休眠。
 
