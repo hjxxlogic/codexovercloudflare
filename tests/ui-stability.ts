@@ -1366,7 +1366,8 @@ try {
   for (const ws of controls) sync(ws);
   await expect(page.getByText('等待你的确认 · 1 / 5')).toBeVisible();
   assert.equal(approvalAnswers.length, 0, 'automatic approval defaults to off');
-  await autoApprove.check();
+  await autoApprove.click();
+  await expect(autoApprove).toBeChecked();
   await expect.poll(() => approvalAnswers.length).toBe(3);
   assert.deepEqual(
     approvalAnswers.map((answer) => answer.approvalId),
@@ -1382,15 +1383,18 @@ try {
     3,
   );
   for (const ws of controls) sync(ws);
-  await autoApprove.uncheck();
-  await autoApprove.check();
+  await autoApprove.click();
+  await expect(autoApprove).not.toBeChecked();
+  await autoApprove.click();
+  await expect(autoApprove).toBeChecked();
   await page.waitForTimeout(100);
   assert.equal(
     approvalAnswers.length,
     3,
     'sync replay and toggling do not repeat a decision',
   );
-  await autoApprove.uncheck();
+  await autoApprove.click();
+  await expect(autoApprove).not.toBeChecked();
   approvals = [
     {
       approvalId: 'auto-lost-ack',
@@ -1407,7 +1411,8 @@ try {
   );
   const beforeReconnect = attachCalls;
   dropApprovalAck = true;
-  await autoApprove.check();
+  await autoApprove.click();
+  await expect(autoApprove).toBeChecked();
   await expect.poll(() => attachCalls).toBeGreaterThan(beforeReconnect);
   await page.locator('.auto-approval summary').click();
   await expect(
@@ -1440,7 +1445,8 @@ try {
     4,
     'reload restores the Agent policy without replaying decisions',
   );
-  await autoApprove.uncheck();
+  await autoApprove.click();
+  await expect(autoApprove).not.toBeChecked();
   await expect(autoApprove).not.toBeChecked();
   approvals = [];
   for (const ws of controls) sync(ws);

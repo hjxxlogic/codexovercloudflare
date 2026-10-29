@@ -2108,7 +2108,7 @@ try {
     exact: true,
   });
   assert.equal(await autoApprove.isChecked(), false);
-  await autoApprove.check();
+  await autoApprove.click();
   await wait(
     async () =>
       (await autoApprove.isChecked()) && (await autoApprove.isEnabled()),
@@ -2167,7 +2167,7 @@ try {
     async () => await restoredPolicy.isChecked(),
     'reopen restores the Agent policy',
   );
-  await restoredPolicy.uncheck();
+  await restoredPolicy.click();
   await wait(
     async () =>
       !(await restoredPolicy.isChecked()) && (await restoredPolicy.isEnabled()),
