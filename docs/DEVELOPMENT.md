@@ -328,3 +328,5 @@ Registry 成功执行 `auth / authHash / authHost` 时，在同一事务完成�
 ## 空 DO 存储回归
 
 `tests/expiry.test.ts` 验证无存储的实例不写迁移标记，重建后保持空，新票据仍由 `expireAt()` 索引。`tests/relay-order.test.ts` 验证无 socket 的全新 HostRelayDO 在 status / notify / revoke-auth 路径不落盘。不要把清理测试改成“会话结束后 deleteAll”：同主机多个会话共用 epoch、租约及有限回执。平台只读审查方法和不能直接删除的候选对象边界见 [审查记录](relay-storage-audit-2026-10-29.md)。
+
+D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并仅对 `SQLITE_BUSY` / `SQLITE_LOCKED` 留给外层有界轮询重试，避免与 Miniflare 归档写锁竞争造成假失败；其他数据库错误立即失败，不通过 HTTP 轮询唤醒 Host。

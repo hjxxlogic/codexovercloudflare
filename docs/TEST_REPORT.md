@@ -1,8 +1,8 @@
 # 本机测试记录
 
-## CW 预览、修订同步与后台自动批准（CI 通过，未部署）
+## CW 预览、修订同步与后台自动批准（功能 CI 通过，0.5.15 发布复验中）
 
-新增文档预览下载、图片 / 音视频展开、丢失工具完成事件后按游标补齐、展开输出修订更新及关闭 CW 后原生 Agent 自动批准的回归。最终源码 `3bd75854c5e09967b18e8b8eff8924cbf28f7fcf` 的 [Actions 40886237129](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40886237129) 六项必需作业全部成功，Release 按分支规则跳过。本地 188 项 Vitest、原生核心测试及完整 Chromium UI / IndexedDB 缓存测试通过；CI 另通过两种存储模式的原生 / Chromium E2E，验证真实 Agent 在关闭 CW 后继续审批、重开恢复及关闭开关。尚未部署本次功能，新后台设置和传输水位需要升级 Agent / CC。[验收记录及截图](assets/cw-features-2026-10-29/ci.json)。
+新增文档预览下载、图片 / 音视频展开、丢失工具完成事件后按游标补齐、展开输出修订更新及关闭 CW 后原生 Agent 自动批准的回归。最终源码 `3bd75854c5e09967b18e8b8eff8924cbf28f7fcf` 的 [Actions 40886237129](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40886237129) 六项必需作业全部成功，Release 按分支规则跳过。本地 188 项 Vitest、原生核心测试及完整 Chromium UI / IndexedDB 缓存测试通过；CI 另通过两种存储模式的原生 / Chromium E2E，验证真实 Agent 在关闭 CW 后继续审批、重开恢复及关闭开关。尚未部署本次功能，新后台设置和传输水位需要升级 Agent / CC。0.5.15 的首次发布验证在 D1 空闲归档测试遇到只读观察器 `database is locked`；增加仅针对 SQLite 锁的有界等待，最终发布仍须新提交完整 CI 通过。[验收记录及截图](assets/cw-features-2026-10-29/ci.json)。
 
 ## 活动 DO / 空闲 D1 分层 · 2026-10-29（CI 通过，已部署）
 

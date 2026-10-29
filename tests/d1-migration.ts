@@ -50,12 +50,19 @@ function archiveOwner(hostId: string) {
   )) {
     const db = new DatabaseSync(join(persist, file), { readOnly: true });
     try {
+      // Miniflare may briefly hold a writer/schema lock while archiving. This
+      // observer must wait for publication, without waking the Host via HTTP.
+      db.exec('PRAGMA busy_timeout = 5000');
       const row = db
         .prepare(
           "SELECT json_extract(value, '$.owner') AS owner FROM relay_state WHERE scope = ? AND key = '@location'",
         )
         .get('host:' + hostId);
       if (row) return row.owner;
+    } catch (error) {
+      const code = (error as { errcode?: number }).errcode;
+      if (code !== 5 && code !== 6) throw error;
+      // SQLITE_BUSY / SQLITE_LOCKED: the outer bounded poll will try again.
     } finally {
       db.close();
     }
