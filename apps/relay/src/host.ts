@@ -1,10 +1,6 @@
-import {
-  D1State,
-  d1Enabled,
-  migrateState,
-  type StateStorage,
-} from './state.ts';
+import { d1Enabled, type StateStorage } from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
+import { HostLifecycle, HOST_STATE_KEY } from './host-lifecycle.ts';
 import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
 import {
   AppError,
@@ -58,6 +54,7 @@ type Ticket = {
 };
 type Lease = {
   epoch: number;
+  nextEpoch?: number;
   active: boolean;
   expires?: number;
   pending?: { epoch: number; id: string; expires: number };
@@ -82,73 +79,61 @@ type Operation = {
   error?: { code: string; message: string; status?: number };
 };
 export class HostRelayDO extends DurableObject<Env> {
-  private state?: D1State;
+  private state?: HostLifecycle;
   private preparing?: Promise<void>;
-  private fences = new Map<string, Promise<any>>();
   private handlers = 0;
   private migrationReady = false;
   private get storage(): StateStorage {
-    return this.state || (this.ctx.storage as unknown as StateStorage);
+    return this.ctx.storage as unknown as StateStorage;
   }
-  private async prepare(hostId?: string) {
-    if (!d1Enabled(this.env) || this.migrationReady) return;
+  private async prepare(hostId?: string, activity = true) {
+    if (!d1Enabled(this.env)) {
+      if (await this.ctx.storage.get(HOST_STATE_KEY))
+        throw new AppError(
+          'STATE_MIGRATED',
+          'Restore the D1 binding before using this host',
+          503,
+        );
+      return;
+    }
+    if (this.preparing) await this.preparing;
     if (!hostId)
       hostId =
         (
           this.ctx.getWebSockets()[0]?.deserializeAttachment() as
             Attachment | undefined
-        )?.hostId || (await this.ctx.storage.get<string>('@d1Host'));
-    // Legacy alarms can precede the first named request. Preserve their old
-    // cleanup path until a request supplies the authenticated host identity.
+        )?.hostId ||
+        (await this.ctx.storage.get<{ hostId: string }>(HOST_STATE_KEY))
+          ?.hostId ||
+        (await this.ctx.storage.get<string>('@d1Host'));
     if (!hostId) return;
-    const id = idSchema.parse(hostId);
+    if (!this.state)
+      this.state = new HostLifecycle(
+        this.ctx.storage as unknown as StateStorage & {
+          deleteAll(): Promise<void>;
+        },
+        this.env.STATE_DB!,
+        idSchema.parse(hostId),
+      );
     if (!this.preparing)
-      this.preparing = this.ctx
-        .blockConcurrencyWhile(async () => {
-          const target = new D1State(
-            this.env.STATE_DB!,
-            'host:' + id,
-            this.ctx.storage as unknown as StateStorage,
-            (keys) => {
-              for (const key of keys) this.fences.delete(key);
-            },
-          );
-          await migrateState(
-            this.ctx.storage as unknown as StateStorage,
-            target,
-          );
-          await this.ctx.storage.put('@d1Host', id);
-          this.state = target;
+      this.preparing = (async () => {
+        const active = await this.state!.activate(activity);
+        if (active && !this.migrationReady) {
           await this.presence();
-          await nextExpiry(target);
+          await nextExpiry(this.storage);
           this.migrationReady = true;
-        })
-        .finally(() => {
-          this.preparing = undefined;
-        });
+        }
+      })().finally(() => {
+        this.preparing = undefined;
+      });
     await this.preparing;
   }
-  // Fencing values change only through this object's committed transactions.
-  // Hibernation discards this cache; the first frame reloads from D1. Streaming
-  // frames then need no database access until a takeover/reconnect changes it.
-  private async fence<T>(key: string): Promise<T | undefined> {
-    if (!this.state) return this.storage.get<T>(key);
-    let value = this.fences.get(key);
-    if (!value) {
-      if (this.fences.size >= 128)
-        this.fences.delete(this.fences.keys().next().value!);
-      value = this.storage.get<T>(key).catch((error) => {
-        if (this.fences.get(key) === value) this.fences.delete(key);
-        throw error;
-      });
-      this.fences.set(key, value);
-    }
-    const result = await value;
-    return this.fences.get(key) === value ? result : this.fence<T>(key);
+  private fence<T>(key: string): Promise<T | undefined> {
+    return this.storage.get<T>(key);
   }
   private async presence() {
     if (!this.state) return;
-    await this.state.transaction(async (tx) => {
+    await this.storage.transaction(async (tx) => {
       const epoch = (await tx.get<number>('agentEpoch')) || 0;
       const agent = this.agent();
       const a = agent?.deserializeAttachment() as Attachment | undefined;
@@ -163,27 +148,19 @@ export class HostRelayDO extends DurableObject<Env> {
       });
     });
   }
+  private inactive() {
+    return (
+      !this.handlers &&
+      !this.incomingBytes &&
+      !this.forwardingBytes &&
+      !this.ctx.getWebSockets().some((ws) => ws.readyState < 2)
+    );
+  }
   private async cleanup() {
-    if (
-      !this.migrationReady ||
-      this.handlers ||
-      this.incomingBytes ||
-      this.forwardingBytes
-    )
-      return;
-    await this.ctx.blockConcurrencyWhile(async () => {
-      if (
-        this.handlers ||
-        this.incomingBytes ||
-        this.forwardingBytes ||
-        this.ctx.getWebSockets().some((ws) => ws.readyState < 2)
-      )
-        return;
-      // All authoritative state was committed to D1 before this gate. Holding
-      // the gate prevents an arriving upgrade from racing deleteAll().
-      await this.presence();
-      await this.ctx.storage.deleteAll();
-    });
+    if (!this.migrationReady || !this.state || !this.inactive()) return;
+    // A short disconnect should not copy state out and straight back in.
+    // Alarm checks inactivity again and copies only one bounded page per gate.
+    await this.state.idle();
   }
   async fetch(req: Request) {
     this.handlers++;
@@ -402,12 +379,17 @@ export class HostRelayDO extends DurableObject<Env> {
     return JSON.parse(parts.join(''));
   }
   private async deleteOperation(id: string) {
-    const index = await this.storage.get<{ parts?: number; wire?: string }>(
-      'operation:' + id,
-    );
+    const index = await this.storage.get<{
+      parts?: number;
+      wire?: string;
+      expires?: number;
+    }>('operation:' + id);
     await this.storage.delete([
       'operation:' + id,
       ...(index?.wire ? ['wire:' + index.wire] : []),
+      ...(index?.expires
+        ? [`due:${String(index.expires).padStart(16, '0')}:operation:${id}`]
+        : []),
       ...Array.from({ length: index?.parts || 0 }, (_, i) => `part:${id}:${i}`),
     ]);
   }
@@ -538,6 +520,11 @@ export class HostRelayDO extends DurableObject<Env> {
             };
     else o.result = result;
     const ws = this.socket(o.socketId);
+    if (
+      o.reservation &&
+      (o.error || (o.socketId && (!ws || ws.readyState >= 2)))
+    )
+      await this.releaseReservation(o);
     if (o.socketId) {
       if (this.state && (!ws || ws.readyState >= 2)) {
         await this.saveOperation(o);
@@ -545,8 +532,16 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       await this.deleteOperation(o.id);
       if (!ws) return;
+      await this.authorized(
+        (ws.deserializeAttachment() as Attachment).auth.hash,
+      );
+      // close/receipt handlers can run during authorization. Re-read the
+      // attachment and never activate a lease for an already closed socket.
+      if (ws.readyState >= 2) {
+        if (o.reservation) await this.releaseReservation(o);
+        return;
+      }
       const a = ws.deserializeAttachment() as Attachment;
-      await this.authorized(a.auth.hash);
       if (o.error) {
         this.send(ws, {
           type: 'error',
@@ -580,7 +575,46 @@ export class HostRelayDO extends DurableObject<Env> {
       if (['create', 'stop'].includes(o.action)) await this.changed('sessions');
     }
   }
+  private async releaseReservation(o: Operation) {
+    const reservation = o.reservation!;
+    await this.storage.transaction(async (tx) => {
+      const key = 'lease:' + o.data.sessionId;
+      const lease = await tx.get<Lease>(key);
+      if (!lease) return;
+      if (lease.pending?.id === reservation.id)
+        await tx.put(key, {
+          ...lease,
+          pending: undefined,
+          nextEpoch: Math.max(lease.nextEpoch || 0, reservation.epoch),
+        });
+      else if (lease.epoch === reservation.epoch)
+        await tx.put(key, { ...lease, active: false });
+    });
+    const agent = this.agent();
+    if (
+      agent &&
+      (agent.deserializeAttachment() as Attachment).epoch === o.agentEpoch
+    )
+      this.send(agent, {
+        type: 'detach',
+        sessionId: o.data.sessionId,
+        epoch: reservation.epoch,
+      });
+  }
   private async result(o: Operation, data: any, error?: any) {
+    if (o.kind === 'attach' && o.socketId) {
+      const controller = this.socket(o.socketId);
+      if (!controller || controller.readyState >= 2)
+        return this.complete(
+          o,
+          undefined,
+          new AppError(
+            'RESULT_UNKNOWN',
+            'Connection closed before attachment was confirmed',
+            409,
+          ),
+        );
+    }
     if (error)
       return this.complete(
         o,
@@ -633,6 +667,23 @@ export class HostRelayDO extends DurableObject<Env> {
       return this.command(o.action, o.data, o);
     }
     if (o.stage === 'attach') {
+      const controller = o.socketId ? this.socket(o.socketId) : undefined;
+      if (
+        o.socketId &&
+        (!controller ||
+          controller.readyState >= 2 ||
+          (controller.deserializeAttachment() as Attachment).deadline <=
+            Date.now())
+      )
+        return this.complete(
+          o,
+          undefined,
+          new AppError(
+            'RESULT_UNKNOWN',
+            'Connection closed before attachment was confirmed',
+            409,
+          ),
+        );
       await this.storage.transaction(async (tx) => {
         const key = 'lease:' + o.data.sessionId,
           lease = await tx.get<Lease>(key);
@@ -647,6 +698,7 @@ export class HostRelayDO extends DurableObject<Env> {
           );
         await tx.put(key, {
           epoch: o.reservation!.epoch,
+          nextEpoch: Math.max(lease.nextEpoch || 0, o.reservation!.epoch),
           active: true,
           ...(o.kind === 'ticket' ? { expires: o.reservation!.expires } : {}),
         } satisfies Lease);
@@ -956,11 +1008,26 @@ export class HostRelayDO extends DurableObject<Env> {
       if (
         lease.active &&
         (!lease.expires || lease.expires > Date.now()) &&
+        (lease.expires ||
+          this.ctx.getWebSockets('session:' + sessionId).some((ws) => {
+            const a = ws.deserializeAttachment() as Attachment;
+            return (
+              ws.readyState < 2 &&
+              a.authenticated &&
+              !a.history &&
+              a.epoch === lease.epoch
+            );
+          })) &&
         !takeover
       )
         throw new AppError('SESSION_BUSY', 'Session already controlled', 409);
       const pending = {
-        epoch: Math.max(lease.epoch, lease.pending?.epoch || 0) + 1,
+        epoch:
+          Math.max(
+            lease.epoch,
+            lease.nextEpoch || 0,
+            lease.pending?.epoch || 0,
+          ) + 1,
         id: crypto.randomUUID(),
         expires: Date.now() + 15000,
       };
@@ -1289,11 +1356,16 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   private async closeSocket(ws: WebSocket) {
     const a = ws.deserializeAttachment() as Attachment;
-    if (a.id && !this.state)
+    if (a.id)
       for (const o of (
         await this.storage.list<Operation>({ prefix: 'operation:' })
       ).values()) {
-        if (o.socketId === a.id) await this.deleteOperation(o.id);
+        if (o.socketId !== a.id) continue;
+        if (o.kind === 'attach' && o.state === 'pending') {
+          const pending = await this.loadOperation(o.id);
+          if (pending?.reservation) await this.releaseReservation(pending);
+        }
+        if (!this.state) await this.deleteOperation(o.id);
       }
     if (a.history || a.subscription) return;
     if (a.role === 'agent') {
@@ -1332,9 +1404,32 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.webSocketClose(ws);
   }
   async alarm() {
+    await this.prepare(undefined, false);
+    if (this.state && this.inactive()) {
+      let result: 'waiting' | 'pending' | 'archived';
+      try {
+        result = await this.ctx.blockConcurrencyWhile(async () => {
+          if (!this.inactive()) return 'waiting';
+          return this.state!.archivePage();
+        });
+      } catch {
+        // A D1 outage must not exhaust platform alarm retries and strand an
+        // idle local snapshot. Keep the source and retry at a bounded rate.
+        await this.ctx.storage.setAlarm(Date.now() + 60_000);
+        console.log(JSON.stringify({ event: 'host_archive_deferred' }));
+        return;
+      }
+      if (result === 'archived') {
+        this.migrationReady = false;
+        return;
+      }
+      if (result === 'pending') {
+        await this.ctx.storage.setAlarm(Date.now() + 1000);
+        return;
+      }
+    }
     this.handlers++;
     try {
-      await this.prepare();
       await this.expire();
     } finally {
       this.handlers--;

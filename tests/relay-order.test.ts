@@ -129,6 +129,57 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('recoverable asynchronous controls', () => {
+  it('releases a late attachment for a closed controller without reusing its epoch', async () => {
+    const h = harness();
+    const sessionId = 'host~session';
+    const client = socket({
+      id: 'connecting',
+      auth,
+      role: 'web',
+      hostId: 'host',
+      sessionId,
+      authenticated: false,
+      deadline: Date.now() + 15000,
+    });
+    h.sockets.push(client);
+    await (h.relay as any).start({
+      auth,
+      hostId: 'host',
+      socketId: 'connecting',
+      kind: 'attach',
+      stage: 'get',
+      action: 'attach',
+      data: { sessionId, takeover: false },
+    });
+    await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
+    const attach = h.frames()[1];
+    client.readyState = 3;
+    await h.relay.webSocketClose(client as unknown as WebSocket);
+    await h.reply(attach, { attached: true });
+    expect(h.storage.values.get('lease:' + sessionId).active).toBe(false);
+    expect(h.frames()).toContainEqual({
+      type: 'detach',
+      sessionId,
+      epoch: attach.data.epoch,
+    });
+    expect((await h.relay.reserve(sessionId, false)).epoch).toBeGreaterThan(
+      attach.data.epoch,
+    );
+    expect(client.send).not.toHaveBeenCalled();
+  });
+  it('reconciles an orphaned non-expiring controller lease with actual sockets', async () => {
+    const h = harness();
+    h.storage.values.set('lease:host~session', { epoch: 25, active: true });
+    expect((await h.relay.reserve('host~session', false)).epoch).toBe(26);
+    h.storage.values.set('lease:host~other', {
+      epoch: 10,
+      active: true,
+      expires: Date.now() + 10000,
+    });
+    await expect(h.relay.reserve('host~other', false)).rejects.toMatchObject({
+      code: 'SESSION_BUSY',
+    });
+  });
   it('ends the handler before Agent responds and restores a scoped result after hibernation', async () => {
     vi.useFakeTimers();
     const h = harness();

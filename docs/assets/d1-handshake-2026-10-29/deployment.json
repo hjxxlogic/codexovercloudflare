@@ -1,0 +1,148 @@
+{
+  "commit": "b7ef5b7e61b2fcbcbf46b7d5e4dcef13c06889f6",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40852785403",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12888407290,
+      "digest": "sha256:96bc052e9e5c627d1dae25745df54bb6a9b1d6d753f14fe2f574835e3502c5f3"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12887544028,
+      "digest": "sha256:6a651902a8f67b404b3b7b7718422f6411fcdfc24746fc0a41edeaffdbfcc515"
+    }
+  ],
+  "sourceDigest": "4209858fdc81c2b7f1b71021ab1a43b851cb4ed656ef4b5205b5424a73ef9c75",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.14",
+    "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+    "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.14-linux-x86_64-musl.tar.gz",
+      "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.14-windows-x64.zip",
+      "codex-over-cloudflare-0.5.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "date": "2026-10-29",
+  "jobs": {
+    "linux-musl": "success",
+    "windows-x64": "success",
+    "linux-release (debian12, debian:12)": "success",
+    "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+    "regression": "success",
+    "sanitizers": "success",
+    "publish-release": "skipped"
+  },
+  "deployment": {
+    "id": "314c25a4-a53f-49a8-8b4f-9f1b140cd6a4",
+    "created_on": "2026-10-29T11:01:20.679551Z",
+    "versions": [
+      {
+        "version_id": "9b64f656-5d4a-4269-b28e-c30cde5cb4f4",
+        "percentage": 100
+      }
+    ],
+    "annotations": {
+      "workers/message": "Actions 40852785403 commit b7ef5b7e61b2fcbcbf46b7d5e4dcef13c06889f6",
+      "workers/triggered_by": "deployment"
+    }
+  },
+  "publicVerification": {
+    "anonymousRequests": true,
+    "results": [
+      {
+        "path": "/guest?deployment-check=1",
+        "status": 307
+      },
+      {
+        "path": "/guest/",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "b638af29af5974cb764095fe4bbbe7ee19b477834de077db226455a9cf91fdf1"
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "status": 200
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/admin/devices",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/client/identity?hostId=00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/ws/v1/hosts/00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/api/v1/hosts",
+        "status": 302
+      },
+      {
+        "path": "/guest/assets/index-Bt11baB6.css",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "611bf9e695b2ad9451cb7e68233b00009bb00c44ecaac6d639cc58ecbbe971c9"
+      },
+      {
+        "path": "/guest/assets/index-C4t790Qp.js",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "4d42e75516d71515cb9f556389b6f46d25fb27114dac1560fd20b01f7b8ed999"
+      },
+      {
+        "path": "/downloads/index.json",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "a631de4aec8fb6e8b0cbc53cd4fb8bc6e20b2bd5bcd1fbd078c96a29a69ac819"
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "756aa40c548c21a8f5e447b482179b9e5d861073621da19483fd8abdbad4dc9e"
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "a60264347cf7e081a0749aeffbecabe576d8cdfbb20df5406596228bcebd54b9"
+      }
+    ]
+  },
+  "limitations": [
+    "Real authenticated browser CW handshake and long-running task stability were not validated in production.",
+    "Existing Agent processes were not restarted; native downloads remain at the previously verified 0.5.14 source.",
+    "Initial supplemental probes used a nonexistent devices route and omitted the WebSocket Upgrade header; corrected probes matched checked-in routes and all 13 checks passed."
+  ]
+}

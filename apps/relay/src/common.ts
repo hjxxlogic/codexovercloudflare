@@ -4,6 +4,7 @@ import {
   MAX_FRAME,
 } from '../../../packages/protocol/src/index.ts';
 import { D1State, d1Enabled } from './state.ts';
+import type { HostLocation } from './host-lifecycle.ts';
 export interface Env {
   OWNER_SECRET: string;
   ACCESS_ENABLED?: string;
@@ -147,8 +148,14 @@ export function hostStub(env: Env, id: string) {
 export async function hostStatus(env: Env, id: string): Promise<any> {
   if (d1Enabled(env)) {
     const storage = new D1State(env.STATE_DB, 'host:' + id);
-    if ((await storage.get('@migrated')) && (await storage.get('presence'))) {
-      const presence = await storage.get<any>('presence');
+    const records = await storage.getMany([
+      '@migrated',
+      '@location',
+      'presence',
+    ]);
+    const location = records.get('@location') as HostLocation | undefined;
+    const presence = records.get('presence');
+    if (records.has('@migrated') && location?.owner !== 'do' && presence) {
       return {
         online: presence?.online === true,
         confirmed: false,
@@ -169,7 +176,9 @@ export async function hostStatus(env: Env, id: string): Promise<any> {
 export async function hostHasConnections(env: Env, id: string) {
   if (!d1Enabled(env)) return true;
   const storage = new D1State(env.STATE_DB, 'host:' + id);
-  if (!(await storage.get('@migrated'))) return true;
-  const presence = await storage.get<{ connected: number }>('presence');
+  const records = await storage.getMany(['@migrated', '@location', 'presence']);
+  if (!records.has('@migrated') || records.get('@location')?.owner === 'do')
+    return true;
+  const presence = records.get('presence');
   return !presence || presence.connected > 0;
 }

@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -21,13 +29,37 @@ let logs = '';
 let agent: WebSocket | undefined;
 const persist = join(directory, 'state');
 const wrangler = 'node_modules/wrangler/bin/wrangler.js';
-async function wait(check: () => Promise<boolean>, label: string) {
-  const deadline = Date.now() + 60000;
+async function wait(
+  check: () => Promise<boolean>,
+  label: string,
+  timeout = 60000,
+) {
+  const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (await check()) return;
     await new Promise((done) => setTimeout(done, 100));
   }
   throw new Error('Timeout: ' + label);
+}
+function archiveOwner(hostId: string) {
+  // Read the local test D1 directly so checking inactivity cannot wake the
+  // Host and reset its idle grace. No production database is opened here.
+  const files = readdirSync(persist, { recursive: true }) as string[];
+  for (const file of files.filter(
+    (name) => name.includes('d1/') && name.endsWith('.sqlite'),
+  )) {
+    const db = new DatabaseSync(join(persist, file), { readOnly: true });
+    try {
+      const row = db
+        .prepare(
+          "SELECT json_extract(value, '$.owner') AS owner FROM relay_state WHERE scope = ? AND key = '@location'",
+        )
+        .get('host:' + hostId);
+      if (row) return row.owner;
+    } finally {
+      db.close();
+    }
+  }
 }
 async function stop() {
   if (!worker || worker.exitCode !== null) return;
@@ -212,6 +244,11 @@ try {
     async () => !(await request('/hosts', cli.apiKey))[0].online,
     'offline presence',
   );
+  await wait(
+    async () => archiveOwner(identity.hostId) === 'd1',
+    'idle snapshot publication',
+    90000,
+  );
   await stop();
   await start(true);
   assert.equal(
@@ -220,8 +257,42 @@ try {
     'Receipt survives disconnect, cleanup and Worker restart',
   );
   await request(receiptPath, cli.apiKey, {});
+  const third = await connect(key.apiKey);
+  agent = third.ws;
+  assert.ok(
+    third.epoch > second.epoch,
+    'Restoring an inactive snapshot must preserve fencing',
+  );
+  assert.equal(archiveOwner(identity.hostId), 'do');
+  const acknowledged = await fetch(origin + '/api/v1' + receiptPath, {
+    headers: { Authorization: 'Bearer ' + cli.apiKey },
+  });
+  assert.equal(
+    acknowledged.status,
+    404,
+    'An acknowledged offline receipt must not reappear on activation',
+  );
+  if (process.env.COC_ARTIFACT_DIR) {
+    mkdirSync(process.env.COC_ARTIFACT_DIR, { recursive: true });
+    writeFileSync(
+      join(process.env.COC_ARTIFACT_DIR, 'd1-lifecycle.json'),
+      JSON.stringify(
+        {
+          passed: true,
+          legacyEpoch: first.epoch,
+          activeEpoch: second.epoch,
+          restoredEpoch: third.epoch,
+          idleArchivePublished: true,
+          receiptSurvivedRestart: true,
+          acknowledgementSurvivedActivation: true,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  }
   console.log(
-    'D1 migration passed: legacy credentials, epochs, offline metadata and restart-safe receipts (real Wrangler).',
+    'D1 migration passed: legacy credentials, active DO state, idle archive, restart-safe receipts, acknowledgement and restoration fencing (real Wrangler).',
   );
 } catch (error) {
   console.error(logs.replaceAll(secret, '[test-secret]'));

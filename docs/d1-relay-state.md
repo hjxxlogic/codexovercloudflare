@@ -1,68 +1,58 @@
-# D1 持久状态与在线中转
+# D1 归档与活动 DO 会话
 
-2026-10-29，D1 模式及并发事务 / 回执查询修复已通过精确源码 CI 制品部署；接口与现有 Agent 验证通过，用户确认 CW 仍不稳定，继续优化在线写入路径。见 [发布状态](DEPLOYMENT_STATUS.md)。
+2026-10-29：生产仍运行 `b7ef5b7` 的 D1 在线状态方案，CW 稳定性未获确认。新的活动 / 归档分层正在通过仓库测试和 GitHub Actions 验证，尚未部署。问题评估、性能比较和验收边界见 [方案评估](d1-active-session-review.md)，实际部署见 [发布状态](DEPLOYMENT_STATUS.md)。
 
-## 职责与一致性
+## 状态归属
 
-启用 `STATE_BACKEND=d1`、绑定 `STATE_DB` 后，D1 保存登记、授权、邮箱关系、lastSeen、唤醒配置、Agent epoch、控制租约、调用关联和临时结果。`registry` / `host:<hostId>` scope 用复合主键隔离。授权读取使用主库；同一在线对象的事务先在实例内排队，避免多个 WebSocket、alarm 和 HTTP 请求争抢同一 scope 的版本。不同实例仍通过 scope 版本比较及原子 batch 提交保证一致性，冲突重试，耗尽返回 BACKPRESSURE，失败不回退旧授权。失败事务不阻塞后续请求。
+Registry 的登记、授权、邮箱关系和设备元数据保存在 D1，原有撤销校验、五秒活动授权缓存和 lastSeen 限频不变。这些是共享目录，不随单个会话连接反复搬迁。
 
-HostRelayDO 保存在线 WebSocket、hibernation attachment、背压队列及调度。通知序号保存在 DO 本地，跨休眠保持递增；传输结束后随本地存储回收，不为每次通知写 D1。只有所有 Agent / CW / CC / 订阅连接关闭，HTTP、alarm、消息和转发均结束后，才在并发门内清空本地存储。D1 写入失败阻止清理；不依赖退出钩子导出。一个会话结束不能清空仍有其他连接的主机；空闲连接继续休眠。
+Host 的活动会话状态由 DO 原生持久存储负责，包括 Agent epoch、控制租约、票据、operation / wire / 分片、通知序号、presence 和到期索引。对象休眠或重建后仍从 DO 本地存储恢复；普通控制阶段、历史查询和流式转发不读写主机会话 D1 数据。Agent SQLite 继续作为完整历史和业务幂等的权威，不迁移正文或重发任务。
 
-RegistryDO 负责写入顺序和通知，迁移完成后删除旧业务副本，仅留防回退标记及真实到期 alarm。鉴权、主机 / 设备 / Key 列表和邮箱主机通过 Worker 访问 D1。Host 的控制版本只在内存缓存，提交后失效、休眠后重读，普通转发片段不逐条查询 fencing。既有五秒授权缓存、撤销及接收者校验保留。
+D1 的 `host:<hostId>` 保存主机不活动时的完整快照。`@location` 记录权威位置和本次所有权 token；不能用可能陈旧的 presence 判断权威位置。Worker 对已归档主机直接读 D1 状态和未到期回执；活动主机的状态 / 回执请求转给 Host DO。归档开始后，D1 中的旧数据或半成品均不能对外作为权威数据读取。
 
-HTTP 异步回执保持五分钟有效期，直接在 D1 按原凭据读取 / 确认，不为离线领取唤醒 DO。查询用一次 SQL 快照同时读取索引与分片，不因其他在线写入不断重试；确认删除仍经 CAS 事务，避免删除并发完成结果。在线确认经 Host 队列，离线确认直接访问 D1，防止 Worker 确认请求不断打断在线握手。操作与 wire 映射同事务写入及替换；已有原子到期索引只调度 alarm，不重复写索引。结果分片原子保存；socket 断开不主动删除未到期 D1 调用记录，迟到结果受原 epoch / wire 校验。不因迁移重发业务，Agent SQLite 仍是完整历史及业务去重权威。
+## 空闲检查和归档
 
-## 迁移与恢复
+全部 Agent / CW / CC / 订阅 WebSocket 关闭，HTTP、消息和后台转发结束后，安排 60 秒空闲宽限。任一连接存在就继续使用 DO，允许正常休眠，不为检查空闲设置活动连接的周期定时器。收到新请求会取消空闲期或未发布的归档，短暂断线不会反复搬迁。
 
-首次访问按 64 条一页复制旧 KV 并保存游标，全部完成后才提交 `@migrated`。失败保留旧数据，重试续传；完成的 scope 不重复导入。Host 全断开后回收本地数据，Registry 完成后回收旧业务副本。迁移后的 Registry 遇到 D1 缺失迁移标记或关闭模式会拒绝服务；须修复原绑定 / 恢复 D1，不能退回旧副本或直接发布不支持 D1 的版本。
+空闲 alarm 重新检查连接和在途工作，每次在并发门内处理最多 64 条记录：先清除 D1 旧快照，再分批复制 DO 数据。进度保存在 DO；每页之间允许新的请求取消归档。全部复制完毕才通过 CAS 将 `@location.owner` 切换为 `d1`，然后删除 DO 本地状态与 alarm。任何复制失败都保留 DO 源数据，并以一分钟间隔重试；不依赖退出钩子。
 
-启用前备份旧 DO 数据，之后另行备份 D1；保留 UUID 和部署证据。旧 DO 备份不能替代新的 D1 备份。管理员 `POST /api/v1/admin/state/migrate` 接受 `{after?: hostId}`，每页四个登记主机，含禁用和旧协议登记，返回 `{ids, after, done}`。失败重试同一游标；不接管会话或重启 Agent，在线对象等自然断开后清理。缺失 Registry 名称映射的 opaque 对象须另行核对，不能据此删除。
+每次并发门仅覆盖一页，不把整个远程复制放进 30 秒并发门。实际一页仍受 D1 平台时限影响；若底层超时导致对象重置，已提交的进度和源数据用于重试。活动状态目前按主机整体归档，不能在同一主机仍有 Agent 或订阅连接时，单独归档其中一个会话。
 
-已迁移主机列表只读 D1 presence，不重复请求离线 DO。presence 仍是未确认的连接快照，异常断网尚未交付 close 时可能陈旧；主动 probe / 重连确认实际可达。
+## 激活与恢复
 
-## 到期与配额
+接收新的主机请求前，先在 DO 写入恢复标记，再通过 D1 CAS 取得所有权。D1 回执确认和离线清理必须在同一事务内重新检查所有权；激活后的旧快照不能继续被修改。已部署的旧 D1 权威状态会按页恢复到 DO，覆盖遗留旧副本；尚未迁入 D1 的主机直接采用既有 DO 数据，保留 epoch。
 
-有限期 D1 记录和 `due:` 索引同事务写入。在线 alarm 每批四项，继续处理积压；永久授权 / epoch 不续期。全部断开后删除本地 alarm；Worker Cron 每小时第 17 分钟最多回收四个离线 scope、各两项索引，不调用 Host DO。事务再次检查无连接，删除回执分片 / wire；票据只释放匹配版本租约，保留 epoch。
+恢复按 64 条分页保存游标。未完成恢复时不处理会话，不重置 epoch，不重发操作。进程中断后从游标继续；DO 休眠重建而本地状态已活动时不访问 D1。若 D1 声明 DO 持有权威状态但本地标记缺失，则返回 `STATE_UNAVAILABLE`，不能用旧归档复活授权、租约或回执。
 
-过期记录立即失效，物理回收受积压影响，五分钟有效期不保证五分钟内删除。D1 有独立读写及空间配额，未验证生产节费。兼容日期 `2026-10-24` 满足 [deleteAll 同时删除 alarm 的要求](https://developers.cloudflare.com/changelog/post/2026-02-24-deleteall-deletes-alarms/)，提交遵循 [D1 batch 原子语义](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) 及 [平台限制](https://developers.cloudflare.com/d1/platform/limits/)。
+如果归档已发布但 DO 清理失败，新请求必须从 D1 重新取得所有权并恢复，避免复活已在离线期间确认删除的回执。迁移进度、所有权与 token 都不作为客户端权限来源。
 
-## 本地与发布
+## 回执、租约和到期
 
-先创建 `.dev.vars`，运行 `npm run dev:d1` 生成忽略目录内的本地配置、应用 schema，并共用 `.wrangler/state`。占位 UUID 仅供本地，不创建远程数据库。验证：
+HTTP 回执仍保留五分钟，按原凭据读取。CW 在等待原请求期间立即读取回执，通知触发加速查询；漏通知或临时读取失败时按 250 毫秒至 2 秒退避，最多等待 30 秒。结束、取消或超时后停止查询；不重发业务命令，结果未知时保留 operationId。
+
+连接关闭时释放相应附着 reservation；迟到结果不能为已关闭控制通道留下活动租约。失败保留已使用的最大控制 epoch，不重复使用 fencing 版本。没有实际控制连接的无期限旧租约可重新附着；仍有效的 CLI 连接票据租约和在线控制者继续要求显式接管。
+
+在线到期处理使用 DO 原生 alarm；未到期操作与分片随主机快照归档。离线 Cron 每小时第 17 分钟检查最多四个已归档 scope，每个处理两项到期索引；事务内再次检查权威位置和连接快照，不唤醒 Host。过期记录立即失效，物理清理可能积压。永久 epoch / 授权不自动删除。快照归档不代表 D1 在五分钟内完成物理回收。
+
+## 备份与发布
+
+**现在需要同时保护活动 DO 数据和 D1 归档 / Registry 数据。只备份 D1 不包含尚未归档的活动状态。** 禁止人工删除活动 DO、切换 D1 UUID 或退回不识别 `@location` 的旧 Worker。回滚只能采用理解该权威位置协议的版本；若标记不一致，先恢复原存储，不能盲目删除标记或降低 epoch。
+
+保持 `STATE_BACKEND=d1`、既有 `STATE_DB` UUID、Cron 和授权配置。本次不新增 SQL 表或 D1 schema migration，兼容读取已部署的旧 D1 数据。管理员 `POST /api/v1/admin/state/migrate` 仍按每页四个登记主机接入新格式；活动主机保留在 DO，空闲主机经过宽限后归档，不操作用户任务。
 
 ```bash
-npx vitest run tests/d1-state.test.ts
+npm run dev:d1
+npx vitest run tests/host-lifecycle.test.ts tests/d1-state.test.ts tests/relay-order.test.ts tests/web-operation-recovery.test.ts
 npm run test:d1:migration
 npm run test:e2e:d1
-python3 tests/cloud-deploy.py
 ```
 
-迁移测试使用真实 Wrangler，先建立旧模式授权和 epoch，再切换 D1，验证凭据、epoch 递增和结果跨断线 / 重启保留。完整端到端使用原生程序与 Chromium；旧系统依开发文档使用容器。
+GitHub Actions 的 regression 会运行上述单元测试、真实 Wrangler 的空闲归档 / 重启 / 再激活测试，以及原生程序和 Chromium 的 D1 完整回归；`d1-regression-evidence` 保存迁移验收 JSON 和浏览器失败截图。其余 sanitizer 和四平台构建同样必须通过，不能以本地结果代替部署门禁。
 
-运维先创建专用数据库。全部必需 CI 作业成功后，用已校验 Worker 制品准备部署：
+部署仍使用仓库脚本并保留生产数据库绑定：
 
 ```bash
 python3 scripts/deploy-cloud.py --commit HEAD --state-db-id DATABASE_UUID
 ```
 
-该命令不发布。检查配置、制品和证据，获发布授权后加 `--apply`：先应用制品 schema，失败则不发布，再启用 binding / 模式 / Cron。**后续每次 D1 部署仍须传同一 `--state-db-id`**，直到生产源配置正式记录绑定；不要省略或切换数据库。
-
-发布后在管理员登录的同源页面控制台分页迁移：
-
-```js
-let after;
-for (;;) {
-  const response = await fetch('/api/v1/admin/state/migrate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ after }),
-  });
-  if (!response.ok) throw new Error(await response.text());
-  const page = await response.json();
-  console.log(page);
-  if (page.done) break;
-  after = page.after;
-}
-```
-
-记录分页结果、暂缓清理的在线对象和 namespace 后续核查；本地通过或 `hasStoredData: false` 不证明生产对象已删除。
+全部必需 Actions 作业成功、获得部署授权后加 `--apply`。后续部署必须继续携带同一 UUID。既有 Agent / CLI 与协议 1 兼容，不需要为本次存储分层重启原生服务。

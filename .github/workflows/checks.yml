@@ -48,7 +48,8 @@ jobs:
           ccache --zero-stats
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           npm run build
-      - run: npm test
+      - name: Native and unit regressions including DO archive and CW recovery
+        run: npm test
       - run: npm run test:tls
       - run: python3 scripts/ci-command.py npm run test:billing
       - run: python3 tests/native-login.py
@@ -68,9 +69,19 @@ jobs:
         with:
           name: browser-evidence
           path: .local/screenshots
-      - run: python3 scripts/ci-command.py npm run test:d1:migration && python3 scripts/ci-command.py npm run test:e2e:d1
+      - name: D1 activation, idle archive and restart recovery
+        run: python3 scripts/ci-command.py npm run test:d1:migration
         env:
           COC_ARTIFACT_DIR: .local/screenshots-d1
+      - name: D1 native and Chromium end-to-end regression
+        run: python3 scripts/ci-command.py npm run test:e2e:d1
+        env:
+          COC_ARTIFACT_DIR: .local/screenshots-d1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d1-regression-evidence
+          path: .local/screenshots-d1
       - name: Record cloud artifact provenance
         run: |
           python3 scripts/build-metadata.py > dist/web/deploy-source.json

@@ -1404,6 +1404,7 @@ function App() {
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
             if (d.type === 'history-ready') {
+              historyAttempts = 0;
               sync();
               return;
             }

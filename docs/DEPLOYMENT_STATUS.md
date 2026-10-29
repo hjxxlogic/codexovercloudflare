@@ -1,5 +1,15 @@
 # 发布状态：0.5.14
 
+## D1 握手争用修复部署完成 · 2026-10-29
+
+源码 `b7ef5b7e61b2fcbcbf46b7d5e4dcef13c06889f6` 的 [Actions 40852785403](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40852785403) 已完成，regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功；分支 publish-release 按预期跳过。通过 `scripts/deploy-cloud.py` 校验 GitHub Worker / web 产物 SHA256 和来源后部署至 `https://r.xlogic.cc`。
+
+部署 ID `314c25a4-a53f-49a8-8b4f-9f1b140cd6a4`，Worker 版本 `9b64f656-5d4a-4269-b28e-c30cde5cb4f4`，UTC 11:01:20 发布并接收 100% 流量。保留 `STATE_BACKEND=d1`、原数据库 UUID 和 Cron；没有待执行的数据库迁移。原有 0.5.14 下载归档逐包复核 SHA256 后保留，未更新原生包或重启 Agent。
+
+健康检查、首页 / 静态资源 / 手册 / 下载清单逐字节核验及 13 项公开入口与未授权访问检查通过。本次降低在线回执和握手的 D1 写入争用，但尚未验收真实登录 CW 握手与长期任务稳定性，不能据此宣称用户此前的连接故障已完全消失。
+
+[CI、产物摘要、部署与验收记录](assets/d1-handshake-2026-10-29/deployment.json)。完整本机证据保存在忽略目录 `.local/deploy-cloud/40852785403/`。
+
 ## D1 状态分离及并发连接修复 · 2026-10-29
 
 生产已启用 `STATE_BACKEND=d1`，数据库 `coc-relay-state`（UUID `3120cc4f-de73-43b2-b2c0-26c3626b6f76`），Cron `17 * * * *`。初次部署 `76dde28` 后用户发现 CW 无法连接、`BACKPRESSURE` 和 `Handshake unconfirmed`，不能将最初的健康检查视作稳定性验收。

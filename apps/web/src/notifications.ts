@@ -31,6 +31,7 @@ function connect(path: string, channel: Channel) {
     }
     if (data.type === 'subscribed') {
       channel.ready = true;
+      channel.attempts = 0;
       channel.revision = data.revision || 0;
     }
     for (const listener of channel.listeners) listener(data);

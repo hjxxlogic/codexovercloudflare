@@ -2,7 +2,7 @@
 
 ## 可选 D1 发布
 
-运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续每次部署继续携带同一 UUID。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。当前生产未启用，完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
+运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续每次部署继续携带同一 UUID。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。生产已启用，须继续保留同一 UUID。活动 DO / 空闲 D1 分层需要同时保护两种存储；不能回滚到不识别 `@location` 的旧 Worker，不能用旧 D1 快照覆盖活动 DO。完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
 
 ## 0.5.14 Cloudflare Access 发布准备
 

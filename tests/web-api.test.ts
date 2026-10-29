@@ -89,7 +89,7 @@ describe('asynchronous browser result recovery', () => {
     expect(stop).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenCalledTimes(4);
   });
-  it('finishes an unconfirmed request locally without polling or resubmitting it', async () => {
+  it('finishes bounded receipt recovery without resubmitting the command', async () => {
     vi.useFakeTimers();
     let listener!: (event: any) => void;
     const stop = vi.fn();
@@ -105,7 +105,7 @@ describe('asynchronous browser result recovery', () => {
           { status: 202 },
         ),
       )
-      .mockResolvedValue(response({ state: 'pending' }));
+      .mockImplementation(async () => response({ state: 'pending' }));
     vi.stubGlobal('fetch', fetch);
     const result = api('/sessions', { mode: 'web' }, undefined, 'original-id');
     const failure = expect(result).rejects.toMatchObject({
@@ -113,10 +113,15 @@ describe('asynchronous browser result recovery', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     listener({ type: 'subscribed' });
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(30000);
     await failure;
+    const count = fetch.mock.calls.length;
+    expect(count).toBeLessThan(22);
+    expect(
+      fetch.mock.calls.filter(([, init]) => init.method === 'POST'),
+    ).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(86400000);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(count);
     expect(stop).toHaveBeenCalledOnce();
   });
 });

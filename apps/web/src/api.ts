@@ -111,12 +111,17 @@ function waitOperation(
   return new Promise((resolve, reject) => {
     let ended = false,
       running = false,
-      dirty = false;
+      dirty = false,
+      attempts = 0;
+    let poll: ReturnType<typeof setTimeout> | undefined;
+    const reading = new AbortController();
     let stop = () => {};
     const finish = (error?: unknown, result?: unknown) => {
       if (ended) return;
       ended = true;
       clearTimeout(timer);
+      clearTimeout(poll);
+      reading.abort();
       signal?.removeEventListener('abort', abort);
       stop();
       if (error) reject(error);
@@ -133,7 +138,7 @@ function waitOperation(
             504,
           ),
         ),
-      15000,
+      30000,
     );
     const read = async () => {
       if (ended) return;
@@ -143,12 +148,14 @@ function waitOperation(
       }
       running = true;
       dirty = false;
+      clearTimeout(poll);
       try {
         const receipt = await api(
           `/hosts/${hostId}/operations/${operationId}`,
           undefined,
-          signal,
+          reading.signal,
         );
+        if (ended) return;
         if (receipt.state === 'completed') {
           void api(`/hosts/${hostId}/operations/${operationId}`, {}).catch(
             () => {},
@@ -164,10 +171,15 @@ function waitOperation(
           else finish(undefined, receipt.result);
         }
       } catch (error) {
-        finish(error);
+        if (!ended && !retryable(error)) finish(error);
       } finally {
         running = false;
         if (dirty && !ended) void read();
+        else if (!ended)
+          poll = setTimeout(
+            () => void read(),
+            Math.min(2000, 250 * 2 ** Math.min(attempts++, 3)),
+          );
       }
     };
     stop = observe(`/ws/v1/hosts/${hostId}`, (event) => {
@@ -178,6 +190,12 @@ function waitOperation(
         void read();
     });
     if (signal?.aborted) abort();
-    else signal?.addEventListener('abort', abort, { once: true });
+    else {
+      signal?.addEventListener('abort', abort, { once: true });
+      // Notifications accelerate completion; a missed/delayed subscription
+      // cannot strand a committed result. Only this receipt is retried, and
+      // only while the original request is outstanding. Never resend work.
+      void read();
+    }
   });
 }

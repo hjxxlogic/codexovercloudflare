@@ -6,6 +6,10 @@ import {
 } from '../apps/relay/src/state.ts';
 import { SqliteD1 } from './helpers/d1-state.ts';
 import { MemoryStorage } from './helpers/do-state.ts';
+import {
+  HOST_IDLE_MS,
+  HostLifecycle,
+} from '../apps/relay/src/host-lifecycle.ts';
 import { expireAt } from '../apps/relay/src/expiry.ts';
 
 const databases: SqliteD1[] = [];
@@ -16,6 +20,7 @@ function database() {
 }
 afterEach(() => {
   for (const db of databases.splice(0)) db.sqlite.close();
+  vi.useRealTimers();
 });
 
 describe('D1 authoritative state', () => {
@@ -199,6 +204,76 @@ function runtime() {
 }
 
 describe('D1 relay lifecycle', () => {
+  it('runs concurrent online controls and restores hibernated state with zero Host D1 queries', async () => {
+    const h = runtime();
+    h.legacy.values.set('agentEpoch', 3);
+    const auth = {
+      hash: 'client',
+      role: 'web',
+      hostId: 'host-a',
+      expires: Number.MAX_SAFE_INTEGER,
+    };
+    const agent = {
+      tags: ['agent'],
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      deserializeAttachment: () => ({
+        id: 'agent',
+        role: 'agent',
+        hostId: 'host-a',
+        auth: { ...auth, hash: 'agent', role: 'agent' },
+        epoch: 3,
+        protocol: 1,
+        deadline: Number.MAX_SAFE_INTEGER,
+      }),
+    };
+    h.sockets.push(agent);
+    const create = () => {
+      const relay = new HostRelayDO(
+        h.ctx as unknown as DurableObjectState,
+        h.env,
+      ) as any;
+      relay.authorized = vi.fn().mockResolvedValue(undefined);
+      return relay;
+    };
+    let relay = create();
+    await relay.prepare('host-a');
+    const queries = vi.spyOn(h.db, 'prepare');
+    h.db.failBatch = () => true;
+    const operations = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        relay.start({
+          auth,
+          hostId: 'host-a',
+          kind: 'control',
+          stage: 'execute',
+          action: 'projects',
+          data: {},
+        }),
+      ),
+    );
+    relay = create();
+    for (const [raw] of agent.send.mock.calls.slice()) {
+      const frame = JSON.parse(raw);
+      await relay.webSocketMessage(
+        agent,
+        JSON.stringify({
+          v: 1,
+          type: 'result',
+          requestId: frame.requestId,
+          data: [{ id: 'project' }],
+        }),
+      );
+    }
+    for (const operation of operations)
+      expect(await relay.loadOperation(operation.id)).toMatchObject({
+        state: 'completed',
+        result: [{ id: 'project' }],
+      });
+    expect(queries).not.toHaveBeenCalled();
+    expect(agent.close).not.toHaveBeenCalled();
+  });
   it('commits operation stages and wire replacement together', async () => {
     const h = runtime();
     const relay = new HostRelayDO(
@@ -214,11 +289,14 @@ describe('D1 relay lifecycle', () => {
       wire: 'old',
     };
     await relay.saveOperation(operation);
-    h.db.failBatch = () => true;
+    const failedWrite = vi
+      .spyOn(h.legacy, 'put')
+      .mockRejectedValueOnce(new Error('Injected local write failure'));
     await expect(
       relay.saveOperation({ ...operation, wire: 'new' }),
     ).rejects.toThrow('Injected');
-    h.db.failBatch = undefined;
+    failedWrite.mockRestore();
+    h.db.failBatch = () => true; // Online state does not depend on D1 writes.
     expect(await relay.storage.get('wire:old')).toBe('one');
     expect(await relay.storage.get('wire:new')).toBeUndefined();
     await relay.saveOperation({ ...operation, wire: 'new' });
@@ -314,6 +392,17 @@ describe('D1 relay lifecycle', () => {
       }),
     );
     expect(response.status).toBe(200);
+    expect(h.deleteAll).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + HOST_IDLE_MS + 1);
+    const lifecycle = new HostLifecycle(
+      h.ctx.storage,
+      h.db.binding(),
+      'host-a',
+    );
+    for (let i = 0; i < 10; i++) {
+      if ((await lifecycle.archivePage()) === 'archived') break;
+    }
     expect(h.deleteAll).toHaveBeenCalledOnce();
     expect(h.legacy.values.size).toBe(0);
     const state = new D1State(h.db.binding(), 'host:host-a');
@@ -460,7 +549,7 @@ describe('D1 relay lifecycle', () => {
     expect((await retry.fetch(request())).status).toBe(200);
     expect([...h.legacy.values.keys()]).toEqual(['@d1Migrated']);
   });
-  it('keeps fencing reads in memory until the owning DO commits a change', async () => {
+  it('keeps active fencing reads and updates in native DO storage', async () => {
     const h = runtime();
     h.legacy.values.set('agentEpoch', 5);
     const relay = new HostRelayDO(
@@ -471,7 +560,7 @@ describe('D1 relay lifecycle', () => {
     const prepare = vi.spyOn(h.db, 'prepare');
     for (let i = 0; i < 20; i++)
       expect(await relay.fence('agentEpoch')).toBe(5);
-    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare).not.toHaveBeenCalled();
     await relay.storage.put('agentEpoch', 6);
     expect(await relay.fence('agentEpoch')).toBe(6);
   });

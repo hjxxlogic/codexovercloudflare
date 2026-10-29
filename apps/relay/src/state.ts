@@ -42,6 +42,20 @@ export class D1State implements StateStorage {
       .first<{ value: string }>();
     return row ? (JSON.parse(row.value) as T) : undefined;
   }
+  async getMany(keys: string[]): Promise<Map<string, any>> {
+    if (!keys.length) return new Map();
+    if (keys.length > 99)
+      throw new Error('State read exceeds parameter budget');
+    const result = await this.db
+      .prepare(
+        `SELECT key, value FROM relay_state WHERE scope = ? AND key IN (${keys.map(() => '?').join(',')})`,
+      )
+      .bind(this.scope, ...keys)
+      .all<{ key: string; value: string }>();
+    return new Map(
+      result.results.map((row) => [row.key, JSON.parse(row.value)]),
+    );
+  }
   async list<T = any>(options: ListOptions = {}): Promise<Map<string, T>> {
     const conditions = ['scope = ?'];
     const bindings: (string | number)[] = [this.scope];
