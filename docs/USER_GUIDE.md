@@ -6,7 +6,7 @@
 
 若出现 `BACKPRESSURE` 或 `RESULT_UNKNOWN: Handshake unconfirmed`，保留待确认请求，使用“重新连接并查询结果”核对原请求，不要重复发送任务。CW 控制与历史握手仍为 15 秒；异步 HTTP 操作会对原回执有界查询至多 30 秒，漏通知时也可恢复已完成结果，超时不自动重发任务。正在运行的 Agent 任务不会因为页面断线而被重启。
 
-部署方应同时备份活动 DO 状态和 D1 归档，不能仅凭 D1 快照删除活动 DO。新版本不允许退回忽略权威位置的旧 Worker；保留原 `STATE_DB` UUID。现网已启用 D1，本次“活动 DO / 空闲 D1”分层尚待 CI 和部署验收。使用 `npm run dev:d1` 本地开发；发布和恢复见 [存储说明](d1-relay-state.md)。
+部署方应同时备份活动 DO 状态和 D1 归档，不能仅凭 D1 快照删除活动 DO。新版本不允许退回忽略权威位置的旧 Worker；保留原 `STATE_DB` UUID。现网已启用 D1，本次“活动 DO / 空闲 D1”分层已通过完整 CI 并部署；主机在后续业务请求时接入，真实 CW 与长期稳定性继续在使用中验收。使用 `npm run dev:d1` 本地开发；发布和恢复见 [存储说明](d1-relay-state.md)。
 
 ## Cloudflare Access、邮箱授权与管理员邮箱
 

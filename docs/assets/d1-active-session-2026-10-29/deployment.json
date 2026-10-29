@@ -1,0 +1,158 @@
+{
+  "commit": "fc89396aedee08eea8110376b5e206a9d72155e1",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12894283892,
+      "digest": "sha256:855a490a057a0cdea528795c4fe611111d1a8c7faf5fd479d91e0c5819964a5a"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12894124427,
+      "digest": "sha256:9ed33fe2351fe8ab522c14bf49e43677054c28f0c7842c3c8cdd11963e2dbc87"
+    }
+  ],
+  "sourceDigest": "c960d443cf99095818ddbcda7ec9fd316d0eade850ea09131d7efec877af94c4",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.14",
+    "commit": "25a6bc80dc35a2d01a4d940d21abddbcca7f737d",
+    "sourceDigest": "64397a6eaa22dbaa87a283eaaa8b304010388325cec9b2533aee32f4b507b2e0",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.14-linux-x86_64-musl.tar.gz",
+      "coc-0.5.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.14-windows-x64.zip",
+      "codex-over-cloudflare-0.5.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "date": "2026-10-29",
+  "jobs": {
+    "sanitizers": "success",
+    "linux-release (debian12, debian:12)": "success",
+    "linux-musl": "success",
+    "windows-x64": "success",
+    "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+    "regression": "success",
+    "publish-release": "skipped"
+  },
+  "deployment": {
+    "id": "c8528db4-1383-49c5-9317-3a6b5defe0b7",
+    "created_on": "2026-10-29T12:02:22.942487Z",
+    "versions": [
+      {
+        "version_id": "b7d06f6b-387d-49b3-866f-b84a227c446d",
+        "percentage": 100
+      }
+    ],
+    "annotations": {
+      "workers/message": "Actions 40866589978 commit fc89396aedee08eea8110376b5e206a9d72155e1",
+      "workers/triggered_by": "deployment"
+    }
+  },
+  "publicVerification": {
+    "anonymousRequests": true,
+    "results": [
+      {
+        "path": "/guest?deployment-check=1",
+        "status": 307
+      },
+      {
+        "path": "/guest/",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "b70768d411662cad8481a6cd071c2b2b7174b6cc06d6a3a091dc39a3c03b0c60"
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "status": 200
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/admin/devices",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/api/v1/client/identity?hostId=00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/guest/ws/v1/hosts/00000000-0000-4000-8000-000000000000",
+        "status": 401,
+        "error": "UNAUTHORIZED"
+      },
+      {
+        "path": "/api/v1/hosts",
+        "status": 302
+      },
+      {
+        "path": "/guest/assets/index-Bt11baB6.css",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "611bf9e695b2ad9451cb7e68233b00009bb00c44ecaac6d639cc58ecbbe971c9"
+      },
+      {
+        "path": "/guest/assets/index-DAecEWld.js",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "d27c6c64c7a79711d41d205fcc9b67dae67dccf635db9849348fbc3b6862afb6"
+      },
+      {
+        "path": "/downloads/index.json",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "a631de4aec8fb6e8b0cbc53cd4fb8bc6e20b2bd5bcd1fbd078c96a29a69ac819"
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "756aa40c548c21a8f5e447b482179b9e5d861073621da19483fd8abdbad4dc9e"
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "status": 200,
+        "artifactBytesMatch": true,
+        "sha256": "668f493e9d9e3921712b40a348b156e5bb2ac17a4a064e4160f1d03e8761d5ff"
+      }
+    ]
+  },
+  "preDeploymentD1Backup": {
+    "sha256": "760da397d841abb654cec4343ac3ce473a8cf5a559fcdce8b38139bf4e0764d9",
+    "bytes": 32860,
+    "integrity": "ok",
+    "scopes": 5,
+    "records": 118,
+    "activeDoMarkers": 0
+  },
+  "ownershipAfter": [],
+  "limitations": [
+    "The post-deployment read-only ownership query returned no new ownership markers yet; Host activation is lazy on subsequent business requests, not forced by this deployment.",
+    "Real authenticated CW sessions and sustained production stability were not exercised.",
+    "Existing Agent processes were not restarted, user tasks were not replayed, and previously verified 0.5.14 native downloads were retained.",
+    "The pre-deployment D1 SQL export is private. Active DO state after activation must also be protected; this export is not a backup of future active DO state."
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "commit": "fc89396aedee08eea8110376b5e206a9d72155e1",
+  "actions": {
+    "id": 40866589978,
+    "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "fc89396aedee08eea8110376b5e206a9d72155e1"
+  },
+  "jobs": {
+    "sanitizers": "success",
+    "linux-release (debian12, debian:12)": "success",
+    "linux-musl": "success",
+    "windows-x64": "success",
+    "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+    "regression": "success",
+    "publish-release": "skipped"
+  },
+  "regressionSteps": [
+    {
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/setup-node@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/cache/restore@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install locked dependencies",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check",
+      "conclusion": "success"
+    },
+    {
+      "name": "Build with compiler cache",
+      "conclusion": "success"
+    },
+    {
+      "name": "Native and unit regressions including DO archive and CW recovery",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:tls",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run test:billing",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/native-login.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:backup",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:release",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/agent-deploy.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/cloud-deploy.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/cloudflare-access-tools.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 tests/ci-command.py",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npm run test:update",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run npx playwright install --with-deps chromium",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "D1 activation, idle archive and restart recovery",
+      "conclusion": "success"
+    },
+    {
+      "name": "D1 native and Chromium end-to-end regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Record cloud artifact provenance",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/upload-artifact@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Report compiler cache statistics",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/cache/save@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Run actions/setup-node@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Run actions/checkout@v4",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ],
+  "artifact": {
+    "id": 12894283881,
+    "name": "d1-regression-evidence",
+    "digest": "sha256:1175756e184ba3026a3659c9b2f3a6359b648fb569657fdebb507cefd71b8263"
+  },
+  "d1Lifecycle": {
+    "passed": true,
+    "legacyEpoch": 1,
+    "activeEpoch": 2,
+    "restoredEpoch": 3,
+    "idleArchivePublished": true,
+    "receiptSurvivedRestart": true,
+    "acknowledgementSurvivedActivation": true
+  },
+  "performance": {
+    "scenario": "20 concurrent control operations and Host instance reconstruction; authorization stubbed to isolate Host storage",
+    "baselineCommit": "b7ef5b7e61b2fcbcbf46b7d5e4dcef13c06889f6",
+    "baselineHostD1PreparedStatements": 569,
+    "currentHostD1PreparedStatements": 0,
+    "limitation": "Prepared SQL statements include batch entries; this is not network round trips, measured production latency or total authorization queries."
+  },
+  "deployed": false,
+  "limitations": [
+    "Real production CW email login and sustained cross-network stability have not been revalidated.",
+    "Active DO storage and D1 archive/Registry storage must both be preserved and backed up."
+  ]
+}

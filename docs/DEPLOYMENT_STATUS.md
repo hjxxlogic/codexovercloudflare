@@ -1,5 +1,17 @@
 # 发布状态：0.5.14
 
+## 活动 DO / 空闲 D1 分层部署完成 · 2026-10-29
+
+源码 `fc89396aedee08eea8110376b5e206a9d72155e1` 的 [Actions 40866589978](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978) 六项必需作业全部成功，涵盖两种模式的完整原生 / Chromium 回归及真实空闲归档、重启和再激活测试。通过该提交的独立干净检出运行 `scripts/deploy-cloud.py`，校验 CI Worker / web 产物 SHA256 和来源后部署至 `https://r.xlogic.cc`；原工作区的追加 CI 文档保留。
+
+部署 ID `c8528db4-1383-49c5-9317-3a6b5defe0b7`，Worker 版本 `b7d06f6b-387d-49b3-866f-b84a227c446d`，UTC 12:02:22 发布并接收 100% 流量。保留原 `STATE_DB` UUID `3120cc4f-de73-43b2-b2c0-26c3626b6f76`、`STATE_BACKEND=d1`、Cron、生产配置和 Secret；没有待执行的 SQL schema migration。原有 0.5.14 下载归档逐包复核 SHA256 后保留。
+
+发布前已将 D1 导出到私有目录，用内存 SQLite 验证完整性通过：5 个 scope、118 条记录，未发现新的 DO 所有权标记。发布后健康、首页 / JS / CSS / 手册 / 下载清单字节一致性，以及 13 项公开入口和未授权 HTTP / WebSocket 检查全部通过。
+
+活动会话状态改由 DO 原生持久存储负责，主机全部连接及在途工作结束、持续空闲 60 秒后分批归档。发布后的只读位置汇总尚无新标记；主机在后续业务请求时惰性接入新机制，本次未强制迁移全部主机、重启 Agent 或重发任务。真实登录 CW 与生产长期稳定性仍需使用中验收。发布前 D1 备份不能代替此后活动 DO 状态的备份，禁止回退到不识别所有权标记的旧代码。
+
+[CI、产物摘要、备份校验、部署和线上验收记录](assets/d1-active-session-2026-10-29/deployment.json)。完整本机证据在忽略目录 `.local/deploy-cloud/40866589978/`，D1 原始导出位于其私有子目录。
+
 ## D1 握手争用修复部署完成 · 2026-10-29
 
 源码 `b7ef5b7e61b2fcbcbf46b7d5e4dcef13c06889f6` 的 [Actions 40852785403](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40852785403) 已完成，regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功；分支 publish-release 按预期跳过。通过 `scripts/deploy-cloud.py` 校验 GitHub Worker / web 产物 SHA256 和来源后部署至 `https://r.xlogic.cc`。

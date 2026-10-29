@@ -50,3 +50,7 @@ stateDiagram-v2
 - `.github/workflows/checks.yml`：完整单元回归、旧 / 新模式原生与浏览器集成、sanitizer、Ubuntu 20.04、Debian 12、musl、Windows x64；单独命名 D1 迁移和 E2E 步骤并保留证据。
 
 这些测试不调用模型，不更改生产数据。上线前仍须等待精确源码提交的全部必需 CI 作业成功，并通过已校验的 CI 产物部署。此评估不宣称真实 CW 邮箱登录、生产连续运行或断网重连已经验收。
+
+## 最终 CI 结果
+
+功能源码 `fc89396aedee08eea8110376b5e206a9d72155e1` 的 [Actions 40866589978](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978) 六项必需作业全部成功；真实空闲归档、重启、再激活和两种模式的完整原生 / 浏览器回归均通过。已核验下载的 D1 验收制品摘要，[完整证据](assets/d1-active-session-2026-10-29/ci.json)。随后已授权部署 CI Worker / web 产物，版本 `b7d06f6b-387d-49b3-866f-b84a227c446d` 接收 100% 流量，健康、资源一致性和公开入口检查通过；未重启现有 Agent，真实生产 CW 稳定性仍需使用中验收。[部署证据](assets/d1-active-session-2026-10-29/deployment.json)。
