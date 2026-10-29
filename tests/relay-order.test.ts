@@ -129,6 +129,46 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('recoverable asynchronous controls', () => {
+  it('reads an operation index and all parts in one snapshot while completion replaces them', async () => {
+    const h = harness();
+    const relay = h.relay as any;
+    const before = {
+      id: 'snapshot',
+      state: 'pending',
+      auth,
+      expires: Date.now() + 300000,
+      data: 'a'.repeat(20000),
+    };
+    const after = { ...before, state: 'completed', result: 'b'.repeat(100000) };
+    await relay.saveOperation(before);
+    let started!: () => void, release!: () => void;
+    const entering = new Promise<void>((done) => {
+      started = done;
+    });
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    const original = h.storage.get.bind(h.storage);
+    let first = true;
+    vi.spyOn(h.storage, 'get').mockImplementation(async (key) => {
+      const value = await original(key);
+      if (key === 'operation:snapshot' && first) {
+        first = false;
+        started();
+        await gate;
+      }
+      return value;
+    });
+    const reading = relay.loadOperation('snapshot');
+    await entering;
+    const writing = relay.saveOperation(after);
+    // Allow a writer outside the read transaction to finish during the gap.
+    await new Promise<void>((done) => setImmediate(done));
+    release();
+    expect(await reading).toEqual(before);
+    await writing;
+    expect(await relay.loadOperation('snapshot')).toEqual(after);
+  });
   it('releases a late attachment for a closed controller without reusing its epoch', async () => {
     const h = harness();
     const sessionId = 'host~session';

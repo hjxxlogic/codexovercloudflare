@@ -44,7 +44,7 @@ stateDiagram-v2
 
 - `tests/host-lifecycle.test.ts`：旧 D1 恢复、旧 DO 接入、空闲宽限、分页归档、重新连接取消、复制 / 恢复 / 删除中断、在线回执路由、离线 GC 与激活竞争、权威副本缺失时拒绝服务。
 - `tests/d1-state.test.ts`：真实 SQLite CAS / 隔离及活动并发控制的零主机 D1 访问断言；授权和迁移旧回归继续执行。
-- `tests/relay-order.test.ts`：迟到附着、reservation 释放、epoch 单调递增、原有控制接管 / 背压 / 撤销校验。
+- `tests/relay-order.test.ts`：回执分片读取与结果更新的快照竞争、迟到附着、reservation 释放、epoch 单调递增、原有控制接管 / 背压 / 撤销校验。
 - `tests/web-operation-recovery.test.ts`、`tests/web-api.test.ts`：漏通知、临时回执读取失败、有界超时、取消后迟到结果不被确认、原业务身份不变。
 - `tests/d1-migration.ts`：真实 Wrangler 下旧模式切换、60 秒空闲归档、重启后领取结果、离线确认与重新激活后的 epoch / 回执一致性。
 - `.github/workflows/checks.yml`：完整单元回归、旧 / 新模式原生与浏览器集成、sanitizer、Ubuntu 20.04、Debian 12、musl、Windows x64；单独命名 D1 迁移和 E2E 步骤并保留证据。

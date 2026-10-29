@@ -365,33 +365,44 @@ export class HostRelayDO extends DurableObject<Env> {
     });
   }
   private async loadOperation(id: string): Promise<Operation | undefined> {
-    const index = await this.storage.get<Operation & { parts?: number }>(
-      'operation:' + id,
-    );
-    if (!index || !index.parts) return index;
-    const parts = await Promise.all(
-      Array.from({ length: index.parts }, (_, i) =>
-        this.storage.get<string>(`part:${id}:${i}`),
-      ),
-    );
-    if (parts.some((part) => part === undefined))
-      throw new AppError('RESULT_UNKNOWN', 'Incomplete operation receipt', 409);
-    return JSON.parse(parts.join(''));
+    return this.storage.transaction(async (tx) => {
+      const index = await tx.get<Operation & { parts?: number }>(
+        'operation:' + id,
+      );
+      if (!index || !index.parts) return index;
+      const parts = await Promise.all(
+        Array.from({ length: index.parts }, (_, i) =>
+          tx.get<string>(`part:${id}:${i}`),
+        ),
+      );
+      if (parts.some((part) => part === undefined))
+        throw new AppError(
+          'RESULT_UNKNOWN',
+          'Incomplete operation receipt',
+          409,
+        );
+      return JSON.parse(parts.join(''));
+    });
   }
   private async deleteOperation(id: string) {
-    const index = await this.storage.get<{
-      parts?: number;
-      wire?: string;
-      expires?: number;
-    }>('operation:' + id);
-    await this.storage.delete([
-      'operation:' + id,
-      ...(index?.wire ? ['wire:' + index.wire] : []),
-      ...(index?.expires
-        ? [`due:${String(index.expires).padStart(16, '0')}:operation:${id}`]
-        : []),
-      ...Array.from({ length: index?.parts || 0 }, (_, i) => `part:${id}:${i}`),
-    ]);
+    await this.storage.transaction(async (tx) => {
+      const index = await tx.get<{
+        parts?: number;
+        wire?: string;
+        expires?: number;
+      }>('operation:' + id);
+      await tx.delete([
+        'operation:' + id,
+        ...(index?.wire ? ['wire:' + index.wire] : []),
+        ...(index?.expires
+          ? [`due:${String(index.expires).padStart(16, '0')}:operation:${id}`]
+          : []),
+        ...Array.from(
+          { length: index?.parts || 0 },
+          (_, i) => `part:${id}:${i}`,
+        ),
+      ]);
+    });
   }
   private socket(id?: string) {
     return this.ctx
