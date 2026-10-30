@@ -185,11 +185,17 @@ export async function hostStatus(env: Env, id: string): Promise<any> {
     }
   }
   // A legacy host is touched once to migrate its state and inspect attachments.
-  return (
-    await hostStub(env, id).fetch('https://internal/status', {
-      headers: { 'x-host': id },
-    })
-  ).json();
+  const response = await hostStub(env, id).fetch('https://internal/status', {
+    headers: { 'x-host': id },
+  });
+  const result: any = await response.json();
+  if (!response.ok)
+    throw new AppError(
+      result.error?.code || 'HOST_STATUS_UNAVAILABLE',
+      result.error?.message || 'Host status temporarily unavailable',
+      response.status,
+    );
+  return result;
 }
 
 export async function hostHasConnections(env: Env, id: string) {

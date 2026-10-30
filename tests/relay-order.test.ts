@@ -16,7 +16,7 @@ vi.mock('../apps/relay/src/common.ts', async (original) => ({
   registryCall: vi.fn(),
 }));
 import { HostRelayDO } from '../apps/relay/src/host.ts';
-import { registryCall, failure } from '../apps/relay/src/common.ts';
+import { registryCall, failure, hostStatus } from '../apps/relay/src/common.ts';
 import { AppError } from '../packages/protocol/src/index.ts';
 const auth = {
   hash: 'client',
@@ -479,6 +479,31 @@ describe('flow control and authorization on activity', () => {
     );
     expect(client.close).toHaveBeenCalledWith(4000, expect.any(String));
     expect(client.close).not.toHaveBeenCalledWith(4001, expect.any(String));
+  });
+  it('propagates failed host status reads instead of publishing an offline-looking host', async () => {
+    const env = {
+      HOSTS: {
+        idFromName: (id: string) => id,
+        get: () => ({
+          fetch: () =>
+            Promise.resolve(
+              Response.json(
+                {
+                  error: {
+                    code: 'INTERNAL_ERROR',
+                    message: 'Temporary backend failure',
+                  },
+                },
+                { status: 503 },
+              ),
+            ),
+        }),
+      },
+    };
+    await expect(hostStatus(env as never, 'host')).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+      status: 503,
+    });
   });
   it('reports unknown server failures without exposing details or blaming request syntax', async () => {
     const response = failure(new Error('private database details'));
