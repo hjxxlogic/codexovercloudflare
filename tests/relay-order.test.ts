@@ -250,6 +250,36 @@ describe('recoverable asynchronous controls', () => {
     );
     expect(client.send).not.toHaveBeenCalled();
   });
+  it.each([1, 2, 3])(
+    'issues reconnect tickets only after the old controller stops being live (state %s)',
+    async (state) => {
+      const h = harness();
+      const sessionId = 'host~session';
+      const old = socket({
+        id: 'old',
+        auth,
+        role: 'web',
+        sessionId,
+        authenticated: true,
+        epoch: 1,
+      });
+      old.readyState = state;
+      h.sockets.push(old);
+      const operation = await (h.relay as any).start({
+        auth,
+        hostId: 'host',
+        kind: 'ticket',
+        stage: 'get',
+        action: 'attach',
+        data: { sessionId, takeover: false },
+      });
+      await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
+      const receipt = (await h.read(operation.id)).data;
+      expect(receipt.state).toBe('completed');
+      if (state === 1) expect(receipt.error.code).toBe('SESSION_BUSY');
+      else expect(receipt.result.ticket).toEqual(expect.any(String));
+    },
+  );
   it('reconciles an orphaned non-expiring controller lease with actual sockets', async () => {
     const h = harness();
     h.storage.values.set('lease:host~session', { epoch: 25, active: true });

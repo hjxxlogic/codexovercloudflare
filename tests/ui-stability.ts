@@ -52,6 +52,9 @@ const approvalAnswers: {
 }[] = [];
 let dropApprovalAck = false;
 let stallHistory = false;
+let identityFailures = 0;
+let identityCalls = 0;
+let historyHandshakeFailures = 0;
 let historyConnections = 0;
 let toolRevision = 90,
   toolReads = 0,
@@ -220,8 +223,22 @@ const server = createServer((req, res) => {
         : [];
     else if (path === '/hosts')
       body = [{ id: 'sample', name: '示例服务器', online }];
-    else if (path === '/client/identity') body = { identity };
-    else if (path === '/hosts/sample/probe')
+    else if (path === '/client/identity') {
+      identityCalls++;
+      if (identityFailures > 0) {
+        identityFailures--;
+        res.writeHead(503).end(
+          JSON.stringify({
+            error: {
+              code: 'TEMPORARY',
+              message: 'Synthetic identity failure',
+            },
+          }),
+        );
+        return;
+      }
+      body = { identity };
+    } else if (path === '/hosts/sample/probe')
       body = { online, confirmedAt: Date.now() };
     else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
@@ -246,7 +263,7 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify(body));
     return;
   }
-  const root = resolve('dist/web');
+  const root = resolve(process.env.COC_WEB_DIR || 'dist/web');
   const file = resolve(
     root,
     '.' + (url.pathname === '/' ? '/index.html' : url.pathname),
@@ -339,8 +356,10 @@ wss.on('connection', (ws, request) => {
     historyConnections++;
     histories.add(ws);
   }
-  if (history) ws.send(JSON.stringify({ type: 'history-ready' }));
-  else controls.add(ws);
+  if (history) {
+    if (historyHandshakeFailures > 0) historyHandshakeFailures--;
+    else ws.send(JSON.stringify({ type: 'history-ready' }));
+  } else controls.add(ws);
   ws.on('message', (raw) => {
     const data = JSON.parse(String(raw));
     if (data.type === 'receipt') return;
@@ -552,7 +571,21 @@ try {
   await page.screenshot({
     path: join(artifacts, 'cw-session-connections.png'),
   });
+  identityFailures = 4;
+  const initialIdentityCalls = identityCalls;
   await page.getByLabel('主机', { exact: true }).selectOption('sample');
+  await expect
+    .poll(() => identityCalls, { timeout: 15000 })
+    .toBe(initialIdentityCalls + 4);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
+  await expect
+    .poll(() => identityCalls)
+    .toBeGreaterThan(initialIdentityCalls + 4);
+  historyHandshakeFailures = 1;
   await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   attachFailures = 2;
@@ -562,6 +595,10 @@ try {
     .getByText('已连接', { exact: true })
     .waitFor({ timeout: 20000 });
   assert(attachCalls >= 3, 'temporary ticket failures retry');
+  await expect
+    .poll(() => historyConnections, { timeout: 25000 })
+    .toBeGreaterThan(1);
+  await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
   const group = page.locator('.tool-group');
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);

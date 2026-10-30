@@ -108,6 +108,16 @@ export class HistoryCache {
   constructor(private scope: string) {
     this.db = new Promise((resolve, reject) => {
       const request = indexedDB.open('coc-history', 2);
+      let settled = false;
+      const fail = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error || new Error('Local history cache unavailable'));
+      };
+      // A blocked upgrade (often another tab) must not prevent network startup.
+      const timer = setTimeout(() => fail(), 5000);
+      request.onblocked = () => fail();
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('events'))
           request.result.createObjectStore('events', {
@@ -117,10 +127,16 @@ export class HistoryCache {
           request.result.createObjectStore('pages');
       };
       request.onsuccess = () => {
+        clearTimeout(timer);
+        if (settled) {
+          request.result.close();
+          return;
+        }
+        settled = true;
         request.result.onversionchange = () => request.result.close();
         resolve(request.result);
       };
-      request.onerror = () => reject(request.error);
+      request.onerror = () => fail(request.error);
     });
   }
   close() {

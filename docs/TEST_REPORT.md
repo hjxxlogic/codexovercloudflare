@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## CW 连接与刷新恢复 · 2026-10-30（本地验证，未部署）
+
+- 检查确认：工作区身份请求失败后初始化无重试且刷新不重新进入；通知 / 历史握手缺少超时；控制和历史超时恢复依赖 close 事件；IndexedDB 打开可能因旧标签页阻塞；Relay 票据签发把关闭中的旧控制端算作占用。修复包含有限恢复、连接代际隔离、缓存有界降级及票据有效连接判断。
+- Vitest 18 个文件、225 项通过，包括 CONNECTING / OPEN 通知握手无响应且无关闭回调、有限重试耗尽后显式恢复、撤销 / 监听清理、缓存 5 秒超时及迟到句柄关闭、三种控制连接状态下的票据资格。
+- Chromium `test:cache` 通过：真实旧版 IndexedDB 连接阻塞升级时立即降级，阻塞解除后继续原有历史持久化、草稿、修订与隔离验证。
+- Chromium `test:ui` 完整通过：新增四次身份 503 耗尽自动重试后手动刷新恢复、第一次历史连接缺少 history-ready 后超时恢复；原有漏事件刷新补读、停滞 OPEN 通道恢复、草稿保留、双语 / 移动端 / 管理 / 文件和历史分页回归通过。截图保存在忽略目录 `.local/connection-recovery-ui/`。
+- 类型检查、ESLint / Prettier、Vite 生产构建与差异空白检查通过。待测构建位于 `/tmp/coc-connection-web`，通过 `COC_WEB_DIR` 指定；未覆盖原下载制品。Vite 仍有既有大包提示。
+- 仅使用本地模拟 API / WebSocket 与隔离 Chromium；未调用模型、访问生产凭据、提交或部署。本地确定性回归不能证明上述缺陷是用户线上现象的全部原因；修复上线后仍需核验真实 Cloudflare 链路。无原生代码变更，未重复原生 / 多平台 CI。
+
 ## 间歇性 Access 提示诊断 · 2026-10-30（已部署）
 
 源码 `94ddf5a50faae3a52fe0ca0e524321b07e93484d` 的 [Actions 41032404490](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490) 六项必需作业全部成功，包含 Node 22.17.0 下的完整回归和 Chromium / D1 测试。已使用核验摘要的 CI Worker / web 产物部署，Worker `92a15b81-e5e9-4989-a5b3-3c77c380b162` 接收 100% 流量。线上健康、六项资源字节核对和五项认证边界检查通过；保留 0.5.17 原生归档及生产配置。完整记录见 [部署证据](assets/access-html-errors-2026-10-30/deployment.json)。

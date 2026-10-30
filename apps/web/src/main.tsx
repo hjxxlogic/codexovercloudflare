@@ -304,6 +304,7 @@ function App() {
   };
   const refreshPending = useRef<Promise<void> | undefined>(undefined);
   const refreshSession = useRef<(() => Promise<void>) | undefined>(undefined);
+  const recoverCatalog = useRef<(() => Promise<void>) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshed, setRefreshed] = useState('');
   const bottomRefresh = useBottomRefresh(
@@ -417,6 +418,7 @@ function App() {
       if (document.visibilityState === 'visible') {
         recoverNotifications();
         void refresh();
+        void recoverCatalog.current?.().catch(report);
         setRevision((value) => value + 1);
         if (
           historySocket.current?.readyState === WebSocket.OPEN &&
@@ -548,6 +550,9 @@ function App() {
         await refresh();
         if (mode === 'admin') await readAdminSnapshot();
         if (mode === 'cw' && host) {
+          await recoverCatalog.current?.();
+          // Reload the catalog even if probing or session confirmation fails.
+          setRevision((value) => value + 1);
           const confirmation = await api(`/hosts/${host}/probe`, {});
           if (!confirmation.online) throw new Error('未确认服务器可达，请重试');
           await refreshSession.current?.();
@@ -699,42 +704,70 @@ function App() {
     if (!host) return;
     rememberHost(host);
     let cache: HistoryCache | undefined;
-    void (async () => {
-      try {
-        const { identity } = await api(
-          `/client/identity?hostId=${encodeURIComponent(host)}`,
-          undefined,
-          controller.signal,
-        );
-        if (disposed) return;
-        cache = new HistoryCache(
-          JSON.stringify([location.origin, identity, host]),
-        );
-        const [stored, navigation] = await Promise.all([
-          cache.record('catalog').catch(() => undefined),
-          cache.record('workspace').catch(() => undefined),
-        ]);
-        if (disposed) return;
-        const restored = restoreWorkspace(
-          navigation,
-          host,
-          stored?.projects || [],
-          stored?.sessions || [],
-        );
-        savedWorkspace.current = navigation;
-        setProjects(stored?.projects || []);
-        setProject(restored.projectId);
-        setSessions(stored?.sessions || []);
-        setSelected(restored.session);
-        catalog.current = cache;
-        catalogScope.current = host;
-        setCatalogHost(host);
-      } catch (e) {
-        if (!disposed) report(e);
-      }
-    })();
+    let loading: Promise<void> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    let loadError: unknown;
+    const load = (): Promise<void> => {
+      if (disposed || catalogScope.current === host) return Promise.resolve();
+      if (loading) return loading;
+      clearTimeout(retryTimer);
+      loading = (async () => {
+        try {
+          const { identity } = await api(
+            `/client/identity?hostId=${encodeURIComponent(host)}`,
+            undefined,
+            controller.signal,
+          );
+          if (disposed) return;
+          cache = new HistoryCache(
+            JSON.stringify([location.origin, identity, host]),
+          );
+          const [stored, navigation] = await Promise.all([
+            cache.record('catalog').catch(() => undefined),
+            cache.record('workspace').catch(() => undefined),
+          ]);
+          if (disposed) return;
+          const restored = restoreWorkspace(
+            navigation,
+            host,
+            stored?.projects || [],
+            stored?.sessions || [],
+          );
+          savedWorkspace.current = navigation;
+          setProjects(stored?.projects || []);
+          setProject(restored.projectId);
+          setSessions(stored?.sessions || []);
+          setSelected(restored.session);
+          catalog.current = cache;
+          catalogScope.current = host;
+          setCatalogHost(host);
+        } catch (e) {
+          loadError = e;
+          if (!disposed) {
+            report(e);
+            if (retryable(e) && attempts < 3)
+              retryTimer = setTimeout(
+                () => void load(),
+                1000 * 2 ** attempts++,
+              );
+          }
+        }
+      })().finally(() => {
+        loading = undefined;
+      });
+      return loading;
+    };
+    recoverCatalog.current = async () => {
+      attempts = 0;
+      await load();
+      if (!disposed && catalogScope.current !== host) throw loadError;
+    };
+    void load();
     return () => {
       disposed = true;
+      recoverCatalog.current = undefined;
+      clearTimeout(retryTimer);
       controller.abort();
       cache?.close();
     };
@@ -1103,9 +1136,9 @@ function App() {
             relayPath('/ws/v1/web/' + selected.id),
         );
         socket.current = ws;
-        handshake = setTimeout(() => ws.close(), 15000);
+        handshake = setTimeout(() => disconnect(4000), 15000);
         ws.onopen = () => {
-          if (!disposed)
+          if (!disposed && socket.current === ws)
             ws.send(
               JSON.stringify({
                 type: 'auth',
@@ -1260,8 +1293,10 @@ function App() {
             report(e);
           }
         };
-        ws.onclose = (e) => {
+        const disconnect = (code: number) => {
           if (socket.current !== ws) return;
+          socket.current = null;
+          ws.close();
           clearTimeout(handshake);
           if (disposed) return;
           for (const request of modelRequests.current.values()) {
@@ -1279,21 +1314,22 @@ function App() {
           setReady(false);
           setPending(false);
           setStatus('已断开');
-          if (e.code === 4009) {
+          if (code === 4009) {
             terminal = true;
             setStatus('只读观察 · 其他设备控制');
             setError('控制权已被其他设备接管');
             return;
           }
-          if (e.code === 4001) {
+          if (code === 4001) {
             terminal = true;
             setError('登录已过期或被撤销，请重新登录');
             return;
           }
           retry();
         };
+        ws.onclose = (e) => disconnect(e.code);
         ws.onerror = () => {
-          if (!disposed) setStatus('连接错误');
+          if (!disposed && socket.current === ws) setStatus('连接错误');
         };
       } catch (e) {
         if (!disposed) {
@@ -1475,6 +1511,9 @@ function App() {
             relayPath('/ws/v1/history/' + selected.id),
         );
         historySocket.current = hs;
+        historyReady = false;
+        clearTimeout(historyReplyTimer);
+        historyReplyTimer = setTimeout(() => disconnect(), 15000);
         const sync = (force = false) => {
           if (force && syncRequest) {
             requests.delete(syncRequest);
@@ -1494,7 +1533,7 @@ function App() {
           syncRequest = requestId;
           clearTimeout(historyReplyTimer);
           historyReplyTimer = setTimeout(() => {
-            if (historySocket.current === hs) hs.close();
+            disconnect();
           }, 15000);
           hs.send(
             JSON.stringify({
@@ -1516,6 +1555,7 @@ function App() {
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
             if (d.type === 'history-ready') {
+              clearTimeout(historyReplyTimer);
               historyReady = true;
               sync();
               return;
@@ -1534,7 +1574,7 @@ function App() {
             if (d.type === 'error') {
               if (d.requestId === syncRequest) {
                 syncRequest = undefined;
-                hs.close();
+                disconnect();
               }
               if (
                 !d.requestId ||
@@ -1616,8 +1656,10 @@ function App() {
             report(e);
           }
         };
-        hs.onclose = () => {
+        const disconnect = () => {
           if (disposed || historySocket.current !== hs) return;
+          historySocket.current = null;
+          hs.close();
           clearTimeout(historyReplyTimer);
           historyReady = false;
           syncRequest = undefined;
@@ -1630,6 +1672,7 @@ function App() {
           if (!disposed && historyAttempts++ < 3)
             historyTimer = setTimeout(() => void connectHistory(), 3000);
         };
+        hs.onclose = disconnect;
       } catch (e) {
         if (!disposed) {
           report(e);

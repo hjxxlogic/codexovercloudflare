@@ -753,7 +753,7 @@ export class HostRelayDO extends DurableObject<Env> {
       .getWebSockets('session:' + o.data.sessionId)
       .some((ws) => {
         const a = ws.deserializeAttachment() as Attachment;
-        return a.authenticated && !a.history;
+        return ws.readyState < 2 && a.authenticated && !a.history;
       });
     if (active && !o.data.takeover)
       return this.complete(

@@ -7,16 +7,37 @@ type Channel = {
   attempts: number;
   revision: number;
   timer?: ReturnType<typeof setTimeout>;
+  handshake?: ReturnType<typeof setTimeout>;
 };
 const channels = new Map<string, Channel>();
 function connect(path: string, channel: Channel) {
+  clearTimeout(channel.timer);
+  clearTimeout(channel.handshake);
   channel.ready = false;
   const socket = new WebSocket(
     `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${relayPath(path)}`,
   );
   channel.socket = socket;
+  let ended = false;
+  const disconnect = (code = 4000) => {
+    if (ended || channel.socket !== socket) return;
+    ended = true;
+    clearTimeout(channel.handshake);
+    channel.ready = false;
+    socket.close();
+    for (const listener of channel.listeners)
+      listener({ type: 'disconnected' });
+    if (channels.get(path) === channel && code !== 4001 && channel.attempts < 3)
+      channel.timer = setTimeout(
+        () => connect(path, channel),
+        1000 * 2 ** channel.attempts++,
+      );
+  };
+  // An OPEN socket is not a completed subscription. Do not depend on a close
+  // event arriving from a stalled transport before starting bounded recovery.
+  channel.handshake = setTimeout(disconnect, 15000);
   socket.onmessage = (event) => {
-    if (channel.socket !== socket) return;
+    if (ended || channel.socket !== socket) return;
     const data = JSON.parse(event.data);
     if (data.receiptId)
       socket.send(
@@ -30,27 +51,14 @@ function connect(path: string, channel: Channel) {
       channel.revision = data.revision;
     }
     if (data.type === 'subscribed') {
+      clearTimeout(channel.handshake);
       channel.ready = true;
       channel.attempts = 0;
       channel.revision = data.revision || 0;
     }
     for (const listener of channel.listeners) listener(data);
   };
-  socket.onclose = (event) => {
-    if (channel.socket !== socket) return;
-    channel.ready = false;
-    for (const listener of channel.listeners)
-      listener({ type: 'disconnected' });
-    if (
-      channels.get(path) === channel &&
-      event.code !== 4001 &&
-      channel.attempts < 3
-    )
-      channel.timer = setTimeout(
-        () => connect(path, channel),
-        1000 * 2 ** channel.attempts++,
-      );
-  };
+  socket.onclose = (event) => disconnect(event.code);
 }
 export function observe(path: string, listener: Listener) {
   let channel = channels.get(path);
@@ -75,6 +83,7 @@ export function observe(path: string, listener: Listener) {
     if (!channel!.listeners.size) {
       channels.delete(path);
       clearTimeout(channel!.timer);
+      clearTimeout(channel!.handshake);
       channel!.socket.close();
     }
   };

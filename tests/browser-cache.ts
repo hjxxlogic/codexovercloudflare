@@ -22,13 +22,47 @@ const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.route('http://cache.invalid/**', (route) =>
+  await context.route('http://cache.invalid/**', (route) =>
     route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
   );
   await page.goto('http://cache.invalid/');
   await page.addScriptTag({
     content: source + '\nglobalThis.__name = (value) => value;',
   });
+  // Another tab holding the previous schema must not strand network startup.
+  const blocker = await context.newPage();
+  await blocker.goto('http://cache.invalid/');
+  await blocker.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('coc-history', 1);
+        request.onsuccess = () => {
+          (globalThis as any).blockingDatabase = request.result;
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      }),
+  );
+  const blocked = await page.evaluate(async () => {
+    const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
+    const cache = new Cache('blocked');
+    const result = await Promise.race([
+      cache.record('draft').then(
+        () => 'unexpected success',
+        () => 'unavailable',
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve('hung'), 2000)),
+    ]);
+    cache.close();
+    return result;
+  });
+  assert.equal(
+    blocked,
+    'unavailable',
+    'blocked IndexedDB fails promptly so the network can proceed',
+  );
+  await blocker.evaluate(() => (globalThis as any).blockingDatabase.close());
+  await blocker.close();
   const result = await page.evaluate(async () => {
     const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
     const transport = new Cache('transport');

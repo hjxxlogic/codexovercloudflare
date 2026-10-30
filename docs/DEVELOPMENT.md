@@ -1,5 +1,11 @@
 # 开发与本机测试
 
+## CW 连接恢复回归
+
+`tests/web-notifications.test.ts` 使用假时钟与不回送 close 事件的 socket，验证 CONNECTING / OPEN 握手卡住、有限重试、手动恢复和撤销清理。`tests/web-cache-startup.test.ts` 检查 IndexedDB 静默超时与迟到句柄关闭；`test:cache` 通过真实旧版数据库连接阻塞升级。`tests/relay-order.test.ts` 区分有效 / 关闭中 / 已关闭控制端的票据资格。
+
+`test:ui` 注入四次工作区身份 503 和一次缺失 history-ready，验证有限重试耗尽后手动恢复及历史握手超时恢复，同时运行原有漏消息、失效 OPEN 通道和草稿保留回归。可通过 `COC_WEB_DIR` 指定待测 Vite 构建目录，`COC_ARTIFACT_DIR` 指定截图输出目录；不连接生产服务、不调用模型。
+
 `tests/agent-deploy.py` 的断流故障注入同时覆盖文件续传及文本 stdout 重试丢弃失败片段，包含 Access Header 情况；文本返回值不能包含之前失败尝试的字节。
 
 ## CW 底部自动刷新
