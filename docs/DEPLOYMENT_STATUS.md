@@ -1,5 +1,15 @@
 # 发布状态：0.5.17
 
+## 网页临时 HTML 错误识别 · 2026-10-30
+
+源码 `94ddf5a50faae3a52fe0ca0e524321b07e93484d` 的 [Actions 41032404490](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490) 六项必需检查全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。通过 `scripts/deploy-cloud.py` 验证 Worker / web 制品 SHA256 和源码身份后，于 UTC 09:34:40 部署至 `https://r.xlogic.cc`；部署 ID `24cf366d-1df4-4168-8b1f-90859c98d251`，Worker `92a15b81-e5e9-4989-a5b3-3c77c380b162` 接收 100% 流量。
+
+网页将 HTML 格式的 HTTP 429 / 5xx 保留为临时服务错误，避免误报邮箱登录失效并清空界面登录状态。线上健康检查、首页 / JS / CSS / 在线手册 / 下载清单 / 校验清单六项字节核验以及五项认证边界检查通过。服务入口 Token 不具备邮箱身份，邮箱接口按预期返回 JSON 403 `ACCESS_USER_REQUIRED`；无 CoC 凭证的普通与访客管理入口继续返回 401。
+
+保留 0.5.17 四平台原生包及源码归档，复核已有归档 SHA256 后复用；没有发布新原生包或重启 Agent。保留 D1 UUID、STATE_BACKEND、Cron、Access 变量、Secret 和授权数据；没有待执行迁移。发布前 D1 私有备份通过 SQLite 完整性检查，不包含活动 DO 状态。未取得真实用户邮箱浏览器会话，原始间歇性故障尚未复现；本次确认修复错误分类缺陷，不宣称已解决其上游根因。
+
+[CI、制品摘要、部署身份与线上核验记录](assets/access-html-errors-2026-10-30/deployment.json)。私有备份及本机诊断位于忽略目录 `.local/access-error-release/`，部署日志位于 `.local/deploy-cloud/41032404490/`。
+
 ## 单 Agent 多项目管理 · 2026-10-30
 
 源码 `269859e32efe50e7809cbacb622eb7a2becfe01c` 的 [Actions 41022113021](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。首次提交 e56d55f 的新端到端测试暴露同页配对链接切换问题，修正后整套 CI 重新通过；没有部署失败运行的制品。

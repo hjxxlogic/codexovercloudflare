@@ -1,0 +1,216 @@
+{
+  "commit": "94ddf5a50faae3a52fe0ca0e524321b07e93484d",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490",
+  "jobs": [
+    {
+      "id": 123985020500,
+      "name": "linux-musl",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020500"
+    },
+    {
+      "id": 123985020655,
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020655"
+    },
+    {
+      "id": 123985020684,
+      "name": "sanitizers",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020684"
+    },
+    {
+      "id": 123985020702,
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020702"
+    },
+    {
+      "id": 123985020757,
+      "name": "windows-x64",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020757"
+    },
+    {
+      "id": 123985020866,
+      "name": "regression",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123985020866"
+    },
+    {
+      "id": 123990831779,
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490/job/123990831779"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12967945375,
+      "digest": "sha256:2116f62710a1e694640f8798fa59ce01ca1c5b1625d5d967618faa36ec6933d7"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12966184748,
+      "digest": "sha256:1f0e863884dce8137d6319a439feb6f70dd6cd56c9497213f77829a9743bfc0a"
+    }
+  ],
+  "sourceDigest": "e25fcec3c285232d83484473be0c57ddbcc66f2f8d3183afe89a13997dd71f29",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.17",
+    "commit": "269859e32efe50e7809cbacb622eb7a2becfe01c",
+    "sourceDigest": "5dbb398f39e3e0bb591594e1aedb21ad20723f90817bd10ed6902b1525393283",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.17-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.17-linux-x86_64-musl.tar.gz",
+      "coc-0.5.17-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.17-windows-x64.zip",
+      "codex-over-cloudflare-0.5.17-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.17",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "endpoints": [
+      {
+        "path": "/api/v1/auth/email",
+        "serviceAdmission": true,
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "ACCESS_USER_REQUIRED",
+            "message": "Verified email login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/admin/hosts",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "serviceAdmission": false,
+        "status": 200,
+        "body": {
+          "enabled": false
+        }
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "serviceAdmission": false,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts",
+        "serviceAdmission": false,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      }
+    ],
+    "assets": [
+      {
+        "path": "/",
+        "sha256": "425405fd85ddd4d058c26ea47183194da84c8dd4b0390814cd62eb85e1e93393"
+      },
+      {
+        "path": "/assets/index-B8bu8Sfq.css",
+        "sha256": "4f88fe33839d8a053c2be1d1db582fd8c52164cf0a3d956060aa3b419252cbf8"
+      },
+      {
+        "path": "/assets/index-DlpAFM4n.js",
+        "sha256": "00e555f4eee5034bba15e2e60ae8e85e6fea76e46db549573b18bc3c50ff9783"
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "sha256": "ff1431e138a0762203d9aa4c0f05ee9ec576aa5a3782fc71da980dfca8fbefe8"
+      },
+      {
+        "path": "/downloads/index.json",
+        "sha256": "d91aaa9021bd42cc22f2f7ce2a5f432658ebc8c2b54693f5c040fe27eeaa824e"
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "sha256": "e6cd196f375e38db28f9641ab0057b635bc7f12eb3f8137f6ee793c27fe905d2"
+      }
+    ]
+  },
+  "backup": {
+    "database": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+    "bytes": 37580,
+    "sha256": "e0a2ec0d8d94deca743bf3a1b972072fc9e3c1e6fde66871c93b36fef64f5a00",
+    "sqliteIntegrity": "ok",
+    "limitation": "D1 export does not include active Durable Object state"
+  },
+  "limitations": [
+    "Original intermittent browser failure was not reproduced with a real user email session.",
+    "This deployment fixes proven HTML 429/5xx misclassification, not an established upstream root cause.",
+    "D1 snapshot excludes active Durable Object state."
+  ],
+  "deployment": {
+    "id": "24cf366d-1df4-4168-8b1f-90859c98d251",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "huangjielg@gmail.com",
+    "annotations": {
+      "workers/message": "Actions 41032404490 commit 94ddf5a50faae3a52fe0ca0e524321b07e93484d",
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "92a15b81-e5e9-4989-a5b3-3c77c380b162",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-10-30T09:34:40.172283Z"
+  },
+  "previousDeployment": {
+    "id": "5fae8644-fd9b-4131-b29a-7e54b801be31",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "huangjielg@gmail.com",
+    "annotations": {
+      "workers/message": "Actions 41022113021 commit 269859e32efe50e7809cbacb622eb7a2becfe01c",
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "fcf72234-bf6e-4792-856b-619ce15e0ad3",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-10-30T08:07:11.301284Z"
+  }
+}

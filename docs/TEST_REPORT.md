@@ -1,12 +1,14 @@
 # 本机测试记录
 
-## 间歇性 Access 提示诊断 · 2026-10-30（未部署）
+## 间歇性 Access 提示诊断 · 2026-10-30（已部署）
+
+源码 `94ddf5a50faae3a52fe0ca0e524321b07e93484d` 的 [Actions 41032404490](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41032404490) 六项必需作业全部成功，包含 Node 22.17.0 下的完整回归和 Chromium / D1 测试。已使用核验摘要的 CI Worker / web 产物部署，Worker `92a15b81-e5e9-4989-a5b3-3c77c380b162` 接收 100% 流量。线上健康、六项资源字节核对和五项认证边界检查通过；保留 0.5.17 原生归档及生产配置。完整记录见 [部署证据](assets/access-html-errors-2026-10-30/deployment.json)。
 
 只读查询线上 Worker settings 确认 `ADMIN_EMAIL=huangjielg@gmail.com`，Access issuer / audience 与仓库一致。三次携带服务入口 Token 的邮箱接口请求均返回 JSON 403 `ACCESS_USER_REQUIRED`，符合无邮箱身份的预期；未取得用户浏览器会话，未复现其间歇性故障，不能据此宣布线上已恢复。0.5.16 到 0.5.17 的 Access 校验、邮箱登录路由及部署 Access 变量未改变。
 
 发现旧网页把所有 `text/html` 响应均映射为 401 `ACCESS_REQUIRED`，会触发快照错误分支清空界面登录状态。原有临时 HTML 错误测试漏设 Content-Type，未覆盖真实网关响应。新增正确响应头的 429、500、502、503、504、520、522、524 回归，修复前八例均失败；修复保留原状态为可恢复 `HTTP_ERROR`，200 / 401 / 403 登录页继续要求认证，不自动重发 API 请求。此修复解决已证实的错误分类缺陷，尚未确定用户此次故障的原始 HTTP 响应。
 
-本地验证：web-api、web-operation-recovery、cloudflare-access 三组共 55 项测试通过，TypeScript 类型检查、变更 TS 文件 ESLint、相关代码和文档 Prettier 及 diff 空白检查通过。运行环境为 Node 25.9.0，依赖安装提示该版本不在 Vitest 5 的支持范围；测试已完成，但未替代受支持 Node 环境下的 CI。未执行发布、变更 Access 策略或重启 Agent。
+部署前本地验证：web-api、web-operation-recovery、cloudflare-access 三组共 55 项测试通过，TypeScript 类型检查、变更 TS 文件 ESLint、相关代码和文档 Prettier 及 diff 空白检查通过。运行环境为 Node 25.9.0，依赖安装提示该版本不在 Vitest 5 的支持范围；随后由上述 Node 22.17.0 CI 补齐验证。本次没有变更 Access 策略或重启 Agent。
 
 ## 单 Agent 多项目 · 2026-10-30（CI / 线上验收通过）
 
