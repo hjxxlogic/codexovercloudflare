@@ -22,6 +22,7 @@ import { RegistryDO } from '../apps/relay/src/registry.ts';
 import worker from '../apps/relay/src/index.ts';
 import { verifyAccess, accessUser } from '../apps/relay/src/access.ts';
 import type { Env } from '../apps/relay/src/common.ts';
+import { version } from '../package.json';
 
 const issuer = 'https://coc-access-tests.cloudflareaccess.com';
 let signing: CryptoKeyPair, jwk: JsonWebKey;
@@ -191,6 +192,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Cloudflare Access signature and email identity', () => {
+  it('reports the package version in health checks', async () => {
+    const response = await request('/api/v1/healthz', null);
+    expect(response.status).toBe(200);
+    expect(response.data).toEqual({
+      ok: true,
+      version,
+      demand: 1,
+      protocol: 1,
+    });
+  });
   it.each(['/downloads', '/downloads/', '/downloads/index.json'])(
     'serves public download path %s without Access authentication',
     async (path) => {

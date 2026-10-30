@@ -2,6 +2,8 @@
 
 ## 0.5.16 · Agent 邮箱关联与网页更新通知 · 2026-10-30（待 CI / 发布）
 
+功能提交 `d67186a41e2419a06a1676e770c82c875be20c22` 的 [Actions 40994952207](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40994952207) 六项必需作业已全部成功，已使用核验摘要和来源的 CI 产物发布 Worker、网页及四平台下载。线上复验发现 health 仍硬编码 0.5.15，改为读取包版本并增加回归；该云端修正继续等待独立完整 CI，不重写已发布的 0.5.16 原生归档。
+
 - Bookworm 测试容器完成原生编译、CTest native-core 与 6 项真实登录 / 配置命令测试，无模型调用。邮箱共享样例由 C++ / Zod 同时校验，覆盖规范化、重复项、非法类型 / 格式及 20 个邮箱上限；本地命令验证清空、凭据保留和服务端失败不保存。
 - 全量 Vitest 192 项通过，另追加 D1 原子撤销 / 重建和 Agent 握手撤销回归。服务端验证同邮箱跨浏览器自动访问、不同邮箱与访客隔离、Agent 不能配置别的主机、管理员覆盖 / 恢复、关联删除撤销、独立配对保留及显式撤销不因重连恢复。D1 故障注入确认配置 / grant / auth 一起回滚；握手回归确认只关闭被撤销 CW，保留其他连接及 Agent。
 - 完整 Chromium UI 回归覆盖发布清单身份拒绝、通知失败重试、发送禁用和准确提交的 version / commit，以及邮箱输入校验、保存 / 清空 / 恢复、管理表格排序及桌面 / 手机布局。使用合成身份与主机，截图：[更新通知](assets/agent-email-access-2026-10-30/admin-agent-updates.png)、[邮箱关联](assets/agent-email-access-2026-10-30/admin-agent-email-access.png)、[桌面](assets/agent-email-access-2026-10-30/admin-table-emails-1280.png)、[手机](assets/agent-email-access-2026-10-30/admin-table-emails-390.png)。
