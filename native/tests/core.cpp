@@ -136,7 +136,8 @@ void core() {
       check(access_emails(fixture.at("input")) == fixture.at("output"),
             "Email association normalization");
   }
-  rejects([] { access_emails(std::vector<std::string>(21, "user@example.com")); }, "CONFIG_ERROR");
+  check(access_emails(std::vector<std::string>(21, "user@example.com")).size() == 1,
+        "Email arrays have no count quota and still deduplicate");
   check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
   check(!update_settings({{"autoUpdate", {{"enabled", false}, {"intervalHours", 24}}}}).enabled,
         "Object disables automatic update");

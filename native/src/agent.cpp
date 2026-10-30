@@ -549,7 +549,7 @@ public:
     }
     if (action == "threads") {
       auto p = project(d.at("projectId"));
-      if (listing_threads_ || archive_loading_.size() + runtimes_.size() >= 6)
+      if (listing_threads_)
         throw Error("BACKPRESSURE", "History query already in progress");
       auto ignore_message = [](Json) {};
       auto process = std::make_shared<CodexProcess>(io_, config_, p["path"], ignore_message, [] {});
@@ -728,8 +728,6 @@ public:
     }
     if (d.value("external", false) && !d.contains("threadId"))
       throw Error("INVALID_REQUEST", "External sessions require a threadId");
-    if (runtimes_.size() >= 4)
-      throw Error("CAPACITY", "At most four active sessions");
     Json s = {
         {"id", config_["hostId"].get<std::string>() + "~" + uuid()},
         {"projectId", d.at("projectId")},
@@ -1165,8 +1163,7 @@ public:
                        ? std::make_shared<CodexProcess>(
                              io_, config_, project(s["projectId"])["path"], [](Json) {}, [] {})
                        : existing->second->process;
-    if (archive_loading_.count(id) ||
-        (temporary && archive_loading_.size() + runtimes_.size() >= 6))
+    if (archive_loading_.count(id))
       throw Error("BACKPRESSURE", "Archive page is already loading");
     archive_loading_.insert(id);
     auto read = [this, id, process, temporary, done]() {

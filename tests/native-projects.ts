@@ -206,6 +206,19 @@ try {
     control('alice', 'projectManage', { ...rename, name: 'changed' }),
     { code: 'IDEMPOTENCY_CONFLICT' },
   );
+  const extraSessions = [];
+  for (let i = 0; i < 6; i++)
+    extraSessions.push(
+      await control('alice', 'create', {
+        key: `quota-session-${i}`,
+        projectId: 'one',
+        mode: 'web',
+      }),
+    );
+  // Seven active runtimes must not prevent the temporary thread-list reader.
+  await control('alice', 'threads', { projectId: 'one' });
+  for (const extra of extraSessions)
+    await control('alice', 'stop', { sessionId: extra.id });
   await control('alice', 'stop', { sessionId: session.id });
   await new Promise((r) => setTimeout(r, 300));
   await local('alice', ['remove', 'one']);
@@ -222,6 +235,18 @@ try {
   await stop(b);
   await local('alice', ['remove', 'two']);
   assert.equal((await local('alice', ['list'])).projects.length, 0);
+  for (let i = 0; i < 22; i++)
+    await local('alice', [
+      'add',
+      join(root, `quota-${i}`),
+      '--mkdir',
+      '--project-id',
+      `quota-${i}`,
+    ]);
+  assert.equal((await local('alice', ['list'])).projects.length, 22);
+  const quotaRestart = await start('alice');
+  assert.equal((await local('alice', ['list'])).projects.length, 22);
+  await stop(quotaRestart);
   console.log(
     'PASS: two native Agents, live local/remote commands, active-session protection, retries and restart',
   );

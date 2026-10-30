@@ -2023,9 +2023,7 @@ try {
   await emailRow
     .getByRole('button', { name: 'Save associated emails', exact: true })
     .click();
-  await expect(page.getByRole('alert')).toContainText(
-    'Enter up to 20 valid emails',
-  );
+  await expect(page.getByRole('alert')).toContainText('Enter valid emails');
   assert.equal(emailRequests.length, 0);
   await page
     .getByRole('alert')

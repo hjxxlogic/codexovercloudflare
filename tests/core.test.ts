@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_FRAME,
+  accessEmailsSchema,
+  agentConfigSchema,
   historyCommandSchema,
   parseFrame,
   relayUrl,
@@ -9,6 +11,23 @@ import {
 } from '../packages/protocol/src/index.ts';
 import wakeUrls from './wake-url-fixtures.json';
 describe('protocol boundaries', () => {
+  it('accepts more than twenty projects and associated emails', () => {
+    const emails = Array.from({ length: 25 }, (_, i) => `user${i}@example.com`);
+    expect(accessEmailsSchema.parse(emails)).toHaveLength(25);
+    expect(
+      agentConfigSchema.parse({
+        hostId: 'agent',
+        token: 'x'.repeat(24),
+        dataDir: '/tmp/state',
+        projects: emails.map((_, i) => ({
+          id: `p${i}`,
+          name: `P${i}`,
+          path: `/tmp/p${i}`,
+        })),
+        accessEmails: emails,
+      }).projects,
+    ).toHaveLength(25);
+  });
   it('validates wake URLs with the native shared fixtures', () => {
     for (const fixture of wakeUrls)
       expect(

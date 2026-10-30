@@ -52,8 +52,7 @@ Projects::Projects(const Json &config)
     save_private(file_, state_);
   }
   if (state_.value("version", 0) != 1 || state_.at("hostId") != config.at("hostId") ||
-      !state_.at("projects").is_array() || state_.at("projects").size() > 20 ||
-      !state_.at("receipts").is_array())
+      !state_.at("projects").is_array() || !state_.at("receipts").is_array())
     throw Error("CONFIG_ERROR", "Invalid project catalog");
 }
 Json Projects::list() const {
@@ -133,8 +132,6 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   auto next = state_;
   auto &projects = next["projects"];
   if (operation == "add") {
-    if (projects.size() >= 20)
-      throw Error("CAPACITY", "At most twenty projects");
     const auto id = d.value("id", uuid());
     if (!valid_id(id))
       throw Error("INVALID_REQUEST", "Invalid project ID");

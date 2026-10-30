@@ -25,7 +25,7 @@ it('normalizes and validates Agent email access consistently with native configu
   }
   expect(
     accessEmailsSchema.safeParse(Array(21).fill('user@example.com')).success,
-  ).toBe(false);
+  ).toBe(true);
 });
 it('preserves the automatic-update opt-out in parsed Agent configuration', () => {
   const input = {

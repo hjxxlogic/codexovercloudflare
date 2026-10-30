@@ -16,7 +16,6 @@ export const accessEmailSchema = z
   });
 export const accessEmailsSchema = z
   .array(accessEmailSchema)
-  .max(20)
   .transform((emails) => [...new Set(emails)].sort());
 export const modelIdSchema = z
   .string()
@@ -120,7 +119,7 @@ export const agentConfigSchema = z.object({
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
   dataDir: z.string().min(1),
-  projects: z.array(projectSchema).max(20),
+  projects: z.array(projectSchema),
   sandbox: z.enum(['read-only', 'workspace-write']).default('workspace-write'),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;

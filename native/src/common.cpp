@@ -205,8 +205,8 @@ std::string wake_url(const Json &value) {
   return text;
 }
 Json access_emails(const Json &value) {
-  if (!value.is_array() || value.size() > 20)
-    throw Error("CONFIG_ERROR", "accessEmails requires at most 20 email addresses");
+  if (!value.is_array())
+    throw Error("CONFIG_ERROR", "accessEmails requires an array of email addresses");
   static const std::regex pattern(
       R"(^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$)");
   std::set<std::string> emails;
@@ -312,8 +312,8 @@ Json agent_config(Json c) {
   for (auto &a : c["codexArgs"])
     if (!a.is_string())
       throw Error("CONFIG_ERROR", "Invalid Codex argument");
-  if (!c.contains("projects") || !c["projects"].is_array() || c["projects"].size() > 20)
-    throw Error("CONFIG_ERROR", "Register 0 to 20 projects");
+  if (!c.contains("projects") || !c["projects"].is_array())
+    throw Error("CONFIG_ERROR", "projects must be an array");
   std::set<std::string> ids;
   std::vector<std::filesystem::path> roots;
   for (auto &p : c["projects"]) {

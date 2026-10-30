@@ -1,6 +1,7 @@
 import { effectiveAdminEmail, requireProjectManager } from './project-auth.ts';
 import {
   D1State,
+  listAll,
   d1Enabled,
   migrateState,
   type StateStorage,
@@ -216,12 +217,6 @@ export class RegistryCore {
         throw new AppError('UNAUTHORIZED', 'Invalid login subscription', 401);
       attachment = { kind: 'device', id, pollHash, expires: request.expires };
     }
-    if (this.ctx.getWebSockets().length >= 240)
-      throw new AppError(
-        'CAPACITY',
-        'Notification connection budget exhausted',
-        429,
-      );
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [attachment.kind]);
     pair[1].serializeAttachment(attachment);
@@ -272,7 +267,7 @@ export class RegistryCore {
     }
     const hosts =
       scope === 'release'
-        ? [...(await this.storage.list<Host>({ prefix: 'host:' })).values()]
+        ? [...(await listAll<Host>(this.storage, { prefix: 'host:' })).values()]
             .filter((h) => h.version === 2 && !h.disabled)
             .map((h) => h.id)
         : [...new Set(affectedHosts)];
@@ -400,7 +395,9 @@ export class RegistryCore {
       }
       if (op === 'apiKeys')
         return json(
-          Array.from((await s.list<ApiKey>({ prefix: 'apiKey:' })).values()),
+          Array.from(
+            (await listAll<ApiKey>(s, { prefix: 'apiKey:' })).values(),
+          ),
         );
       if (op === 'apiKeyLogin') {
         const id = await digest(z.string().min(1).max(500).parse(d.apiKey));
@@ -471,7 +468,7 @@ export class RegistryCore {
             if (!(await tx.get('apiKey:' + id)))
               throw new AppError('NOT_FOUND', 'Unknown API key', 404);
             const issued = Array.from(
-              (await tx.list<Auth>({ prefix: 'auth:' })).values(),
+              (await listAll<Auth>(tx, { prefix: 'auth:' })).values(),
             ).filter((a) => a.apiKeyId === id);
             for (const auth of issued)
               await this.revokeCredential(tx, auth.hash);
@@ -617,8 +614,6 @@ export class RegistryCore {
           role !== 'agent'
             ? z.string().trim().max(1000).default('').parse(d.message)
             : undefined;
-        if ((await s.list({ prefix: 'device:' })).size >= 200)
-          throw new AppError('CAPACITY', 'Too many pending requests', 429);
         const id = crypto.randomUUID(),
           pollSecret = token();
         const request = {
@@ -654,7 +649,7 @@ export class RegistryCore {
           await s.transaction(async (tx) => {
             const agent = await this.approvingAgent(tx, d.agentHash);
             const pending = Array.from(
-              (await tx.list<any>({ prefix: 'device:' })).values(),
+              (await listAll<any>(tx, { prefix: 'device:' })).values(),
             )
               .filter(
                 (request) =>
@@ -692,7 +687,7 @@ export class RegistryCore {
       }
       if (op === 'devices') {
         const pending = Array.from(
-          (await s.list<any>({ prefix: 'device:' })).values(),
+          (await listAll<any>(s, { prefix: 'device:' })).values(),
         )
           .filter((v) => v.expires > Date.now() && v.state === 'pending')
           .map(
@@ -721,7 +716,7 @@ export class RegistryCore {
             }),
           );
         const credentials = Array.from(
-          (await s.list<Auth>({ prefix: 'auth:' })).values(),
+          (await listAll<Auth>(s, { prefix: 'auth:' })).values(),
         )
           .filter((v) => v.version === 2 && v.role !== 'owner' && !v.grantId)
           .map(
@@ -748,7 +743,7 @@ export class RegistryCore {
             }),
           );
         for (const grant of (
-          await s.list<EmailGrant>({ prefix: 'emailGrant:' })
+          await listAll<EmailGrant>(s, { prefix: 'emailGrant:' })
         ).values())
           if (grant.active)
             credentials.push({
@@ -1084,7 +1079,7 @@ export class RegistryCore {
         );
       }
       if (op === 'logoutOthers') {
-        for (const [key, auth] of await s.list<Auth>({ prefix: 'auth:' }))
+        for (const [key, auth] of await listAll<Auth>(s, { prefix: 'auth:' }))
           if (auth.role === 'owner' && auth.hash !== d.hash)
             await s.delete(key);
         return json({ ok: true });
@@ -1166,9 +1161,9 @@ export class RegistryCore {
       }
       if (op === 'hosts')
         return json(
-          Array.from((await s.list<Host>({ prefix: 'host:' })).values()).filter(
-            (host) => host.version === 2,
-          ),
+          Array.from(
+            (await listAll<Host>(s, { prefix: 'host:' })).values(),
+          ).filter((host) => host.version === 2),
         );
       if (op === 'migrationHosts') {
         const after = d.after ? 'host:' + idSchema.parse(d.after) : undefined;
@@ -1222,11 +1217,6 @@ export class RegistryCore {
     name: string,
     id = crypto.randomUUID(),
   ) {
-    const hosts = Array.from(
-      (await tx.list<Host>({ prefix: 'host:' })).values(),
-    );
-    if (hosts.filter((h) => h.version === 2 && !h.disabled).length >= 5)
-      throw new AppError('CAPACITY', 'At most five registered hosts', 409);
     await tx.put('host:' + id, {
       id,
       name,
@@ -1243,15 +1233,17 @@ export class RegistryCore {
     if (auth.role === 'agent') {
       const host = await tx.get<Host>('host:' + auth.hostId);
       if (host) await tx.put('host:' + host.id, { ...host, disabled: true });
-      for (const [key, value] of await tx.list<Auth>({ prefix: 'auth:' }))
+      for (const [key, value] of await listAll<Auth>(tx, { prefix: 'auth:' }))
         if (value.hostId === auth.hostId) await tx.delete(key);
-      for (const [key, grant] of await tx.list<EmailGrant>({
+      for (const [key, grant] of await listAll<EmailGrant>(tx, {
         prefix: 'emailGrant:',
       }))
         if (grant.hostId === auth.hostId && grant.active)
           await tx.put(key, { ...grant, active: false, revoked: Date.now() });
       // CC login keys cannot be reused after their target A is revoked.
-      for (const [key, value] of await tx.list<ApiKey>({ prefix: 'apiKey:' }))
+      for (const [key, value] of await listAll<ApiKey>(tx, {
+        prefix: 'apiKey:',
+      }))
         if (value.hostId === auth.hostId) await tx.delete(key);
     }
     return auth;

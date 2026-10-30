@@ -43,8 +43,7 @@ export const english: Record<string, string> = {
   清空关联邮箱: 'Clear associated emails',
   '恢复 Agent 邮箱配置': 'Restore Agent email configuration',
   关联邮箱已保存: 'Associated emails saved',
-  '请输入最多 20 个有效邮箱，每行一个。':
-    'Enter up to 20 valid emails, one per line.',
+  '请输入有效邮箱，每行一个。': 'Enter valid emails, one per line.',
   '关联邮箱通过验证后，所有 CW 浏览器自动获得该 Agent 的访问权，无需配对。管理员配置优先；清空可禁用关联，恢复则沿用 Agent 配置。移除关联会断开仅由该关联授权的 CW，独立配对授权保留。':
     'After verifying an associated email, every CW browser can access this Agent without pairing. Administrator settings take priority. Clear to disable associations or restore to use Agent settings. Removing an association disconnects CW access granted by that association; independently paired grants remain.',
   'Agent 更新': 'Agent updates',

@@ -6,7 +6,7 @@
 
 ## Agent 邮箱关联与更新通知
 
-Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理员覆盖优先，空覆盖禁用，缺省使用 Agent 来源；有效邮箱列表不向普通主机列表暴露。Agent 通过已认证 capabilities 或 `/api/v1/agent/access-emails` 仅修改自身主机，管理员通过 `/api/v1/admin/hosts/:id/access-emails` 设置数组或 `null` 恢复默认。最多 20 个邮箱，C++ / Zod 使用共享样例校验，保留本地部分大小写并规范化域名。
+Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理员覆盖优先，空覆盖禁用，缺省使用 Agent 来源；有效邮箱列表不向普通主机列表暴露。Agent 通过已认证 capabilities 或 `/api/v1/agent/access-emails` 仅修改自身主机，管理员通过 `/api/v1/admin/hosts/:id/access-emails` 设置数组或 `null` 恢复默认。邮箱数量无固定配额，C++ / Zod 使用共享样例校验，保留本地部分大小写并规范化域名。
 
 `emailHosts` 合并既有邮箱授权和当前验证 issuer / 邮箱命中的关联主机；`emailRestore` 惰性创建带 `association` 标记的现有 EmailGrant，沿用 Cookie、generation、账号及主机绑定。移除关联在同一存储事务撤销仅关联来源的 grant / auth，返回受影响凭据以关闭连接并清理 Host 鉴权缓存。每次鉴权另核对有效关联，独立配对会将关联来源升级为独立授权，后续移除配置不影响该授权。显式撤销关联 grant 会保存排除该邮箱的管理员覆盖，防止 Agent 下一次同步重新授权。配置及授权沿用 Registry 的 DO / D1 存储，无 SQL schema 变更。
 
@@ -445,7 +445,7 @@ CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史
 - 请求日志分 received/submitted/completed/failed；旧格式或丢确认保守视为 unknown。具体请求与结果永久保留以免长延迟重试重复执行。创建键包含凭证 hash；任务结果查询校验主机与模式。
 - 流式消息继续保留原始事件作为事实日志。小投影内联有界正文，大流使用 bodies/chunks 追加；seq 稳定，revision 递增，按字符偏移有界读取。原始事件、分块和投影同一事务提交。历史迁移按需导入旧投影。存储和业务状态运行在独立串行 Asio 执行线程；网络与心跳使用独立事件循环，跨线程入站/出站各限 8 MiB，存储故障停止接受副作用并关闭 Agent。
 - 原生 HTTP 使用统一 deadline；DNS 在独立 getent 进程执行，取消时 kill/reap，不依赖不能中断的 Asio getaddrinfo 工作线程。TLS 验证仍检查 CA 与主机名。
-- 连接入站队列按连接 8 MiB、主机 16 MiB；HTTP pending 最多 64、连接最多 40、任务 runtime 最多 4，临时归档与任务共同使用进程预算。历史/网页出站通过 receiptId 回执限制累计 8 MiB/1000 帧，慢端单独关闭。原生 CLI RPC 仍受平台没有通用 bufferedAmount 的限制，不宣称已测得整个平台出站内存上限。
+- 连接入站队列按连接 8 MiB、主机 16 MiB；HTTP pending 最多 64；连接、任务 runtime 及临时归档实例无固定数量配额。历史/网页出站通过 receiptId 回执限制累计 8 MiB/1000 帧，慢端单独关闭。原生 CLI RPC 仍受平台没有通用 bufferedAmount 的限制，不宣称已测得整个平台出站内存上限。
 - Registry 鉴权缓存最长 5 秒/128 项，显式撤销清缓存并关闭连接，alarm 保持复核。缓存不延长凭证有效期。
 - Agent hello 报告 build/protocol/capabilities，显式不支持的 v 被拒绝；存储 schema、业务协议 1 和认证 version 2 独立。共享 JSON 样例由 C++/Zod 双方验证。
 - CW 拆出 WorkspaceHeader、ApprovalQueue、ConversationView；消息按相邻工具活动分组且默认关闭。IndexedDB v2 保留旧库，连接显式 close/versionchange；缓存以身份/主机/会话隔离；已读取历史和正文保留到用户显式清理或浏览器配额处理，不按条数/字节自动修剪。草稿和待确认身份属于操作状态。
@@ -499,7 +499,6 @@ ExternalThread 的增量起点绑定最近一次摘要查询所标识轮次的�
 
 Agent 登录成功后调用既有 agent_config 补齐并规范化配置，补出 wakeUrl 及完整 autoUpdate 对象（平台默认空字符串）。保留用户配置的选项值；不在运行时重写用户文件。Windows 审批入口未配置时直接报告需要显式 loopback WebSocket，不再尝试构造 Unix socket 路径。连接初始化异常保留底层诊断，仍不打印凭据。
 
-
 ## 单实例多项目与管理员身份
 
 实现设计见 [multi-project-design.md](multi-project-design.md)。hostId 标识 Agent 实例，不标识物理机器；多个系统用户分别保存身份、Codex 登录、数据库和本地控制端点。操作系统负责文件权限，CoC 负责远程主体与目标实例授权。
@@ -509,3 +508,7 @@ Agent 的 Projects 组件统一处理本机和远程目录操作。dataDir/proje
 新增控制动作 projectManage，包含 list/browse/add/rename/remove。HTTP 入口为 GET/POST /api/v1/hosts/:id/project-management，平台管理入口为 /api/v1/admin/hosts/:id/project-management。变更需要 requestId 和预期 revision；Worker 将 requestId 与凭证 hash 绑定，HostRelay 在发送命令及返回结果时重新校验管理身份。Agent 保留实际路径、并发和活动任务检查。变更通过 projects-changed / projects 通知刷新客户端。平台管理操作使用 /api/v1/admin/hosts/:id/operations/:operationId 领取原调用者的异步回执，不开放平台身份对普通会话的控制。
 
 Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。管理员邮箱同时获得实例访问资格，但独立于 accessEmails。验证基于服务端邮箱与 issuer/accountId。CC login --manager 请求明确目标，经 /api/v1/auth/manager-device/:id 由已验证邮箱管理员或平台管理员核对配对码，颁发 30 天、限定实例的 CLI 身份。普通批准路径拒绝这种请求；拒绝申请可沿用原入口。每次认证重新检查当前邮箱关联或平台管理员版本；普通 CC 无法通过自报邮箱获得权限。目录管理不提权，不新增机器级文件系统隔离承诺。
+
+### 数量配额调整（2026-10-30）
+
+取消 Agent 登记 5 个、runtime 4 个、runtime 与临时历史读取合计 6 个、项目和关联邮箱各 20 个、主机连接 40 条、Registry 通知连接 240 条及待处理登录申请 200 个的固定配额。Registry 与邮箱授权的完整目录扫描通过有界分页读取，兼容 D1 默认页上限；对外原有分页接口保持分页。实际容量仍受平台、内存与协议帧大小约束，并非无限资源保证。同一 dataDir 单实例、同一 Agent 身份单连接、会话控制权互斥、单个查询防重复、背压和防滥用限流保持有效。

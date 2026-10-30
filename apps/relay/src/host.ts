@@ -1075,8 +1075,6 @@ export class HostRelayDO extends DurableObject<Env> {
   async upgrade(req: Request, a: Attachment) {
     if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
       throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
-    if (this.ctx.getWebSockets().length >= 40)
-      throw new AppError('CAPACITY', 'Host connection budget exhausted', 429);
     if (a.role !== 'agent' && !a.subscription && !this.agent())
       throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
     if (a.role === 'agent') {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   D1State,
+  listAll,
   migrateState,
   type StateStorage,
 } from '../apps/relay/src/state.ts';
@@ -26,6 +27,30 @@ afterEach(() => {
 });
 
 describe('D1 authoritative state', () => {
+  it('scans beyond the default D1 page, including transaction changes', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'registry');
+    const insert = db.sqlite.prepare(
+      'INSERT INTO relay_state(scope, key, value) VALUES (?, ?, ?)',
+    );
+    for (let i = 0; i < 1050; i++)
+      insert.run(
+        'registry',
+        `host:${String(i).padStart(4, '0')}`,
+        JSON.stringify({ id: i }),
+      );
+    expect((await state.list({ prefix: 'host:' })).size).toBe(1000);
+    expect((await listAll(state, { prefix: 'host:' })).size).toBe(1050);
+    await state.transaction(async (tx) => {
+      await tx.delete('host:0000');
+      await tx.put('host:9999', { id: 9999 });
+      const hosts = await listAll(tx, { prefix: 'host:' });
+      expect(hosts.size).toBe(1050);
+      expect(hosts.has('host:0000')).toBe(false);
+      expect(hosts.has('host:1049')).toBe(true);
+      expect(hosts.has('host:9999')).toBe(true);
+    });
+  });
   it('persists email associations and atomically revokes derived credentials across reconstruction', async () => {
     const db = database();
     const state = new D1State(db.binding(), 'registry');

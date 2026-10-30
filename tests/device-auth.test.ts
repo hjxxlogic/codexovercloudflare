@@ -796,6 +796,23 @@ describe('scoped persistent device authorization', () => {
     ).toBe(401);
     expect((await op('auth', { token: cw.token })).data.hostId).toBe(a.hostId);
   });
+  it('registers more than five active Agents and queues more than 200 login requests', async () => {
+    const agents = [];
+    for (let i = 0; i < 7; i++) agents.push(await grant('agent'));
+    for (const agent of agents)
+      expect((await op('auth', { token: agent.token })).status).toBe(200);
+    for (let i = 0; i < 205; i++)
+      expect(
+        (
+          await op('deviceStart', {
+            role: 'cli',
+            name: `client-${i}`,
+            ip: `test-${i}`,
+          })
+        ).status,
+      ).toBe(200);
+    expect((await op('devices')).data.pending).toHaveLength(205);
+  });
   it('cleans unclaimed grants and releases revoked A capacity', async () => {
     const unclaimed = (
       await op('deviceStart', { role: 'agent', name: 'unclaimed' })

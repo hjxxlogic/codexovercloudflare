@@ -1,5 +1,5 @@
 import { effectiveAdminEmail } from './project-auth.ts';
-import type { StateTransaction } from './state.ts';
+import { listAll, type StateTransaction } from './state.ts';
 import {
   AppError,
   idSchema,
@@ -43,7 +43,7 @@ function associated(env: Env, host: any, user: AccessUser) {
 async function revokeGrant(tx: StateTransaction, grant: EmailGrant) {
   await tx.put(grant.id, { ...grant, active: false, revoked: Date.now() });
   const revoked: Auth[] = [];
-  for (const [key, auth] of await tx.list<Auth>({ prefix: 'auth:' })) {
+  for (const [key, auth] of await listAll<Auth>(tx, { prefix: 'auth:' })) {
     if (
       auth.accountId === grant.accountId &&
       auth.hostId === grant.hostId &&
@@ -70,7 +70,7 @@ export async function setAccessEmails(
   await tx.put('host:' + host.id, host);
   const revoked: Auth[] = [];
   for (const grant of (
-    await tx.list<EmailGrant>({ prefix: 'emailGrant:' })
+    await listAll<EmailGrant>(tx, { prefix: 'emailGrant:' })
   ).values()) {
     if (
       grant.hostId === host.id &&
@@ -203,11 +203,11 @@ export async function emailOperation(
   }
   if (op === 'emailHosts') {
     const hosts = new Map<string, any>();
-    for (const host of (await tx.list<any>({ prefix: 'host:' })).values())
+    for (const host of (await listAll<any>(tx, { prefix: 'host:' })).values())
       if (host.version === 2 && !host.disabled && associated(env, host, user))
         hosts.set(host.id, host);
     for (const grant of (
-      await tx.list<EmailGrant>({ prefix: `emailGrant:${user.accountId}:` })
+      await listAll<EmailGrant>(tx, { prefix: `emailGrant:${user.accountId}:` })
     ).values()) {
       const host = await tx.get<any>('host:' + grant.hostId);
       if (

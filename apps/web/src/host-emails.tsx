@@ -65,7 +65,7 @@ export function HostEmailSettings({
               value.split(/[\s,;]+/).filter(Boolean),
             );
             if (!parsed.success) {
-              report(new Error(t('请输入最多 20 个有效邮箱，每行一个。')));
+              report(new Error(t('请输入有效邮箱，每行一个。')));
               return;
             }
             void save(parsed.data);
