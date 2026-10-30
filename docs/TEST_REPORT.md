@@ -1,8 +1,10 @@
 # 本机测试记录
 
-## 单 Agent 多项目 · 2026-10-30（发布验证中）
+## 单 Agent 多项目 · 2026-10-30（CI / 线上验收通过）
 
-首次发布提交 e56d55f 的 Actions 41019826408 中，五个原生平台 / sanitizers 作业通过，regression 的新增项目端到端测试失败；部署未执行。已定位同一页面切换 `#manager` 时组件未监听 hashchange、依赖其他异步刷新偶然触发重绘的问题。修复后按请求 ID 隔离配对状态，测试显式等待页面空闲后进行片段导航，同时保存失败栈与截图供 CI 诊断；后续发布必须等待修正提交全部作业通过。
+最终源码 `269859e32efe50e7809cbacb622eb7a2becfe01c` 的 [Actions 41022113021](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021) 六项必需作业全部通过，包括完整旧功能/D1 浏览器回归、Windows、musl、Ubuntu 20.04 和 sanitizers。已通过核验后的 CI 制品配套部署 0.5.17 Relay/CW 和四平台下载，Worker `fcf72234-bf6e-4792-856b-619ce15e0ad3` 承接 100% 流量。线上健康、六项资源字节、五个归档 SHA256 和新增入口未授权拒绝检查通过。[发布证据](assets/multi-project-2026-10-30/deployment.json)。
+
+首次发布提交 e56d55f 的 Actions 41019826408 中，regression 的新增项目端到端测试失败；部署未执行。已定位同一页面切换 `#manager` 时组件未监听 hashchange、依赖其他异步刷新偶然触发重绘的问题。修复后按请求 ID 隔离配对状态，测试显式等待页面空闲后进行片段导航，同时保存失败栈与截图供 CI 诊断；修正提交已完成全部必需 CI 并上线。
 
 设计先行：[多项目设计](multi-project-design.md)。本次使用仓库现有 Bookworm 测试容器构建，构建目录 `.local/build-multi-project`；宿主机缺少 Boost 开发依赖，未使用本地构建作为发布制品。
 
@@ -10,7 +12,7 @@
 - CTest 的 `native-core` 和新增跨平台 `native-projects` 通过。覆盖空目录、原子登记与重启回执、版本冲突、ID 复用拒绝、路径别名/父子重叠、活动操作保护、目录失效和两个独立本地控制端点的认证。7 项原生登录/配置测试通过，包含不传 `--project` 的首次登录及已有配置兼容。
 - `npm run test:projects` 通过：两个真实 Agent 进程、真实 coc-agent/coc-client 命令，检查动态添加、普通会话的移除保护、改名、幂等重试、通知、重启恢复、离线管理与取消注册不删文件。使用两个独立实例模拟用户工作区，未在本次本地验证中切换两个真实系统 UID；文件权限仍由系统执行。
 - `npm run test:projects:e2e` 通过：临时 Wrangler、真实 Agent/CC、模拟 Codex 和 Chromium，完成管理员邮箱设置、网页添加/创建/浏览/改名、CC 浏览器管理身份配对、CC 添加及取消注册。1280 和 390 像素布局无页面错误或横向溢出。截图位于忽略目录 `.local/project-evidence/projects-desktop.png` 和 `projects-mobile.png`；测试身份、路径和 Worker 日志均留在 `.local/`，未访问生产状态。
-- 网页构建通过，保留现有单包大于 500 kB 的构建提示。新增原生和端到端门禁已加入 CI；本次尚未推送、等待 GitHub Actions 或部署，Windows、musl、Ubuntu 20.04、sanitizers 以及完整旧功能/D1 浏览器回归须由后续准确源码提交的 CI 确认。没有模型调用，没有重启现有生产 Agent。
+- 网页构建通过，保留现有单包大于 500 kB 的构建提示。新增原生和端到端门禁已加入 CI；随后已推送修正提交并完成上述平台与完整回归 CI，按验证后的制品部署。没有模型调用，没有重启现有生产 Agent。
 
 ## CW 底部自动刷新与部署断流重试 · 2026-10-30（CI / 线上验收通过）
 

@@ -1,4 +1,16 @@
-# 发布状态：0.5.16
+# 发布状态：0.5.17
+
+## 单 Agent 多项目管理 · 2026-10-30
+
+源码 `269859e32efe50e7809cbacb622eb7a2becfe01c` 的 [Actions 41022113021](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。首次提交 e56d55f 的新端到端测试暴露同页配对链接切换问题，修正后整套 CI 重新通过；没有部署失败运行的制品。
+
+通过 `scripts/deploy-cloud.py --publish-downloads --apply` 校验六份 GitHub 制品摘要和源码身份，将配套 Relay、CW、四平台原生包及源码包发布到 `https://r.xlogic.cc`。部署 ID `5fae8644-fd9b-4131-b29a-7e54b801be31`，Worker 版本 `fcf72234-bf6e-4792-856b-619ce15e0ad3`，UTC 08:07:11 发布，流量 100%。本次使用分支 CI 制品，未创建 GitHub Release 标签。
+
+线上健康版本 0.5.17；首页、JS、CSS、用户手册、下载清单和校验清单共六项字节一致。四个平台安装包及源码包均已重新下载，SHA256 全部匹配。直连大包下载中断后，使用本机已有 HTTPS 代理完成只读核验，没有重复发布；TLS 验证保留。访客健康接口成功，普通和管理员项目管理入口在无 CoC 凭证时均返回 401 UNAUTHORIZED。
+
+保留原 D1 UUID `3120cc4f-de73-43b2-b2c0-26c3626b6f76`、STATE_BACKEND、Cron、Secret 和授权数据；没有待执行的 SQL 迁移。发布前 D1 私有备份通过 SQLite 完整性检查，该快照不包含活动 DO 状态。本机没有运行中的 Agent / systemd 用户服务；未安装或重启其他主机的 Agent/CC，升级归档已在下载页提供。未在生产修改管理员邮箱或登记项目，相关功能已由准确提交的真实 Worker、原生程序和 Chromium CI 覆盖。
+
+[CI、制品与线上归档校验和、部署身份及验收证据](assets/multi-project-2026-10-30/deployment.json)。私有日志和下载在忽略目录 `.local/deploy-cloud/41022113021/`；备份在 `.local/multi-project-release/private/`。
 
 ## Agent 邮箱关联、网页更新通知与 CW 底部刷新 · 2026-10-30
 

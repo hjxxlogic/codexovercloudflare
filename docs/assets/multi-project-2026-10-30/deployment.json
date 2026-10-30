@@ -1,0 +1,208 @@
+{
+  "version": "0.5.17",
+  "sourceCommit": "269859e32efe50e7809cbacb622eb7a2becfe01c",
+  "sourceDigest": "5dbb398f39e3e0bb591594e1aedb21ad20723f90817bd10ed6902b1525393283",
+  "actions": {
+    "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021",
+    "requiredJobs": [
+      {
+        "id": 123951578353,
+        "name": "linux-musl",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578353"
+      },
+      {
+        "id": 123951578606,
+        "name": "linux-release (debian12, debian:12)",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578606"
+      },
+      {
+        "id": 123951578652,
+        "name": "regression",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578652"
+      },
+      {
+        "id": 123951578666,
+        "name": "sanitizers",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578666"
+      },
+      {
+        "id": 123951578751,
+        "name": "windows-x64",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578751"
+      },
+      {
+        "id": 123951578833,
+        "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+        "conclusion": "success",
+        "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41022113021/job/123951578833"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 12962512158,
+      "digest": "sha256:b2d05762c9abe171ecffce569048ad8b8d5a89a24cf53e2a9716921ae8997211"
+    },
+    {
+      "name": "verified-worker",
+      "id": 12962586945,
+      "digest": "sha256:6aca15792da5f172ba12cb94d7ba4287b7c5c3537f751af360daeebf2a6c70d2"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 12962455891,
+      "digest": "sha256:3af8257049dcc4557678daa85a8140adf3ee69fb1c487c8aa00b88bce70c965b"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 12961967749,
+      "digest": "sha256:5d1347f04fcd8be30620a5984cc07ebab568e4e073297f6a1ca2084096238e87"
+    },
+    {
+      "name": "linux-musl",
+      "id": 12961868648,
+      "digest": "sha256:912a07320a7584557955c770d0685b677c6e2aac01337e23fcc406746497f788"
+    },
+    {
+      "name": "windows-x64",
+      "id": 12961848680,
+      "digest": "sha256:819e9c20d089d2556911dd3e6d96f97d3506fe09e471def1c651351932cb3e4b"
+    }
+  ],
+  "target": "https://r.xlogic.cc",
+  "deployment": {
+    "id": "5fae8644-fd9b-4131-b29a-7e54b801be31",
+    "created_on": "2026-10-30T08:07:11.301284Z",
+    "versions": [
+      {
+        "version_id": "fcf72234-bf6e-4792-856b-619ce15e0ad3",
+        "percentage": 100
+      }
+    ],
+    "annotations": {
+      "workers/message": "Actions 41022113021 commit 269859e32efe50e7809cbacb622eb7a2becfe01c",
+      "workers/triggered_by": "deployment"
+    }
+  },
+  "downloads": {
+    "version": "0.5.17",
+    "commit": "269859e32efe50e7809cbacb622eb7a2becfe01c",
+    "sourceDigest": "5dbb398f39e3e0bb591594e1aedb21ad20723f90817bd10ed6902b1525393283",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.17-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.17-linux-x86_64-musl.tar.gz",
+      "coc-0.5.17-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.17-windows-x64.zip",
+      "codex-over-cloudflare-0.5.17-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "nativeChecksums": {
+    "coc-0.5.17-linux-x86_64-debian12.tar.gz": "002dadd33d4c2cecf4b335bd48e31a670d709f3e6688e64be8d598a9d21a8203",
+    "coc-0.5.17-linux-x86_64-musl.tar.gz": "ce793744d2a62617ebd4c12a56e76e7fc07fcd4bef81f5656a036e067197de80",
+    "coc-0.5.17-linux-x86_64-ubuntu20.04.tar.gz": "7b225a7b9b116ae806d3eeac498feded293bdc41f07ac0109ef6bb940e81bb84",
+    "coc-0.5.17-windows-x64.zip": "33a996957684068164b546454001aa826c22e88d0f523d32d79252520777b62b",
+    "codex-over-cloudflare-0.5.17-source.tar.gz": "2f5e741a888570e8f619504d5a0bf35ccc9024ac1053bbd8b0a5f6195a239a2d"
+  },
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.17",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "assets": [
+      {
+        "path": "/",
+        "sha256": "9a228020b1e99c637136316929b2c8998ed9a883d75f376620a4dc6b3b84a431",
+        "bytesMatch": true
+      },
+      {
+        "path": "/assets/index-B8bu8Sfq.css",
+        "sha256": "4f88fe33839d8a053c2be1d1db582fd8c52164cf0a3d956060aa3b419252cbf8",
+        "bytesMatch": true
+      },
+      {
+        "path": "/assets/index-CguUSU7i.js",
+        "sha256": "c28e3847b74ee8c3d6d037ba648617038c1e874b534da6609a17c0cab2a64797",
+        "bytesMatch": true
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "sha256": "a7cf865dc4ce4edc68bdc83ff50306364f947be4e9ea3ccf8ccdaa245fbc364a",
+        "bytesMatch": true
+      },
+      {
+        "path": "/downloads/index.json",
+        "sha256": "d91aaa9021bd42cc22f2f7ce2a5f432658ebc8c2b54693f5c040fe27eeaa824e",
+        "bytesMatch": true
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "sha256": "e6cd196f375e38db28f9641ab0057b635bc7f12eb3f8137f6ee793c27fe905d2",
+        "bytesMatch": true
+      }
+    ],
+    "publicEndpoints": [
+      {
+        "path": "/guest/api/v1/healthz",
+        "status": 200,
+        "body": {
+          "ok": true,
+          "version": "0.5.17",
+          "demand": 1,
+          "protocol": 1
+        }
+      },
+      {
+        "path": "/guest/api/v1/hosts/deployment-check/project-management",
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts/deployment-check/project-management",
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      }
+    ],
+    "network": "Retried read-only verification using the existing configured HTTPS proxy; TLS verification preserved"
+  },
+  "state": {
+    "backend": "d1",
+    "databaseId": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+    "cron": "17 * * * *",
+    "schemaMigrations": "No migrations to apply",
+    "predeployBackup": {
+      "sha256": "89530cc483b5afab3fc5833e3268cb0479ebacc73e733acb69686896859ae80a",
+      "bytes": 36426,
+      "integrity": "ok",
+      "limitation": "D1 snapshot excludes active Durable Object state"
+    }
+  },
+  "verificationRecovery": "Publishing succeeded; initial direct native downloads were interrupted. Completed verification without republishing.",
+  "limitations": [
+    "Existing production Agent/CC installations were not replaced or restarted; verified upgrade packages are published.",
+    "No production administrator email or project registration was changed for testing; privileged workflows passed CI against a temporary real Worker and native programs.",
+    "Branch CI skipped the GitHub Release tag job; all four native packages were published to the production download site.",
+    "D1 backup does not include active Durable Object state; existing state, credentials, bindings and tasks were preserved."
+  ]
+}
