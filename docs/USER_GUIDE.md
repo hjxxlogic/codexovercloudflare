@@ -43,6 +43,10 @@ Service Token 准入与轮换由 Cloudflare Access 策略负责。Worker 不导�
 
 Worker 开启 `ACCESS_ENABLED=true` 后必须配置 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`，并保留 `OWNER_SECRET`；未开启时继续原有配对 / 管理登录。出现 Access 登录过期提示时重新打开网站验证邮箱；错误中的 `token / keys_* / key_id / signature / claims / identity` 表示失败阶段，不包含登录凭据。`/cdn-cgi/access/get-identity` 返回 `no app token set` 时，浏览器尚未提供应用登录 Cookie，可先重新登录再刷新身份接口；机器连接失败则核对共享 Token、策略和 CoC 凭据。完整变量、下载策略和跨浏览器迁移见 [Access 接入说明](cloudflare-access-coc-auth.md)。
 
+## CW 底部自动刷新
+
+在 CW 对话消息区向下滚动或滑动到最底部，会自动同步当前主机、会话状态和消息；已经到底时继续向下滑动也可触发。支持鼠标滚轮、手机单指上滑，以及聚焦消息区后的 End / PageDown / 向下键。连续手势和正在执行的刷新会合并，保留当前连接、草稿、审批及已读内容。自动跟随新消息、向上查看历史或滚动尚未到底的工具输出不会触发；空闲时不轮询。同步失败沿用顶部刷新的提示和重连恢复方式，也可点击顶部“刷新状态”重试。
+
 ## Agent 邮箱关联
 
 在管理员网页的“Agent 邮箱关联”页签，为指定服务器填写邮箱（每行一个，最多 20 个），点击“保存关联邮箱”。这些邮箱通过 Cloudflare Access 验证后，同一邮箱在所有 CW 浏览器中都能看到并访问该 Agent，无需逐浏览器配对；授权限于 CW 和该主机，不授予 CC 或管理权限。邮箱本地部分区分大小写，域名统一为小写；不支持通配符或整域授权。访客入口和无邮箱的 Service Token 不获得这项权限，原有独立配对授权继续有效。

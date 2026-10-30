@@ -31,6 +31,20 @@ BUILD = {'commit': COMMIT, 'sourceDigest': DIGEST, 'dirty': False,
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_text_response_retries_discard_partial_stdout(self):
+        for headers in (None, b'X-Test-Access: synthetic\n'):
+            failed = types.SimpleNamespace(returncode=28, stdout=b'partial response', stderr=b'timeout')
+            success = types.SimpleNamespace(returncode=0, stdout=b'complete\n200 application/json' if headers else b'complete', stderr=b'')
+            with self.subTest(headers=bool(headers)), patch.object(deploy._access, 'request_headers', return_value=headers), \
+                    patch.object(deploy.subprocess, 'run', side_effect=[failed, success]) as run, \
+                    patch.object(deploy.time, 'sleep'):
+                self.assertEqual(deploy.curl('https://example.invalid/metadata'), b'complete')
+                self.assertEqual(run.call_count, 2)
+                args = run.call_args.args[0]
+                self.assertEqual(args[args.index('--retry') + 1], '0')
+                self.assertEqual(args[args.index('--max-time') + 1], '60')
+                self.assertIn('--compressed', args)
+
     def test_push_rejects_dirty_source_or_another_repository(self):
         for replies in [[' M native/src/agent.cpp'],
                         ['', COMMIT, 'master', 'git@github.com:someone/else.git']]:

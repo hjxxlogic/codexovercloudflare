@@ -704,6 +704,106 @@ try {
     languageAttachCalls,
     'manual refresh preserves the active controller',
   );
+  const messagesForRefresh = page.getByRole('log', { name: '对话消息' });
+  const beforeBottomRefresh = controlSyncCalls;
+  await messagesForRefresh.evaluate(async (element) => {
+    element.scrollTop = 0;
+    await new Promise(requestAnimationFrame);
+    element.scrollTop = element.scrollHeight;
+    await new Promise(requestAnimationFrame);
+  });
+  assert.equal(
+    controlSyncCalls,
+    beforeBottomRefresh,
+    'programmatic follow-to-bottom does not refresh',
+  );
+  await messagesForRefresh.dispatchEvent('wheel', { deltaY: -30 });
+  assert.equal(
+    controlSyncCalls,
+    beforeBottomRefresh,
+    'scrolling upward does not refresh',
+  );
+  events.push({
+    seq: 9,
+    type: 'user',
+    data: { text: '滚到底部自动补回的消息' },
+    time: 9,
+  });
+  await messagesForRefresh.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    for (let i = 0; i < 20; i++)
+      element.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, deltaY: 60 }),
+      );
+  });
+  await expect(
+    page.getByText('滚到底部自动补回的消息', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
+  assert.equal(
+    controlSyncCalls,
+    beforeBottomRefresh + 1,
+    'a continuous bottom wheel gesture refreshes once',
+  );
+  await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
+  assert.equal(
+    attachCalls,
+    languageAttachCalls,
+    'bottom refresh preserves the active controller',
+  );
+  await new Promise((done) => setTimeout(done, 1100));
+  events.push({
+    seq: 10,
+    type: 'user',
+    data: { text: '手机底部滑动补回的消息' },
+    time: 10,
+  });
+  await messagesForRefresh.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(
+      new TouchEvent('touchstart', {
+        bubbles: true,
+        touches: [
+          new Touch({
+            identifier: 1,
+            target: element,
+            clientX: 50,
+            clientY: 300,
+          }),
+        ],
+      }),
+    );
+    for (const y of [280, 260, 240])
+      element.dispatchEvent(
+        new TouchEvent('touchmove', {
+          bubbles: true,
+          touches: [
+            new Touch({
+              identifier: 1,
+              target: element,
+              clientX: 50,
+              clientY: y,
+            }),
+          ],
+        }),
+      );
+    element.dispatchEvent(
+      new TouchEvent('touchend', { bubbles: true, touches: [] }),
+    );
+  });
+  await expect(
+    page.getByText('手机底部滑动补回的消息', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
+  assert.equal(
+    controlSyncCalls,
+    beforeBottomRefresh + 2,
+    'a bottom touch gesture refreshes once',
+  );
   // Simulate an OPEN history channel that stops answering while probe succeeds.
   const beforeHistoryReconnect = historyConnections;
   stallHistory = true;

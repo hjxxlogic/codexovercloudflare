@@ -1,5 +1,9 @@
 # 技术架构与选型
 
+## CW 底部手势刷新
+
+消息滚动区使用 `useBottomRefresh` 记录向下滚轮、单指滑动与键盘翻页的用户意图，仅在到达底部时调用现有 `refreshView`。同一手势只消费一次，并与正在执行的刷新及短冷却合并；切换主机 / 会话或退出 CW 时清除手势。程序自动跟随消息不创建意图，工具输出内仍可向下滚动时不外溢触发同步，不增加空闲轮询。刷新仍等待 probe、控制与历史同步响应，沿用失败恢复及草稿保留。
+
 ## Agent 邮箱关联与更新通知
 
 Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理员覆盖优先，空覆盖禁用，缺省使用 Agent 来源；有效邮箱列表不向普通主机列表暴露。Agent 通过已认证 capabilities 或 `/api/v1/agent/access-emails` 仅修改自身主机，管理员通过 `/api/v1/admin/hosts/:id/access-emails` 设置数组或 `null` 恢复默认。最多 20 个邮箱，C++ / Zod 使用共享样例校验，保留本地部分大小写并规范化域名。

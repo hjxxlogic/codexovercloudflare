@@ -1,5 +1,11 @@
 # 开发与本机测试
 
+`tests/agent-deploy.py` 的断流故障注入同时覆盖文件续传及文本 stdout 重试丢弃失败片段，包含 Access Header 情况；文本返回值不能包含之前失败尝试的字节。
+
+## CW 底部自动刷新
+
+`bottom-refresh.ts` 仅根据用户向下手势创建短期滚动意图，`onScroll` 不能单独触发请求，避免自动跟随最新消息产生循环。`tests/ui-stability.ts` 验证程序滚动 / 向上滚动不刷新、底部连续滚轮及触摸各只刷新一次，补回漏消息并保留草稿与控制连接。原有手动刷新、失效 OPEN 通道恢复和空闲计费回归继续适用。
+
 ## Agent 邮箱关联与更新通知
 
 `tests/access-email-fixtures.json` 同时驱动 C++ / Zod 的邮箱规范化与拒绝样例，`tests/native-login.py` 验证缺省 / 自定义字段以及 `access-emails` 命令只在服务端成功后保存配置。`tests/cloudflare-access.test.ts` 使用合成签名邮箱验证跨浏览器自动授权、不同邮箱隔离、Agent 只能配置自身、管理员覆盖 / 恢复、撤销及独立配对保留；`tests/ui-stability.ts` 覆盖网页更新通知的清单校验、失败重试、发送禁用及邮箱保存 / 清空 / 恢复，生成截图。均不使用生产凭据或模型调用。

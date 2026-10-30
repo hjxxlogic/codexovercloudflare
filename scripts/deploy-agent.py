@@ -27,8 +27,8 @@ def log(message):
 
 
 def curl(url, output=None):
-    args = ['curl', '--fail', '--silent', '--show-error', '--location', '--retry', '3',
-            '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '300',
+    args = ['curl', '--fail', '--silent', '--show-error', '--compressed', '--location', '--retry', '0',
+            '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '300' if output else '60',
             '--max-filesize', str(512 * 1024 * 1024), '--user-agent', 'coc-deploy-agent/1', url]
     headers = _access.request_headers(url)
     if headers:
@@ -37,11 +37,10 @@ def curl(url, output=None):
     if output:
         # curl's internal retries rewind the output to the original offset, losing
         # progress after a reset. Retry in fresh processes so -C - resumes new bytes.
-        args[args.index('--retry') + 1] = '0'
         args += ['--speed-limit', '1024', '--speed-time', '20',
                  '--continue-at', '-', '--output', str(output)]
     stalls = 0
-    for attempt in range(24 if output else 1):
+    for attempt in range(24 if output else 4):
         before = output.stat().st_size if output and output.exists() else 0
         result = subprocess.run(args, capture_output=True, **({'input': headers} if headers else {}))
         if result.returncode == 0:
@@ -51,11 +50,19 @@ def curl(url, output=None):
                     raise RuntimeError('Access login redirect or unexpected response; check shared service token and policy')
                 return payload
             return result.stdout
+        if not output:
+            # stdout cannot be rewound by curl's built-in retries. Discard the
+            # failed process's partial bytes instead of concatenating responses.
+            if attempt < 3:
+                log('Request interrupted; retrying without partial response bytes')
+                time.sleep(2)
+                continue
+            break
         if output and result.returncode == 33:
             pathlib.Path(output).unlink(missing_ok=True)  # Server did not support Range.
         after = output.stat().st_size if output and output.exists() else 0
         stalls = stalls + 1 if after <= before else 0
-        if not output or stalls >= 3:
+        if stalls >= 3:
             break
         if attempt < 23:
             log('Download interrupted; resuming verified artifact from ' + str(after) + ' bytes')

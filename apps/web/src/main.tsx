@@ -48,6 +48,7 @@ import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { AgentUpdates } from './agent-updates.tsx';
 import { HostEmailSettings } from './host-emails.tsx';
+import { useBottomRefresh } from './bottom-refresh.ts';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
 function MenuIcon() {
@@ -300,6 +301,11 @@ function App() {
   const refreshSession = useRef<(() => Promise<void>) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshed, setRefreshed] = useState('');
+  const bottomRefresh = useBottomRefresh(
+    mode === 'cw' && view === 'chat' && !!selected && online,
+    refreshView,
+    `${host}:${selected?.id ?? ''}`,
+  );
   const [revision, setRevision] = useState(0);
   const [resultRevision, setResultRevision] = useState(0);
   const snapshotPending = useRef<Promise<void> | undefined>(undefined);
@@ -3321,7 +3327,14 @@ function App() {
                       role="log"
                       aria-label={t('对话消息')}
                       aria-live="off"
+                      tabIndex={0}
+                      onTouchStart={bottomRefresh.onTouchStart}
+                      onTouchMove={bottomRefresh.onTouchMove}
+                      onTouchEnd={bottomRefresh.onTouchEnd}
+                      onTouchCancel={bottomRefresh.onTouchCancel}
+                      onKeyDown={bottomRefresh.onKeyDown}
                       onWheel={(e) => {
+                        bottomRefresh.onWheel(e);
                         if (
                           e.deltaY < 0 &&
                           e.currentTarget.scrollTop <= 0 &&
@@ -3331,6 +3344,7 @@ function App() {
                           loadHistory.current(olderCursor);
                       }}
                       onScroll={(e) => {
+                        bottomRefresh.onScroll(e);
                         const el = e.currentTarget;
                         const scrolledUp =
                           el.scrollTop < messageScrollTop.current;
