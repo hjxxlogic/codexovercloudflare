@@ -34,6 +34,14 @@ export type Auth = {
   grantId?: string;
   ownerSource?: 'email' | 'secret';
   adminEmailVersion?: string;
+  manager?: {
+    kind: 'email' | 'owner';
+    email?: string;
+    accountId?: string;
+    ownerVersion?: string;
+    ownerSource?: 'email' | 'secret';
+    adminEmailVersion?: string;
+  };
 };
 export const json = (
   data: unknown,

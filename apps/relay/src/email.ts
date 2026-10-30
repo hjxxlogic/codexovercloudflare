@@ -1,3 +1,4 @@
+import { effectiveAdminEmail } from './project-auth.ts';
 import type { StateTransaction } from './state.ts';
 import {
   AppError,
@@ -27,11 +28,16 @@ export type EmailGrant = {
 export function effectiveAccessEmails(host: any): string[] {
   return host.accessEmailsOverride ?? host.agentAccessEmails ?? [];
 }
+function admittedEmails(host: any): string[] {
+  return [...effectiveAccessEmails(host), effectiveAdminEmail(host)].filter(
+    Boolean,
+  );
+}
 function associated(env: Env, host: any, user: AccessUser) {
   return (
     accessEnabled(env) &&
     user.issuer === env.ACCESS_TEAM_DOMAIN &&
-    effectiveAccessEmails(host).includes(user.email)
+    admittedEmails(host).includes(user.email)
   );
 }
 async function revokeGrant(tx: StateTransaction, grant: EmailGrant) {
@@ -70,7 +76,7 @@ export async function setAccessEmails(
       grant.hostId === host.id &&
       grant.active &&
       grant.association &&
-      (!effectiveAccessEmails(host).includes(grant.email) ||
+      (!admittedEmails(host).includes(grant.email) ||
         grant.accountId !==
           (await digest(JSON.stringify([env.ACCESS_TEAM_DOMAIN, grant.email]))))
     ) {
@@ -138,7 +144,7 @@ export async function validateEmailAuth(
     if (grant.association) {
       const host = await validHost(tx, grant.hostId);
       if (
-        !effectiveAccessEmails(host).includes(grant.email) ||
+        !admittedEmails(host).includes(grant.email) ||
         grant.accountId !==
           (await digest(JSON.stringify([env.ACCESS_TEAM_DOMAIN, grant.email])))
       )

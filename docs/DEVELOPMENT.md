@@ -342,3 +342,7 @@ Registry 成功执行 `auth / authHash / authHost` 时，在同一事务完成�
 D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并仅对 `SQLITE_BUSY` / `SQLITE_LOCKED` 留给外层有界轮询重试，避免与 Miniflare 归档写锁竞争造成假失败；其他数据库错误立即失败，不通过 HTTP 轮询唤醒 Host。
 
 聊天全屏几何验收前关闭前序外部审批测试可能遗留的可关闭提示栏，再测量正常布局；只识别该条审批提示，不隐藏错误，也不降低聊天区尺寸或溢出断言。失败 CI 截图可用于区分提示栏占高和实际布局回归。
+
+## 多项目开发验证
+
+`npm test` 包含 `native-projects` CTest 和项目授权 Vitest。`npm run test:projects` 启动两个真实 Agent 及本机/远程 CLI，使用模拟 Relay/Codex 检查动态登记、活动会话保护、请求重试及重启恢复。`npm run test:projects:e2e` 启动临时 Wrangler、真实 Agent/CC 和 Chromium，覆盖管理员项目页面、管理邮箱、CC 身份配对与桌面/移动截图；不使用生产状态或模型。原生二进制可用 COC_AGENT_BINARY / COC_CLI_BINARY 覆盖，浏览器和截图沿用 PLAYWRIGHT_BROWSERS_PATH / COC_BROWSER_PATH / COC_ARTIFACT_DIR。新增原生目录与本地控制测试同时编入 Windows CTest。

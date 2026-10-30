@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 单 Agent 多项目 · 2026-10-30（本地验证，未部署）
+
+设计先行：[多项目设计](multi-project-design.md)。本次使用仓库现有 Bookworm 测试容器构建，构建目录 `.local/build-multi-project`；宿主机缺少 Boost 开发依赖，未使用本地构建作为发布制品。
+
+- TypeScript、ESLint / Prettier、C++ 格式、协议生成和差异空白检查通过；16 个 Vitest 文件共 203 项通过。新增权限用例覆盖普通用户只读目录登记、跨 Agent 拒绝、平台管理、管理员邮箱覆盖/恢复、验证邮箱配对和管理凭证失效；签名 JWT 测试确认自报邮箱不能取得管理权限。
+- CTest 的 `native-core` 和新增跨平台 `native-projects` 通过。覆盖空目录、原子登记与重启回执、版本冲突、ID 复用拒绝、路径别名/父子重叠、活动操作保护、目录失效和两个独立本地控制端点的认证。7 项原生登录/配置测试通过，包含不传 `--project` 的首次登录及已有配置兼容。
+- `npm run test:projects` 通过：两个真实 Agent 进程、真实 coc-agent/coc-client 命令，检查动态添加、普通会话的移除保护、改名、幂等重试、通知、重启恢复、离线管理与取消注册不删文件。使用两个独立实例模拟用户工作区，未在本次本地验证中切换两个真实系统 UID；文件权限仍由系统执行。
+- `npm run test:projects:e2e` 通过：临时 Wrangler、真实 Agent/CC、模拟 Codex 和 Chromium，完成管理员邮箱设置、网页添加/创建/浏览/改名、CC 浏览器管理身份配对、CC 添加及取消注册。1280 和 390 像素布局无页面错误或横向溢出。截图位于忽略目录 `.local/project-evidence/projects-desktop.png` 和 `projects-mobile.png`；测试身份、路径和 Worker 日志均留在 `.local/`，未访问生产状态。
+- 网页构建通过，保留现有单包大于 500 kB 的构建提示。新增原生和端到端门禁已加入 CI；本次尚未推送、等待 GitHub Actions 或部署，Windows、musl、Ubuntu 20.04、sanitizers 以及完整旧功能/D1 浏览器回归须由后续准确源码提交的 CI 确认。没有模型调用，没有重启现有生产 Agent。
+
 ## CW 底部自动刷新与部署断流重试 · 2026-10-30（CI / 线上验收通过）
 
 完整 Chromium UI 回归验证：程序滚动到底和向上手势不刷新；底部连续 20 次滚轮事件只同步一次并补回漏消息，手机连续触摸移动只同步一次；两者保留草稿及原控制连接。原有手动刷新及失效 OPEN 通道恢复继续通过。24 小时模拟空闲下 CW / 管理员周期请求均为 0，手动 probe 和撤销同步正常。TypeScript、ESLint / Prettier 与 9 项部署信任边界测试通过；部署故障注入覆盖文本响应部分输出被丢弃、Access Header、独立重试及文件续传。未调用模型。

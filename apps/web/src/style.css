@@ -1324,3 +1324,31 @@ progress {
     padding: 0 12px 24px;
   }
 }
+
+.project-management {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border, #ddd);
+  padding-top: 1rem;
+}
+.project-management ul {
+  padding-left: 1.25rem;
+}
+.project-management li {
+  margin: 0.75rem 0;
+  overflow-wrap: anywhere;
+}
+.project-management li button {
+  margin: 0.3rem;
+}
+.project-management form {
+  display: grid;
+  gap: 0.65rem;
+}
+.project-management label {
+  display: grid;
+  gap: 0.25rem;
+}
+.project-management input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+}

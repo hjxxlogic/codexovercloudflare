@@ -99,7 +99,12 @@ export async function api(
       409,
     );
   if (response.status === 202 && result.accepted === true) {
-    return waitOperation(result.hostId, result.operationId, signal);
+    return waitOperation(
+      result.hostId,
+      result.operationId,
+      signal,
+      path.startsWith('/admin/'),
+    );
   }
   return result;
 }
@@ -107,6 +112,7 @@ function waitOperation(
   hostId: string,
   operationId: string,
   signal?: AbortSignal,
+  admin = false,
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     let ended = false,
@@ -151,15 +157,16 @@ function waitOperation(
       clearTimeout(poll);
       try {
         const receipt = await api(
-          `/hosts/${hostId}/operations/${operationId}`,
+          `${admin ? '/admin' : ''}/hosts/${hostId}/operations/${operationId}`,
           undefined,
           reading.signal,
         );
         if (ended) return;
         if (receipt.state === 'completed') {
-          void api(`/hosts/${hostId}/operations/${operationId}`, {}).catch(
-            () => {},
-          );
+          void api(
+            `${admin ? '/admin' : ''}/hosts/${hostId}/operations/${operationId}`,
+            {},
+          ).catch(() => {});
           if (receipt.error)
             finish(
               new ApiError(
@@ -182,13 +189,14 @@ function waitOperation(
           );
       }
     };
-    stop = observe(`/ws/v1/hosts/${hostId}`, (event) => {
-      if (
-        event.type === 'subscribed' ||
-        (event.type === 'change' && event.operationId === operationId)
-      )
-        void read();
-    });
+    if (!admin)
+      stop = observe(`/ws/v1/hosts/${hostId}`, (event) => {
+        if (
+          event.type === 'subscribed' ||
+          (event.type === 'change' && event.operationId === operationId)
+        )
+          void read();
+      });
     if (signal?.aborted) abort();
     else {
       signal?.addEventListener('abort', abort, { once: true });

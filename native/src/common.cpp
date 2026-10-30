@@ -265,6 +265,15 @@ std::string display_name(const Json &value) {
   return name;
 }
 Json agent_config(Json c) {
+  bool persisted_projects = false;
+  if (c.contains("dataDir") && c["dataDir"].is_string()) {
+    auto catalog = std::filesystem::u8path(c["dataDir"].get<std::string>()) / "projects.json";
+    if (std::filesystem::exists(catalog)) {
+      c["projects"] = read_json(catalog).at("projects");
+      persisted_projects = true;
+    }
+  }
+
   if (!c.is_object())
     throw Error("CONFIG_ERROR", "Expected object");
   for (auto k : {"hostId", "token", "dataDir"})
@@ -279,6 +288,8 @@ Json agent_config(Json c) {
     c["wakeUrl"] = wake_url(c["wakeUrl"]);
   if (c.contains("accessEmails"))
     c["accessEmails"] = access_emails(c["accessEmails"]);
+  if (c.contains("adminEmail") && c["adminEmail"] != "")
+    c["adminEmail"] = access_emails(Json::array({c["adminEmail"]})).at(0);
   auto external = c.value("externalSessions", Json::object());
   if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean() ||
       !external.value("allowApprovals", Json(false)).is_boolean())
@@ -301,9 +312,8 @@ Json agent_config(Json c) {
   for (auto &a : c["codexArgs"])
     if (!a.is_string())
       throw Error("CONFIG_ERROR", "Invalid Codex argument");
-  if (!c.contains("projects") || !c["projects"].is_array() || c["projects"].empty() ||
-      c["projects"].size() > 20)
-    throw Error("CONFIG_ERROR", "Register 1 to 20 projects");
+  if (!c.contains("projects") || !c["projects"].is_array() || c["projects"].size() > 20)
+    throw Error("CONFIG_ERROR", "Register 0 to 20 projects");
   std::set<std::string> ids;
   std::vector<std::filesystem::path> roots;
   for (auto &p : c["projects"]) {
@@ -311,10 +321,17 @@ Json agent_config(Json c) {
     if (!valid_id(id) || !ids.insert(id).second || !p.at("name").is_string() ||
         p["name"].get<std::string>().empty() || utf16_length(p["name"].get<std::string>()) > 100)
       throw Error("CONFIG_ERROR", "Invalid project");
-    auto path =
-        std::filesystem::canonical(std::filesystem::u8path(p.at("path").get<std::string>()));
-    if (!std::filesystem::is_directory(path))
-      throw Error("CONFIG_ERROR", "Project must be a directory");
+    auto path = std::filesystem::absolute(std::filesystem::u8path(p.at("path").get<std::string>()))
+                    .lexically_normal();
+    if (!persisted_projects) {
+      std::error_code ec;
+      const auto real = std::filesystem::weakly_canonical(path, ec);
+      if (!ec)
+        path = real;
+      const bool exists = std::filesystem::exists(path, ec);
+      if (!ec && exists && !std::filesystem::is_directory(path, ec) && !ec)
+        throw Error("CONFIG_ERROR", "Project must be a directory");
+    }
     for (const auto &root : roots) {
       auto prefix = [](const auto &a, const auto &b) {
         auto pair =

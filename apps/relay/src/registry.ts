@@ -1,3 +1,4 @@
+import { effectiveAdminEmail, requireProjectManager } from './project-auth.ts';
 import {
   D1State,
   d1Enabled,
@@ -19,6 +20,7 @@ import { z } from 'zod';
 import {
   AppError,
   idSchema,
+  accessEmailSchema,
   wakeUrlSchema,
 } from '../../../packages/protocol/src/index.ts';
 import {
@@ -49,6 +51,8 @@ type Host = {
   wakeUrlOverride?: string;
   agentAccessEmails?: string[];
   accessEmailsOverride?: string[];
+  agentAdminEmail?: string;
+  adminEmailOverride?: string;
 };
 export class RegistryCore {
   constructor(
@@ -75,6 +79,7 @@ export class RegistryCore {
         'deviceReject',
         'agentDeviceApprove',
         'agentDeviceReject',
+        'managerDevice',
       ].includes(op)
         ? await this.storage.get<any>('device:' + d.id)
         : undefined;
@@ -82,6 +87,7 @@ export class RegistryCore {
         'setInstanceName',
         'agentSetWakeUrl',
         'agentSetAccessEmails',
+        'agentSetAdminEmail',
       ].includes(op)
         ? await this.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
         : undefined;
@@ -95,6 +101,7 @@ export class RegistryCore {
         'deviceReject',
         'agentDeviceApprove',
         'agentDeviceReject',
+        'managerDevice',
         'credentialRevoke',
         'apiKeyCreate',
         'apiKeyLogin',
@@ -103,6 +110,8 @@ export class RegistryCore {
         'agentSetWakeUrl',
         'setAccessEmails',
         'agentSetAccessEmails',
+        'agentSetAdminEmail',
+        'setAdminEmail',
         'setInstanceName',
         'releasePublish',
         'emailGrantRevoke',
@@ -111,6 +120,7 @@ export class RegistryCore {
       if (
         response.ok &&
         mutations.includes(op) &&
+        !(op === 'managerDevice' && d.decision === undefined) &&
         !(
           op === 'releasePublish' &&
           release?.version === d.version &&
@@ -138,7 +148,9 @@ export class RegistryCore {
                 op === 'emailGrantRevoke' ||
                 op === 'emailMigrate'
                   ? result.hostId
-                  : op === 'setWakeUrl' || op === 'setAccessEmails'
+                  : op === 'setWakeUrl' ||
+                      op === 'setAccessEmails' ||
+                      op === 'setAdminEmail'
                     ? d.id
                     : credential?.hostId,
               ];
@@ -468,6 +480,101 @@ export class RegistryCore {
           }),
         );
       }
+      if (op === 'managerDevice') {
+        let created: { hash: string; expires: number } | undefined;
+        const result = await s.transaction(async (tx) => {
+          const key = 'device:' + idSchema.parse(d.id);
+          const request = await tx.get<any>(key);
+          if (
+            !request?.manager ||
+            request.role !== 'cli' ||
+            request.state !== 'pending' ||
+            request.expires <= Date.now()
+          )
+            throw new AppError(
+              'NOT_FOUND',
+              'Management pairing request expired or handled',
+              404,
+            );
+          const host = await tx.get<Host>('host:' + request.requestedHostId);
+          if (!host || host.disabled)
+            throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+          const reviewer: Auth | undefined = await tx.get<Auth>(
+            'auth:' + d.reviewerHash,
+          );
+          if (!reviewer || reviewer.expires <= Date.now())
+            throw new AppError('UNAUTHORIZED', 'Login required', 401);
+          await requireProjectManager(this.env, reviewer, host);
+          if (d.decision === undefined)
+            return {
+              id: request.id,
+              name: request.name,
+              code: request.code,
+              hostId: host.id,
+              hostName: host.name,
+              expires: request.expires,
+            };
+          if (d.decision !== 'approve' && d.decision !== 'reject')
+            throw new AppError('INVALID_REQUEST', 'Invalid decision', 400);
+          if (d.code !== request.code)
+            throw new AppError('FORBIDDEN', 'Pairing code mismatch', 403);
+          if (d.decision === 'reject') request.state = 'rejected';
+          else {
+            const value = token(),
+              hash = await digest(value);
+            const manager: NonNullable<Auth['manager']> =
+              reviewer.role === 'owner'
+                ? {
+                    kind: 'owner',
+                    ownerVersion: reviewer.ownerVersion,
+                    ownerSource: reviewer.ownerSource,
+                    adminEmailVersion: reviewer.adminEmailVersion,
+                  }
+                : {
+                    kind: 'email',
+                    email: reviewer.email,
+                    accountId: reviewer.accountId,
+                  };
+            created = { hash, expires: Date.now() + 30 * 86400000 };
+            await tx.put('auth:' + hash, {
+              hash,
+              role: 'cli',
+              version: 2,
+              name: request.name,
+              hostId: host.id,
+              created: Date.now(),
+              expires: created.expires,
+              manager,
+            } satisfies Auth);
+            request.hostId = host.id;
+            request.state = 'approved';
+            request.result = {
+              token: value,
+              hostId: host.id,
+              role: 'cli',
+              name: request.name,
+            };
+          }
+          await tx.put(key, request);
+          return { ok: true };
+        });
+        if (created) await expireAt(s, 'auth:' + created.hash, created.expires);
+        return json(result);
+      }
+      if (op === 'managerDeviceHost') {
+        const request = await s.get<any>('device:' + idSchema.parse(d.id));
+        if (
+          !request?.manager ||
+          request.state !== 'pending' ||
+          request.expires <= Date.now()
+        )
+          throw new AppError(
+            'NOT_FOUND',
+            'Management pairing request expired or handled',
+            404,
+          );
+        return json({ hostId: request.requestedHostId });
+      }
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
@@ -482,6 +589,13 @@ export class RegistryCore {
             'ACCESS_USER_REQUIRED',
             'Verified email required',
             403,
+          );
+        const manager = z.boolean().default(false).parse(d.manager);
+        if (manager && (role !== 'cli' || !d.requestedHostId))
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Manager login requires a targeted CLI request',
+            400,
           );
         const hostId = role === 'agent' ? crypto.randomUUID() : undefined;
         const requestedHostId =
@@ -517,6 +631,7 @@ export class RegistryCore {
           code: id.slice(0, 8).toUpperCase(),
           identity,
           email: identity?.email,
+          manager,
           pollHash: await digest(pollSecret),
           expires: Date.now() + 5 * 60000,
           state: 'pending',
@@ -530,7 +645,8 @@ export class RegistryCore {
           expires: request.expires,
           hostId,
           requestedHostId,
-          url: '/#authorize=' + id,
+          url: manager ? '/#manager=' + id : '/#authorize=' + id,
+          manager,
         });
       }
       if (op === 'agentDevices') {
@@ -554,6 +670,7 @@ export class RegistryCore {
                   name,
                   requestedHostId,
                   message,
+                  manager,
                   email,
                   code,
                   expires,
@@ -563,6 +680,7 @@ export class RegistryCore {
                   name,
                   requestedHostId,
                   message,
+                  manager,
                   email,
                   code,
                   expires,
@@ -585,6 +703,7 @@ export class RegistryCore {
               hostId,
               requestedHostId,
               message,
+              manager,
               email,
               code,
               expires,
@@ -595,6 +714,7 @@ export class RegistryCore {
               hostId,
               requestedHostId,
               message,
+              manager,
               email,
               code,
               expires,
@@ -604,21 +724,37 @@ export class RegistryCore {
           (await s.list<Auth>({ prefix: 'auth:' })).values(),
         )
           .filter((v) => v.version === 2 && v.role !== 'owner' && !v.grantId)
-          .map(({ hash, role, name, hostId, created, lastSeen, email }) => ({
-            id: hash,
-            lastSeen,
-            email,
-            role,
-            name,
-            hostId,
-            created,
-          }));
+          .map(
+            ({
+              hash,
+              role,
+              name,
+              hostId,
+              created,
+              lastSeen,
+              email,
+              manager,
+              expires,
+            }) => ({
+              id: hash,
+              lastSeen,
+              email: manager?.email ?? email,
+              manager: manager?.kind,
+              expires: manager ? expires : undefined,
+              role,
+              name,
+              hostId,
+              created,
+            }),
+          );
         for (const grant of (
           await s.list<EmailGrant>({ prefix: 'emailGrant:' })
         ).values())
           if (grant.active)
             credentials.push({
               id: grant.id,
+              manager: undefined,
+              expires: undefined,
               role: 'web',
               name: grant.email,
               lastSeen: grant.lastSeen,
@@ -663,6 +799,15 @@ export class RegistryCore {
               'INVALID_REQUEST',
               'Request expired or already handled',
               409,
+            );
+          if (
+            request.manager &&
+            (op === 'deviceApprove' || op === 'agentDeviceApprove')
+          )
+            throw new AppError(
+              'FORBIDDEN',
+              'Use the administrator identity pairing page for manager login',
+              403,
             );
           if (op === 'deviceReject' || op === 'agentDeviceReject')
             request.state = 'rejected';
@@ -861,6 +1006,12 @@ export class RegistryCore {
                 401,
               );
             await validateEmailAuth(tx, this.env, a);
+            if (a.manager) {
+              const host = await tx.get<Host>('host:' + a.hostId);
+              if (!host || host.disabled)
+                throw new AppError('UNAUTHORIZED', 'Host unavailable', 401);
+              await requireProjectManager(this.env, a, host);
+            }
             if (a.apiKeyId && !(await tx.get('apiKey:' + a.apiKeyId)))
               throw new AppError('UNAUTHORIZED', 'API key revoked', 401);
             if (a.hostId) {
@@ -941,6 +1092,34 @@ export class RegistryCore {
       if (op === 'logout') {
         await s.delete('auth:' + d.hash);
         return json({ ok: true });
+      }
+      if (op === 'setAdminEmail' || op === 'agentSetAdminEmail') {
+        return json(
+          await s.transaction(async (tx) => {
+            const agent =
+              op === 'agentSetAdminEmail'
+                ? await this.approvingAgent(tx, d.agentHash)
+                : undefined;
+            const id = agent?.hostId ?? idSchema.parse(d.id);
+            const host = await tx.get<Host>('host:' + id);
+            if (!host || host.disabled)
+              throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+            if (!agent && d.email === null) delete host.adminEmailOverride;
+            else
+              host[agent ? 'agentAdminEmail' : 'adminEmailOverride'] =
+                d.email === '' ? '' : accessEmailSchema.parse(d.email);
+            await tx.put('host:' + id, host);
+            // Revalidate association grants against the combined access/admin email admission.
+            await setAccessEmails(
+              tx,
+              this.env,
+              id,
+              host.agentAccessEmails ?? [],
+              true,
+            );
+            return { hostId: id, adminEmail: effectiveAdminEmail(host) };
+          }),
+        );
       }
       if (op === 'setAccessEmails' || op === 'agentSetAccessEmails') {
         return json(

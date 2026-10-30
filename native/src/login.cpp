@@ -13,7 +13,9 @@ namespace coc {
 Options::Options(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
-    if (a == "--takeover")
+    if (a == "--mkdir" || a == "--manager")
+      values[a.substr(2)] = "true";
+    else if (a == "--takeover")
       takeover = true;
     else if (a == "--api-key")
       api_key = true;
@@ -61,7 +63,9 @@ std::filesystem::path config_path(const char *env, const std::string &relative) 
 #endif
 }
 Json device_login(const std::string &relay, const std::string &role, const std::string &name,
-                  const std::string &host, bool api_key, const std::string &message) {
+                  const std::string &host, bool api_key, const std::string &message, bool manager) {
+  if (manager && (role != "cli" || host.empty() || api_key))
+    throw Error("USAGE", "Manager login requires --host and browser pairing (no API key)");
   const auto instance_name = display_name(name);
   auto url = relay_url(relay);
   if (api_key) {
@@ -121,6 +125,8 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     return result;
   }
   Json input = {{"role", role}, {"name", instance_name}};
+  if (manager)
+    input["manager"] = true;
   if (role == "cli") {
     input["message"] = message;
     if (!host.empty()) {
@@ -130,11 +136,15 @@ Json device_login(const std::string &relay, const std::string &role, const std::
     }
   }
   auto request = http_json(url, "/api/v1/auth/device/start", input);
+  if (manager && !request.value("manager", false))
+    throw Error("PROTOCOL_MISMATCH", "Relay does not support manager identity pairing");
   if (role == "cli" && !host.empty()) {
     if (request.value("requestedHostId", "") != host)
       throw Error("PROTOCOL_MISMATCH", "Relay does not support explicitly targeted login");
     std::cout << "Requested server: " << host
-              << "\nThat Agent or the administrator can approve this request.\n";
+              << (manager
+                      ? "\nVerify your administrator identity and pairing code in the browser.\n"
+                      : "\nThat Agent or the administrator can approve this request.\n");
   } else if (role == "cli")
     std::cout << "The administrator will select the server for this request.\n";
   std::cout << "Authorize in browser: " << url.origin << request.at("url").get<std::string>()

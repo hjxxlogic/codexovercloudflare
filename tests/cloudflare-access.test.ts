@@ -1060,3 +1060,54 @@ describe('email grants and administrator identity', () => {
     ).toBe(403);
   });
 });
+
+describe('verified Agent administrator email', () => {
+  it('admits the administrator without accessEmails and binds CC to the verified browser identity', async () => {
+    const agent = await host();
+    const email = 'manager@test.com';
+    expect(
+      (await op('setAdminEmail', { id: agent.hostId, email })).status,
+    ).toBe(200);
+    const hosts = await request('/api/v1/hosts', email);
+    expect(hosts.status).toBe(200);
+    expect(hosts.data.map((h: any) => h.id)).toContain(agent.hostId);
+    const pending = (
+      await op('deviceStart', {
+        role: 'cli',
+        name: 'Management CC',
+        manager: true,
+        requestedHostId: agent.hostId,
+        ip: 'test',
+      })
+    ).data;
+    const path = '/api/v1/auth/manager-device/' + pending.id;
+    expect(
+      (
+        await request(path, 'visitor@test.com', {
+          decision: 'approve',
+          code: pending.code,
+          email,
+          identity: { email },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await request(path, email)).status).toBe(200);
+    expect(
+      (await request(path, email, { decision: 'approve', code: pending.code }))
+        .status,
+    ).toBe(200);
+    const grant = (
+      await op('devicePoll', {
+        id: pending.id,
+        pollSecret: pending.pollSecret,
+        web: false,
+      })
+    ).data;
+    const credential = (await op('auth', { token: grant.token })).data;
+    expect(credential.manager.email).toBe(email);
+    expect(credential.manager.kind).toBe('email');
+    await op('setAdminEmail', { id: agent.hostId, email: '' });
+    expect((await op('auth', { token: grant.token })).status).toBe(403);
+    expect((await request('/api/v1/hosts', email)).data).toEqual([]);
+  });
+});

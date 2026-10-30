@@ -16,6 +16,8 @@ export type DeviceCredential = {
   email?: string;
   created: number;
   lastSeen?: number;
+  manager?: 'email' | 'owner';
+  expires?: number;
 };
 
 export function AuthorizedDevices({
@@ -162,14 +164,21 @@ export function AuthorizedDevices({
                           <CopyText text={d.id} />
                         </details>
                       </th>
-                      <td>{roleName(d.role)}</td>
+                      <td>
+                        {roleName(d.role)}
+                        {d.manager && <small>{t('管理身份')}</small>}
+                      </td>
                       <td>
                         {hostName(d.hostId)}
                         <small className="id">{d.hostId}</small>
                       </td>
                       <td>
                         {date(d.created)}
-                        <small>{t('长期有效')}</small>
+                        <small>
+                          {d.expires
+                            ? `${t('有效期至')} ${date(d.expires)}`
+                            : t('长期有效')}
+                        </small>
                       </td>
                       <td>{date(d.lastSeen)}</td>
                       <td>

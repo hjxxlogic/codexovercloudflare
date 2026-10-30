@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.5.16",
+  "version": "0.5.17",
   "private": true,
   "type": "module",
   "engines": {
@@ -39,7 +39,9 @@
     "protocol:check": "tsx scripts/gen-protocol.ts --check",
     "test:update": "python3 tests/native-update.py",
     "test:billing": "tsx tests/native-demand.ts && tsx tests/native-refresh.ts",
-    "test:billing:web": "tsx tests/browser-demand.ts"
+    "test:billing:web": "tsx tests/browser-demand.ts",
+    "test:projects": "tsx tests/native-projects.ts",
+    "test:projects:e2e": "tsx tests/projects-e2e.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

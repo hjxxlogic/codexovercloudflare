@@ -86,12 +86,12 @@ class LoginRecovery(unittest.TestCase):
                                             else 'COC_CLI_BINARY', 'build/' + binary)
                 args = [str(Path(executable).resolve()), 'login', '--relay',
                         'http://127.0.0.1:' + str(server.server_port), '--config', str(config)]
-                if binary == 'coc-agent':
+                if binary == 'coc-agent' and scenario != 'empty':
                     args += ['--project', tmp]
                 if scenario == 'defaults':
                     args += ['--name', '办公室电脑', '--proxy', 'http://127.0.0.1:1']
                 result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', timeout=60)
-                if scenario in ('recovery', 'defaults', 'custom'):
+                if scenario in ('recovery', 'defaults', 'custom', 'empty'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     saved = json.loads(config.read_text(encoding='utf-8'))
                     credential = saved if binary == 'coc-agent' else saved['entries'][0]
@@ -103,6 +103,8 @@ class LoginRecovery(unittest.TestCase):
                         self.assertIn('HTTP_TIMEOUT', result.stderr)
                         self.assertIn('HTTP_NETWORK', result.stderr)
                     if binary == 'coc-agent':
+                        if scenario == 'empty':
+                            self.assertEqual(saved['projects'], [])
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
@@ -195,6 +197,9 @@ class LoginRecovery(unittest.TestCase):
                 self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['proxy'], '')
                 if os.name != 'nt':
                     self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_agent_login_without_project(self):
+        self.run_login('empty')
 
     def test_agent_recovers_transport_failures(self):
         self.run_login('recovery')

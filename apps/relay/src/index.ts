@@ -1,3 +1,4 @@
+import { requireProjectManager } from './project-auth.ts';
 import {
   accessEnabled,
   accessUser,
@@ -14,9 +15,11 @@ import {
   AppError,
   idSchema,
   workspaceFileCommandSchema,
+  projectManagementSchema,
 } from '../../../packages/protocol/src/index.ts';
 import {
   body,
+  digest,
   failure,
   hostStub,
   hostStatus,
@@ -327,6 +330,91 @@ export default {
           }),
         );
       }
+      const managerPairing = p.match(
+        /^\/api\/v1\/auth\/manager-device\/([\w-]+)$/,
+      );
+      if (managerPairing && ['GET', 'POST'].includes(req.method)) {
+        const target = await registryCall(env, 'managerDeviceHost', {
+          id: managerPairing[1],
+        });
+        const ownerCookie = cookies(req).get('coc_admin');
+        let reviewer: Auth;
+        let restoredToken: string | undefined;
+        if (ownerCookie)
+          reviewer = await authenticate(req, env, undefined, true);
+        else {
+          // Restore the verified browser identity for this Agent before pairing.
+          const restored = await registryCall(env, 'emailRestore', {
+            identity: requireAccessUser(req),
+            hostId: target.hostId,
+            token: cookies(req).get('coc_web_' + target.hostId),
+          });
+          restoredToken = restored.token;
+          reviewer = await registryCall(env, 'auth', { token: restored.token });
+        }
+        const decision = req.method === 'POST' ? await body(req) : {};
+        return json(
+          await registryCall(env, 'managerDevice', {
+            id: managerPairing[1],
+            reviewerHash: reviewer.hash,
+            decision: decision.decision,
+            code: decision.code,
+          }),
+          200,
+          restoredToken
+            ? {
+                'Set-Cookie': cookieHeader(
+                  req,
+                  'coc_web_' + target.hostId,
+                  restoredToken,
+                  2592000,
+                ),
+              }
+            : {},
+        );
+      }
+      const adminReceipt = p.match(
+        /^\/api\/v1\/admin\/hosts\/([\w-]+)\/operations\/([\w-]+)$/,
+      );
+      if (adminReceipt && ['GET', 'POST'].includes(req.method)) {
+        const auth = await authenticate(req, env, undefined, true);
+        await registryCall(env, 'host', { id: adminReceipt[1] });
+        return hostStub(env, adminReceipt[1]).fetch(
+          internal(
+            req,
+            '/operation/' + adminReceipt[2],
+            auth,
+            adminReceipt[1],
+            req.method === 'POST' ? {} : undefined,
+          ),
+        );
+      }
+      const projectManagement = p.match(
+        /^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/project-management$/,
+      );
+      if (projectManagement && ['GET', 'POST'].includes(req.method)) {
+        const hostId = projectManagement[2];
+        const auth = await authenticate(
+          req,
+          env,
+          projectManagement[1] ? undefined : hostId,
+          !!projectManagement[1],
+        );
+        const host = await registryCall(env, 'host', { id: hostId });
+        const data = projectManagementSchema.parse(
+          req.method === 'GET' ? { operation: 'list' } : await body(req),
+        );
+        if (data.operation !== 'list')
+          await requireProjectManager(env, auth, host);
+        if ('requestId' in data)
+          data.requestId = await digest(auth.hash + ':' + data.requestId);
+        return hostStub(env, hostId).fetch(
+          internal(req, '/control', auth, hostId, {
+            action: 'projectManage',
+            data,
+          }),
+        );
+      }
       const subscription = p.match(/^\/ws\/v1\/hosts\/([\w-]+)$/);
       if (subscription) {
         const auth = await authenticate(req, env, subscription[1]);
@@ -502,6 +590,16 @@ export default {
               );
           return json({ ok: true });
         }
+        const adminEmail = p.match(
+          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/admin-email$/,
+        );
+        if (adminEmail && req.method === 'POST')
+          return json(
+            await registryCall(env, 'setAdminEmail', {
+              id: adminEmail[1],
+              email: (await body(req)).email,
+            }),
+          );
         const wakeConfig = p.match(
           /^\/api\/v1\/admin\/hosts\/([\w-]+)\/wake-url$/,
         );
@@ -685,6 +783,15 @@ export default {
       if (p === '/api/v1/agent/status' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);
         return json(await registryCall(env, 'host', { id: auth.hostId }));
+      }
+      if (p === '/api/v1/agent/admin-email' && req.method === 'POST') {
+        const auth = await authenticateAgent(req, env);
+        return json(
+          await registryCall(env, 'agentSetAdminEmail', {
+            agentHash: auth.hash,
+            email: (await body(req)).email,
+          }),
+        );
       }
       if (p === '/api/v1/agent/wake-url' && req.method === 'POST') {
         const auth = await authenticateAgent(req, env);

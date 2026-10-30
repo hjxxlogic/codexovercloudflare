@@ -293,9 +293,50 @@ coc-agent status --config ~/.config/coc-agent/agent.json
 coc-agent run --config ~/.config/coc-agent/agent.json
 ```
 
-出现 `Agent connected` 后即可供授权客户端使用。默认配置路径为 `~/.config/coc-agent/agent.json`，可通过 `--config` 或 `COC_AGENT_CONFIG` 指定。已有非空凭证时拒绝再次登录，避免意外覆盖身份。首次登录必须提供 `--project`。
+出现 `Agent connected` 后即可供授权客户端使用。默认配置路径为 `~/.config/coc-agent/agent.json`，可通过 `--config` 或 `COC_AGENT_CONFIG` 指定。已有非空凭证时拒绝再次登录，避免意外覆盖身份。首次登录可以不提供 `--project`，先启动空项目 Agent，再登记目录。
 
-配置示例见 [agent.example.json](../examples/agent.example.json)。可在 `projects` 数组增加项目，每项包含唯一的 `id`、显示名 `name` 和真实绝对路径 `path`；客户端只能选择已配置项目，不能指定任意路径。`codexPath`、`codexArgs` 和 `sandbox` 由服务器配置，客户端不能修改。重启 Agent 后配置生效。
+配置示例见 [agent.example.json](../examples/agent.example.json)。`projects` 数组用于首次导入，每项包含唯一的 `id`、显示名 `name` 和真实绝对路径 `path`；允许 0～20 项。首次启动或执行项目命令时，项目登记原子保存到 `dataDir/projects.json`；之后使用项目命令或 CW 管理，不再编辑配置里的旧数组。备份时同时保存配置和整个 dataDir。旧版本 Agent 不读取 projects.json；降级前必须停止实例，并将当前项目列表同步回 agent.json 的 projects，否则旧版本会使用过时的登记。`codexPath`、`codexArgs` 和 `sandbox` 仍由服务器配置，客户端不能修改，变更这些设置需要重启。
+
+### 一个 Agent 管理多个项目
+
+每个系统用户默认运行一个常驻 Agent，同一电脑上的不同用户可以各自运行。每个实例具有独立 hostId、凭证和数据目录，不按机器名称合并；建议命名为“机器 / 用户”。以下命令管理 `--config` 或 `COC_AGENT_CONFIG` 指定的实例，不会启动第二个常驻 Agent：
+
+```bash
+coc-agent login --name '开发机 / alice'
+coc-agent admin-email alice@example.com
+coc-agent run
+# 另一个终端
+coc-agent project list
+coc-agent project add /home/alice/work/first --mkdir --name 'First' --project-id first
+coc-agent project add . --name 'Current directory'
+coc-agent project browse /home/alice/work
+coc-agent project rename first 'First project'
+coc-agent project remove first
+```
+
+项目变更无需重启。Agent 未运行时，本机命令取得实例状态锁后直接更新登记；Agent 运行时通过私有本地控制通道提交并检查活动会话。取消注册只删除登记，不删除文件或历史；有活动会话或文件操作时拒绝移除，需先结束对应会话。已移除 ID 不可重新使用，以免将历史关联到另一目录。项目路径不能原地修改。同一实例不能登记重复或父子重叠目录；目录丢失或访问失败时显示不可用，其余项目继续运行。
+
+管理员邮箱与 `accessEmails` 分开。管理员邮箱通过 Cloudflare Access 验证后可以直接访问并管理对应 Agent；普通获授权邮箱仍只能使用项目。`coc-agent admin-email ''` 解除本机关联。系统管理员可在 CW 管理员模式的“项目管理”中设置邮箱覆盖值，或恢复 Agent 配置；覆盖值优先。配置中的 `adminEmail` 在连接时同步，命令立即注册到 Relay。
+
+CW 在连接设置提供“项目管理”，支持列表、浏览目录、添加已有目录、显式创建目录、改名、取消注册。系统管理员在管理员模式的“项目管理”页操作任意 Agent。新增项目对该实例的已有授权使用者可见；第一版不提供项目级 ACL。
+
+CC 普通登录可查看项目；管理操作先使用管理员身份配对：
+
+```bash
+coc-client login --manager --host AGENT_ID
+# 打开终端显示的网页，用 Agent 管理员邮箱或平台管理员登录，核对并输入配对码
+coc-client project list --host AGENT_ID
+coc-client project browse /home/alice/work --host AGENT_ID
+coc-client project add /home/alice/work/second --mkdir --host AGENT_ID
+coc-client project rename PROJECT_ID 'Second project' --host AGENT_ID
+coc-client project remove PROJECT_ID --host AGENT_ID
+```
+
+CC 的目录路径必须是目标机器的绝对路径；本机 Agent 命令允许相对路径。`coc-client projects` 保留为旧列表命令。管理配对不能使用 API Key 或本机普通 `approve` 代替身份验证；管理凭证限目标 Agent，有效期 30 天，可在已授权设备中撤销。管理员邮箱变更、平台密钥轮换或相关管理员邮箱配置失效后，原管理凭证不能继续使用；普通配对不会自动升级。
+
+变更命令打印 requestId 和 revision。网络中断后，使用完全相同参数加 `--request-id ORIGINAL_ID --revision ORIGINAL_REVISION` 重试；显式 requestId 必须同时指定 revision。Agent 保存最近 64 次成功变更的回执；过期回执不会绕过版本检查。CW 可重试原请求，或刷新核对后继续。版本冲突需先刷新，不能自动覆盖其他管理员的修改。显式创建目录后若登记保存失败，可能留下空目录，不会自动删除它。
+
+CoC 隔离实例授权，文件系统隔离由操作系统保证。不需要额外配置 allowedRoots；浏览和创建目录以目标 Agent 的系统用户身份执行，平台管理员也不能绕过系统权限。不同 Agent 访问同一个共享目录时没有跨实例执行锁。现有会话沙箱、审批和项目文件访问限制继续有效。
 
 每个 `dataDir` 只能运行一个 Agent。先前台确认运行正常，再参考 [systemd 模板](../examples/coc-agent.service) 设置实际运行用户、HOME、Codex PATH 和配置路径。A 只建立出站 WSS，不要将 Codex app-server 直接暴露到公网。
 

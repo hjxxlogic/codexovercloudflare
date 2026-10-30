@@ -5,6 +5,7 @@
 #include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/login.hpp"
+#include "coc/projects.hpp"
 #include "coc/proxy.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
@@ -50,6 +51,8 @@ class Agent {
   AgentUpdater &updater_;
   std::atomic<bool> update_restart_{false};
   Store store_;
+  Projects projects_;
+  std::unique_ptr<ProjectControl> project_control_;
   Store file_store_;
   WorkspaceFiles files_;
   asio::thread_pool file_pool_{1};
@@ -76,8 +79,8 @@ public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
         config_file_(std::move(config_file)), updater_(updater), store_(config_["dataDir"]),
-        file_store_(config_["dataDir"], false), files_(&file_store_), retry_(io_),
-        maintenance_(io_), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
+        projects_(config_), file_store_(config_["dataDir"], false), files_(&file_store_),
+        retry_(io_), maintenance_(io_), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
   bool update_restart() const { return update_restart_; }
   ~Agent() {
     if (worker_.joinable()) {
@@ -97,6 +100,12 @@ public:
     });
     file_store_.on_failure([this] { asio::post(io_, [this] { close(); }); });
     asio::post(io_, [this] {
+      config_["projects"] = projects_.list().at("projects");
+      project_control_ = std::make_unique<ProjectControl>(io_, config_, [this](Json d) {
+        if (d.contains("requestId") && !d.contains("revision"))
+          d["revision"] = projects_.list().at("revision");
+        return manage_projects(d);
+      });
       wait_signal();
       updater_.request();
       check_update();
@@ -300,11 +309,31 @@ public:
     if (buffered_events_.size() >= 128 || buffered_bytes_ >= 128 * 1024)
       flush_events();
   }
+  Json manage_projects(const Json &d) {
+    if (stopped_)
+      throw Error("HOST_OFFLINE", "Agent is stopping");
+    auto result = projects_.request(d, [this](const std::string &id) {
+      if (file_requests_ || listing_threads_ || !archive_loading_.empty())
+        return true;
+      for (const auto &s : store_.sessions(true))
+        if (s.at("projectId") == id && runtimes_.count(s.at("id").get<std::string>()))
+          return true;
+      return false;
+    });
+    config_["projects"] = projects_.list().at("projects");
+    if (d.contains("requestId"))
+      send({{"type", "projects-changed"}});
+    return result;
+  }
   Json project(const std::string &id) {
     for (auto &p : config_["projects"])
       if (p["id"] == id) {
         auto path = p["path"].get<std::string>();
-        if (std::filesystem::canonical(std::filesystem::u8path(path)).u8string() != path)
+        std::error_code ec;
+        const auto real = std::filesystem::canonical(std::filesystem::u8path(path), ec);
+        if (ec || !std::filesystem::is_directory(real, ec) || ec)
+          throw Error("PROJECT_UNAVAILABLE", "Project directory is unavailable");
+        if (real.u8string() != path)
           throw Error("PATH_CHANGED", "Project real path changed");
         return p;
       }
@@ -326,6 +355,8 @@ public:
       if (config_.contains("wakeUrl"))
         capabilities["wakeUrl"] = config_["wakeUrl"];
       const auto latest = read_json(config_file_);
+      if (latest.contains("adminEmail"))
+        capabilities["adminEmail"] = latest["adminEmail"];
       if (latest.contains("accessEmails"))
         capabilities["accessEmails"] = access_emails(latest["accessEmails"]);
       if (config_.contains("displayName"))
@@ -508,8 +539,12 @@ public:
       });
       return;
     }
+    if (action == "projectManage") {
+      done(manage_projects(d), nullptr);
+      return;
+    }
     if (action == "projects") {
-      done(config_["projects"], nullptr);
+      done(projects_.list().at("projects"), nullptr);
       return;
     }
     if (action == "threads") {
@@ -1684,9 +1719,17 @@ public:
             continue;
           // JSON escapes untrusted names/messages so they cannot inject terminal commands.
           Json notice = {{"event", "client_approval_required"}};
-          for (const auto *key :
-               {"id", "role", "name", "requestedHostId", "message", "email", "code", "expires"})
+          for (const auto *key : {"id", "role", "name", "requestedHostId", "message", "manager",
+                                  "email", "code", "expires"})
             notice[key] = request.value(key, Json());
+          if (request.value("manager", false)) {
+            std::cerr
+                << "Client administrator identity pairing requires a verified browser login.\n"
+                << notice.dump() << "\nOpen: " << config_.at("relayUrl").get<std::string>()
+                << "/#manager=" << id << '\n'
+                << std::flush;
+            continue;
+          }
           std::cerr
               << "Client login approval required. Verify the pairing code, role and message.\n"
               << notice.dump() << "\nApprove: coc-agent approve " << id << " --config "
@@ -1784,6 +1827,7 @@ public:
                 << '\n';
     }
     stopped_ = true;
+    project_control_.reset();
     event_timer_.cancel();
     asio::post(file_pool_, [this] { files_.clear(); });
     retry_.cancel();
@@ -1821,6 +1865,8 @@ int coc_main(int argc, char **argv) {
       return 0;
     }
     coc::Options options(argc, argv);
+    if (options.values.count("manager"))
+      throw coc::Error("USAGE", "--manager is only supported by coc-client login");
     if (options.values.count("message"))
       throw coc::Error("USAGE", "--message is only supported by coc-client paired login");
     auto command = options.args.empty() ? "help" : options.args[0];
@@ -1830,7 +1876,7 @@ int coc_main(int argc, char **argv) {
       std::cout
           << "Usage: coc-agent "
              "<login|logout|name|proxy|status|wake-url|access-emails|requests|approve|reject|"
-             "doctor|run|update|--"
+             "doctor|project|admin-email|run|update|--"
              "version> "
              "[--config "
              "PATH] "
@@ -1843,6 +1889,9 @@ int coc_main(int argc, char **argv) {
              "requests: list CC/CW requests explicitly targeting this Agent.\n"
              "approve REQUEST_ID / reject REQUEST_ID: after checking the pairing code and role, "
              "handle one targeted request with this Agent credential.\n";
+      std::cout << "project list|browse PATH|add PATH [--mkdir] [--name NAME] [--project-id "
+                   "ID]|rename ID NAME|remove ID\n";
+      std::cout << "admin-email EMAIL: bind administrator email; empty string clears.\n";
       std::cout << "wake-url URL: save and register wake URL; use an empty URL to clear it.\n";
       std::cout
           << "access-emails [EMAIL...]: save and register CW email access; no emails clears it.\n";
@@ -1856,6 +1905,12 @@ int coc_main(int argc, char **argv) {
                                             : options.get("proxy", settings.value("proxy", "")));
     const auto access_file = coc::configure_access(
         options.get("access-config", settings.value("cloudflareAccessFile", "")));
+    if (command == "project") {
+      auto config = coc::agent_config(settings);
+      std::cout << coc::local_project_request(config, coc::project_arguments(options)).dump(2)
+                << '\n';
+      return 0;
+    }
     if (command == "update") {
       auto config = std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
       auto update = coc::prepare_update(
@@ -1869,7 +1924,7 @@ int coc_main(int argc, char **argv) {
     }
     std::unique_ptr<coc::PrivateLock> config_lock;
     if (command == "login" || command == "logout" || command == "wake-url" || command == "name" ||
-        command == "proxy" || command == "access-emails")
+        command == "proxy" || command == "access-emails" || command == "admin-email")
       config_lock = std::make_unique<coc::PrivateLock>(file);
     if (command == "proxy" || command == "name") {
       if (options.args.size() != 2)
@@ -1899,16 +1954,16 @@ int coc_main(int argc, char **argv) {
           throw coc::Error("ALREADY_LOGGED_IN",
                            "Local A credential exists; use status or logout first");
       }
-      if (!config.contains("projects")) {
-        if (options.get("project").empty())
-          throw coc::Error("USAGE", "First login requires --project <directory>");
+      if (!config.contains("dataDir"))
+        config["dataDir"] = (std::filesystem::absolute(file).parent_path() / "data").u8string();
+      if (!config.contains("projects"))
+        config["projects"] = coc::Json::array();
+      if (!options.get("project").empty() && config["projects"].empty()) {
         auto path = std::filesystem::canonical(std::filesystem::u8path(options.get("project")));
         auto id = options.get("project-id", "my-project");
         if (!std::filesystem::is_directory(path) || !coc::valid_id(id))
           throw coc::Error("CONFIG_ERROR", "Invalid project");
-        config["dataDir"] = (std::filesystem::absolute(file).parent_path() / "data").u8string();
-        config["projects"] =
-            coc::Json::array({{{"id", id}, {"name", id}, {"path", path.u8string()}}});
+        config["projects"].push_back({{"id", id}, {"name", id}, {"path", path.u8string()}});
       }
       const auto name = coc::display_name(
           options.get("name", config.value("displayName", coc::asio::ip::host_name())));
@@ -1938,6 +1993,20 @@ int coc_main(int argc, char **argv) {
       coc::save_private(file, config);
       std::cout << "Local credential removed; stop any running Agent separately. Relay "
                    "authorization is unchanged.\n";
+      return 0;
+    }
+    if (command == "admin-email") {
+      if (options.args.size() != 2)
+        throw coc::Error("USAGE", "admin-email EMAIL (empty string clears)");
+      auto config = coc::read_json(file);
+      auto email = options.args[1];
+      if (!email.empty())
+        email = coc::access_emails(coc::Json::array({email})).at(0);
+      coc::http_json(coc::relay_url(config.at("relayUrl")), "/api/v1/agent/admin-email",
+                     {{"email", email}}, config.at("token"));
+      config["adminEmail"] = email;
+      coc::save_private(file, config);
+      std::cout << "Agent administrator email registered; platform override takes priority.\n";
       return 0;
     }
     if (command == "access-emails") {

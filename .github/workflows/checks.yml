@@ -52,6 +52,7 @@ jobs:
         run: npm test
       - run: npm run test:tls
       - run: python3 scripts/ci-command.py npm run test:billing
+      - run: python3 scripts/ci-command.py npm run test:projects
       - run: python3 tests/native-login.py
       - run: npm run test:backup
       - run: npm run test:release
@@ -62,6 +63,9 @@ jobs:
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
       - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
+        env:
+          COC_ARTIFACT_DIR: .local/screenshots
+      - run: python3 scripts/ci-command.py npm run test:projects:e2e
         env:
           COC_ARTIFACT_DIR: .local/screenshots
       - uses: actions/upload-artifact@v4

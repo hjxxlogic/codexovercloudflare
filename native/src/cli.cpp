@@ -2,6 +2,7 @@
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/login.hpp"
+#include "coc/projects.hpp"
 #include "coc/proxy.hpp"
 #include "coc/store.hpp"
 #include "coc/tui_bridge.hpp"
@@ -520,8 +521,9 @@ public:
       store();
       const auto name =
           display_name(option("name", settings.value("displayName", asio::ip::host_name())));
-      auto result = device_login(option("relay", "https://r.xlogic.cc"), "cli", name,
-                                 option("host"), options_.api_key, option("message"));
+      auto result =
+          device_login(option("relay", "https://r.xlogic.cc"), "cli", name, option("host"),
+                       options_.api_key, option("message"), option("manager") == "true");
       auto hosts = credential_status(result);
       result["name"] = hosts.at(0).at("name");
       result["displayName"] = name;
@@ -594,6 +596,14 @@ public:
         }
       }
       std::cout << hosts.dump(2) << '\n';
+    } else if (command == "project") {
+      auto d = project_arguments(options_, true);
+      const auto path = "/hosts/" + host().at("id").get<std::string>() + "/project-management";
+      if (d.contains("requestId") && !d.contains("revision"))
+        d["revision"] = api(path).at("revision");
+      if (d.contains("requestId"))
+        std::cerr << "Project request " << d["requestId"] << " revision " << d["revision"] << '\n';
+      std::cout << api(path, d).dump(2) << '\n';
     } else if (command == "projects")
       std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/projects").dump(2)
                 << '\n';
@@ -678,7 +688,10 @@ public:
       std::cout << api("/sessions/" + id + "/stop", Json::object()).dump(2) << '\n';
     } else {
       std::cout
-          << "Usage: coc-client "
+          << "Manager identity: login --manager --host ID; verify the pairing code in the "
+             "browser.\n"
+          << "Usage: coc-client (project list|browse PATH|add PATH [--mkdir]|rename ID NAME|remove "
+             "ID) or "
              "<login|logout|name|proxy|status|use|hosts|projects|threads|observe|queue|approvals|"
              "approve|"
              "reject|sessions|connect|"

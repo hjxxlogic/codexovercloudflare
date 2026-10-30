@@ -498,3 +498,14 @@ ExternalApprovals 单独连接原共享 app-server，Linux 使用原生 Unix Web
 ExternalThread 的增量起点绑定最近一次摘要查询所标识轮次的最早已观察条目，而非每轮刷新都滑动到最近 16 项窗口。forward 从保留起点读取，跨轮时先补全旧轮再记录新轮起点；每个 RPC 仍 limit=1，避免整轮装入内存。同一稳定 item 的更新由 Store 指纹去重和 revision 合并。初始窗口与更早历史的按需分页保持原有规则。
 
 Agent 登录成功后调用既有 agent_config 补齐并规范化配置，补出 wakeUrl 及完整 autoUpdate 对象（平台默认空字符串）。保留用户配置的选项值；不在运行时重写用户文件。Windows 审批入口未配置时直接报告需要显式 loopback WebSocket，不再尝试构造 Unix socket 路径。连接初始化异常保留底层诊断，仍不打印凭据。
+
+
+## 单实例多项目与管理员身份
+
+实现设计见 [multi-project-design.md](multi-project-design.md)。hostId 标识 Agent 实例，不标识物理机器；多个系统用户分别保存身份、Codex 登录、数据库和本地控制端点。操作系统负责文件权限，CoC 负责远程主体与目标实例授权。
+
+Agent 的 Projects 组件统一处理本机和远程目录操作。dataDir/projects.json 首次导入配置项目，此后为权威目录，保存 revision、退休 ID 和最近 64 个成功请求回执；目录与回执通过同一次原子文件替换提交。会话仍按 projectId 绑定固定目录，不支持路径重绑定。实例状态锁阻止两个进程同时写同一 dataDir。在线本机命令使用 127.0.0.1 随机端口及私有文件中的随机令牌，最多 16 条连接、16 KiB 请求和 5 秒连接时限；端点 hostId 必须匹配配置。离线命令只在取得相同状态锁后执行。
+
+新增控制动作 projectManage，包含 list/browse/add/rename/remove。HTTP 入口为 GET/POST /api/v1/hosts/:id/project-management，平台管理入口为 /api/v1/admin/hosts/:id/project-management。变更需要 requestId 和预期 revision；Worker 将 requestId 与凭证 hash 绑定，HostRelay 在发送命令及返回结果时重新校验管理身份。Agent 保留实际路径、并发和活动任务检查。变更通过 projects-changed / projects 通知刷新客户端。平台管理操作使用 /api/v1/admin/hosts/:id/operations/:operationId 领取原调用者的异步回执，不开放平台身份对普通会话的控制。
+
+Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。管理员邮箱同时获得实例访问资格，但独立于 accessEmails。验证基于服务端邮箱与 issuer/accountId。CC login --manager 请求明确目标，经 /api/v1/auth/manager-device/:id 由已验证邮箱管理员或平台管理员核对配对码，颁发 30 天、限定实例的 CLI 身份。普通批准路径拒绝这种请求；拒绝申请可沿用原入口。每次认证重新检查当前邮箱关联或平台管理员版本；普通 CC 无法通过自报邮箱获得权限。目录管理不提权，不新增机器级文件系统隔离承诺。

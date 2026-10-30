@@ -1,5 +1,41 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  管理身份: 'Administrator identity',
+  项目管理: 'Project management',
+  '目标 Agent：': 'Target Agent: ',
+  刷新项目: 'Refresh projects',
+  '操作结果未确认，请重试原请求或刷新核对后继续。':
+    'The result is unconfirmed. Retry the original request or refresh and check before continuing.',
+  重试原请求: 'Retry original request',
+  刷新并核对: 'Refresh and check',
+  尚未登记项目: 'No projects registered',
+  目录不可用: 'Directory unavailable',
+  项目显示名: 'Project display name',
+  '取消注册项目 {0}？不会删除目录或历史；有活动会话时不能移除。':
+    'Unregister project {0}? Files and history are preserved. Active sessions prevent removal.',
+  改名: 'Rename',
+  取消注册: 'Unregister',
+  '新增项目对该 Agent 已授权的使用者可见。文件访问使用 Agent 的系统用户权限。':
+    'New projects are visible to authorized users of this Agent. File access uses the Agent operating system account.',
+  远程目录绝对路径: 'Absolute remote directory path',
+  浏览目录: 'Browse directories',
+  '目录过多，请输入更具体的路径':
+    'Too many directories. Enter a more specific path.',
+  目录不存在时创建: 'Create the directory if missing',
+  添加项目: 'Add project',
+  '仅 Agent 管理员邮箱或系统管理员可以更改项目登记。':
+    'Only the Agent administrator email or platform administrator can change project registrations.',
+  管理员邮箱已保存: 'Administrator email saved',
+  'Agent 管理员邮箱': 'Agent administrator email',
+  保存管理员邮箱: 'Save administrator email',
+  '恢复 Agent 管理员配置': 'Restore Agent administrator configuration',
+  'CC 管理身份配对': 'CC administrator identity pairing',
+  '使用 Agent 管理员邮箱登录，或先登录系统管理员，然后核对终端显示的配对码。':
+    'Sign in with the Agent administrator email or as platform administrator, then verify the pairing code shown in the terminal.',
+  读取管理配对请求: 'Read administrator pairing request',
+  终端配对码: 'Terminal pairing code',
+  确认管理身份: 'Confirm administrator identity',
+  管理身份配对已处理: 'Administrator identity pairing completed',
   'Agent 邮箱关联': 'Agent email access',
   关联邮箱: 'Associated emails',
   '关联邮箱 {0}': 'Associated emails for {0}',

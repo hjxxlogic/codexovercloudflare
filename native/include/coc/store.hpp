@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 namespace coc {
 class Store {
+public:
   struct Lock {
 #ifdef _WIN32
     void *handle = nullptr;
@@ -13,7 +14,11 @@ class Store {
 #endif
     explicit Lock(const std::string &dir, bool exclusive);
     ~Lock();
+    Lock(const Lock &) = delete;
+    Lock &operator=(const Lock &) = delete;
   };
+
+private:
   Lock lock_;
   sqlite3 *db_ = nullptr;
   std::map<std::string, sqlite3_stmt *> statements_;

@@ -1,3 +1,4 @@
+import { managesProjects, requireProjectManager } from './project-auth.ts';
 import { d1Enabled, type StateStorage } from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
 import { HostLifecycle, HOST_STATE_KEY } from './host-lifecycle.ts';
@@ -429,6 +430,18 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   async command(action: string, data: any, operation: Operation) {
     data = controlCommandSchema.parse({ action, data }).data;
+    if (action === 'projectManage') {
+      const current: Auth = await registryCall(this.env, 'authHash', {
+        hash: operation.auth.hash,
+      });
+      const host = await registryCall(this.env, 'host', {
+        id: operation.hostId,
+      });
+      if (current.role !== 'owner' && current.hostId !== host.id)
+        throw new AppError('FORBIDDEN', 'Wrong Agent instance', 403);
+      if (data.operation !== 'list')
+        await requireProjectManager(this.env, current, host);
+    }
     const ws = this.agent();
     if (!ws) throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
     const agent = ws.deserializeAttachment() as Attachment;
@@ -633,6 +646,18 @@ export class HostRelayDO extends DurableObject<Env> {
         new AppError(error.code, error.message, agentErrorStatus(error.code)),
       );
     await this.authorized(o.auth.hash);
+    if (o.action === 'projectManage') {
+      const current: Auth = await registryCall(this.env, 'authHash', {
+        hash: o.auth.hash,
+      });
+      const host = await registryCall(this.env, 'host', { id: o.hostId });
+      if (o.data.operation !== 'list')
+        await requireProjectManager(this.env, current, host);
+      data = {
+        ...data,
+        canManage: await managesProjects(this.env, current, host),
+      };
+    }
     if (o.stage === 'get') {
       if (data.mode !== o.auth.role)
         return this.complete(
@@ -1185,6 +1210,10 @@ export class HostRelayDO extends DurableObject<Env> {
           throw new AppError('PROTOCOL_MISMATCH', 'Unsupported protocol', 409);
         if (a.epoch !== (await this.fence('agentEpoch')))
           throw new AppError('STALE_AGENT', 'Old Agent connection');
+        if (d.type === 'projects-changed') {
+          await this.changed('projects');
+          return;
+        }
         if (d.type === 'capabilities') {
           if (d.protocol !== 1)
             throw new AppError(
@@ -1203,6 +1232,11 @@ export class HostRelayDO extends DurableObject<Env> {
             await registryCall(this.env, 'setInstanceName', {
               hash: a.auth.hash,
               displayName: d.displayName,
+            });
+          if (d.adminEmail !== undefined)
+            await registryCall(this.env, 'agentSetAdminEmail', {
+              agentHash: a.auth.hash,
+              email: d.adminEmail,
             });
           if (d.accessEmails !== undefined) {
             const result = await registryCall(

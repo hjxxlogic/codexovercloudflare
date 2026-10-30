@@ -48,12 +48,55 @@ export const projectSchema = z.object({
   name: z.string().min(1).max(100),
   path: z.string().min(1),
 });
+const projectPathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (path) =>
+      !path.includes('\0') && new TextEncoder().encode(path).length <= 4096,
+  );
+const projectDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .refine(
+    (name) =>
+      !Array.from(name).some(
+        (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127,
+      ),
+  );
+const projectChange = {
+  requestId: idSchema,
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+};
+export const projectManagementSchema = z.discriminatedUnion('operation', [
+  z.object({ operation: z.literal('list') }),
+  z.object({ operation: z.literal('browse'), path: projectPathSchema }),
+  z.object({
+    operation: z.literal('add'),
+    ...projectChange,
+    path: projectPathSchema,
+    id: idSchema.optional(),
+    name: projectDisplayNameSchema.optional(),
+    mkdir: z.boolean().default(false),
+  }),
+  z.object({
+    operation: z.literal('rename'),
+    ...projectChange,
+    id: idSchema,
+    name: projectDisplayNameSchema,
+  }),
+  z.object({ operation: z.literal('remove'), ...projectChange, id: idSchema }),
+]);
 export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),
   hostId: idSchema,
   token: z.string().min(20),
   wakeUrl: wakeUrlSchema.optional(),
   accessEmails: accessEmailsSchema.optional(),
+  adminEmail: z.union([z.literal(''), accessEmailSchema]).optional(),
   autoUpdate: z
     .union([
       z.boolean(),
@@ -77,7 +120,7 @@ export const agentConfigSchema = z.object({
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
   dataDir: z.string().min(1),
-  projects: z.array(projectSchema).min(1).max(20),
+  projects: z.array(projectSchema).max(20),
   sandbox: z.enum(['read-only', 'workspace-write']).default('workspace-write'),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
@@ -236,6 +279,7 @@ const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
 export const controlCommandSchema = z.discriminatedUnion('action', [
   control('probe', z.object({})),
   control('projects', z.object({})),
+  control('projectManage', projectManagementSchema),
   control(
     'list',
     z.object({

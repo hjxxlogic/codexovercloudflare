@@ -47,6 +47,11 @@ import {
 import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { AgentUpdates } from './agent-updates.tsx';
+import {
+  ProjectManager,
+  AgentAdminEmail,
+  ManagerPairing,
+} from './projects.tsx';
 import { HostEmailSettings } from './host-emails.tsx';
 import { useBottomRefresh } from './bottom-refresh.ts';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
@@ -89,7 +94,7 @@ function App() {
   const language = useLanguage();
   const [view, setView] = useState<View>('chat');
   const [adminTab, setAdminTab] = useState<
-    'pending' | 'authorized' | 'wake' | 'emails' | 'sessions'
+    'pending' | 'authorized' | 'wake' | 'emails' | 'projects' | 'sessions'
   >('pending');
   const [mode, setMode] = useState<Mode>('cw');
   const adminLogin = mode === 'admin';
@@ -497,9 +502,13 @@ function App() {
               if (
                 event.type === 'subscribed' ||
                 (event.type === 'change' &&
-                  ['host', 'registry', 'requests', 'sessions'].includes(
-                    event.scope,
-                  ))
+                  [
+                    'host',
+                    'registry',
+                    'requests',
+                    'sessions',
+                    'projects',
+                  ].includes(event.scope))
               ) {
                 void refresh();
                 if (event.scope === 'sessions' || event.type === 'subscribed')
@@ -2245,6 +2254,14 @@ function App() {
           {t('创建网页会话')}
         </button>
       </div>
+      {host && (
+        <ProjectManager
+          key={host}
+          hostId={host}
+          hostName={hosts.find((h) => h.id === host)?.name || host}
+          changed={refreshView}
+        />
+      )}
     </section>
   );
   return (
@@ -2531,6 +2548,7 @@ function App() {
       )}
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
+      <ManagerPairing />
       {mode === 'admin' && admin && <AgentUpdates />}
       {mode === 'admin' && admin && (
         <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
@@ -2540,6 +2558,7 @@ function App() {
               ['authorized', t('已授权设备')],
               ['wake', t('服务器唤醒配置')],
               ['emails', t('Agent 邮箱关联')],
+              ['projects', t('项目管理')],
               ['keys', t('API Key 管理')],
               ['sessions', t('管理会话')],
             ] as const
@@ -2606,7 +2625,9 @@ function App() {
                     ? '服务器唤醒配置'
                     : adminTab === 'emails'
                       ? 'Agent 邮箱关联'
-                      : '管理会话',
+                      : adminTab === 'projects'
+                        ? '项目管理'
+                        : '管理会话',
             )}
           </h2>
           {adminTab === 'pending' && (
@@ -2751,9 +2772,14 @@ function App() {
                                   (d.requestedHostId || approvalHosts[d.id]),
                               ))
                           }
-                          onClick={() => void manage('approve', d.id)}
+                          onClick={() => {
+                            if (d.manager) {
+                              location.hash = 'manager=' + d.id;
+                              location.reload();
+                            } else void manage('approve', d.id);
+                          }}
                         >
-                          {t('批准')} {d.code}
+                          {d.manager ? t('确认管理身份') : t('批准')} {d.code}
                         </button>
                         <button
                           disabled={generating}
@@ -2768,6 +2794,13 @@ function App() {
               </AdminTable>
             </>
           )}
+          {adminTab === 'projects' &&
+            keyHosts.map((h) => (
+              <section className="card" key={h.id}>
+                <AgentAdminEmail host={h} saved={readAdminSnapshot} />
+                <ProjectManager hostId={h.id} hostName={h.name} admin />
+              </section>
+            ))}
           {adminTab === 'authorized' && (
             <AuthorizedDevices
               credentials={devices.credentials}
