@@ -19,6 +19,7 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 import {
   body,
+  authorizationFailed,
   digest,
   failure,
   hostStub,
@@ -726,8 +727,10 @@ export default {
               });
               if (a.role === 'web' && name === 'coc_web_' + a.hostId)
                 auths.push(a);
-            } catch {
-              /* Revoked browser grants do not hide other hosts. */
+            } catch (error) {
+              // Only a definitive denial removes a grant. A Registry failure
+              // must not turn valid cookies into a fabricated login failure.
+              if (!authorizationFailed(error)) throw error;
             }
           }
           if (!auths.length)

@@ -26,6 +26,7 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 import {
   body,
+  authorizationFailed,
   digest,
   failure,
   json,
@@ -256,13 +257,19 @@ export class RegistryCore {
             }),
           );
           if (!auth.ok) {
-            ws.close(4001, 'Authorization revoked');
+            ws.close(
+              [401, 403].includes(auth.status) ? 4001 : 1011,
+              'Subscription validation failed',
+            );
             continue;
           }
         } else if (a.id !== deviceId) continue;
         ws.send(JSON.stringify({ type: 'change', scope, revision }));
-      } catch {
-        ws.close(4001, 'Subscription validation failed');
+      } catch (error) {
+        ws.close(
+          authorizationFailed(error) ? 4001 : 1011,
+          'Subscription validation failed',
+        );
       }
     }
     const hosts =

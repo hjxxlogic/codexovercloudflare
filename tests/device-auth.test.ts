@@ -79,6 +79,46 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it.each([400, 503])(
+    'does not turn Registry HTTP %s failures into missing browser credentials',
+    async (status) => {
+      const agent = await grant('agent');
+      const web = await grant('web', agent.hostId);
+      const original = registry.fetch.bind(registry);
+      const mocked = vi
+        .spyOn(registry, 'fetch')
+        .mockImplementation((request) =>
+          new URL(request.url).pathname === '/authHost'
+            ? Promise.resolve(
+                Response.json(
+                  {
+                    error: {
+                      code:
+                        status === 400 ? 'INVALID_REQUEST' : 'INTERNAL_ERROR',
+                      message: 'Synthetic backend failure',
+                    },
+                  },
+                  { status },
+                ),
+              )
+            : original(request),
+        );
+      try {
+        const response = await worker.fetch(
+          new Request('https://relay.test/api/v1/hosts', {
+            headers: { Cookie: `coc_web_${agent.hostId}=${web.token}` },
+          }),
+          env,
+        );
+        expect(response.status).toBe(status);
+        expect(((await response.json()) as any).error.code).not.toBe(
+          'UNAUTHORIZED',
+        );
+      } finally {
+        mocked.mockRestore();
+      }
+    },
+  );
   it('records only successful authentication, throttles last-seen writes, and never revives revoked credentials', async () => {
     const agent = await grant('agent');
     const client = await grant('cli', agent.hostId);

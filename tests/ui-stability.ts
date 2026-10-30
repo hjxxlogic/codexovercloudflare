@@ -53,6 +53,7 @@ const approvalAnswers: {
 let dropApprovalAck = false;
 let stallHistory = false;
 let identityFailures = 0;
+let hostListError: { code: string; status: number } | undefined;
 let identityCalls = 0;
 let historyHandshakeFailures = 0;
 let historyConnections = 0;
@@ -221,9 +222,17 @@ const server = createServer((req, res) => {
       body = adminSamples
         ? [adminHost, { id: 'second', name: '第二服务器', disabled: false }]
         : [];
-    else if (path === '/hosts')
-      body = [{ id: 'sample', name: '示例服务器', online }];
-    else if (path === '/client/identity') {
+    else if (path === '/hosts') {
+      if (hostListError) {
+        res.statusCode = hostListError.status;
+        body = {
+          error: {
+            code: hostListError.code,
+            message: 'Synthetic host list failure',
+          },
+        };
+      } else body = [{ id: 'sample', name: '示例服务器', online }];
+    } else if (path === '/client/identity') {
       identityCalls++;
       if (identityFailures > 0) {
         identityFailures--;
@@ -741,6 +750,29 @@ try {
     languageAttachCalls,
     'manual refresh preserves the active controller',
   );
+  // A request error during a live conversation is not a logout signal.
+  for (const error of [
+    { code: 'INVALID_REQUEST', status: 400 },
+    { code: 'INTERNAL_ERROR', status: 500 },
+  ]) {
+    hostListError = error;
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: '刷新状态', exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByRole('alert')).toContainText(error.code);
+    await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
+    await expect(
+      page.getByText('刷新补回漏掉的消息', { exact: true }),
+    ).toBeVisible();
+    assert.equal(
+      attachCalls,
+      languageAttachCalls,
+      'request error preserves the current controller',
+    );
+  }
+  hostListError = undefined;
+  await page.getByRole('alert').getByRole('button', { name: '关闭' }).click();
   const messagesForRefresh = page.getByRole('log', { name: '对话消息' });
   const beforeBottomRefresh = controlSyncCalls;
   await messagesForRefresh.evaluate(async (element) => {

@@ -16,7 +16,8 @@ vi.mock('../apps/relay/src/common.ts', async (original) => ({
   registryCall: vi.fn(),
 }));
 import { HostRelayDO } from '../apps/relay/src/host.ts';
-import { registryCall } from '../apps/relay/src/common.ts';
+import { registryCall, failure } from '../apps/relay/src/common.ts';
+import { AppError } from '../packages/protocol/src/index.ts';
 const auth = {
   hash: 'client',
   role: 'web',
@@ -431,6 +432,65 @@ describe('recoverable asynchronous controls', () => {
   });
 });
 describe('flow control and authorization on activity', () => {
+  it.each([
+    [new Error('private storage failure'), 1011, 500],
+    [new AppError('INVALID_REQUEST', 'Request failed', 400), 1011, 400],
+    [new AppError('UNAUTHORIZED', 'Credential revoked', 401), 4001, 401],
+  ])(
+    'distinguishes backend failure from credential rejection: %s',
+    async (error, closeCode, status) => {
+      const h = harness();
+      const client = socket({
+        id: 'client',
+        auth,
+        deadline: Number.MAX_SAFE_INTEGER,
+      });
+      h.sockets.push(client);
+      vi.mocked(registryCall).mockRejectedValue(error);
+      (h.relay as any).forward(client, { type: 'event' }, 10);
+      await Promise.all(h.waiting);
+      expect(client.send).not.toHaveBeenCalled();
+      expect(client.close).toHaveBeenCalledWith(closeCode, expect.any(String));
+      const response = await h.relay.fetch(
+        new Request('https://internal/status'),
+      );
+      if (status === 401) {
+        expect(await response.json()).toMatchObject({ online: false });
+        expect(h.agent.close).toHaveBeenCalledWith(4001, expect.any(String));
+      } else {
+        expect(response.status).toBe(status);
+        expect(h.agent.close).not.toHaveBeenCalled();
+      }
+    },
+  );
+  it('does not label a forbidden operation as revoked credentials', async () => {
+    const h = harness();
+    const client = socket({
+      id: 'subscriber',
+      auth,
+      subscription: true,
+      role: 'web',
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    h.sockets.push(client);
+    await h.relay.webSocketMessage(
+      client as unknown as WebSocket,
+      JSON.stringify({ type: 'invalid-command' }),
+    );
+    expect(client.close).toHaveBeenCalledWith(4000, expect.any(String));
+    expect(client.close).not.toHaveBeenCalledWith(4001, expect.any(String));
+  });
+  it('reports unknown server failures without exposing details or blaming request syntax', async () => {
+    const response = failure(new Error('private database details'));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Service temporarily unavailable',
+      },
+    });
+    expect(failure(new SyntaxError('invalid JSON')).status).toBe(400);
+  });
   it('retains acknowledgement budgets across object reconstruction', async () => {
     const h = harness(),
       slow = socket({ id: 'reader', history: true });

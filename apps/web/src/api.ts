@@ -29,6 +29,9 @@ export class ApiError extends Error {
     super(`${code}: ${message}`);
   }
 }
+export function authorizationFailed(error: unknown) {
+  return error instanceof ApiError && [401, 403].includes(error.status);
+}
 export function retryable(error: unknown) {
   return (
     error instanceof TypeError ||

@@ -13,10 +13,12 @@ import {
   agentBuildSchema,
   controlCommandSchema,
   parseFrame,
+  errorData,
   wakeUrlSchema,
 } from '../../../packages/protocol/src/index.ts';
 import {
   body,
+  authorizationFailed,
   digest,
   failure,
   json,
@@ -215,13 +217,19 @@ export class HostRelayDO extends DurableObject<Env> {
       .then(async () => {
         const attachment = client.deserializeAttachment() as Attachment;
         if (client.readyState >= 2) return;
-        if (attachment.deadline <= Date.now()) throw new Error('expired');
+        if (attachment.deadline <= Date.now())
+          throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
         await this.authorized(attachment.auth.hash);
         if (client.readyState < 2 || client.readyState === undefined)
           this.send(client, payload);
       })
-      .catch(() => {
-        client.close(4001, 'Authorization or forwarding failed');
+      .catch((error) => {
+        client.close(
+          authorizationFailed(error) ? 4001 : 1011,
+          authorizationFailed(error)
+            ? 'Authorization revoked'
+            : 'Forwarding temporarily unavailable',
+        );
       })
       .finally(async () => {
         queue!.bytes -= bytes;
@@ -850,7 +858,8 @@ export class HostRelayDO extends DurableObject<Env> {
         if (agent && a) {
           try {
             await this.authorized(a.auth.hash);
-          } catch {
+          } catch (error) {
+            if (!authorizationFailed(error)) throw error;
             agent.close(4001, 'Authorization revoked');
             return json({ online: false, confirmed: false });
           }
@@ -1168,6 +1177,7 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   private async handleMessage(ws: WebSocket, raw: string | ArrayBuffer) {
     let requestId: string | undefined;
+    let credentialChecked = false;
     try {
       if (typeof raw !== 'string')
         throw new AppError('INVALID_REQUEST', 'Text frames required');
@@ -1176,6 +1186,7 @@ export class HostRelayDO extends DurableObject<Env> {
       if (a.deadline <= Date.now())
         throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
       await this.authorized(a.auth.hash);
+      credentialChecked = true;
       const d = parseFrame(raw);
       if (typeof d.requestId === 'string' && d.requestId.length <= 100)
         requestId = d.requestId;
@@ -1385,10 +1396,7 @@ export class HostRelayDO extends DurableObject<Env> {
         this.send(ws, {
           type: 'error',
           requestId,
-          error:
-            e instanceof AppError
-              ? { code: e.code, message: e.message }
-              : { code: 'INVALID_REQUEST', message: 'Invalid message' },
+          error: errorData(e),
         });
       } finally {
         const history = (ws.deserializeAttachment() as Attachment)?.history;
@@ -1402,7 +1410,14 @@ export class HostRelayDO extends DurableObject<Env> {
             'RESULT_UNKNOWN',
           ].includes(e.code)
         ))
-          ws.close(4000, 'Connection rejected');
+          ws.close(
+            !credentialChecked && authorizationFailed(e)
+              ? 4001
+              : errorData(e).code === 'INTERNAL_ERROR'
+                ? 1011
+                : 4000,
+            'Connection rejected',
+          );
       }
     }
   }

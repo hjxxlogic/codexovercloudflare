@@ -407,11 +407,9 @@ export class AppError extends Error {
 export function errorData(e: unknown) {
   return e instanceof AppError
     ? { code: e.code, message: e.message }
-    : {
-        code: 'INVALID_REQUEST',
-        message:
-          e instanceof z.ZodError ? 'Invalid request fields' : 'Request failed',
-      };
+    : e instanceof z.ZodError || e instanceof SyntaxError
+      ? { code: 'INVALID_REQUEST', message: 'Invalid request fields' }
+      : { code: 'INTERNAL_ERROR', message: 'Service temporarily unavailable' };
 }
 export function relayUrl(value: string) {
   const u = new URL(value);

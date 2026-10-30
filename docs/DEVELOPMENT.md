@@ -2,6 +2,8 @@
 
 ## CW 连接恢复回归
 
+运行态回归新增 /hosts 返回 INVALID_REQUEST / 400 与 INTERNAL_ERROR / 500，确认主机、控制连接、历史和草稿保留。Relay 回归覆盖转发故障与真实撤销的不同关闭码、主机状态鉴权故障不踢掉 Agent，以及 Cookie 鉴权的后端错误不伪造成未登录。
+
 `tests/web-notifications.test.ts` 使用假时钟与不回送 close 事件的 socket，验证 CONNECTING / OPEN 握手卡住、有限重试、手动恢复和撤销清理。`tests/web-cache-startup.test.ts` 检查 IndexedDB 静默超时与迟到句柄关闭；`test:cache` 通过真实旧版数据库连接阻塞升级。`tests/relay-order.test.ts` 区分有效 / 关闭中 / 已关闭控制端的票据资格。
 
 `test:ui` 注入四次工作区身份 503 和一次缺失 history-ready，验证有限重试耗尽后手动恢复及历史握手超时恢复，同时运行原有漏消息、失效 OPEN 通道和草稿保留回归。可通过 `COC_WEB_DIR` 指定待测 Vite 构建目录，`COC_ARTIFACT_DIR` 指定截图输出目录；不连接生产服务、不调用模型。

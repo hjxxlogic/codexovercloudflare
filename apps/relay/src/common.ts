@@ -90,7 +90,18 @@ export function token() {
   return crypto.randomUUID() + crypto.randomUUID();
 }
 export function failure(e: unknown) {
-  return json({ error: errorData(e) }, e instanceof AppError ? e.status : 400);
+  const error = errorData(e);
+  return json(
+    { error },
+    e instanceof AppError
+      ? e.status
+      : error.code === 'INVALID_REQUEST'
+        ? 400
+        : 500,
+  );
+}
+export function authorizationFailed(error: unknown) {
+  return error instanceof AppError && [401, 403].includes(error.status);
 }
 export function registry(env: Env) {
   return env.REGISTRY.get(env.REGISTRY.idFromName('owner'));

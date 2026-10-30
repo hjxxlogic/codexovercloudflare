@@ -24,7 +24,7 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 import './style.css';
 import { eventWindow, mergeEvents } from './events.ts';
-import { api, ApiError, retryable } from './api.ts';
+import { api, ApiError, retryable, authorizationFailed } from './api.ts';
 import { ApprovalQueue, WorkspaceHeader } from './workspace.tsx';
 import { ConversationView, type ContentChunk } from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
@@ -358,7 +358,7 @@ function App() {
       if (!(error instanceof ApiError && error.status === 404)) {
         report(error);
         setChecking(false);
-        if (error instanceof ApiError && error.code.startsWith('ACCESS_')) {
+        if (authorizationFailed(error)) {
           socket.current?.close();
           setSelected(undefined);
           setHost('');
@@ -385,21 +385,18 @@ function App() {
             : '',
       );
     } else {
-      if (retryable(results[0].reason)) {
+      report(results[0].reason);
+      if (!authorizationFailed(results[0].reason)) {
         setChecking(false);
         return;
       }
-      if (
-        results[0].reason instanceof ApiError &&
-        results[0].reason.code === 'UPGRADE_REQUIRED'
-      )
-        report(results[0].reason);
       setHosts([]);
       setLogged(false);
       setSelected(undefined);
       setHost('');
     }
-    setAdmin(results[1].status === 'fulfilled');
+    if (results[1].status === 'fulfilled') setAdmin(true);
+    else if (authorizationFailed(results[1].reason)) setAdmin(false);
     setChecking(false);
   }
   useEffect(() => {
