@@ -229,10 +229,22 @@ try {
   let clientLog = '';
   client.stdout!.on('data', (d) => (clientLog += d));
   client.stderr!.on('data', (d) => (clientLog += d));
-  await wait(() => /#manager=([\w-]+)/.test(clientLog), 'CC manager request');
+  await wait(
+    () =>
+      /#manager=([\w-]+)/.test(clientLog) &&
+      /Pairing code: ([\w-]+)/.test(clientLog),
+    'CC manager request',
+  );
   const id = clientLog.match(/#manager=([\w-]+)/)![1],
     code = clientLog.match(/Pairing code: ([\w-]+)/)![1];
-  await page.goto(origin + '/#manager=' + id);
+  // Fragment navigation must work after the previous registry refresh has settled.
+  await page.waitForLoadState('networkidle');
+  await page.evaluate((requestId) => {
+    location.hash = 'manager=' + requestId;
+  }, id);
+  await expect(
+    page.getByRole('heading', { name: 'CC 管理身份配对', exact: true }),
+  ).toBeVisible();
   await page
     .getByRole('button', { name: '读取管理配对请求', exact: true })
     .click();
@@ -284,6 +296,18 @@ try {
   );
 } catch (e) {
   writeFileSync(join(artifacts, 'worker.log'), logs);
+  writeFileSync(
+    join(artifacts, 'projects-failure.txt'),
+    e instanceof Error ? e.stack || e.message : String(e),
+  );
+  await browser
+    ?.contexts()[0]
+    ?.pages()[0]
+    ?.screenshot({
+      path: join(artifacts, 'projects-failure.png'),
+      fullPage: true,
+    })
+    .catch(() => {});
   throw e;
 } finally {
   await browser?.close();

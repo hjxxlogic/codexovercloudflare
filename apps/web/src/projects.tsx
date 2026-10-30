@@ -334,7 +334,18 @@ export function AgentAdminEmail({
   );
 }
 export function ManagerPairing() {
-  const id = new URLSearchParams(location.hash.slice(1)).get('manager');
+  const [id, setId] = useState(() =>
+    new URLSearchParams(location.hash.slice(1)).get('manager'),
+  );
+  useEffect(() => {
+    const changed = () =>
+      setId(new URLSearchParams(location.hash.slice(1)).get('manager'));
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
+  return id ? <ManagerPairingRequest key={id} id={id} /> : null;
+}
+function ManagerPairingRequest({ id }: { id: string }) {
   const [request, setRequest] = useState<{
     name: string;
     hostName: string;
@@ -344,7 +355,6 @@ export function ManagerPairing() {
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!id) return null;
   async function load() {
     setBusy(true);
     setMessage('');
