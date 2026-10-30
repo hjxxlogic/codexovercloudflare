@@ -64,10 +64,16 @@ export async function api(
     },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
-  if (
-    response.redirected ||
-    response.headers.get('Content-Type')?.includes('text/html')
-  )
+  const html = response.headers.get('Content-Type')?.includes('text/html');
+  // Gateway and rate-limit pages do not imply an expired Access identity.
+  // Preserve their status so snapshot recovery does not clear the login state.
+  if (html && (response.status === 429 || response.status >= 500))
+    throw new ApiError(
+      'HTTP_ERROR',
+      `服务暂时不可用（HTTP ${response.status}），请稍后刷新`,
+      response.status,
+    );
+  if (response.redirected || html)
     throw new ApiError(
       'ACCESS_REQUIRED',
       '请重新打开网站完成 Cloudflare 邮箱登录',

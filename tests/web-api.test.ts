@@ -28,6 +28,42 @@ describe('browser request recovery', () => {
     expect(options.headers['Idempotency-Key']).toBe('same-request');
     expect(options.signal).toBeInstanceOf(AbortSignal);
   });
+  it.each([429, 500, 502, 503, 504, 520, 522, 524])(
+    'preserves HTML HTTP %s failures without reporting lost email authentication',
+    async (status) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response('<html>temporarily unavailable</html>', {
+          status,
+          headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+        }),
+      );
+      vi.stubGlobal('fetch', fetch);
+      const error = await api('/auth/email').catch((error) => error);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.code).toBe('HTTP_ERROR');
+      expect(error.status).toBe(status);
+      expect(retryable(error)).toBe(true);
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
+  it.each([200, 401, 403])(
+    'still requires authentication for an HTML login response with HTTP %s',
+    async (status) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response('<html>Cloudflare Access login</html>', {
+            status,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+        ),
+      );
+      await expect(api('/auth/email')).rejects.toMatchObject({
+        code: 'ACCESS_REQUIRED',
+        status: 401,
+      });
+    },
+  );
   it('retries temporary HTML gateway failures and timeout, but preserves unknown results', async () => {
     vi.stubGlobal(
       'fetch',
