@@ -1,0 +1,186 @@
+{
+  "version": "0.5.16",
+  "cloud": {
+    "commit": "97af93b2799bbfc6b617e6f964daa295000243d1",
+    "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40999119690",
+    "sourceDigest": "60f0ed1a3bef61ec59671d24e8013a5b4915e1c454a394ea2496c60153ec69d6",
+    "artifacts": [
+      {
+        "name": "verified-web",
+        "id": 12953655535,
+        "digest": "sha256:88d2c176dde00b4a40bf7a49af191bd95db547118bdea846b796db5391f7e4ba"
+      },
+      {
+        "name": "verified-worker",
+        "id": 12953391395,
+        "digest": "sha256:a7c9634500fdeeb08de3665d733cf535157b543129157d7ce1518ca463a596ef"
+      }
+    ],
+    "target": "https://r.xlogic.cc",
+    "jobs": {
+      "sanitizers": "success",
+      "regression": "success",
+      "windows-x64": "success",
+      "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+      "linux-musl": "success",
+      "linux-release (debian12, debian:12)": "success",
+      "publish-release": "skipped"
+    }
+  },
+  "nativeDownloads": {
+    "commit": "d67186a41e2419a06a1676e770c82c875be20c22",
+    "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40994952207",
+    "sourceDigest": "9e61d1474120383c0a1eeea9b902d3993f5ed211f6e83c73be9778de06165b88",
+    "artifacts": [
+      {
+        "name": "verified-web",
+        "id": 12951561556,
+        "digest": "sha256:68f6d16e137be7761eb217a04274c4a5ec2286bd5971f4f413629c024cdea133"
+      },
+      {
+        "name": "verified-worker",
+        "id": 12951048969,
+        "digest": "sha256:e169504684fb18bc44c0a998bbe46b5bb363f1c730cba996fb6164fbc7f9b730"
+      },
+      {
+        "name": "linux-ubuntu20.04",
+        "id": 12951335543,
+        "digest": "sha256:4653ce3319ae64df9d0e739ce592c6aa89ae0b1449917e4f856aed4e333fdffc"
+      },
+      {
+        "name": "linux-debian12",
+        "id": 12950564662,
+        "digest": "sha256:237be8cb289747e99394f4408c0b90cd0872e5c96a4b52a662337dea8943d23e"
+      },
+      {
+        "name": "linux-musl",
+        "id": 12950109726,
+        "digest": "sha256:2a5855b513009a74c736861ef470ef1e98669e43951b30679d919121a59c06e7"
+      },
+      {
+        "name": "windows-x64",
+        "id": 12951636120,
+        "digest": "sha256:9d7e1d87754c01aadc83a749b9fd9f3d1b83031faa853117b6275a5ea0ccac0a"
+      }
+    ],
+    "target": "https://r.xlogic.cc",
+    "jobs": {
+      "windows-x64": "success",
+      "linux-release (debian12, debian:12)": "success",
+      "linux-musl": "success",
+      "linux-release (ubuntu20.04, ubuntu:20.04)": "success",
+      "sanitizers": "success",
+      "regression": "success",
+      "publish-release": "skipped"
+    }
+  },
+  "deployment": {
+    "id": "6957ac12-fda2-4230-b4a9-af5f6ffb53d6",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "annotations": {
+      "workers/message": "Actions 40999119690 commit 97af93b2799bbfc6b617e6f964daa295000243d1",
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "7bbddd2d-b8ea-402b-8578-2fe2378b4409",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-10-30T04:02:13.865365Z"
+  },
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.16",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "endpointChecks": [
+    {
+      "method": "GET",
+      "path": "/api/v1/healthz",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/guest/",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/guest/api/v1/auth/email",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/guest/api/v1/hosts",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "method": "GET",
+      "path": "/guest/api/v1/admin/devices",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/hosts/release-check/access-emails",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/access-emails",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/releases",
+      "status": 403,
+      "passed": true
+    }
+  ],
+  "nativeOnlineChecksums": {
+    "coc-0.5.16-linux-x86_64-debian12.tar.gz": "ae80367b5f2d9a54dce50815835e307e3f849db274ee391d013644b4cef8c0fd",
+    "coc-0.5.16-linux-x86_64-musl.tar.gz": "d4aba464de341c3745f387f2f3dd615096c59f7807ab79d347dd3a969d3ab043",
+    "coc-0.5.16-linux-x86_64-ubuntu20.04.tar.gz": "67fd0141b75ed736262a685ce7b3d4e729acf44c618e7555f9caee47eb0378da",
+    "coc-0.5.16-windows-x64.zip": "10cc4d153c53495a2c147847c79b8c65172b3b066d3b2e93e7e6525f598f28c5",
+    "codex-over-cloudflare-0.5.16-source.tar.gz": "8c2d6c508832f223e6522c92dc5654827972f7061782f40c17ea289538e49455"
+  },
+  "preservedDownloads": {
+    "version": "0.5.16",
+    "commit": "d67186a41e2419a06a1676e770c82c875be20c22",
+    "sourceDigest": "9e61d1474120383c0a1eeea9b902d3993f5ed211f6e83c73be9778de06165b88",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.16-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.16-linux-x86_64-musl.tar.gz",
+      "coc-0.5.16-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.16-windows-x64.zip",
+      "codex-over-cloudflare-0.5.16-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "predeployD1Backup": {
+    "sha256": "103638d27261cdd87bab519eb8bd1531b016ded12d86f3f78e09ff3bd93c86b1",
+    "integrityCheck": "ok",
+    "location": "ignored private local directory; not included",
+    "excludes": "active Durable Object state"
+  },
+  "limitations": [
+    "No authenticated production mailbox grant or release notification was submitted; browser flows use synthetic identities in CI.",
+    "No Agent restart or active task interruption; enabled Agents upgrade after an administrator submits a notification and they become idle.",
+    "Native downloads remain the original 0.5.16 source d67186a; only Worker and web use the final cloud commit."
+  ]
+}

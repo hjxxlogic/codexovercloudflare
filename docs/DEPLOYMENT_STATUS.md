@@ -1,4 +1,16 @@
-# 发布状态：0.5.14
+# 发布状态：0.5.16
+
+## Agent 邮箱关联、网页更新通知与 CW 底部刷新 · 2026-10-30
+
+最终云端源码 `97af93b2799bbfc6b617e6f964daa295000243d1` 的 [Actions 40999119690](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40999119690) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。通过仓库 `scripts/deploy-cloud.py` 校验 Worker / web 制品摘要和源码身份后发布至 `https://r.xlogic.cc`。部署 ID `6957ac12-fda2-4230-b4a9-af5f6ffb53d6`，Worker 版本 `7bbddd2d-b8ea-402b-8578-2fe2378b4409`，UTC 04:02:13 发布并接收 100% 流量。
+
+管理员页新增发布通知按钮，以及每台 Agent 的多个关联邮箱配置；Agent 也可通过本地配置 / 命令提供默认邮箱，管理员可覆盖、清空或恢复默认。使用关联邮箱完成 CW 身份验证的用户自动获得该主机访问权。CW 向下滚动或滑动到底会同步当前会话，合并连续手势，保留草稿与连接，不增加周期轮询。health 已改为读取包版本，线上确认返回 0.5.16。
+
+原生 0.5.16 包来自 `d67186a41e2419a06a1676e770c82c875be20c22` 的 [Actions 40994952207](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40994952207)，该运行六项必需作业同样全部成功，四平台制品经 GitHub 摘要与源码校验后发布；线上四个平台安装包及源码包已逐包下载并核对 SHA256。最终云端部署保留这些原始 0.5.16 包，不改写同版本归档。
+
+线上首页、JS / CSS、手册、下载清单与暂存产物逐字节一致，8 项健康 / 访客 / 未授权入口检查通过。保留原 D1 UUID `3120cc4f-de73-43b2-b2c0-26c3626b6f76`、`STATE_BACKEND=d1`、Cron、Secret 和配置；没有待执行的 schema migration。首次发布前 D1 私有导出通过 SQLite 完整性检查，该快照不包含活动 DO 状态。网络操作使用用户指定 HTTPS 代理并保留 TLS 校验。
+
+未用生产管理员身份提交邮箱修改或实际发送升级通知，相关流程由合成身份的 CI 浏览器 / 服务端回归验证。未重启 Agent、打断活动任务或调用模型；用户可在管理员页通知已启用自动更新的 Agent，Agent 空闲后执行升级。完整摘要、CI / 部署身份、线上验收与限制见[发布证据](assets/agent-email-access-2026-10-30/deployment.json)，私有日志在忽略目录 `.local/deploy-cloud/40999119690/` 及 `.local/deploy-cloud/40994952207/`。
 
 ## 活动 DO / 空闲 D1 分层部署完成 · 2026-10-29
 
