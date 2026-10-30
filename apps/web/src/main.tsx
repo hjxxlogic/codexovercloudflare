@@ -46,6 +46,8 @@ import {
 } from './authorized-devices.tsx';
 import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
+import { AgentUpdates } from './agent-updates.tsx';
+import { HostEmailSettings } from './host-emails.tsx';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
 function MenuIcon() {
@@ -86,7 +88,7 @@ function App() {
   const language = useLanguage();
   const [view, setView] = useState<View>('chat');
   const [adminTab, setAdminTab] = useState<
-    'pending' | 'authorized' | 'wake' | 'sessions'
+    'pending' | 'authorized' | 'wake' | 'emails' | 'sessions'
   >('pending');
   const [mode, setMode] = useState<Mode>('cw');
   const adminLogin = mode === 'admin';
@@ -2523,6 +2525,7 @@ function App() {
       )}
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
+      {mode === 'admin' && admin && <AgentUpdates />}
       {mode === 'admin' && admin && (
         <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
           {(
@@ -2530,6 +2533,7 @@ function App() {
               ['pending', t('待授权请求')],
               ['authorized', t('已授权设备')],
               ['wake', t('服务器唤醒配置')],
+              ['emails', t('Agent 邮箱关联')],
               ['keys', t('API Key 管理')],
               ['sessions', t('管理会话')],
             ] as const
@@ -2594,7 +2598,9 @@ function App() {
                   ? '已授权设备'
                   : adminTab === 'wake'
                     ? '服务器唤醒配置'
-                    : '管理会话',
+                    : adminTab === 'emails'
+                      ? 'Agent 邮箱关联'
+                      : '管理会话',
             )}
           </h2>
           {adminTab === 'pending' && (
@@ -2763,6 +2769,41 @@ function App() {
               busy={generating}
               revoke={(id) => void manage('revoke', id)}
             />
+          )}
+          {adminTab === 'emails' && (
+            <>
+              <p>
+                {t(
+                  '关联邮箱通过验证后，所有 CW 浏览器自动获得该 Agent 的访问权，无需配对。管理员配置优先；清空可禁用关联，恢复则沿用 Agent 配置。移除关联会断开仅由该关联授权的 CW，独立配对授权保留。',
+                )}
+              </p>
+              <AdminTable
+                label={t('Agent 邮箱关联')}
+                columns={['服务器', '配置来源', '关联邮箱'].map((label) =>
+                  t(label),
+                )}
+                rowValues={keyHosts.map((h) => [
+                  h.name,
+                  h.accessEmailsOverride === undefined
+                    ? t('使用 Agent 配置')
+                    : t('使用管理员配置'),
+                  (h.accessEmailsOverride ?? h.agentAccessEmails ?? []).join(
+                    ', ',
+                  ),
+                ])}
+                empty={!keyHosts.length}
+                emptyText={t('暂无可授权的服务器，请先授权服务器 Agent。')}
+              >
+                {keyHosts.map((h) => (
+                  <HostEmailSettings
+                    key={h.id}
+                    host={h}
+                    saved={readAdminSnapshot}
+                    report={report}
+                  />
+                ))}
+              </AdminTable>
+            </>
           )}
           {adminTab === 'wake' && (
             <>

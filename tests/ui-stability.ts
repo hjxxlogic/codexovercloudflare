@@ -70,7 +70,18 @@ let failOlderPageOnce = false;
 let adminSamples = false;
 const adminMessage =
   '申请说明：<script>alert(1)</script>\n' + '长留言'.repeat(100);
-const adminHost = { id: 'sample', name: '示例服务器', disabled: false };
+const adminHost: {
+  id: string;
+  name: string;
+  disabled: boolean;
+  agentAccessEmails?: string[];
+  accessEmailsOverride?: string[];
+} = {
+  id: 'sample',
+  name: '示例服务器',
+  disabled: false,
+  agentAccessEmails: ['agent@example.com'],
+};
 const adminPending = [
   {
     id: 'request-unbound',
@@ -526,6 +537,9 @@ try {
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
+  await expect(
+    page.getByRole('button', { name: '通知所有 coc-agent 更新', exact: true }),
+  ).toHaveCount(0);
   await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
   const settings = page.getByRole('region', { name: '连接设置' });
@@ -1810,6 +1824,149 @@ try {
   await expect(
     page.getByRole('heading', { name: 'Pending access requests' }),
   ).toBeVisible();
+  const updates = page.getByRole('region', {
+    name: 'Agent updates',
+    exact: true,
+  });
+  const notifyUpdate = updates.getByRole('button');
+  const publishedRelease = {
+    version: '0.5.15',
+    commit: 'a'.repeat(40),
+    protocol: 1,
+  };
+  let validRelease = false;
+  const releaseRequests: unknown[] = [];
+  let finishNotification!: () => void;
+  const notificationGate = new Promise<void>((done) => {
+    finishNotification = done;
+  });
+  await page.route('**/downloads/index.json', (route) =>
+    route.fulfill({
+      json: validRelease
+        ? publishedRelease
+        : { ...publishedRelease, commit: 'invalid' },
+    }),
+  );
+  await page.route('**/api/v1/admin/releases', async (route) => {
+    releaseRequests.push(route.request().postDataJSON());
+    if (releaseRequests.length === 1) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: 'UNAVAILABLE', message: 'Retry notification' } },
+      });
+    } else {
+      await notificationGate;
+      await route.fulfill({
+        json: {
+          version: publishedRelease.version,
+          commit: publishedRelease.commit,
+        },
+      });
+    }
+  });
+  await notifyUpdate.click();
+  await expect(updates.getByRole('alert')).toHaveText(
+    'Could not read the published release. Please try again later.',
+  );
+  assert.equal(
+    releaseRequests.length,
+    0,
+    'invalid release identity cannot be published',
+  );
+  validRelease = true;
+  await notifyUpdate.click();
+  await expect(updates.getByRole('alert')).toContainText('Retry notification');
+  await notifyUpdate.click();
+  await expect(notifyUpdate).toBeDisabled();
+  await expect(notifyUpdate).toHaveText('Sending update notification…');
+  finishNotification();
+  await expect(updates.getByRole('status')).toHaveText(
+    'Update notification submitted for 0.5.15.',
+  );
+  await expect(notifyUpdate).toBeEnabled();
+  assert.deepEqual(
+    releaseRequests,
+    Array(2).fill({
+      version: publishedRelease.version,
+      commit: publishedRelease.commit,
+    }),
+  );
+  await updates.screenshot({
+    path: join(artifacts, 'admin-agent-updates.png'),
+  });
+  await page.unroute('**/downloads/index.json');
+  await page.unroute('**/api/v1/admin/releases');
+  await page
+    .getByRole('tab', { name: 'Agent email access', exact: true })
+    .click();
+  const emailTable = page.getByRole('table', {
+    name: 'Agent email access',
+    exact: true,
+  });
+  const emailRow = emailTable.getByRole('row').filter({
+    has: page.getByLabel('Associated emails for 示例服务器', { exact: true }),
+  });
+  const emailInput = emailRow.getByRole('textbox');
+  await expect(emailInput).toHaveValue('agent@example.com');
+  const emailRequests: unknown[] = [];
+  await page.route(
+    '**/api/v1/admin/hosts/sample/access-emails',
+    async (route) => {
+      const data = route.request().postDataJSON();
+      emailRequests.push(data);
+      if (data.emails === null) delete adminHost.accessEmailsOverride;
+      else adminHost.accessEmailsOverride = data.emails;
+      await route.fulfill({ json: { ok: true } });
+    },
+  );
+  await emailInput.fill('invalid');
+  await emailRow
+    .getByRole('button', { name: 'Save associated emails', exact: true })
+    .click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Enter up to 20 valid emails',
+  );
+  assert.equal(emailRequests.length, 0);
+  await page
+    .getByRole('alert')
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await emailInput.fill('user@EXAMPLE.com\nsecond@example.com');
+  await emailRow
+    .getByRole('button', { name: 'Save associated emails', exact: true })
+    .click();
+  await expect(emailRow.getByRole('status')).toHaveText(
+    'Associated emails saved',
+  );
+  await expect(emailRow).toContainText('Use administrator configuration');
+  assert.deepEqual(emailRequests[0], {
+    emails: ['second@example.com', 'user@example.com'],
+  });
+  await emailRow
+    .getByRole('button', { name: 'Clear associated emails', exact: true })
+    .click();
+  await expect(emailInput).toHaveValue('');
+  await emailRow
+    .getByRole('button', {
+      name: 'Restore Agent email configuration',
+      exact: true,
+    })
+    .click();
+  await expect(emailInput).toHaveValue('agent@example.com');
+  await expect(emailRow).toContainText('Use Agent configuration');
+  assert.deepEqual(emailRequests, [
+    { emails: ['second@example.com', 'user@example.com'] },
+    { emails: [] },
+    { emails: null },
+  ]);
+  await page.screenshot({
+    path: join(artifacts, 'admin-agent-email-access.png'),
+    fullPage: true,
+  });
+  await page.unroute('**/api/v1/admin/hosts/sample/access-emails');
+  await page
+    .getByRole('tab', { name: 'Pending access requests', exact: true })
+    .click();
   await expect(
     page.getByRole('tab', { name: 'Pending access requests' }),
   ).toHaveAttribute('aria-selected', 'true');
@@ -1862,6 +2019,7 @@ try {
       ['pending', '待授权请求'],
       ['authorized', '已授权设备'],
       ['wake', '服务器唤醒配置'],
+      ['emails', 'Agent 邮箱关联'],
       ['keys', 'API Key 管理'],
     ]) {
       await page.getByRole('tab', { name, exact: true }).click();

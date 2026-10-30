@@ -90,7 +90,7 @@ async function request(
 }
 async function host() {
   const key = (await op('apiKeyCreate', { name: 'A', role: 'agent' })).data;
-  return (
+  const result = (
     await op('apiKeyLogin', {
       role: 'agent',
       name: 'A',
@@ -98,6 +98,7 @@ async function host() {
       ip: crypto.randomUUID(),
     })
   ).data;
+  return { ...result, token: key.apiKey };
 }
 async function guestRequest(
   path: string,
@@ -561,6 +562,202 @@ describe('guest CoC authorization', () => {
 });
 
 describe('email grants and administrator identity', () => {
+  it('grants associated emails access on every browser and hides the configured list', async () => {
+    const a = await host();
+    const admin = await request(
+      '/api/v1/auth/email/admin',
+      'admin@test.com',
+      {},
+    );
+    const path = `/api/v1/admin/hosts/${a.hostId}/access-emails`;
+    expect(
+      (await request(path, 'user@test.com', { emails: ['user@test.com'] }))
+        .status,
+    ).toBe(401);
+    expect(
+      (
+        await request(
+          path,
+          'admin@test.com',
+          { emails: ['user@TEST.com', 'other@test.com', 'user@test.com'] },
+          admin.cookie,
+        )
+      ).status,
+    ).toBe(200);
+    const hostList = await request('/api/v1/hosts', 'user@test.com');
+    expect(hostList.data).toHaveLength(1);
+    expect(hostList.data[0].id).toBe(a.hostId);
+    expect(hostList.data[0]).not.toHaveProperty('accessEmailsOverride');
+    expect(hostList.data[0]).not.toHaveProperty('agentAccessEmails');
+    expect((await request('/api/v1/hosts', 'stranger@test.com')).data).toEqual(
+      [],
+    );
+    const restore = '/api/v1/auth/email/restore';
+    const first = await request(restore, 'user@test.com', { hostId: a.hostId });
+    const second = await request(restore, 'user@test.com', {
+      hostId: a.hostId,
+    });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.cookie).not.toBe(second.cookie);
+    const identity = `/api/v1/client/identity?hostId=${a.hostId}`;
+    expect(
+      (await request(identity, 'user@test.com', undefined, second.cookie))
+        .status,
+    ).toBe(200);
+    expect(
+      (await request(identity, 'stranger@test.com', undefined, second.cookie))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await request(
+          '/api/v1/admin/devices',
+          'user@test.com',
+          undefined,
+          second.cookie,
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (await guestRequest(restore, { hostId: a.hostId }, first.cookie)).status,
+    ).toBe(403);
+    expect(
+      (await request(path, 'admin@test.com', { emails: [] }, admin.cookie))
+        .status,
+    ).toBe(200);
+    expect(
+      (await request(identity, 'user@test.com', undefined, first.cookie))
+        .status,
+    ).toBe(401);
+    expect(
+      (await request(identity, 'user@test.com', undefined, second.cookie))
+        .status,
+    ).toBe(401);
+    expect(
+      (await request(restore, 'user@test.com', { hostId: a.hostId })).status,
+    ).toBe(403);
+  });
+  it('scopes Agent defaults to its own host and preserves administrator overrides and paired grants', async () => {
+    const a = await host(),
+      b = await host();
+    const agentConfig = (emails: string[]) =>
+      request(
+        '/api/v1/agent/access-emails',
+        null,
+        { emails, id: b.hostId },
+        '',
+        { Authorization: 'Bearer ' + a.token },
+      );
+    expect((await agentConfig(['user@test.com'])).status).toBe(200);
+    expect(
+      (await request('/api/v1/hosts', 'user@test.com')).data.map(
+        (h: any) => h.id,
+      ),
+    ).toEqual([a.hostId]);
+    const restored = await request(
+      '/api/v1/auth/email/restore',
+      'user@test.com',
+      { hostId: a.hostId },
+    );
+    expect(restored.status).toBe(200);
+    const admin = await request(
+      '/api/v1/auth/email/admin',
+      'admin@test.com',
+      {},
+    );
+    const config = (emails: string[] | null) =>
+      request(
+        `/api/v1/admin/hosts/${a.hostId}/access-emails`,
+        'admin@test.com',
+        { emails },
+        admin.cookie,
+      );
+    expect((await config([])).status).toBe(200);
+    expect(
+      (await agentConfig(['user@test.com', 'second@test.com'])).status,
+    ).toBe(200);
+    expect((await request('/api/v1/hosts', 'user@test.com')).data).toEqual([]);
+    expect((await config(null)).status).toBe(200);
+    expect(
+      (await request('/api/v1/hosts', 'second@test.com')).data.map(
+        (h: any) => h.id,
+      ),
+    ).toEqual([a.hostId]);
+    expect((await pair('user@test.com', a.hostId)).status).toBe(200);
+    expect((await agentConfig([])).status).toBe(200);
+    expect(
+      (await request('/api/v1/hosts', 'user@test.com')).data.map(
+        (h: any) => h.id,
+      ),
+    ).toEqual([a.hostId]);
+    expect((await request('/api/v1/hosts', 'second@test.com')).data).toEqual(
+      [],
+    );
+    expect(
+      (
+        await request(
+          `/api/v1/admin/hosts/${b.hostId}/access-emails`,
+          'admin@test.com',
+          { emails: ['bad-email'] },
+          admin.cookie,
+        )
+      ).status,
+    ).toBe(400);
+  });
+  it('keeps an explicitly revoked association removed across Agent configuration syncs', async () => {
+    const a = await host();
+    const agentConfig = () =>
+      request(
+        '/api/v1/agent/access-emails',
+        null,
+        { emails: ['user@test.com'] },
+        '',
+        { Authorization: 'Bearer ' + a.token },
+      );
+    expect((await agentConfig()).status).toBe(200);
+    const restored = await request(
+      '/api/v1/auth/email/restore',
+      'user@test.com',
+      { hostId: a.hostId },
+    );
+    const admin = await request(
+      '/api/v1/auth/email/admin',
+      'admin@test.com',
+      {},
+    );
+    const devices = await request(
+      '/api/v1/admin/devices',
+      'admin@test.com',
+      undefined,
+      admin.cookie,
+    );
+    const grant = devices.data.credentials.find(
+      (d: any) => d.email === 'user@test.com',
+    );
+    expect(
+      (
+        await request(
+          '/api/v1/admin/revoke',
+          'admin@test.com',
+          { id: grant.id },
+          admin.cookie,
+        )
+      ).status,
+    ).toBe(200);
+    expect((await agentConfig()).status).toBe(200);
+    expect((await request('/api/v1/hosts', 'user@test.com')).data).toEqual([]);
+    expect(
+      (
+        await request(
+          `/api/v1/client/identity?hostId=${a.hostId}`,
+          'user@test.com',
+          undefined,
+          restored.cookie,
+        )
+      ).status,
+    ).toBe(401);
+  });
   it('restores all authorized offline hosts on a new browser without pairing and isolates emails', async () => {
     const a = await host(),
       b = await host();

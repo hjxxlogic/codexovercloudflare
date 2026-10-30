@@ -78,6 +78,7 @@ class LoginRecovery(unittest.TestCase):
                         'projects': [{'id': 'test', 'name': 'Test', 'path': tmp}],
                         'sandbox': 'read-only', 'codexPath': 'custom-codex',
                         'wakeUrl': 'http://127.0.0.1:9',
+                        'accessEmails': ['User@EXAMPLE.com'],
                         'externalSessions': {'allowQueue': True},
                         'autoUpdate': {'enabled': False, 'intervalHours': 24},
                     }))
@@ -105,12 +106,13 @@ class LoginRecovery(unittest.TestCase):
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
-                            'displayName', 'proxy',
+                            'displayName', 'proxy', 'accessEmails',
                         })
                         self.assertEqual(saved['externalSessions'], {
                             'allowQueue': scenario == 'custom', 'allowApprovals': False,
                             'approvalEndpoint': '', 'approvalTokenFile': '',
                         })
+                        self.assertEqual(saved['accessEmails'], ['User@example.com'] if scenario == 'custom' else [])
                         self.assertEqual(saved['autoUpdate'], {
                             'enabled': scenario != 'custom' and os.name != 'nt',
                             'intervalHours': 24 if scenario == 'custom' else 1, 'platform': '',
@@ -131,6 +133,43 @@ class LoginRecovery(unittest.TestCase):
                 self.assertNotIn('local-poll-secret', result.stdout + result.stderr)
         finally:
             stopped.set()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_access_emails_preserves_credentials_and_only_saves_after_success(self):
+        requests = []
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_POST(self):
+                requests.append((self.path, self.headers.get('Authorization'), json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+                body = b'{}' if len(requests) < 3 else b'{"error":{"code":"UNAVAILABLE","message":"retry"}}'
+                self.send_response(200 if len(requests) < 3 else 503)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix='coc-emails-') as tmp:
+                path = Path(tmp) / 'agent.json'
+                original = {'relayUrl': 'http://127.0.0.1:' + str(server.server_port), 'token': 'test-agent-credential', 'projects': ['preserved']}
+                path.write_text(json.dumps(original))
+                executable = Path(os.environ.get('COC_AGENT_BINARY', 'build/coc-agent')).resolve()
+                def run(*emails):
+                    return subprocess.run([str(executable), 'access-emails', *emails, '--config', str(path)], capture_output=True, text=True, timeout=10)
+                self.assertEqual(run('User@EXAMPLE.com', 'User@example.com').returncode, 0)
+                self.assertEqual(json.loads(path.read_text()), {**original, 'accessEmails': ['User@example.com']})
+                self.assertEqual(requests[0], ('/api/v1/agent/access-emails', 'Bearer ' + original['token'], {'emails': ['User@example.com']}))
+                self.assertEqual(run().returncode, 0)
+                self.assertEqual(json.loads(path.read_text())['accessEmails'], [])
+                self.assertNotEqual(run('next@example.com').returncode, 0)
+                self.assertEqual(json.loads(path.read_text())['accessEmails'], [])
+                self.assertNotEqual(run('invalid').returncode, 0)
+                self.assertEqual(len(requests), 3)
+        finally:
             server.shutdown()
             server.server_close()
             thread.join()

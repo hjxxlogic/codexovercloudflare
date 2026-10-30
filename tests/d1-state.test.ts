@@ -11,6 +11,8 @@ import {
   HostLifecycle,
 } from '../apps/relay/src/host-lifecycle.ts';
 import { expireAt } from '../apps/relay/src/expiry.ts';
+import { emailOperation, setAccessEmails } from '../apps/relay/src/email.ts';
+import { digest } from '../apps/relay/src/common.ts';
 
 const databases: SqliteD1[] = [];
 function database() {
@@ -24,6 +26,62 @@ afterEach(() => {
 });
 
 describe('D1 authoritative state', () => {
+  it('persists email associations and atomically revokes derived credentials across reconstruction', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'registry');
+    const issuer = 'https://email-test.cloudflareaccess.com';
+    const env = { ACCESS_ENABLED: 'true', ACCESS_TEAM_DOMAIN: issuer } as Env;
+    const identity = {
+      issuer,
+      email: 'user@example.com',
+      accountId: await digest(JSON.stringify([issuer, 'user@example.com'])),
+    };
+    await state.put('host:mail-host', {
+      id: 'mail-host',
+      name: 'Mail host',
+      version: 2,
+      disabled: false,
+    });
+    await state.transaction((tx) =>
+      setAccessEmails(tx, env, 'mail-host', ['user@example.com'], true),
+    );
+    const restored: any = await state.transaction((tx) =>
+      emailOperation(tx, env, 'emailRestore', {
+        identity,
+        hostId: 'mail-host',
+      }),
+    );
+    const authKey = 'auth:' + (await digest(restored.token));
+    expect(await state.get(authKey)).toMatchObject({
+      role: 'web',
+      hostId: 'mail-host',
+    });
+    db.failBatch = () => true;
+    await expect(
+      state.transaction((tx) =>
+        setAccessEmails(tx, env, 'mail-host', [], false),
+      ),
+    ).rejects.toThrow('Injected');
+    db.failBatch = undefined;
+    const rebuilt = new D1State(db.binding(), 'registry');
+    expect(await rebuilt.get(authKey)).toBeDefined();
+    expect(await rebuilt.get('host:mail-host')).not.toHaveProperty(
+      'accessEmailsOverride',
+    );
+    const result = await rebuilt.transaction((tx) =>
+      setAccessEmails(tx, env, 'mail-host', [], false),
+    );
+    expect(result.revoked.map((auth) => auth.hash)).toEqual([restored.hash]);
+    expect(await rebuilt.get(authKey)).toBeUndefined();
+    expect(
+      await rebuilt.get(`emailGrant:${identity.accountId}:mail-host`),
+    ).toMatchObject({ active: false });
+    expect(
+      await rebuilt.transaction((tx) =>
+        emailOperation(tx, env, 'emailHosts', { identity }),
+      ),
+    ).toEqual([]);
+  });
   it('schedules an indexed record without rewriting the D1 expiry index', async () => {
     const db = database();
     const alarms = new MemoryStorage();

@@ -1,10 +1,15 @@
 import type { StateTransaction } from './state.ts';
-import { AppError, idSchema } from '../../../packages/protocol/src/index.ts';
+import {
+  AppError,
+  idSchema,
+  accessEmailsSchema,
+} from '../../../packages/protocol/src/index.ts';
 import { digest, token, type Auth, type Env } from './common.ts';
 import {
   adminEmailMatches,
   adminEmailVersion,
   type AccessUser,
+  accessEnabled,
 } from './access.ts';
 
 export type EmailGrant = {
@@ -17,7 +22,63 @@ export type EmailGrant = {
   active: boolean;
   generation: string;
   approvedBy?: string;
+  association?: boolean;
 };
+export function effectiveAccessEmails(host: any): string[] {
+  return host.accessEmailsOverride ?? host.agentAccessEmails ?? [];
+}
+function associated(env: Env, host: any, user: AccessUser) {
+  return (
+    accessEnabled(env) &&
+    user.issuer === env.ACCESS_TEAM_DOMAIN &&
+    effectiveAccessEmails(host).includes(user.email)
+  );
+}
+async function revokeGrant(tx: StateTransaction, grant: EmailGrant) {
+  await tx.put(grant.id, { ...grant, active: false, revoked: Date.now() });
+  const revoked: Auth[] = [];
+  for (const [key, auth] of await tx.list<Auth>({ prefix: 'auth:' })) {
+    if (
+      auth.accountId === grant.accountId &&
+      auth.hostId === grant.hostId &&
+      auth.grantId
+    ) {
+      revoked.push(auth);
+      await tx.delete(key);
+    }
+  }
+  return revoked;
+}
+export async function setAccessEmails(
+  tx: StateTransaction,
+  env: Env,
+  hostId: string,
+  emails: unknown,
+  agent: boolean,
+) {
+  const host = await validHost(tx, hostId);
+  if (!agent && emails === null) delete host.accessEmailsOverride;
+  else
+    host[agent ? 'agentAccessEmails' : 'accessEmailsOverride'] =
+      accessEmailsSchema.parse(emails);
+  await tx.put('host:' + host.id, host);
+  const revoked: Auth[] = [];
+  for (const grant of (
+    await tx.list<EmailGrant>({ prefix: 'emailGrant:' })
+  ).values()) {
+    if (
+      grant.hostId === host.id &&
+      grant.active &&
+      grant.association &&
+      (!effectiveAccessEmails(host).includes(grant.email) ||
+        grant.accountId !==
+          (await digest(JSON.stringify([env.ACCESS_TEAM_DOMAIN, grant.email]))))
+    ) {
+      revoked.push(...(await revokeGrant(tx, grant)));
+    }
+  }
+  return { hostId: host.id, revoked };
+}
 export const grantKey = (accountId: string, hostId: string) =>
   `emailGrant:${accountId}:${hostId}`;
 export async function account(tx: StateTransaction, user: AccessUser) {
@@ -38,6 +99,7 @@ export async function createEmailGrant(
   user: AccessUser,
   hostId: string,
   approvedBy?: string,
+  association = false,
 ) {
   await account(tx, user);
   await validHost(tx, hostId);
@@ -53,7 +115,11 @@ export async function createEmailGrant(
       active: true,
       generation: token(),
       approvedBy,
+      ...(association ? { association: true } : {}),
     };
+    await tx.put(key, grant);
+  } else if (grant.association && !association) {
+    delete grant.association;
     await tx.put(key, grant);
   }
   return grant;
@@ -69,6 +135,15 @@ export async function validateEmailAuth(
     );
     if (!grant?.active || grant.generation !== auth.grantId)
       throw new AppError('UNAUTHORIZED', 'Email authorization revoked', 401);
+    if (grant.association) {
+      const host = await validHost(tx, grant.hostId);
+      if (
+        !effectiveAccessEmails(host).includes(grant.email) ||
+        grant.accountId !==
+          (await digest(JSON.stringify([env.ACCESS_TEAM_DOMAIN, grant.email])))
+      )
+        throw new AppError('UNAUTHORIZED', 'Email association removed', 401);
+    }
   }
   if (
     auth.ownerSource === 'email' &&
@@ -96,18 +171,14 @@ export async function emailOperation(
     const grant = await tx.get<EmailGrant>(d.id);
     if (!grant?.active)
       throw new AppError('NOT_FOUND', 'Unknown email grant', 404);
-    await tx.put(d.id, { ...grant, active: false, revoked: Date.now() });
-    const revoked: Auth[] = [];
-    for (const [key, auth] of await tx.list<Auth>({ prefix: 'auth:' })) {
-      if (
-        auth.accountId === grant.accountId &&
-        auth.hostId === grant.hostId &&
-        auth.grantId
-      ) {
-        revoked.push(auth);
-        await tx.delete(key);
-      }
+    if (grant.association) {
+      const host = await validHost(tx, grant.hostId);
+      host.accessEmailsOverride = effectiveAccessEmails(host).filter(
+        (email) => email !== grant.email,
+      );
+      await tx.put('host:' + host.id, host);
     }
+    const revoked = await revokeGrant(tx, grant);
     return { hostId: grant.hostId, revoked };
   }
   await account(tx, user);
@@ -125,19 +196,29 @@ export async function emailOperation(
     await tx.put(key, limit);
   }
   if (op === 'emailHosts') {
-    const hosts = [];
+    const hosts = new Map<string, any>();
+    for (const host of (await tx.list<any>({ prefix: 'host:' })).values())
+      if (host.version === 2 && !host.disabled && associated(env, host, user))
+        hosts.set(host.id, host);
     for (const grant of (
       await tx.list<EmailGrant>({ prefix: `emailGrant:${user.accountId}:` })
     ).values()) {
       const host = await tx.get<any>('host:' + grant.hostId);
-      if (grant.active && host?.version === 2 && !host.disabled)
-        hosts.push(host);
+      if (
+        grant.active &&
+        host?.version === 2 &&
+        !host.disabled &&
+        (!grant.association || associated(env, host, user))
+      )
+        hosts.set(host.id, host);
     }
-    return hosts;
+    return [...hosts.values()];
   }
   if (op === 'emailRestore' || op === 'emailMigrate') {
     const host = await validHost(tx, d.hostId);
     let grant = await tx.get<EmailGrant>(grantKey(user.accountId, host.id));
+    if (op === 'emailRestore' && associated(env, host, user))
+      grant = await createEmailGrant(tx, user, host.id, 'association', true);
     if (op === 'emailMigrate') {
       const hash = await digest(d.token || '');
       const old = await tx.get<Auth>('auth:' + hash);
@@ -157,7 +238,7 @@ export async function emailOperation(
       grant = await createEmailGrant(tx, user, host.id, 'legacy:' + hash);
       await tx.delete('auth:' + hash);
     }
-    if (!grant?.active)
+    if (!grant?.active || (grant.association && !associated(env, host, user)))
       throw new AppError(
         'FORBIDDEN',
         'This email is not authorized for the host',

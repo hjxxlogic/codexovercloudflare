@@ -204,6 +204,25 @@ std::string wake_url(const Json &value) {
   }
   return text;
 }
+Json access_emails(const Json &value) {
+  if (!value.is_array() || value.size() > 20)
+    throw Error("CONFIG_ERROR", "accessEmails requires at most 20 email addresses");
+  static const std::regex pattern(
+      R"(^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$)");
+  std::set<std::string> emails;
+  for (const auto &entry : value) {
+    if (!entry.is_string())
+      throw Error("CONFIG_ERROR", "Invalid accessEmails address");
+    auto email = entry.get<std::string>();
+    if (email.size() > 254 || !std::regex_match(email, pattern))
+      throw Error("CONFIG_ERROR", "Invalid accessEmails address");
+    const auto at = email.rfind('@');
+    std::transform(email.begin() + at + 1, email.end(), email.begin() + at + 1,
+                   [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; });
+    emails.insert(email);
+  }
+  return Json(emails);
+}
 namespace {
 std::string trim_text(const std::string &text) {
   size_t first = text.size(), last = 0;
@@ -258,6 +277,8 @@ Json agent_config(Json c) {
   c["relayUrl"] = relay_url(c.value("relayUrl", "https://r.xlogic.cc")).origin;
   if (c.contains("wakeUrl"))
     c["wakeUrl"] = wake_url(c["wakeUrl"]);
+  if (c.contains("accessEmails"))
+    c["accessEmails"] = access_emails(c["accessEmails"]);
   auto external = c.value("externalSessions", Json::object());
   if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean() ||
       !external.value("allowApprovals", Json(false)).is_boolean())

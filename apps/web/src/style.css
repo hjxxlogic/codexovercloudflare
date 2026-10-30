@@ -1224,6 +1224,11 @@ progress {
 .admin-table select {
   width: 100%;
 }
+.admin-table textarea {
+  border: 1px solid #393d48;
+  background: #20232b;
+  padding: 10px 13px;
+}
 .admin-table form {
   gap: 8px;
 }

@@ -1,5 +1,12 @@
 # 本机测试记录
 
+## 0.5.16 · Agent 邮箱关联与网页更新通知 · 2026-10-30（待 CI / 发布）
+
+- Bookworm 测试容器完成原生编译、CTest native-core 与 6 项真实登录 / 配置命令测试，无模型调用。邮箱共享样例由 C++ / Zod 同时校验，覆盖规范化、重复项、非法类型 / 格式及 20 个邮箱上限；本地命令验证清空、凭据保留和服务端失败不保存。
+- 全量 Vitest 192 项通过，另追加 D1 原子撤销 / 重建和 Agent 握手撤销回归。服务端验证同邮箱跨浏览器自动访问、不同邮箱与访客隔离、Agent 不能配置别的主机、管理员覆盖 / 恢复、关联删除撤销、独立配对保留及显式撤销不因重连恢复。D1 故障注入确认配置 / grant / auth 一起回滚；握手回归确认只关闭被撤销 CW，保留其他连接及 Agent。
+- 完整 Chromium UI 回归覆盖发布清单身份拒绝、通知失败重试、发送禁用和准确提交的 version / commit，以及邮箱输入校验、保存 / 清空 / 恢复、管理表格排序及桌面 / 手机布局。使用合成身份与主机，截图：[更新通知](assets/agent-email-access-2026-10-30/admin-agent-updates.png)、[邮箱关联](assets/agent-email-access-2026-10-30/admin-agent-email-access.png)、[桌面](assets/agent-email-access-2026-10-30/admin-table-emails-1280.png)、[手机](assets/agent-email-access-2026-10-30/admin-table-emails-390.png)。
+- TypeScript、ESLint / Prettier、C++ 格式、协议生成一致性和差异空白检查通过。网页构建保留既有单包大于 500 kB 的提示。本地检查不代替同一提交的全部必需 GitHub Actions；实际 CI、部署身份与线上验收另行记录。
+
 ## CW 预览、修订同步与后台自动批准（功能 CI 通过，0.5.15 发布复验中）
 
 新增文档预览下载、图片 / 音视频展开、丢失工具完成事件后按游标补齐、展开输出修订更新及关闭 CW 后原生 Agent 自动批准的回归。最终源码 `3bd75854c5e09967b18e8b8eff8924cbf28f7fcf` 的 [Actions 40886237129](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40886237129) 六项必需作业全部成功，Release 按分支规则跳过。本地 188 项 Vitest、原生核心测试及完整 Chromium UI / IndexedDB 缓存测试通过；CI 另通过两种存储模式的原生 / Chromium E2E，验证真实 Agent 在关闭 CW 后继续审批、重开恢复及关闭开关。尚未部署本次功能，新后台设置和传输水位需要升级 Agent / CC。0.5.15 的首次发布验证在 D1 空闲归档测试遇到只读观察器 `database is locked`；增加仅针对 SQLite 锁的有界等待，最终发布仍须新提交完整 CI 通过。[验收记录及截图](assets/cw-features-2026-10-29/ci.json)。

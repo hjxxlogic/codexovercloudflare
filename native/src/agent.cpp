@@ -325,6 +325,9 @@ public:
           {"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}};
       if (config_.contains("wakeUrl"))
         capabilities["wakeUrl"] = config_["wakeUrl"];
+      const auto latest = read_json(config_file_);
+      if (latest.contains("accessEmails"))
+        capabilities["accessEmails"] = access_emails(latest["accessEmails"]);
       if (config_.contains("displayName"))
         capabilities["displayName"] = config_["displayName"];
       send(capabilities);
@@ -1826,7 +1829,8 @@ int coc_main(int argc, char **argv) {
     if (command == "help") {
       std::cout
           << "Usage: coc-agent "
-             "<login|logout|name|proxy|status|wake-url|requests|approve|reject|doctor|run|update|--"
+             "<login|logout|name|proxy|status|wake-url|access-emails|requests|approve|reject|"
+             "doctor|run|update|--"
              "version> "
              "[--config "
              "PATH] "
@@ -1840,6 +1844,8 @@ int coc_main(int argc, char **argv) {
              "approve REQUEST_ID / reject REQUEST_ID: after checking the pairing code and role, "
              "handle one targeted request with this Agent credential.\n";
       std::cout << "wake-url URL: save and register wake URL; use an empty URL to clear it.\n";
+      std::cout
+          << "access-emails [EMAIL...]: save and register CW email access; no emails clears it.\n";
       return 0;
     }
     if (options.api_key && command != "login")
@@ -1863,7 +1869,7 @@ int coc_main(int argc, char **argv) {
     }
     std::unique_ptr<coc::PrivateLock> config_lock;
     if (command == "login" || command == "logout" || command == "wake-url" || command == "name" ||
-        command == "proxy")
+        command == "proxy" || command == "access-emails")
       config_lock = std::make_unique<coc::PrivateLock>(file);
     if (command == "proxy" || command == "name") {
       if (options.args.size() != 2)
@@ -1916,6 +1922,7 @@ int coc_main(int argc, char **argv) {
       config["hostId"] = grant.at("hostId");
       config["token"] = grant.at("token");
       config["wakeUrl"] = config.value("wakeUrl", "");
+      config["accessEmails"] = config.value("accessEmails", coc::Json::array());
       config = coc::agent_config(std::move(config));
       const auto updates = coc::update_settings(config);
       config["autoUpdate"] = {{"enabled", updates.enabled},
@@ -1931,6 +1938,19 @@ int coc_main(int argc, char **argv) {
       coc::save_private(file, config);
       std::cout << "Local credential removed; stop any running Agent separately. Relay "
                    "authorization is unchanged.\n";
+      return 0;
+    }
+    if (command == "access-emails") {
+      auto config = coc::read_json(file);
+      auto emails = coc::Json::array();
+      for (size_t i = 1; i < options.args.size(); ++i)
+        emails.push_back(options.args[i]);
+      emails = coc::access_emails(emails);
+      coc::http_json(coc::relay_url(config.at("relayUrl")), "/api/v1/agent/access-emails",
+                     {{"emails", emails}}, config.at("token"));
+      config["accessEmails"] = emails;
+      coc::save_private(file, config);
+      std::cout << "CW email access registered; administrator override takes priority.\n";
       return 0;
     }
     if (command == "wake-url") {

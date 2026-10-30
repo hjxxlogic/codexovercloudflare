@@ -128,6 +128,15 @@ void core() {
       rejects([&] { wake_url(fixture.at("value")); }, "CONFIG_ERROR");
   }
   check(update_settings(Json::object()).enabled, "Updates enabled by default");
+  for (const auto &fixture :
+       read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/access-email-fixtures.json")) {
+    if (fixture.value("error", false))
+      rejects([&] { access_emails(fixture.at("input")); }, "CONFIG_ERROR");
+    else
+      check(access_emails(fixture.at("input")) == fixture.at("output"),
+            "Email association normalization");
+  }
+  rejects([] { access_emails(std::vector<std::string>(21, "user@example.com")); }, "CONFIG_ERROR");
   check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
   check(!update_settings({{"autoUpdate", {{"enabled", false}, {"intervalHours", 24}}}}).enabled,
         "Object disables automatic update");

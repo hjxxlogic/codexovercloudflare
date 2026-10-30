@@ -10,6 +10,7 @@ import {
   createEmailGrant,
   emailOperation,
   validateEmailAuth,
+  setAccessEmails,
   type EmailGrant,
 } from './email.ts';
 import { DurableObject } from 'cloudflare:workers';
@@ -46,6 +47,8 @@ type Host = {
   version: 2;
   agentWakeUrl?: string;
   wakeUrlOverride?: string;
+  agentAccessEmails?: string[];
+  accessEmailsOverride?: string[];
 };
 export class RegistryCore {
   constructor(
@@ -75,7 +78,11 @@ export class RegistryCore {
       ].includes(op)
         ? await this.storage.get<any>('device:' + d.id)
         : undefined;
-      const credential = ['setInstanceName', 'agentSetWakeUrl'].includes(op)
+      const credential = [
+        'setInstanceName',
+        'agentSetWakeUrl',
+        'agentSetAccessEmails',
+      ].includes(op)
         ? await this.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
         : undefined;
       const response = await this.dispatch(req);
@@ -94,6 +101,8 @@ export class RegistryCore {
         'apiKeyRevoke',
         'setWakeUrl',
         'agentSetWakeUrl',
+        'setAccessEmails',
+        'agentSetAccessEmails',
         'setInstanceName',
         'releasePublish',
         'emailGrantRevoke',
@@ -129,7 +138,7 @@ export class RegistryCore {
                 op === 'emailGrantRevoke' ||
                 op === 'emailMigrate'
                   ? result.hostId
-                  : op === 'setWakeUrl'
+                  : op === 'setWakeUrl' || op === 'setAccessEmails'
                     ? d.id
                     : credential?.hostId,
               ];
@@ -932,6 +941,23 @@ export class RegistryCore {
       if (op === 'logout') {
         await s.delete('auth:' + d.hash);
         return json({ ok: true });
+      }
+      if (op === 'setAccessEmails' || op === 'agentSetAccessEmails') {
+        return json(
+          await s.transaction(async (tx) => {
+            const agent =
+              op === 'agentSetAccessEmails'
+                ? await this.approvingAgent(tx, d.agentHash)
+                : undefined;
+            return setAccessEmails(
+              tx,
+              this.env,
+              agent ? agent.hostId! : idSchema.parse(d.id),
+              d.emails,
+              !!agent,
+            );
+          }),
+        );
       }
       if (op === 'setWakeUrl' || op === 'agentSetWakeUrl') {
         return json(

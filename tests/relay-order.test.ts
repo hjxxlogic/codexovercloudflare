@@ -129,6 +129,49 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('recoverable asynchronous controls', () => {
+  it('registers Agent email capabilities and disconnects only revoked derived CW credentials', async () => {
+    const h = harness();
+    const revoked = socket({ role: 'web', auth: { ...auth, hash: 'removed' } });
+    const retained = socket({ role: 'web', auth });
+    h.sockets.push(revoked, retained);
+    const relay = h.relay as any;
+    relay.authorization.set('removed', { expires: Number.MAX_SAFE_INTEGER });
+    vi.mocked(registryCall).mockImplementation(async (_env, op) =>
+      op === 'agentSetAccessEmails'
+        ? { hostId: 'host', revoked: [{ ...auth, hash: 'removed' }] }
+        : { expires: Number.MAX_SAFE_INTEGER },
+    );
+    await h.relay.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'capabilities',
+        protocol: 1,
+        accessEmails: ['user@example.com'],
+        build: {
+          version: '0.5.15',
+          commit: 'a'.repeat(40),
+          sourceDigest: 'b'.repeat(64),
+          target: 'linux-x86_64',
+          protocol: 1,
+          capabilities: [],
+          dirty: false,
+        },
+      }),
+    );
+    expect(registryCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'agentSetAccessEmails',
+      { agentHash: 'agent', emails: ['user@example.com'] },
+      'host',
+    );
+    expect(revoked.close).toHaveBeenCalledWith(
+      4001,
+      'Email association removed',
+    );
+    expect(retained.close).not.toHaveBeenCalled();
+    expect(h.agent.close).not.toHaveBeenCalled();
+    expect(relay.authorization.has('removed')).toBe(false);
+  });
   it('reads an operation index and all parts in one snapshot while completion replaces them', async () => {
     const h = harness();
     const relay = h.relay as any;

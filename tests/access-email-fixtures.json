@@ -1,0 +1,18 @@
+[
+  { "input": [], "output": [] },
+  {
+    "input": ["User@EXAMPLE.COM", "user@example.com", "User@example.com"],
+    "output": ["User@example.com", "user@example.com"]
+  },
+  {
+    "input": ["first.last+tag@example.com"],
+    "output": ["first.last+tag@example.com"]
+  },
+  { "input": "user@example.com", "error": true },
+  { "input": [null], "error": true },
+  { "input": [" user@example.com"], "error": true },
+  { "input": ["user@example.com\n"], "error": true },
+  { "input": ["a..b@example.com"], "error": true },
+  { "input": ["user@-example.com"], "error": true },
+  { "input": ["user@localhost"], "error": true }
+]

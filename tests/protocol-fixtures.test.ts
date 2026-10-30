@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import fixtures from './protocol-fixtures.json';
+import emailFixtures from './access-email-fixtures.json';
 import {
   agentConfigSchema,
+  accessEmailsSchema,
   webCommandSchema,
 } from '../packages/protocol/src/index.ts';
 describe('shared C++/Zod protocol examples', () => {
@@ -14,6 +16,16 @@ describe('shared C++/Zod protocol examples', () => {
         if (result.success) expect(result.data).toEqual(fixture.output);
       }
     });
+});
+it('normalizes and validates Agent email access consistently with native configuration', () => {
+  for (const fixture of emailFixtures) {
+    const parsed = accessEmailsSchema.safeParse(fixture.input);
+    expect(parsed.success).toBe(!fixture.error);
+    if (parsed.success) expect(parsed.data).toEqual(fixture.output);
+  }
+  expect(
+    accessEmailsSchema.safeParse(Array(21).fill('user@example.com')).success,
+  ).toBe(false);
 });
 it('preserves the automatic-update opt-out in parsed Agent configuration', () => {
   const input = {

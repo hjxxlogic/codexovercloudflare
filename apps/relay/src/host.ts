@@ -1204,6 +1204,26 @@ export class HostRelayDO extends DurableObject<Env> {
               hash: a.auth.hash,
               displayName: d.displayName,
             });
+          if (d.accessEmails !== undefined) {
+            const result = await registryCall(
+              this.env,
+              'agentSetAccessEmails',
+              {
+                agentHash: a.auth.hash,
+                emails: d.accessEmails,
+              },
+            );
+            for (const auth of result.revoked as Auth[]) {
+              this.authorization.delete(auth.hash);
+              this.authorizing.delete(auth.hash);
+              for (const client of this.ctx.getWebSockets())
+                if (
+                  (client.deserializeAttachment() as Attachment).auth.hash ===
+                  auth.hash
+                )
+                  client.close(4001, 'Email association removed');
+            }
+          }
           ws.serializeAttachment(a);
           await this.presence();
           await this.changed();

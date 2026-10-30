@@ -480,6 +480,27 @@ export default {
           return json(await registryCall(env, 'devices'));
         if (p === '/api/v1/admin/hosts' && req.method === 'GET')
           return json(await registryCall(env, 'hosts'));
+        const emailConfig = p.match(
+          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/access-emails$/,
+        );
+        if (emailConfig && req.method === 'POST') {
+          const d = await body(req);
+          const result = await registryCall(env, 'setAccessEmails', {
+            id: emailConfig[1],
+            emails: d.emails,
+          });
+          for (const auth of result.revoked as Auth[])
+            if (await hostHasConnections(env, result.hostId))
+              await hostStub(env, result.hostId).fetch(
+                'https://internal/revoke-auth',
+                {
+                  method: 'POST',
+                  headers: { 'x-host': result.hostId },
+                  body: JSON.stringify({ hash: auth.hash, agent: false }),
+                },
+              );
+          return json({ ok: true });
+        }
         const wakeConfig = p.match(
           /^\/api\/v1\/admin\/hosts\/([\w-]+)\/wake-url$/,
         );
@@ -573,7 +594,13 @@ export default {
             await Promise.all(
               hosts.map(async (h: any) => {
                 const status = await hostStatus(env, h.id);
-                const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
+                const {
+                  agentWakeUrl,
+                  wakeUrlOverride,
+                  agentAccessEmails: _agentAccessEmails,
+                  accessEmailsOverride: _accessEmailsOverride,
+                  ...visible
+                } = h;
                 return {
                   ...visible,
                   ...status,
@@ -612,7 +639,13 @@ export default {
             auths.map(async (a) => {
               const h = (a as Auth & { host: any }).host;
               const status: any = await hostStatus(env, h.id);
-              const { agentWakeUrl, wakeUrlOverride, ...visible } = h;
+              const {
+                agentWakeUrl,
+                wakeUrlOverride,
+                agentAccessEmails: _agentAccessEmails,
+                accessEmailsOverride: _accessEmailsOverride,
+                ...visible
+              } = h;
               return {
                 ...visible,
                 ...status,
@@ -660,6 +693,25 @@ export default {
             agentHash: auth.hash,
           }),
         );
+      }
+      if (p === '/api/v1/agent/access-emails' && req.method === 'POST') {
+        const auth = await authenticateAgent(req, env);
+        const d = await body(req);
+        const result = await registryCall(env, 'agentSetAccessEmails', {
+          agentHash: auth.hash,
+          emails: d.emails,
+        });
+        for (const revoked of result.revoked as Auth[])
+          if (await hostHasConnections(env, result.hostId))
+            await hostStub(env, result.hostId).fetch(
+              'https://internal/revoke-auth',
+              {
+                method: 'POST',
+                headers: { 'x-host': result.hostId },
+                body: JSON.stringify({ hash: revoked.hash, agent: false }),
+              },
+            );
+        return json({ ok: true });
       }
       if (p === '/api/v1/agent/requests' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);

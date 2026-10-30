@@ -43,6 +43,20 @@ Service Token 准入与轮换由 Cloudflare Access 策略负责。Worker 不导�
 
 Worker 开启 `ACCESS_ENABLED=true` 后必须配置 `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`，并保留 `OWNER_SECRET`；未开启时继续原有配对 / 管理登录。出现 Access 登录过期提示时重新打开网站验证邮箱；错误中的 `token / keys_* / key_id / signature / claims / identity` 表示失败阶段，不包含登录凭据。`/cdn-cgi/access/get-identity` 返回 `no app token set` 时，浏览器尚未提供应用登录 Cookie，可先重新登录再刷新身份接口；机器连接失败则核对共享 Token、策略和 CoC 凭据。完整变量、下载策略和跨浏览器迁移见 [Access 接入说明](cloudflare-access-coc-auth.md)。
 
+## Agent 邮箱关联
+
+在管理员网页的“Agent 邮箱关联”页签，为指定服务器填写邮箱（每行一个，最多 20 个），点击“保存关联邮箱”。这些邮箱通过 Cloudflare Access 验证后，同一邮箱在所有 CW 浏览器中都能看到并访问该 Agent，无需逐浏览器配对；授权限于 CW 和该主机，不授予 CC 或管理权限。邮箱本地部分区分大小写，域名统一为小写；不支持通配符或整域授权。访客入口和无邮箱的 Service Token 不获得这项权限，原有独立配对授权继续有效。
+
+Agent 本地也支持 `agent.json` 中的 `"accessEmails": ["user@example.com"]`。启动 / 重连时同步这一默认列表；配置省略该字段时保留云端既有值，设为空数组可清空本地来源。已有运行 Agent 可以直接执行命令注册并保存，不需要中断任务：
+
+```bash
+coc-agent access-emails user@example.com another@example.com --config /path/to/agent.json
+# 清空本地来源的列表
+coc-agent access-emails --config /path/to/agent.json
+```
+
+管理员保存的列表优先于 Agent 本地列表；“清空关联邮箱”保存空的管理员覆盖以禁止自动关联，“恢复 Agent 邮箱配置”删除管理员覆盖。移除关联时，所有仅通过该关联获得的 CW 凭据失效，相关浏览器连接关闭；不会停止 Codex 任务。独立配对的邮箱授权不随关联删除而撤销，可在“已授权设备”单独撤销。撤销关联产生的授权也会从管理员有效列表中移除该邮箱，Agent 重连不会自动重新授权。关联邮箱可以在用户首次登录前配置，但只有服务端验证的邮箱身份才能取得 CW 凭据；主机停用后不能继续访问。使用本地配置 / 命令需要升级 Agent 和 Relay，管理员网页配置只要求升级 Relay / 网页。
+
 ## 使用 CI 构建包更新 Agent
 
 部署 Linux systemd 用户服务 Agent 可运行 `python3 scripts/deploy-agent.py --push --commit HEAD --ssh USER@HOST --binary /absolute/path/coc-agent --apply`。脚本推送干净的当前分支，等待同一提交的 GitHub Actions 完整构建 / 测试成功，验证产物来源与校验和，等待运行会话结束，再备份、替换、重启并观察 120 秒。省略 `--apply` 仅准备和查看状态。默认不停止运行会话；安装窗口请停止提交新任务。完整参数、公开仓库 / musl 支持范围和回滚边界见 [发布操作](RELEASE.md)。
@@ -197,6 +211,8 @@ Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配
 ### 原生程序自动更新
 
 以下自动更新机制适用于 Linux；Windows 按上一节手动整包升级。
+
+管理员登录网页后，点击“Agent 更新”中的“通知所有 coc-agent 更新”。网页读取当前下载清单并提交发布版本通知；服务端仍核对版本、源码提交和全部下载包可用后才广播给所有有效主机。同一版本 / 提交重复点击不会重复广播，不同提交复用版本会被拒绝。成功提示只表示通知已提交，不表示每台 Agent 已安装；离线 Agent 在后续启动或明确重连时检查更新。仅启用自动更新的 Agent 会下载，安装仍等待所有会话及历史读取结束，不会中断现有任务。失败后可以重试，无需输入或分发所有者密钥。
 
 从 0.5.2 起默认启用自动更新。0.5.12 起 Agent 在启动、明确重连或收到版本发布通知时检查配置中 `relayUrl` 的 `/downloads/`，稳定空闲时不周期检查；发布通知仅触发后台检查，仍须所有会话结束后才切换版本；下载和候选检查在后台进行，等所有运行会话结束且没有历史读取后才关闭连接、释放数据库锁并原地重启，沿用原启动参数。空闲检查最多约 30 秒一次；保持附着但未执行任务的会话仍算运行会话，须结束会话后才切换。CLI 在成功的业务命令结束（TUI 退出）后检查，安装后下一次启动生效，不会在 TUI 运行中替换进程。help、version、doctor、logout 和离线历史读取不触发自动检查。
 

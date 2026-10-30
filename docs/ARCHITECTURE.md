@@ -1,5 +1,13 @@
 # 技术架构与选型
 
+## Agent 邮箱关联与更新通知
+
+Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理员覆盖优先，空覆盖禁用，缺省使用 Agent 来源；有效邮箱列表不向普通主机列表暴露。Agent 通过已认证 capabilities 或 `/api/v1/agent/access-emails` 仅修改自身主机，管理员通过 `/api/v1/admin/hosts/:id/access-emails` 设置数组或 `null` 恢复默认。最多 20 个邮箱，C++ / Zod 使用共享样例校验，保留本地部分大小写并规范化域名。
+
+`emailHosts` 合并既有邮箱授权和当前验证 issuer / 邮箱命中的关联主机；`emailRestore` 惰性创建带 `association` 标记的现有 EmailGrant，沿用 Cookie、generation、账号及主机绑定。移除关联在同一存储事务撤销仅关联来源的 grant / auth，返回受影响凭据以关闭连接并清理 Host 鉴权缓存。每次鉴权另核对有效关联，独立配对会将关联来源升级为独立授权，后续移除配置不影响该授权。显式撤销关联 grant 会保存排除该邮箱的管理员覆盖，防止 Agent 下一次同步重新授权。配置及授权沿用 Registry 的 DO / D1 存储，无 SQL schema 变更。
+
+管理员网页更新按钮读取当前已部署下载清单，仅提交 version / commit 到现有 `/api/v1/admin/releases`。后端继续验证所有包可用及发布身份，Registry 幂等广播，客户端保持自动更新开关和空闲安装规则。
+
 ## CW 文件预览、工具同步与 Agent 自动批准
 
 聊天链接和工作区文件中的 Markdown / 文本文件单击后在新窗口打开；顶部“下载”保存完整原文件。Markdown 支持表格和代码块，HTML、代码等其他文本按纯文本显示。图片、音频、视频单击在页面内展开，媒体使用浏览器播放控件；再次单击收起，不支持的格式可下载。预览沿用项目授权、路径限制和版本固定的分块读取；文件内容不会作为 HTML 脚本执行。

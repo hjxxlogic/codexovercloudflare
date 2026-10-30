@@ -1,5 +1,11 @@
 # 发布操作
 
+## 0.5.16：Agent 邮箱关联与网页更新通知
+
+配套发布同一成功 Actions 的 Worker、网页、在线手册及四平台原生包。管理员网页可直接配置 Agent 关联邮箱；本地 `accessEmails` 和 `access-emails` 命令需要升级 Agent / Relay。配置缺省不关联邮箱，旧 Agent 不会覆盖已有关联；管理员覆盖优先于 Agent 默认值。邮箱验证、主机作用域、独立配对及撤销规则见[用户指南](USER_GUIDE.md)。无 SQL schema 变更，保留原 D1、Secret、Agent 凭据和任务。
+
+下载包部署并校验后，管理员可点击网页的“通知所有 coc-agent 更新”。该按钮沿用版本 / 提交一致性校验和幂等广播，不代表 Agent 已完成安装；自动更新仍等待所有会话结束，未开启自动更新或 Windows 平台需手动升级。此版本不要求轮换所有者密钥，也不通过强制重启安装。
+
 ## 可选 D1 发布
 
 运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续每次部署继续携带同一 UUID。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。生产已启用，须继续保留同一 UUID。活动 DO / 空闲 D1 分层需要同时保护两种存储；不能回滚到不识别 `@location` 的旧 Worker，不能用旧 D1 快照覆盖活动 DO。完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。

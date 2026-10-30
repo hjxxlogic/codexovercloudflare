@@ -4,6 +4,20 @@ export const MAX_FRAME = 256 * 1024;
 export const MAX_QUEUE = 8 * 1024 * 1024;
 export const CODEX_VERSION = '0.164.0';
 export const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+export const accessEmailSchema = z
+  .string()
+  .max(254)
+  .regex(
+    /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?![\s\S])/,
+  )
+  .transform((email) => {
+    const at = email.lastIndexOf('@');
+    return email.slice(0, at) + email.slice(at).toLowerCase();
+  });
+export const accessEmailsSchema = z
+  .array(accessEmailSchema)
+  .max(20)
+  .transform((emails) => [...new Set(emails)].sort());
 export const modelIdSchema = z
   .string()
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}(?![\s\S])/);
@@ -39,6 +53,7 @@ export const agentConfigSchema = z.object({
   hostId: idSchema,
   token: z.string().min(20),
   wakeUrl: wakeUrlSchema.optional(),
+  accessEmails: accessEmailsSchema.optional(),
   autoUpdate: z
     .union([
       z.boolean(),

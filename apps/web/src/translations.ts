@@ -1,5 +1,25 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  'Agent 邮箱关联': 'Agent email access',
+  关联邮箱: 'Associated emails',
+  '关联邮箱 {0}': 'Associated emails for {0}',
+  保存关联邮箱: 'Save associated emails',
+  清空关联邮箱: 'Clear associated emails',
+  '恢复 Agent 邮箱配置': 'Restore Agent email configuration',
+  关联邮箱已保存: 'Associated emails saved',
+  '请输入最多 20 个有效邮箱，每行一个。':
+    'Enter up to 20 valid emails, one per line.',
+  '关联邮箱通过验证后，所有 CW 浏览器自动获得该 Agent 的访问权，无需配对。管理员配置优先；清空可禁用关联，恢复则沿用 Agent 配置。移除关联会断开仅由该关联授权的 CW，独立配对授权保留。':
+    'After verifying an associated email, every CW browser can access this Agent without pairing. Administrator settings take priority. Clear to disable associations or restore to use Agent settings. Removing an association disconnects CW access granted by that association; independently paired grants remain.',
+  'Agent 更新': 'Agent updates',
+  '通知所有 coc-agent 更新': 'Notify all coc-agent instances to update',
+  '正在发送更新通知…': 'Sending update notification…',
+  '已提交 {0} 更新通知。': 'Update notification submitted for {0}.',
+  '无法读取已发布版本，请稍后重试。':
+    'Could not read the published release. Please try again later.',
+  '更新通知失败，请重试。': 'Update notification failed. Please try again.',
+  '通知所有已授权 Agent 检查已发布版本。仅启用自动更新的 Agent 会升级，并等待所有会话结束；相同版本不重复通知。':
+    'Notify all authorized Agents to check the published release. Only Agents with automatic updates enabled will upgrade, after all sessions end. The same release is not notified twice.',
   文件预览: 'File preview',
   无法预览此文件: 'This file cannot be previewed',
   图片: 'Image',
