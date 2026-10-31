@@ -78,6 +78,8 @@ try {
       10,
     );
     await transport.writeSnapshot([], 10);
+    if (transport.durableRevision !== 10)
+      throw new Error('Durable receive cursor was not published after commit');
     transport.close();
     const recovered = new Cache('transport');
     const atomic = await recovered.latest();
@@ -154,7 +156,12 @@ try {
       return request;
     };
     reopened.writeLive(event(9000), (error) => errors.push(String(error)));
+    await reopened.record('delivery-outbox:tab', { pending: 'keep-command' });
     await reopened.clear();
+    if (
+      (await reopened.record('delivery-outbox:tab'))?.pending !== 'keep-command'
+    )
+      throw new Error('History clear discarded an unconfirmed command');
     IDBObjectStore.prototype.openCursor = openCursor;
     const afterClear = await reopened.latest();
     const preserved = await other.page(2);
@@ -203,7 +210,7 @@ try {
     1,
     '1000 live revisions use one transaction',
   );
-  assert.equal(result.visited, 3524, 'clear visits only own events and pages');
+  assert.equal(result.visited, 3525, 'clear visits only own events and pages');
   assert.equal(
     result.afterClear.events.length,
     0,

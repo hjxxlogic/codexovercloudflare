@@ -277,6 +277,16 @@ const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
   z.object({ action: z.literal(action), data });
 export const controlCommandSchema = z.discriminatedUnion('action', [
   control('probe', z.object({})),
+  control(
+    'delivery',
+    z.object({
+      sessionId: sessionIdSchema,
+      mode: z.enum(['web', 'cli']),
+      stream: idSchema,
+      lane: z.enum(['normal', 'priority']),
+      seq: sequenceSchema.positive().optional(),
+    }),
+  ),
   control('projects', z.object({})),
   control('projectManage', projectManagementSchema),
   control(
@@ -290,6 +300,14 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
     }),
   ),
   control('get', z.object({ sessionId: sessionIdSchema })),
+  control(
+    'snapshot',
+    z.object({
+      sessionId: sessionIdSchema,
+      mode: z.enum(['web', 'cli']),
+      after: sequenceSchema.nonnegative().optional(),
+    }),
+  ),
   control('stop', z.object({ sessionId: sessionIdSchema })),
   control(
     'attach',
@@ -297,6 +315,7 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       sessionId: sessionIdSchema,
       epoch: sequenceSchema.positive(),
       expires: sequenceSchema.nonnegative(),
+      deliveryResume: idSchema.optional(),
     }),
   ),
   control(
@@ -382,6 +401,12 @@ export const controlResultSchema = z
     type: z.literal('result'),
     v: z.literal(1),
     requestId: idSchema,
+    heads: z
+      .object({
+        agent: sequenceSchema.nonnegative(),
+        rpc: sequenceSchema.nonnegative(),
+      })
+      .optional(),
     data: z.unknown().optional(),
     error: z
       .object({ code: z.string().max(100), message: z.string().max(4096) })

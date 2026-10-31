@@ -19,6 +19,7 @@ export class HistoryCache {
   private liveJob?: Promise<void>;
   private liveCheckpoint?: number;
   private checkpointSafe = true;
+  durableRevision: number | undefined;
   private liveError: (error: unknown) => void = () => {};
   private closed = false;
   private draftTimer?: ReturnType<typeof setTimeout>;
@@ -181,7 +182,10 @@ export class HistoryCache {
       meta.onsuccess = () => {
         checkpoint = meta.result;
       };
-      tx.oncomplete = () => resolve({ events, checkpoint });
+      tx.oncomplete = () => {
+        this.durableRevision = checkpoint;
+        resolve({ events, checkpoint });
+      };
       tx.onerror = () => reject(tx.error);
     });
   }
@@ -196,6 +200,7 @@ export class HistoryCache {
     if (generation !== this.generation) return;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
+      let committed: number | undefined;
       for (const event of events) {
         const store = tx.objectStore('events');
         const previous = store.get([this.scope, event.seq]);
@@ -211,15 +216,18 @@ export class HistoryCache {
       if (checkpoint !== undefined && this.checkpointSafe) {
         const store = tx.objectStore('pages');
         const previous = store.get([this.scope, 'checkpoint']);
-        previous.onsuccess = () =>
-          store.put(Math.max(checkpoint, previous.result ?? 0), [
-            this.scope,
-            'checkpoint',
-          ]);
+        previous.onsuccess = () => {
+          committed = Math.max(checkpoint, previous.result ?? 0);
+          store.put(committed, [this.scope, 'checkpoint']);
+        };
       }
       if (before !== undefined && page)
         tx.objectStore('pages').put(page, [this.scope, before]);
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => {
+        if (generation === this.generation && committed !== undefined)
+          this.durableRevision = Math.max(this.durableRevision ?? 0, committed);
+        resolve();
+      };
       tx.onabort = () =>
         reject(tx.error || new Error('Local history write aborted'));
       tx.onerror = () => reject(tx.error);
@@ -373,6 +381,7 @@ export class HistoryCache {
   }
   async clear() {
     this.generation++;
+    this.durableRevision = undefined;
     this.liveCheckpoint = undefined;
     this.checkpointSafe = true;
     clearTimeout(this.liveTimer);
@@ -395,9 +404,12 @@ export class HistoryCache {
           )
             if (
               name === 'events' ||
-              !['draft', 'pending'].includes(
+              (!['draft', 'pending'].includes(
                 String((row.key as IDBValidKey[])[1]),
-              )
+              ) &&
+                !String((row.key as IDBValidKey[])[1]).startsWith(
+                  'delivery-outbox',
+                ))
             )
               row.delete();
           row.continue();

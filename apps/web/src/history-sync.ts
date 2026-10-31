@@ -10,7 +10,7 @@ export class HistorySync {
     );
   }
   restore(value: number | undefined) {
-    if (this.valid(value)) this.received = value;
+    if (this.valid(value)) this.received = Math.max(this.received ?? 0, value);
   }
   observe(maximum: unknown, previous: unknown) {
     if (!this.valid(maximum)) return;

@@ -216,7 +216,7 @@ class Cli {
     auto c = load();
     verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
     auto u = relay_url(c.at("relay"));
-    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), Json::object());
+    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), {{"delivery", 1}});
     if (t["mode"] != "cli")
       throw Error("WRONG_MODE", "Use the browser for a web session");
     std::cout << "Remote session: " << id << '\n' << std::flush;
@@ -237,10 +237,23 @@ class Cli {
       });
     };
     refresh_state();
+    std::unique_ptr<Store> cache;
+    try {
+      cache = history_cache(c);
+    } catch (const std::exception &error) {
+      if (t.value("delivery", 0) == 1)
+        throw;
+      std::cerr << "Local history cache unavailable: " << error.what() << '\n';
+    }
+    auto command_store = t.value("delivery", 0) == 1 ? history_cache(c) : nullptr;
     std::unique_ptr<TuiBridge> bridge;
     auto url = remote_address(u, "/ws/v1/cli/" + id);
-    if (proxy_enabled() || access_enabled(u)) {
-      bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id);
+    if (proxy_enabled() || access_enabled(u) || t.value("delivery", 0) == 1) {
+      bridge = std::make_unique<TuiBridge>(
+          history_io, u, t.at("ticket"), "/ws/v1/cli/" + id, command_store.get(),
+          [this, id](Json resume) {
+            return api("/sessions/" + id + "/attach", {{"delivery", 1}, {"resume", resume}});
+          });
       url = bridge->url();
     }
     std::vector<std::string> args = {"codex",
@@ -269,16 +282,11 @@ class Cli {
 #else
     WindowsChild child(args, "", false, t.at("ticket").get<std::string>());
 #endif
-    std::unique_ptr<Store> cache;
-    try {
-      cache = history_cache(c);
-    } catch (const std::exception &e) {
-      std::cerr << "Local history cache unavailable: " << e.what() << '\n';
-    }
     auto pageKey = id + ":page:0";
     auto tail = cache ? cache->cache_get(pageKey) : Json();
     if (tail.is_null())
       tail = {{"events", Json::array()}, {"more", false}, {"cursor", 0}};
+    int64_t durable_revision = tail.value("receivedRevision", int64_t(-1));
     const auto persist_tail = [&] {
       auto &events = tail["events"];
       std::sort(events.begin(), events.end(),
@@ -293,6 +301,7 @@ class Cli {
       if (cache) {
         try {
           cache->cache_put(pageKey, tail);
+          durable_revision = tail.value("receivedRevision", int64_t(-1));
         } catch (const std::exception &error) {
           std::cerr << "History cache: " << error_data(error).dump() << '\n';
           cache.reset();
@@ -309,6 +318,8 @@ class Cli {
       history_pending = true;
       history_requested = now();
       Json command = {{"operation", "page"}, {"requestId", uuid()}};
+      if (durable_revision >= 0)
+        command["receivedRevision"] = durable_revision;
       command[received_revision < 0 ? "before" : "after"] =
           received_revision < 0 ? 0 : received_revision;
       reader->send(command);
@@ -319,6 +330,11 @@ class Cli {
           [&](Json d) {
             if (d.contains("receiptId"))
               reader->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
+            if (d.contains("heads") && d["heads"].is_object()) {
+              maximum_revision = std::max(maximum_revision, d["heads"].value("agent", int64_t(0)));
+              if (bridge)
+                bridge->observe_output_head(d["heads"].value("rpc", int64_t(0)));
+            }
             if (d.value("type", "") == "history-ready") {
               history_ready = true;
               read_history();

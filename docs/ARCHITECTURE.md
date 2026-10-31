@@ -1,5 +1,11 @@
 # 技术架构与选型
 
+## 可靠会话通道（0.5.18）
+
+[可靠传输协议](RELIABLE_TRANSPORT.md) 定义按主机 / 会话 / 设备 / 通道划分的持久序号与信用。Worker 只登记进度和转发，Agent SQLite 保存命令接收 / 开始 / 完成状态及原 CC 的未确认 RPC 输出；CW IndexedDB 与 CC SQLite 保存发送缓冲和连续接收位置。接收确认与业务结果分开，信用只由接收方执行缓冲决定，未知副作用不自动重执行。
+
+传输身份绑定 Agent 数据库实例及控制代际，重建 Worker 不重置逻辑流，替换设备或数据回退不复用旧确认。HTTP 可靠命令须具有当前 controller 证明，readonly snapshot / delivery 查询按既有授权执行；原 TUI 的恢复还要同时匹配 owner、原逻辑流和恢复证明。窗口耗尽保留 priority 资源。帧头随业务消息传播，稳定空闲没有新轮询；待确认请求的查询按退避重试、合并并发，结束后停止，且不会生成新的命令身份。
+
 ## CW 初始化与连接恢复
 
 错误分类与认证状态分离：非 AppError 的 Zod / JSON 语法错误保留 INVALID_REQUEST / 400，未知服务异常返回不含内部细节的 INTERNAL_ERROR / 500。Host 转发、主机状态查询、Registry 通知及浏览器 Cookie 聚合只将明确 401 / 403 视作认证拒绝，其他失败不得伪造成 4001 / UNAUTHORIZED；Host 状态查询失败须保留 HTTP 错误，不能当成缺少 online 的正常主机目录；转发故障使用 1011 触发有限恢复。CW 快照错误保留旧数据，仅在明确认证拒绝时清空对应登录状态。

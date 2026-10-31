@@ -167,6 +167,38 @@ Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritat
     run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
         "TEXT NOT NULL,"
         "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");
+    run("CREATE TABLE IF NOT EXISTS delivery_identity(id INTEGER PRIMARY KEY CHECK(id=1),instance "
+        "TEXT NOT NULL)");
+    run("INSERT OR IGNORE INTO delivery_identity VALUES(1,?)", {uuid()});
+    delivery_instance_ = query("SELECT instance FROM delivery_identity WHERE id=1")[0]["instance"]
+                             .get<std::string>();
+    run("CREATE TABLE IF NOT EXISTS delivery_outputs(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
+        "end_bytes INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(stream,seq))");
+    run("CREATE TABLE IF NOT EXISTS delivery_output_heads(stream TEXT PRIMARY KEY,sent INTEGER NOT "
+        "NULL DEFAULT 0,"
+        "sent_bytes INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
+        "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0)");
+    run("CREATE TABLE IF NOT EXISTS delivery_streams(stream TEXT PRIMARY KEY,session TEXT NOT NULL,"
+        "received INTEGER NOT NULL DEFAULT 0,received_bytes INTEGER NOT NULL DEFAULT 0,"
+        "slots INTEGER NOT NULL,bytes INTEGER NOT NULL)");
+    run("CREATE TABLE IF NOT EXISTS delivery_commands(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
+        "end_bytes INTEGER NOT NULL,body TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,"
+        "PRIMARY KEY(stream,seq))");
+    run("CREATE INDEX IF NOT EXISTS delivery_pending ON delivery_commands(stream,phase) WHERE "
+        "phase!='finished'");
+    if (authoritative) {
+      run("UPDATE delivery_commands SET phase='finished',result=? WHERE phase='started'",
+          {Json{
+              {"error",
+               {{"code", "RESULT_UNKNOWN"},
+                {"message", "Agent restarted after execution began; query the original request"}}}}
+               .dump()});
+      run("UPDATE delivery_commands SET phase='finished',result=? WHERE phase='received'",
+          {Json{{"error",
+                 {{"code", "SESSION_CLOSED"},
+                  {"message", "Agent restarted before the queued command executed"}}}}
+               .dump()});
+    }
     run("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
@@ -641,7 +673,10 @@ Json Store::cache_get(const std::string &key) {
   auto rows = query("SELECT value FROM cache WHERE key=?", {key});
   return rows.empty() ? Json() : Json::parse(rows[0]["value"].get<std::string>());
 }
-void Store::cache_clear() { run("DELETE FROM cache"); }
+void Store::cache_clear() {
+  run("DELETE FROM cache WHERE key NOT LIKE '/ws/v1/cli/%:delivery' AND key NOT LIKE "
+      "'/ws/v1/cli/%:output'");
+}
 void Store::cleanup() {
   run("DELETE FROM cache WHERE key IN (SELECT key FROM cache WHERE key GLOB 'upload:*' AND "
       "json_extract(value,'$.completedAt')<=? ORDER BY json_extract(value,'$.completedAt') LIMIT "

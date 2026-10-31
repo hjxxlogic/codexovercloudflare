@@ -21,6 +21,7 @@ public:
 private:
   Lock lock_;
   sqlite3 *db_ = nullptr;
+  std::string delivery_instance_;
   std::map<std::string, sqlite3_stmt *> statements_;
   void clear_statements();
   std::function<void()> storage_failure_;
@@ -52,6 +53,21 @@ public:
   Json begin(const std::string &key, const std::string &fingerprint);
   void submitted(const std::string &key);
   void finish(const std::string &key, const Json &value);
+  const std::string &delivery_instance() const { return delivery_instance_; }
+  Json delivery_open(const std::string &stream, const std::string &session, int64_t slots,
+                     int64_t bytes);
+  Json delivery_window(const std::string &stream);
+  Json delivery_receive(const std::string &stream, int64_t seq, int64_t end,
+                        const std::string &body);
+  bool delivery_start(const std::string &stream, int64_t seq);
+  void delivery_finish(const std::string &stream, int64_t seq, const Json &result);
+  Json delivery_record(const std::string &stream, int64_t seq);
+  Json delivery_heads(const std::string &session);
+  Json output_state(const std::string &stream);
+  Json output_append(const std::string &stream, const Json &payload);
+  void output_ack(const std::string &stream, int64_t received, int64_t byte_credit = -1);
+  void output_publish(const std::string &stream, int64_t sent);
+  Json output_page(const std::string &stream, int64_t after);
   void cleanup();
   void cache_put(const std::string &key, const Json &value);
   Json cache_get(const std::string &key);

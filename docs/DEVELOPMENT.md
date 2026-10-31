@@ -1,5 +1,11 @@
 # 开发与本机测试
 
+## 可靠协议验证（0.5.18）
+
+`npm run test:delivery` 启动真实原生 Agent 与确定性 Codex 夹具，验证持久命令结果、重复补发只产生一次任务、原 CC 的输出条数 / 字节窗口及同 runtime 补发，不调用模型。已加入 regression CI。原生 core 验证接收窗口、确认边界、重启后的待执行 / 结果不明状态，以及输出日志回收。
+
+Vitest 的 delivery、delivery-identity 与 relay-order 用例覆盖两条独立信用通道、本地缓冲保留、存储失败、查询合并、标签页隔离、Worker 重建、双向头、HTTP 控制端证明与 CLI 恢复证明。`test:e2e` 注入 C→A 命令、A→C 结果和 RPC 输出丢失并恢复原 TUI；CW 测试同时验证新协议真实链路。`test:cache` 验证历史清理保留待确认命令、事务提交后才公开接收位置。生成协议文档使用 `npm run protocol:generate`。
+
 ## CW 连接恢复回归
 
 运行态回归新增 /hosts 返回 INVALID_REQUEST / 400 与 INTERNAL_ERROR / 500，确认主机、控制连接、历史和草稿保留。Relay 回归覆盖转发故障与真实撤销的不同关闭码、主机状态鉴权故障不踢掉 Agent，以及 Cookie 鉴权的后端错误不伪造成未登录。

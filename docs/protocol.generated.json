@@ -1,4 +1,203 @@
 {
+  "deliveryFrame": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delivery-open"
+          },
+          "stream": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "received": {
+            "type": "object",
+            "properties": {
+              "normal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "normal",
+              "priority"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stream"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delivery-receipt"
+          },
+          "stream": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "lane": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "priority"
+            ]
+          },
+          "received": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "type",
+          "stream",
+          "lane",
+          "received"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delivery-command"
+          },
+          "stream": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "lane": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "priority"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "end": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 258048
+          }
+        },
+        "required": [
+          "type",
+          "stream",
+          "lane",
+          "seq",
+          "end",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delivery-query"
+          },
+          "stream": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "lane": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "priority"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "type",
+          "stream",
+          "lane",
+          "seq"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "deliveryWindow": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "stream": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "instance": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "received": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "sent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "receivedBytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "credit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "byteCredit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "stream",
+      "instance",
+      "received",
+      "receivedBytes",
+      "credit",
+      "byteCredit"
+    ],
+    "additionalProperties": false
+  },
   "webCommand": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "oneOf": [
@@ -570,6 +769,59 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "delivery"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "stream": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "lane": {
+                "type": "string",
+                "enum": [
+                  "normal",
+                  "priority"
+                ]
+              },
+              "seq": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sessionId",
+              "mode",
+              "stream",
+              "lane"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "projects"
           },
           "data": {
@@ -828,6 +1080,46 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "snapshot"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sessionId",
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "stop"
           },
           "data": {
@@ -873,6 +1165,10 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "deliveryResume": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
               }
             },
             "required": [
@@ -1432,6 +1728,26 @@
       "requestId": {
         "type": "string",
         "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "heads": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "rpc": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "agent",
+          "rpc"
+        ],
+        "additionalProperties": false
       },
       "data": {},
       "error": {

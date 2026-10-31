@@ -37,6 +37,11 @@ struct Runtime {
   std::set<std::string> auto_attempted;
   std::map<std::string, std::string> requests;
   std::deque<Json> commands;
+  std::map<std::string, Json> deliveries;
+  Json immediate_delivery;
+  std::string cli_delivery_stream;
+  bool rpc_delivery = false;
+  int64_t rpc_sent = 0, rpc_credit = 0, rpc_byte_credit = 0;
 };
 class Agent {
   // The business executor owns runtimes and the journal; a bounded file worker
@@ -238,10 +243,43 @@ public:
         socket_->send_text(std::move(encoded));
     });
   }
+  void delivery_reply(const std::string &id, const Json &context, const Json &payload) {
+    const auto stream = context.at("stream").get<std::string>();
+    const auto seq = context.at("seq").get<int64_t>();
+    store_.delivery_finish(stream, seq, payload);
+    auto rt = runtimes_.find(id);
+    if (rt == runtimes_.end())
+      return;
+    send({{"type", "notice"},
+          {"sessionId", id},
+          {"epoch", context.at("epoch")},
+          {"heads", store_.delivery_heads(id)},
+          {"payload",
+           {{"type", "delivery-result"},
+            {"stream", stream},
+            {"lane", context.at("lane")},
+            {"seq", seq},
+            {"payload", store_.delivery_record(stream, seq).at("result")},
+            {"window", store_.delivery_window(stream)}}}});
+  }
   void notice(const std::string &id, const Json &p) {
     auto r = runtimes_.find(id);
+    if (r != runtimes_.end() && p.contains("requestId") && p["requestId"].is_string() &&
+        (p.value("type", "") == "ack" || p.value("type", "") == "error")) {
+      auto found = r->second->deliveries.find(p["requestId"].get<std::string>());
+      if (found != r->second->deliveries.end()) {
+        auto context = found->second;
+        r->second->deliveries.erase(found);
+        delivery_reply(id, context, p);
+        return;
+      }
+    }
     if (r != runtimes_.end())
-      send({{"type", "notice"}, {"sessionId", id}, {"epoch", r->second->epoch}, {"payload", p}});
+      send({{"type", "notice"},
+            {"sessionId", id},
+            {"epoch", r->second->epoch},
+            {"heads", store_.delivery_heads(id)},
+            {"payload", p}});
   }
   void publish(const std::string &id, const Json &event) {
     auto r = runtimes_.find(id);
@@ -344,14 +382,48 @@ public:
     if (d.value("v", 1) != 1)
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
+    if (d.contains("heads") && d["heads"].is_object()) {
+      const auto session =
+          d.value("sessionId", d.value("data", Json::object()).value("sessionId", ""));
+      for (const auto &lane : {"normal", "priority"}) {
+        const auto &heads = d.at("heads");
+        if (!heads.contains(lane))
+          continue;
+        const auto stream = heads.at(lane).value("stream", "");
+        const auto sent = heads.at(lane).value("sent", int64_t(0));
+        if (!valid_id(stream) || sent < 0 || sent > 9007199254740991LL)
+          continue;
+        const auto key = "delivery-peer-head:" + stream;
+        const auto saved = store_.cache_get(key);
+        if (saved.is_null() || saved.get<int64_t>() < sent)
+          store_.cache_put(key, sent);
+        if (runtimes_.count(session)) {
+          try {
+            const auto window = store_.delivery_window(stream);
+            if (d.contains("delivery") && d["delivery"].value("stream", "") == stream &&
+                d["delivery"].value("seq", int64_t(0)) == window.at("received").get<int64_t>() + 1)
+              continue;
+            if (sent > window.at("received").get<int64_t>())
+              notice(session, {{"type", "delivery-window"}, {"lane", lane}, {"window", window}});
+          } catch (const Error &error) {
+            if (error.code != "NOT_FOUND")
+              throw;
+          }
+        }
+      }
+    }
+
     if (type == "hello") {
       if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1) {
         std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
         close();
         return;
       }
-      Json capabilities = {
-          {"type", "capabilities"}, {"build", Json::parse(COC_BUILD_JSON)}, {"protocol", 1}};
+      Json capabilities = {{"type", "capabilities"},
+                           {"build", Json::parse(COC_BUILD_JSON)},
+                           {"protocol", 1},
+                           {"delivery", 1},
+                           {"deliveryInstance", store_.delivery_instance()}};
       if (config_.contains("wakeUrl"))
         capabilities["wakeUrl"] = config_["wakeUrl"];
       const auto latest = read_json(config_file_);
@@ -390,8 +462,9 @@ public:
       auto request = d.at("requestId");
       try {
         control(d.at("action"), d.value("data", Json::object()),
-                [this, request, started = now(), action = d.value("action", "")](Json data,
-                                                                                 Json error) {
+                [this, request, started = now(), action = d.value("action", ""),
+                 session_id = d.value("data", Json::object()).value("sessionId", "")](Json data,
+                                                                                      Json error) {
                   std::cerr << Json{{"event", "control_result"},
                                     {"requestId", request},
                                     {"action", action},
@@ -401,6 +474,8 @@ public:
                                    .dump()
                             << '\n';
                   Json result = {{"type", "result"}, {"requestId", request}};
+                  if (!session_id.empty())
+                    result["heads"] = store_.delivery_heads(session_id);
                   if (error.is_null())
                     result["data"] = data;
                   else
@@ -434,24 +509,120 @@ public:
       rt->epoch = incoming_epoch;
       rt->pending_epoch = 0;
       rt->detached = 0;
+      rt->rpc_credit = 0;
+      rt->rpc_byte_credit = 0;
+      rt->rpc_sent = store_.output_state("rpc-output:" + id).at("acked");
     }
     if (rt->epoch != incoming_epoch)
       return;
+    if (type == "delivery-output") {
+      try {
+        const auto received = d.at("received").get<int64_t>();
+        const auto credit = d.at("credit").get<int64_t>();
+        const auto byte_credit = d.at("byteCredit").get<int64_t>();
+        const auto stream = "rpc-output:" + id;
+        auto state = store_.output_state(stream);
+        if (credit < received || credit - received > 100 || credit > 9007199254740991LL)
+          throw Error("INVALID_REQUEST", "Invalid output credit");
+        if (d.value("replay", false) && received < state.at("acked").get<int64_t>())
+          throw Error("DELIVERY_STATE_MISMATCH", "Receiver lost acknowledged output state");
+        store_.output_ack(stream, received, byte_credit);
+        state = store_.output_state(stream);
+        rt->rpc_delivery = true;
+        rt->rpc_credit = std::max(rt->rpc_credit, credit);
+        rt->rpc_byte_credit = std::max(rt->rpc_byte_credit, byte_credit);
+        if (d.value("replay", false))
+          rt->rpc_sent = state.at("acked");
+        flush_rpc_output(id, rt);
+      } catch (const std::exception &error) {
+        notice(id, {{"type", "delivery-rejected"}, {"error", error_data(error)}});
+      }
+      return;
+    }
+    Json delivery;
+    if (d.contains("delivery")) {
+      delivery = d.at("delivery");
+      const auto stream = delivery.at("stream").get<std::string>();
+      const auto body = delivery.at("body").get<std::string>();
+      if (Json::parse(body) != d.at("payload"))
+        throw Error("IDEMPOTENCY_CONFLICT", "Delivery body does not match forwarded command");
+      Json accepted;
+      try {
+        accepted = store_.delivery_receive(stream, delivery.at("seq"), delivery.at("end"), body);
+      } catch (const std::exception &error) {
+        const auto info = error_data(error);
+        if (info["code"] == "DELIVERY_GAP" || info["code"] == "BACKPRESSURE") {
+          notice(id, {{"type", "delivery-window"},
+                      {"lane", delivery.at("lane")},
+                      {"window", store_.delivery_window(stream)}});
+        } else {
+          notice(id, {{"type", "delivery-rejected"},
+                      {"lane", delivery.at("lane")},
+                      {"seq", delivery.at("seq")},
+                      {"error", info}});
+        }
+        return;
+      }
+      delivery["epoch"] = incoming_epoch;
+      notice(id, {{"type", "delivery-window"},
+                  {"lane", delivery.at("lane")},
+                  {"window", accepted.at("window")}});
+      if (accepted.at("accepted") == false) {
+        const auto record = accepted.at("record");
+        if (record.at("phase") == "finished")
+          delivery_reply(id, delivery, record.at("result"));
+        return;
+      }
+      const auto payload = d.at("payload");
+      const auto key = type == "web" ? payload.at("requestId").get<std::string>()
+                                     : (payload.contains("id") && payload.contains("method")
+                                            ? "rpc:" + id_key(payload.at("id"))
+                                            : "");
+      if (!key.empty()) {
+        if (rt->deliveries.count(key)) {
+          delivery_reply(
+              id, delivery,
+              {{"error",
+                {{"code", "IDEMPOTENCY_CONFLICT"},
+                 {"message", "Request identity is already executing in another delivery slot"}}}});
+          return;
+        }
+        rt->deliveries[key] = delivery;
+      }
+    }
     if (type == "detach")
       rt->detached = now();
-    else if (type == "rpc")
+    else if (type == "rpc") {
+      if (!delivery.is_null() && delivery.at("lane") == "normal" && rt->cli_delivery_stream.empty())
+        rt->cli_delivery_stream = delivery.at("stream").get<std::string>();
+      if (!delivery.is_null() && !store_.delivery_start(delivery.at("stream"), delivery.at("seq")))
+        return;
+      const bool one_way = !d.at("payload").contains("id") || !d.at("payload").contains("method");
+      if (one_way)
+        rt->immediate_delivery = delivery;
+      if (!delivery.is_null())
+        rt->rpc_delivery = true;
       cli(id, d.at("payload"));
-    else if (type == "web") {
+      rt->immediate_delivery = nullptr;
+      if (!delivery.is_null() &&
+          (!d.at("payload").contains("id") || !d.at("payload").contains("method"))) {
+        delivery_reply(id, delivery, nullptr);
+      }
+    } else if (type == "web") {
       const auto payload = d.at("payload");
       const auto action = payload.value("action", "");
       if (action == "interrupt" || action == "approval" || action == "autoApproval") {
         if (rt->priority >= 8) {
           notice(id,
                  {{"type", "error"},
+                  {"requestId", payload.value("requestId", Json())},
                   {"error",
                    {{"code", "BACKPRESSURE"}, {"message", "Priority control budget exhausted"}}}});
           return;
         }
+        if (!delivery.is_null() &&
+            !store_.delivery_start(delivery.at("stream"), delivery.at("seq")))
+          return;
         ++rt->priority;
         const auto complete = [this, id, rt, payload](Json, Json error) {
           --rt->priority;
@@ -469,16 +640,59 @@ public:
       }
       if (rt->commands.size() >= 100) {
         notice(id, {{"type", "error"},
+                    {"requestId", payload.value("requestId", Json())},
                     {"error", {{"code", "BACKPRESSURE"}, {"message", "Web command queue full"}}}});
         return;
       }
-      rt->commands.push_back({{"epoch", rt->epoch}, {"payload", d.at("payload")}});
+      rt->commands.push_back(
+          {{"epoch", rt->epoch}, {"payload", d.at("payload")}, {"delivery", delivery}});
       drain(id, rt);
     }
   }
   void control(const std::string &action, const Json &d, Completion done) {
+    if (action == "delivery") {
+      const auto id = d.at("sessionId").get<std::string>();
+      const auto session = store_.get(id);
+      if (session.at("mode") != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong delivery session mode");
+      const auto stream = d.at("stream").get<std::string>();
+      const bool priority = d.at("lane") == "priority";
+      auto window = store_.delivery_open(stream, id, priority ? 4 : 16,
+                                         priority ? 512 * 1024 : 2 * 1024 * 1024);
+      Json result = {{"window", window}};
+      if (d.contains("seq")) {
+        auto record = store_.delivery_record(stream, d.at("seq"));
+        if (record.is_object())
+          record.erase("body");
+        result["record"] = record;
+      }
+      done(result, nullptr);
+      return;
+    }
     if (action == "probe") {
       done({{"online", true}, {"confirmedAt", now()}}, nullptr);
+      return;
+    }
+    if (action == "snapshot") {
+      const auto id = d.at("sessionId").get<std::string>();
+      auto session = store_.get(id);
+      if (session.at("mode") != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong snapshot session mode");
+      Json approvals = Json::array();
+      const auto runtime = runtimes_.find(id);
+      if (runtime != runtimes_.end())
+        for (const auto &[key, approval] : runtime->second->approvals)
+          approvals.push_back({{"approvalId", key},
+                               {"method", approval.rpc.at("method")},
+                               {"params", redact(approval.rpc.value("params", Json::object()))},
+                               {"submitted", approval.submitted},
+                               {"unsupported", approval.unsupported}});
+      Json history = {{"sessionId", id}, {"operation", "page"}};
+      if (d.contains("after"))
+        history["after"] = d.at("after");
+      control("history", history, [session, approvals, done](Json page, Json error) {
+        done({{"session", session}, {"approvals", approvals}, {"history", page}}, error);
+      });
       return;
     }
     if (action == "history") {
@@ -597,6 +811,8 @@ public:
     }
     if (action == "list") {
       auto page = store_.session_page(d);
+      for (auto &session : page["data"])
+        session["heads"] = store_.delivery_heads(session.at("id"));
       done(d.value("paged", false) ? page : page["data"], nullptr);
       return;
     }
@@ -686,7 +902,9 @@ public:
       if (d.value("expires", now() + 1) <= now())
         throw Error("ATTACH_EXPIRED", "Attach deadline expired");
       if (s["mode"] == "cli" &&
-          (r->epoch > 0 || (r->pending_epoch > 0 && r->pending_expires > now())))
+          (r->epoch > 0 || (r->pending_epoch > 0 && r->pending_expires > now())) &&
+          (r->cli_delivery_stream.empty() ||
+           d.value("deliveryResume", "") != r->cli_delivery_stream))
         throw Error("CLI_REATTACH_UNSUPPORTED", "End this CLI session and create a new one");
       // Reservation alone never invalidates the current controller. The first
       // authenticated frame from the confirmed new lease activates its epoch.
@@ -1210,9 +1428,31 @@ public:
           o["running"] == true)
         throw Error("PROJECT_BUSY", "Another session is executing in this project");
   }
+  void flush_rpc_output(const std::string &id, const std::shared_ptr<Runtime> &runtime) {
+    if (!runtime->rpc_delivery)
+      return;
+    const auto stream = "rpc-output:" + id;
+    const auto state = store_.output_state(stream);
+    runtime->rpc_sent = std::max(runtime->rpc_sent, state.at("acked").get<int64_t>());
+    for (const auto &frame : store_.output_page(stream, runtime->rpc_sent)) {
+      if (frame.at("seq").get<int64_t>() > runtime->rpc_credit ||
+          frame.at("end").get<int64_t>() > runtime->rpc_byte_credit)
+        break;
+      store_.output_publish(stream, frame.at("seq"));
+      send({{"type", "rpc"},
+            {"sessionId", id},
+            {"epoch", runtime->epoch},
+            {"payload",
+             {{"type", "delivery-data"},
+              {"seq", frame.at("seq")},
+              {"end", frame.at("end")},
+              {"body", frame.at("body")}}}});
+      runtime->rpc_sent = frame.at("seq");
+    }
+  }
   void rpc(const std::string &id, const Json &raw) {
     auto m = redact(raw);
-    if (m.dump().size() > max_frame - 4096) {
+    if (Json(m.dump()).dump().size() > max_frame - 4096) {
       emit(id, "largeRpc", m);
       if (m.contains("id") && !m.contains("method"))
         m = {{"id", m["id"]},
@@ -1223,6 +1463,24 @@ public:
         return; // Full content remains in the Agent journal and read-only history stream.
     }
     auto it = runtimes_.find(id);
+    if (it != runtimes_.end() && !it->second->immediate_delivery.is_null()) {
+      delivery_reply(id, it->second->immediate_delivery, m);
+      return;
+    }
+    if (it != runtimes_.end() && m.contains("id") && !m.contains("method")) {
+      auto found = it->second->deliveries.find("rpc:" + id_key(m.at("id")));
+      if (found != it->second->deliveries.end()) {
+        auto context = found->second;
+        it->second->deliveries.erase(found);
+        delivery_reply(id, context, m);
+        return;
+      }
+    }
+    if (it != runtimes_.end() && it->second->rpc_delivery) {
+      store_.output_append("rpc-output:" + id, m);
+      flush_rpc_output(id, it->second);
+      return;
+    }
     if (it != runtimes_.end())
       send({{"type", "rpc"},
             {"sessionId", id},
@@ -1366,6 +1624,20 @@ public:
     auto d = rt->commands.front();
     rt->commands.pop_front();
     if (d["epoch"] != rt->epoch) {
+      if (!d.value("delivery", Json()).is_null()) {
+        auto error = Json{
+            {"type", "error"},
+            {"requestId", d["payload"].value("requestId", "")},
+            {"error",
+             {{"code", "STALE_CONTROLLER"}, {"message", "Controller changed before execution"}}}};
+        rt->deliveries.erase(d["payload"].value("requestId", ""));
+        delivery_reply(id, d.at("delivery"), error);
+      }
+      drain(id, rt);
+      return;
+    }
+    if (!d.value("delivery", Json()).is_null() &&
+        !store_.delivery_start(d["delivery"]["stream"], d["delivery"]["seq"])) {
       drain(id, rt);
       return;
     }
@@ -1614,6 +1886,21 @@ public:
     if (s.value("external", false))
       s["approvalForwarding"] = false;
     store_.save(s);
+    auto runtime = runtimes_.find(id);
+    if (runtime != runtimes_.end()) {
+      const auto pending = runtime->second->deliveries;
+      runtime->second->deliveries.clear();
+      for (const auto &[key, context] : pending) {
+        (void)key;
+        const auto record = store_.delivery_record(context.at("stream"), context.at("seq"));
+        const bool started = !record.is_null() && record.at("phase") == "started";
+        delivery_reply(id, context,
+                       {{"error",
+                         {{"code", started ? "RESULT_UNKNOWN" : "SESSION_CLOSED"},
+                          {"message", started ? "Runtime exited after execution began"
+                                              : "Runtime exited before command execution"}}}});
+      }
+    }
     emit(id, "sessionClosed", {{"state", s["state"]}});
     runtimes_.erase(id);
   }

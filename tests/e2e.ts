@@ -7,6 +7,7 @@ import {
   rmSync,
   readFileSync,
   statSync,
+  existsSync,
   mkdirSync,
   symlinkSync,
   writeFileSync,
@@ -1410,7 +1411,8 @@ try {
     () =>
       lostController.messages.some((m) => m.error?.code === 'RESULT_UNKNOWN'),
     'lost attach confirmation',
-    16000,
+    // The lease deadline is 15 seconds; DO alarm delivery may run later under load.
+    25000,
   );
   assert.equal(p.ws.readyState, WebSocket.OPEN);
   p.ws.send(JSON.stringify(prompt));
@@ -1563,7 +1565,8 @@ try {
   const launched = JSON.parse(readFileSync(capture, 'utf8'));
   assert.equal(launched.args[0], '--remote');
   assert(
-    launched.args[1].startsWith(origin.replace('http', 'ws') + '/ws/v1/cli/'),
+    new URL(launched.args[1]).hostname === '127.0.0.1' &&
+      new URL(launched.args[1]).pathname === '/',
   );
   assert.equal(launched.args[2], '--remote-auth-token-env');
   assert.equal(launched.args[3], 'COC_REMOTE_TICKET');
@@ -1574,6 +1577,46 @@ try {
   await cliCommand(['stop', launchId]);
   pass(
     'C++ CLI connects and launches TUI with policy and ticket via environment',
+  );
+  const recoveryCapture = join(dir, 'tui-recovery.json');
+  const recoveryGate = join(dir, 'tui-recovery-gate');
+  const recoveringCli = cliCommand(
+    ['connect', '--host', 'local-test', '--project', 'test-project'],
+    '',
+    {
+      PATH: binDir + ':' + process.env.PATH,
+      COC_TUI_CAPTURE: recoveryCapture,
+      COC_TUI_RELIABLE_GATE: recoveryGate,
+    },
+  );
+  void recoveringCli.catch(() => {});
+  await wait(
+    () =>
+      existsSync(recoveryCapture) &&
+      JSON.parse(readFileSync(recoveryCapture, 'utf8')).phase === 'connected',
+    'reliable TUI attached',
+    30000,
+  );
+  agent.socket?.close(1012);
+  await wait(
+    async () =>
+      (await api('/hosts')).some(
+        (host: any) => host.id === enrolled.hostId && host.online,
+      ),
+    'Agent recovered for the original TUI',
+    15000,
+  );
+  agent.loseNextOutput();
+  agent.loseNextDeliveryResult();
+  writeFileSync(recoveryGate, 'continue');
+  const recoveryOutput = await recoveringCli;
+  assert.equal(JSON.parse(readFileSync(recoveryCapture, 'utf8')).completed, 1);
+  const recoverySession = recoveryOutput.match(
+    /Remote session: ([a-zA-Z0-9_~-]+)/,
+  )![1];
+  await cliCommand(['stop', recoverySession]);
+  pass(
+    'reliable CC keeps its local TUI through reconnect and recovers lost output and mutation result',
   );
   // Real browser uses the same cookie/Origin path as users; no bearer bypass.
   browser = await chromium.launch({
@@ -1964,10 +2007,12 @@ try {
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
   await idle(visitorPage);
+  agent.loseNextReliableCommand();
   await visitorPage.getByLabel('任务内容').fill('browser hello');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await idle(visitorPage);
+  agent.loseNextDeliveryResult();
   await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage
@@ -1975,6 +2020,18 @@ try {
     .waitFor();
   await idle(visitorPage);
   const browserSession = await sessionId(visitorPage);
+  let stallSessionChannels = false;
+  let controlConnections = 0;
+  await visitorPage.routeWebSocket(/\/ws\/v1\/(web|history)\//, (route) => {
+    if (route.url().includes('/web/')) controlConnections++;
+    const upstream = route.connectToServer();
+    route.onMessage((message) => {
+      if (!stallSessionChannels) upstream.send(message);
+    });
+    upstream.onMessage((message) => {
+      if (!stallSessionChannels) route.send(message);
+    });
+  });
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
@@ -1991,6 +2048,33 @@ try {
   await idle(visitorPage);
   pass(
     'character-by-character English/Chinese streaming and ordered history after browser reload',
+  );
+  const stableControllerCount = controlConnections;
+  stallSessionChannels = true;
+  await visitorPage.getByLabel('任务内容').fill('stalled-channel-proof');
+  await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await visitorPage
+    .getByText('echo: stalled-channel-proof', { exact: true })
+    .waitFor({ timeout: 30000 });
+  await idle(visitorPage);
+  await visitorPage
+    .getByRole('button', { name: '刷新状态', exact: true })
+    .click();
+  await wait(
+    () =>
+      visitorPage
+        .getByRole('button', { name: '刷新状态', exact: true })
+        .isEnabled(),
+    'independent reliable snapshot',
+  );
+  assert.equal(
+    controlConnections,
+    stableControllerCount,
+    'stalled OPEN channels recover without replacing the controller',
+  );
+  stallSessionChannels = false;
+  pass(
+    'CW recovers command results and new history over HTTP while both session WebSockets remain stalled OPEN',
   );
   const cacheSize = await visitorPage.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {

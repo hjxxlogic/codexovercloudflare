@@ -11,7 +11,13 @@ import {
   controlCommandSchema,
   controlResultSchema,
 } from '../packages/protocol/src/index.ts';
+import {
+  deliveryFrameSchema,
+  deliveryWindowSchema,
+} from '../packages/protocol/src/delivery.ts';
 const schemas = {
+  deliveryFrame: deliveryFrameSchema,
+  deliveryWindow: deliveryWindowSchema,
   webCommand: webCommandSchema,
   historyCommand: historyCommandSchema,
   workspaceFileCommand: workspaceFileCommandSchema,

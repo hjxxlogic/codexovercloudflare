@@ -1,6 +1,7 @@
 #include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/common.hpp"
+#include "coc/delivery.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/network.hpp"
@@ -62,6 +63,93 @@ struct Environment {
   }
 };
 void core() {
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.save({{"id", "archive"}});
+    journal.archive_event("archive", "user", {{"text", "older history"}});
+    check(journal.delivery_heads("archive")["agent"] == 0,
+          "Imported negative history does not become a negative transport head");
+    std::vector<Json> sent, replies;
+    CommandDelivery sender(journal, "sender", [&](Json reply) { replies.push_back(reply); });
+    sender.connect([&](Json frame) { sent.push_back(frame); });
+    sender.submit({{"id", 1}, {"method", "turn/start"}, {"params", Json::object()}});
+    check(sent.size() == 1, "No mutation is sent before receiver credit");
+    sender.receive({{"type", "delivery-window"},
+                    {"lane", "normal"},
+                    {"window",
+                     {{"stream", "receiver"},
+                      {"instance", "journal"},
+                      {"received", 0},
+                      {"receivedBytes", 0},
+                      {"credit", 1},
+                      {"byteCredit", 262144}}}});
+    check(sent.back()["type"] == "delivery-command", "Native sender sends within credit");
+    const auto frame = sent.back();
+    sender.receive({{"type", "delivery-result"},
+                    {"lane", "normal"},
+                    {"seq", 1},
+                    {"payload", {{"id", 1}, {"result", {{"ok", true}}}}},
+                    {"window",
+                     {{"stream", "receiver"},
+                      {"instance", "journal"},
+                      {"received", 1},
+                      {"receivedBytes", frame["end"]},
+                      {"credit", 2},
+                      {"byteCredit", 262144}}}});
+    check(replies.size() == 1 && !sender.pending(), "Native command completes durably");
+    auto first =
+        journal.output_append("output", {{"method", "event"}, {"params", {{"text", "one"}}}});
+    journal.output_append("output", {{"method", "event"}, {"params", {{"text", "two"}}}});
+    rejects([&] { journal.output_ack("output", 1); }, "INVALID_REQUEST");
+    journal.output_publish("output", 2);
+    check(journal.output_page("output", 0).size() == 2, "Unacknowledged outputs can replay");
+    rejects([&] { journal.output_ack("output", 1, 0); }, "INVALID_REQUEST");
+    check(journal.output_page("output", 0).size() == 2, "Invalid credit cannot discard output");
+    journal.output_ack("output", 1);
+    check(journal.output_state("output")["acked_bytes"] == first["end"],
+          "Byte credit follows contiguous receipts");
+    rejects([&] { journal.output_page("output", 0); }, "DELIVERY_STATE_MISMATCH");
+    check(journal.output_page("output", 1).size() == 1,
+          "Confirmed outputs leave the replay buffer");
+  }
+
+  {
+    Temp dir;
+    const std::string body = "{\"action\":\"interrupt\",\"requestId\":\"one\"}";
+    {
+      Store journal(dir.path);
+      check(journal.delivery_open("stream", "session", 2, max_frame)["credit"] == 2,
+            "Receiver grants a bounded initial window");
+      rejects([&] { journal.delivery_receive("stream", 2, body.size(), body); }, "DELIVERY_GAP");
+      check(journal.delivery_receive("stream", 1, body.size(), body)["accepted"] == true,
+            "Command is durable before acknowledgment");
+      check(journal.delivery_receive("stream", 1, body.size(), body)["accepted"] == false,
+            "Duplicate sequence does not execute again");
+      rejects([&] { journal.delivery_receive("stream", 1, body.size() + 1, body + " "); },
+              "IDEMPOTENCY_CONFLICT");
+      journal.delivery_receive("stream", 2, body.size() * 2, body);
+      rejects([&] { journal.delivery_receive("stream", 3, body.size() * 3, body); },
+              "BACKPRESSURE");
+      check(journal.delivery_start("stream", 1), "Received command starts once");
+      check(!journal.delivery_start("stream", 1), "Started command never starts twice");
+    }
+    {
+      Store journal(dir.path);
+      check(journal.delivery_record("stream", 1)["result"]["error"]["code"] == "RESULT_UNKNOWN",
+            "Restart does not replay uncertain side effects");
+      check(journal.delivery_record("stream", 2)["result"]["error"]["code"] == "SESSION_CLOSED",
+            "Unstarted commands fail explicitly after runtime loss");
+      check(journal.delivery_window("stream")["credit"] == 4, "Terminal commands release credit");
+      journal.delivery_receive("stream", 3, body.size() * 3, body);
+      journal.delivery_start("stream", 3);
+      journal.delivery_finish("stream", 3, {{"ok", true}});
+      check(journal.delivery_receive("stream", 3, body.size() * 3,
+                                     body)["record"]["result"]["ok"] == true,
+            "Completed command result replays after lost acknowledgement");
+    }
+  }
+
   {
     Environment id_environment("CF_ACCESS_CLIENT_ID");
     Environment secret_environment("CF_ACCESS_CLIENT_SECRET");

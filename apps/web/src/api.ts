@@ -46,6 +46,7 @@ export async function api(
   data?: unknown,
   signal?: AbortSignal,
   requestId?: string,
+  headers?: Record<string, string>,
 ): Promise<any> {
   if (emailAccount && /^\/(hosts\/|sessions|client\/)/.test(path)) {
     const url = new URL(path, location.origin);
@@ -64,6 +65,7 @@ export async function api(
       'Content-Type': 'application/json',
       'X-CoC-Async': '1',
       'Idempotency-Key': requestId || crypto.randomUUID(),
+      ...headers,
     },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
@@ -116,6 +118,41 @@ export async function api(
     );
   }
   return result;
+}
+// Read retries never resend a mutation. Unknown receipt results are safe to
+// query again only because callers of this helper issue GET operations.
+export async function readApi(
+  path: string,
+  signal?: AbortSignal,
+  headers?: Record<string, string>,
+) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await api(path, undefined, signal, undefined, headers);
+    } catch (error) {
+      if (
+        signal?.aborted ||
+        attempt >= 2 ||
+        !(
+          retryable(error) ||
+          (error instanceof ApiError && error.code === 'RESULT_UNKNOWN')
+        )
+      )
+        throw error;
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => {
+          signal?.removeEventListener('abort', abort);
+          resolve();
+        };
+        const timer = setTimeout(finish, 500 * 2 ** attempt);
+        const abort = () => {
+          clearTimeout(timer);
+          reject(signal?.reason);
+        };
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+    }
+  }
 }
 function waitOperation(
   hostId: string,

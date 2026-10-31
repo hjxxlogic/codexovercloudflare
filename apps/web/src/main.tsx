@@ -1,3 +1,5 @@
+import { deliveryIdentity } from './delivery-identity.ts';
+import { CommandDelivery } from './delivery.ts';
 import { setEmailAccount, ensureEmailHost, forgetEmailHost } from './api.ts';
 import { observe, recoverNotifications } from './notifications.ts';
 import { relayPath } from './routes.ts';
@@ -24,7 +26,13 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 import './style.css';
 import { eventWindow, mergeEvents } from './events.ts';
-import { api, ApiError, retryable, authorizationFailed } from './api.ts';
+import {
+  api,
+  ApiError,
+  retryable,
+  readApi,
+  authorizationFailed,
+} from './api.ts';
 import { ApprovalQueue, WorkspaceHeader } from './workspace.tsx';
 import { ConversationView, type ContentChunk } from './conversation.tsx';
 import { WorkspaceFiles } from './files.tsx';
@@ -127,7 +135,9 @@ function App() {
   const loadContent = useRef<
     (seq: number, offset: number, revision: number) => void
   >(() => {});
-  const loadHistory = useRef<(before?: number) => void>(() => {});
+  const loadHistory = useRef<(before?: number, force?: boolean) => void>(
+    () => {},
+  );
   const readContent = useCallback(
     (seq: number, offset: number, revision: number) => {
       loadContent.current(seq, offset, revision);
@@ -304,12 +314,21 @@ function App() {
   };
   const refreshPending = useRef<Promise<void> | undefined>(undefined);
   const refreshSession = useRef<(() => Promise<void>) | undefined>(undefined);
+  const observeSessionHeads = useRef<
+    ((id: string, heads: any) => void) | undefined
+  >(undefined);
+  const deliverCommand = useRef<((command: any) => Promise<void>) | undefined>(
+    undefined,
+  );
   const recoverCatalog = useRef<(() => Promise<void>) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshed, setRefreshed] = useState('');
   const bottomRefresh = useBottomRefresh(
     mode === 'cw' && view === 'chat' && !!selected && online,
-    refreshView,
+    async () => {
+      if (olderView.current) loadHistory.current(0, true);
+      await refreshView();
+    },
     `${host}:${selected?.id ?? ''}`,
   );
   const [revision, setRevision] = useState(0);
@@ -609,6 +628,8 @@ function App() {
         });
         setSessions(result.data);
         setSessionCursor(result.nextCursor);
+        for (const session of result.data)
+          observeSessionHeads.current?.(session.id, session.heads);
       })
       .catch((error) => {
         if (!controller.signal.aborted) report(error);
@@ -949,6 +970,33 @@ function App() {
     let confirmHistory: (() => void) | undefined;
     let cancelRefresh: (() => void) | undefined;
     let syncHistory: (() => void) | undefined;
+    let commandDelivery: CommandDelivery | undefined;
+    let reliableCommands = false;
+    let commandController = '';
+    const openDelivery = () => {
+      const ws = socket.current;
+      if (
+        reliableCommands &&
+        commandDelivery &&
+        ws?.readyState === WebSocket.OPEN
+      )
+        void commandDelivery
+          .connect((frame) => {
+            if (!disposed && socket.current === ws)
+              ws.send(JSON.stringify(frame));
+          })
+          .catch(report);
+    };
+    deliverCommand.current = async (command) => {
+      const ws = socket.current;
+      if (reliableCommands) {
+        if (!commandDelivery) throw new Error('本机存储尚未就绪');
+        await commandDelivery.submit(command);
+      } else {
+        if (ws?.readyState !== WebSocket.OPEN) throw new Error('连接已断开');
+        ws.send(JSON.stringify(command));
+      }
+    };
     after.current = 0;
     setEvents([]);
     setApprovals([]);
@@ -1118,6 +1166,23 @@ function App() {
         if (!disposed) report(e);
       }
     };
+    const observeHeads = (heads: any) => {
+      if (typeof heads?.agent !== 'number') return;
+      historySync.observe(heads.agent, undefined);
+      if (
+        reliableCommands &&
+        (historySync.received === undefined || historySync.missing) &&
+        !syncTimer
+      )
+        syncTimer = setTimeout(() => {
+          syncTimer = undefined;
+          if (historySync.received === undefined || historySync.missing)
+            void refreshSession.current?.().catch(report);
+        }, 100);
+    };
+    observeSessionHeads.current = (id, heads) => {
+      if (id === selected.id) observeHeads(heads);
+    };
     const connect = async () => {
       setStatus(attempt ? '正在重连' : '正在连接');
       setReady(false);
@@ -1148,6 +1213,7 @@ function App() {
           if (disposed || socket.current !== ws) return;
           try {
             const d = JSON.parse(message.data);
+            observeHeads(d.heads);
             if (d.receiptId)
               ws.send(
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
@@ -1200,7 +1266,19 @@ function App() {
               d.requestId.startsWith('models-')
             )
               return;
+            if (d.type === 'delivery-rejected') {
+              commandDelivery?.disconnect();
+              setError(d.error.code + ': ' + d.error.message);
+              return;
+            }
+            if (d.type === 'delivery-window' || d.type === 'delivery-result') {
+              void commandDelivery?.receive(d).catch(report);
+              return;
+            }
             if (d.type === 'attached') {
+              reliableCommands = d.delivery === 1;
+              commandController = d.controller || '';
+              openDelivery();
               ws.send(
                 JSON.stringify({
                   action: 'sync',
@@ -1293,6 +1371,7 @@ function App() {
         const disconnect = (code: number) => {
           if (socket.current !== ws) return;
           socket.current = null;
+          commandDelivery?.disconnect();
           ws.close();
           clearTimeout(handshake);
           if (disposed) return;
@@ -1380,8 +1459,15 @@ function App() {
       setHasOlder(page.more);
       finishPage();
     };
-    const requestPage = (before = 0) => {
-      if (pageLoading || disposed) return;
+    const requestPage = (before = 0, force = false) => {
+      if (disposed) return;
+      if (force) {
+        pageGeneration++;
+        for (const [id, request] of requests)
+          if (typeof request === 'number') requests.delete(id);
+        finishPage();
+      }
+      if (pageLoading) return;
       pageLoading = true;
       const generation = ++pageGeneration;
       if (before) captureHistoryAnchor();
@@ -1406,6 +1492,31 @@ function App() {
             showPage(stored);
             return;
           }
+        }
+        if (!before && reliableCommands) {
+          try {
+            const snapshot = await readApi(
+              `/sessions/${selected.id}/snapshot`,
+              controller.signal,
+            );
+            if (disposed || generation !== pageGeneration) return;
+            showPage(snapshot.history);
+            historySync.snapshot(snapshot.history);
+            void cache
+              ?.writeSnapshot(
+                snapshot.history.events,
+                historySync.received,
+                0,
+                snapshot.history,
+              )
+              .catch(cacheError);
+          } catch (error) {
+            if (!disposed && generation === pageGeneration) {
+              finishPage();
+              report(error);
+            }
+          }
+          return;
         }
         const hs = historySocket.current;
         if (hs?.readyState !== WebSocket.OPEN) {
@@ -1477,6 +1588,57 @@ function App() {
             JSON.stringify([location.origin, identity, host, selected.id]),
           );
           localHistory.current = cache;
+          const deliveryId = await deliveryIdentity();
+          if (disposed) return;
+          const deliveryCache = cache;
+          commandDelivery = new CommandDelivery(
+            {
+              record: (key, value) =>
+                deliveryCache.record(key + ':' + deliveryId, value),
+            },
+            (payload) => {
+              const ws = socket.current;
+              if (!disposed && ws)
+                ws.onmessage?.(
+                  new MessageEvent('message', {
+                    data: JSON.stringify(payload),
+                  }),
+                );
+            },
+            {
+              heads: observeHeads,
+              read: async (stream, lane, seq) =>
+                readApi(
+                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}${seq === undefined ? '' : `&seq=${seq}`}`,
+                  controller.signal,
+                  commandController
+                    ? { 'X-CoC-Controller': commandController }
+                    : undefined,
+                ),
+              send: async (frame) => {
+                if (disposed || !commandController)
+                  throw new Error('Controller is unavailable');
+                try {
+                  await api(
+                    `/sessions/${selected.id}/delivery`,
+                    { ...(frame as object), controller: commandController },
+                    controller.signal,
+                  );
+                } catch (error) {
+                  if (
+                    authorizationFailed(error) ||
+                    (error instanceof ApiError &&
+                      error.code === 'STALE_CONTROLLER')
+                  ) {
+                    commandDelivery?.disconnect();
+                    report(error);
+                  }
+                  throw error;
+                }
+              },
+            },
+          );
+          openDelivery();
           const savedDraft = await cache.record('draft').catch(() => undefined);
           const savedModel = await cache.record('model').catch(() => undefined);
           const savedPending = await cache
@@ -1536,6 +1698,7 @@ function App() {
             JSON.stringify({
               operation: 'page',
               requestId,
+              receivedRevision: cache?.durableRevision,
               ...(historySync.received === undefined
                 ? {}
                 : { after: historySync.received }),
@@ -1681,6 +1844,61 @@ function App() {
     let sessionSync: Promise<void> | undefined;
     const confirmSession = async () => {
       try {
+        await commandDelivery?.refresh();
+        if (reliableCommands) {
+          // A direct read does not depend on either session socket, and never
+          // acquires control or resends a mutation.
+          for (;;) {
+            const before = historySync.received;
+            const snapshot = await readApi(
+              `/sessions/${selected.id}/snapshot${before === undefined ? '' : `?after=${before}`}`,
+              controller.signal,
+            );
+            if (disposed) return;
+            const page = snapshot.history;
+            if (page.snapshotSeq >= historySync.maximum) {
+              setSelected((current) =>
+                current?.id === selected.id
+                  ? { ...current, ...snapshot.session }
+                  : current,
+              );
+              setApprovals(snapshot.approvals);
+              running = snapshot.session.running;
+              stateSeq = Math.max(stateSeq, page.snapshotSeq);
+              setBusy(running);
+              setPromptProgress((progress) =>
+                pendingCommand.current
+                  ? progress
+                  : running
+                    ? 'waiting'
+                    : undefined,
+              );
+            }
+            historySync.snapshot(page);
+            for (const event of page.events) add(event, false);
+            await cache
+              ?.writeSnapshot(
+                page.events,
+                historySync.received,
+                page.direction === 'before' ? 0 : undefined,
+                page.direction === 'before' ? page : undefined,
+              )
+              .catch(cacheError);
+            if (page.direction === 'before' && !olderView.current) {
+              setOlderCursor(page.events[0]?.seq ?? 0);
+              setHasOlder(page.more);
+            }
+            if (
+              !(page.direction === 'after' && page.more) &&
+              !historySync.missing
+            )
+              break;
+            if (historySync.received === before)
+              throw new Error('History cursor did not advance');
+          }
+          await checkPending();
+          return;
+        }
         await new Promise<void>((resolve, reject) => {
           let controlConfirmed = selected.state !== 'ready';
           let historyConfirmed = false;
@@ -1722,11 +1940,13 @@ function App() {
             );
           syncHistory();
         });
-      } catch {
+      } catch (error) {
         if (!disposed) {
+          if (reliableCommands) throw error;
           setReconnect((value) => value + 1);
           throw new Error(
             t('会话同步未确认，已请求重新连接，请稍后刷新核对。'),
+            { cause: error },
           );
         }
       } finally {
@@ -1749,6 +1969,9 @@ function App() {
     return () => {
       disposed = true;
       refreshSession.current = undefined;
+      observeSessionHeads.current = undefined;
+      deliverCommand.current = undefined;
+      commandDelivery?.disconnect();
       cancelRefresh?.();
       for (const request of modelRequests.current.values()) {
         clearTimeout(request.timer);
@@ -1827,7 +2050,13 @@ function App() {
       }, 15000);
       policyRequests.current.set(requestId, { resolve, reject, timer });
       try {
-        ws.send(JSON.stringify({ action: 'autoApproval', requestId, enabled }));
+        void deliverCommand
+          .current?.({ action: 'autoApproval', requestId, enabled })
+          .catch((e) => {
+            clearTimeout(timer);
+            policyRequests.current.delete(requestId);
+            reject(e);
+          });
       } catch (e) {
         clearTimeout(timer);
         policyRequests.current.delete(requestId);
@@ -1870,8 +2099,10 @@ function App() {
           )
             throw new Error('连接或会话已切换，任务尚未发送');
           setPending(true);
+          await deliverCommand.current?.(command);
           submitted = true;
-          targetSocket.send(JSON.stringify(command));
+          if (socket.current !== targetSocket) return;
+          if (olderView.current) loadHistory.current(0, true);
           setText((current) => (current === data.text ? '' : current));
           if (draft.current === data.text) void targetCache.record('draft', '');
         } catch (e) {
@@ -1891,7 +2122,10 @@ function App() {
       })();
     } else {
       try {
-        socket.current.send(JSON.stringify(command));
+        void deliverCommand.current?.(command).catch((error) => {
+          report(error);
+          setPending(false);
+        });
         setPending(true);
         return true;
       } catch (error) {
@@ -3428,6 +3662,7 @@ function App() {
                         setAway(!followMessages.current);
                         if (
                           scrolledUp &&
+                          !followMessages.current &&
                           el.scrollTop < 160 &&
                           hasOlder &&
                           !loadingHistory

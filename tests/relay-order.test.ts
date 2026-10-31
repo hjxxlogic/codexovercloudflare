@@ -647,3 +647,251 @@ describe('flow control and authorization on activity', () => {
     ).toEqual([1, 2]);
   });
 });
+
+describe('reliable session streams', () => {
+  async function connected() {
+    const h = harness();
+    const a = h.agent.deserializeAttachment();
+    h.agent.serializeAttachment({
+      ...a,
+      deliveryVersion: 1,
+      deliveryInstance: 'journal',
+    });
+    await h.storage.put('agentInstance', 'journal');
+    const client = socket({
+      id: 'controller',
+      role: 'web',
+      auth,
+      hostId: 'host',
+      sessionId: 'host~reliable',
+      epoch: 5,
+      authenticated: true,
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    h.sockets.push(client);
+    await h.storage.put('lease:host~reliable', {
+      epoch: 5,
+      active: true,
+      owner: auth.hash,
+      controllerId: 'controller',
+    });
+    await h.relay.webSocketMessage(
+      client as unknown as WebSocket,
+      JSON.stringify({ type: 'delivery-open', stream: 'browser' }),
+    );
+    const opening = h.frames().filter((frame) => frame.action === 'delivery');
+    expect(opening).toHaveLength(2);
+    for (const frame of opening)
+      await h.reply(frame, {
+        window: {
+          stream: frame.data.stream,
+          instance: 'journal',
+          received: 0,
+          receivedBytes: 0,
+          sent: 0,
+          credit: 4,
+          byteCredit: 524288,
+        },
+      });
+    const request = async (data: unknown, as = auth) => {
+      const response = await h.relay.fetch(
+        new Request('https://internal/delivery', {
+          method: 'POST',
+          headers: {
+            'x-auth': encodeURIComponent(JSON.stringify(as)),
+            'x-host': 'host',
+            'x-coc-async': '1',
+          },
+          body: JSON.stringify({
+            sessionId: 'host~reliable',
+            ...(data as object),
+          }),
+        }),
+      );
+      return { status: response.status, body: (await response.json()) as any };
+    };
+    return {
+      ...h,
+      client,
+      request,
+      get current() {
+        return h.relay;
+      },
+    };
+  }
+  it('persists sender heads across reconstruction and attaches both heads to later read traffic', async () => {
+    const h = await connected();
+    const body = JSON.stringify({ action: 'interrupt', requestId: 'cancel' });
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify({
+        type: 'delivery-command',
+        stream: 'browser',
+        lane: 'priority',
+        seq: 1,
+        end: Buffer.byteLength(body),
+        body,
+      }),
+    );
+    const command = h.frames().at(-1)!;
+    expect(command.type).toBe('web');
+    expect(command.delivery.stream).not.toBe('browser');
+    expect(command.heads.priority.sent).toBe(1);
+    await h.current.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'event',
+        epoch: 5,
+        sessionId: 'host~reliable',
+        payload: {
+          type: 'event',
+          event: {
+            seq: 9,
+            revision: 9,
+            time: 0,
+            type: 'item/agentMessage/delta',
+            data: { delta: 'new' },
+          },
+          maxRevision: 9,
+          previousRevision: 0,
+        },
+      }),
+    );
+    await Promise.all(h.waiting);
+    h.recreate();
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify({ action: 'sync', after: 0 }),
+    );
+    expect(h.frames().at(-1)!.heads).toMatchObject({
+      agent: 9,
+      priority: { sent: 1 },
+    });
+    const forwarded = h.client.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .find((frame) => frame.type === 'event');
+    expect(forwarded.heads).toMatchObject({ agent: 9, priority: { sent: 1 } });
+  });
+  it('requires the current controller proof for HTTP mutations but not for scoped receipt reads', async () => {
+    const h = await connected();
+    const body = JSON.stringify({
+      action: 'prompt',
+      requestId: 'prompt',
+      text: 'one task',
+    });
+    const frame = {
+      type: 'delivery-command',
+      stream: 'browser',
+      lane: 'normal',
+      seq: 1,
+      end: Buffer.byteLength(body),
+      body,
+      controller: 'controller',
+    };
+    const before = h.frames().length;
+    expect(
+      (await h.request({ ...frame, controller: 'another-tab' })).status,
+    ).toBe(409);
+    expect(
+      (await h.request(frame, { ...auth, hash: 'other-device' })).status,
+    ).toBe(409);
+    expect(h.frames()).toHaveLength(before);
+    expect((await h.request(frame)).status).toBe(200);
+    expect(h.frames().at(-1)!.delivery.seq).toBe(1);
+    await h.storage.put('lease:host~reliable', {
+      epoch: 6,
+      active: true,
+      owner: 'other-device',
+      controllerId: 'replacement',
+    });
+    expect((await h.request(frame)).status).toBe(409);
+    const read = await h.request({
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      seq: 1,
+    });
+    expect(read.status).toBe(202);
+    expect(h.frames().at(-1)!.action).toBe('delivery');
+    expect(h.frames().at(-1)!.data.mode).toBe('web');
+  });
+  it('does not accept reads in the execution window or acknowledgements beyond the peer head', async () => {
+    const h = await connected();
+    const body = JSON.stringify({ action: 'models', requestId: 'read' });
+    expect(
+      (
+        await h.request({
+          type: 'delivery-command',
+          stream: 'browser',
+          lane: 'normal',
+          seq: 1,
+          end: body.length,
+          body,
+          controller: 'controller',
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await h.request({
+          type: 'delivery-receipt',
+          stream: 'browser',
+          lane: 'normal',
+          received: 100,
+        })
+      ).status,
+    ).toBe(400);
+    expect(h.frames().some((frame) => frame.type === 'web')).toBe(false);
+  });
+  it.each([true, false])(
+    'requires the original CLI resume proof (valid=%s)',
+    async (valid) => {
+      const h = harness();
+      h.agent.serializeAttachment({
+        ...h.agent.deserializeAttachment(),
+        deliveryVersion: 1,
+        deliveryInstance: 'journal',
+      });
+      const cli = { ...auth, role: 'cli' };
+      await h.storage.put('lease:host~cli', {
+        epoch: 2,
+        active: false,
+        owner: cli.hash,
+        controllerId: 'proof',
+        delivery: {
+          id: 'terminal',
+          normal: 'normal-stream',
+          priority: 'priority-stream',
+        },
+      });
+      const operation = await (h.relay as any).start({
+        auth: cli,
+        hostId: 'host',
+        kind: 'ticket',
+        stage: 'get',
+        action: 'get',
+        data: {
+          sessionId: 'host~cli',
+          delivery: 1,
+          resume: {
+            stream: 'terminal',
+            controller: valid ? 'proof' : 'forged',
+          },
+        },
+      });
+      await h.reply(h.frames()[0], {
+        mode: 'cli',
+        state: 'ready',
+        canReattach: false,
+      });
+      if (valid)
+        expect(h.frames().at(-1)!.data.deliveryResume).toBe('normal-stream');
+      else {
+        expect(h.frames()).toHaveLength(1);
+        expect((await h.read(operation.id, cli)).data.error.code).toBe(
+          'STALE_CONTROLLER',
+        );
+      }
+    },
+  );
+});

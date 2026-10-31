@@ -1,5 +1,14 @@
+import {
+  deliveryFrameSchema,
+  webDeliveryLane,
+  rpcDeliveryLane,
+} from '../../../packages/protocol/src/delivery.ts';
 import { managesProjects, requireProjectManager } from './project-auth.ts';
-import { d1Enabled, type StateStorage } from './state.ts';
+import {
+  d1Enabled,
+  type StateStorage,
+  type StateTransaction,
+} from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
 import { HostLifecycle, HOST_STATE_KEY } from './host-lifecycle.ts';
 import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
@@ -46,8 +55,12 @@ type Attachment = {
   deadline: number;
   build?: unknown;
   protocol?: number;
+  deliveryVersion?: number;
+  deliveryInstance?: string;
+  delivery?: { id: string; normal: string; priority: string };
 };
 type Ticket = {
+  delivery?: number;
   sessionId: string;
   mode: 'web' | 'cli';
   hash: string;
@@ -59,6 +72,10 @@ type Lease = {
   epoch: number;
   nextEpoch?: number;
   active: boolean;
+  owner?: string;
+  controllerId?: string;
+  previousControllerId?: string;
+  delivery?: { id: string; normal: string; priority: string };
   expires?: number;
   pending?: { epoch: number; id: string; expires: number };
 };
@@ -66,7 +83,8 @@ type Operation = {
   id: string;
   auth: Auth;
   hostId: string;
-  kind: 'control' | 'ticket' | 'history-open' | 'history' | 'attach';
+  kind:
+    'control' | 'ticket' | 'history-open' | 'history' | 'attach' | 'delivery';
   data: any;
   action: string;
   stage: 'get' | 'execute' | 'attach';
@@ -76,6 +94,7 @@ type Operation = {
   reservation?: { epoch: number; id: string; expires: number };
   wire?: string;
   agentEpoch?: number;
+  agentInstance?: string;
   expires: number;
   state: 'pending' | 'completed';
   result?: any;
@@ -221,7 +240,20 @@ export class HostRelayDO extends DurableObject<Env> {
           throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
         await this.authorized(attachment.auth.hash);
         if (client.readyState < 2 || client.readyState === undefined)
-          this.send(client, payload);
+          this.send(
+            client,
+            attachment.history || attachment.delivery
+              ? {
+                  ...(payload as object),
+                  heads: await this.heads(
+                    attachment.sessionId,
+                    (payload as any)?.lane === 'priority'
+                      ? attachment.delivery?.priority
+                      : attachment.delivery?.normal,
+                  ),
+                }
+              : payload,
+          );
       })
       .catch((error) => {
         client.close(
@@ -418,6 +450,109 @@ export class HostRelayDO extends DurableObject<Env> {
       .getWebSockets()
       .find((ws) => (ws.deserializeAttachment() as Attachment).id === id);
   }
+  private async heads(
+    sessionId?: string,
+    stream?: string,
+    storage: StateTransaction = this.storage,
+  ) {
+    if (!sessionId) return undefined;
+    const lease = await storage.get<Lease>('lease:' + sessionId);
+    const peer = lease?.delivery;
+    const instance = (await storage.get<string>('agentInstance')) || 'legacy';
+    const head = async (id: string) =>
+      (await storage.get<number>('send-head:' + id)) || 0;
+    const agentHead = async (id: string) => {
+      const source = await storage.get<string>('head-instance:' + id);
+      return source === instance || (!source && instance === 'legacy')
+        ? head(id)
+        : 0;
+    };
+    return {
+      instance,
+      agent: await agentHead(sessionId),
+      rpc: await agentHead('rpc:' + sessionId),
+      receivedByClient: lease?.owner
+        ? (await storage.get<number>(
+            'receive-head:' + sessionId + ':' + lease.owner,
+          )) || 0
+        : 0,
+      ...(stream ? { client: await head(stream), stream } : {}),
+      ...(peer
+        ? {
+            normal: {
+              stream: peer.normal,
+              sent: await head(peer.normal),
+              resultSent: await agentHead('result:' + peer.normal),
+              resultReceived: await head('result-received:' + peer.normal),
+            },
+            priority: {
+              stream: peer.priority,
+              sent: await head(peer.priority),
+            },
+          }
+        : {}),
+    };
+  }
+  private async controllerHeads(
+    a: Attachment,
+    agent: Attachment,
+    stream?: string,
+  ) {
+    return this.storage.transaction(async (tx) => {
+      const lease = await tx.get<Lease>('lease:' + a.sessionId);
+      if (
+        !lease?.active ||
+        lease.epoch !== a.epoch ||
+        (lease.owner && lease.owner !== a.auth.hash) ||
+        (lease.controllerId && lease.controllerId !== a.id)
+      )
+        throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
+      if (agent.epoch !== (await tx.get('agentEpoch')))
+        throw new AppError('STALE_AGENT', 'Agent replaced', 409);
+      return this.heads(a.sessionId, stream, tx);
+    });
+  }
+  private async advanceAgentHead(
+    key: string,
+    value: unknown,
+    instance = 'legacy',
+  ) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      throw new AppError('INVALID_REQUEST', 'Invalid Agent publication head');
+    await this.storage.transaction(async (tx) => {
+      const source = await tx.get('head-instance:' + key);
+      const prior = (await tx.get<number>('send-head:' + key)) || 0;
+      if (source !== instance || value > prior)
+        await tx.put({
+          ['head-instance:' + key]: instance,
+          ['send-head:' + key]:
+            source === instance ? Math.max(prior, value) : value,
+        });
+    });
+  }
+  private async resultReceipt(stream: string, received: number) {
+    if (!Number.isSafeInteger(received) || received < 0)
+      throw new AppError('INVALID_REQUEST', 'Invalid result receipt');
+    await this.storage.transaction(async (tx) => {
+      const sent = (await tx.get<number>('send-head:result:' + stream)) || 0;
+      if (received > sent)
+        throw new AppError(
+          'INVALID_REQUEST',
+          'Result receipt exceeds published head',
+        );
+      const key = 'send-head:result-received:' + stream;
+      if (received > ((await tx.get<number>(key)) || 0))
+        await tx.put(key, received);
+    });
+  }
+  private async advanceHead(key: string, value: unknown) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      throw new AppError('INVALID_REQUEST', 'Invalid published sequence');
+    await this.storage.transaction(async (tx) => {
+      const previous = (await tx.get<number>('send-head:' + key)) || 0;
+      if (value > previous) await tx.put('send-head:' + key, value);
+    });
+  }
   private async changed(scope = 'host', owner?: string, operationId?: string) {
     // Notifications have no replay payload; future subscribers read a fresh
     // snapshot. Do not materialize unused host storage for an unobserved change.
@@ -465,8 +600,16 @@ export class HostRelayDO extends DurableObject<Env> {
     const requestId = crypto.randomUUID();
     operation.wire = requestId;
     operation.agentEpoch = agent.epoch;
+    operation.agentInstance = agent.deliveryInstance;
     await this.saveOperation(operation);
-    this.send(ws, { v: 1, type: 'control', requestId, action, data });
+    this.send(ws, {
+      v: 1,
+      type: 'control',
+      requestId,
+      action,
+      data,
+      heads: await this.heads(data.sessionId, data.stream),
+    });
     console.log(
       JSON.stringify({
         event: 'control_accepted',
@@ -540,6 +683,17 @@ export class HostRelayDO extends DurableObject<Env> {
     return operation;
   }
   private async complete(o: Operation, result?: any, error?: unknown) {
+    if (
+      !error &&
+      o.data.sessionId &&
+      result &&
+      typeof result === 'object' &&
+      !Array.isArray(result)
+    )
+      result = {
+        ...result,
+        heads: await this.heads(o.data.sessionId, o.data.stream),
+      };
     o.state = 'completed';
     if (error)
       o.error =
@@ -580,24 +734,45 @@ export class HostRelayDO extends DurableObject<Env> {
           requestId: o.clientRequestId,
           error: o.error,
         });
-        if (o.kind !== 'history') ws.close(4000, 'Request rejected');
+        if (o.kind !== 'history' && o.kind !== 'delivery')
+          ws.close(4000, 'Request rejected');
       } else if (o.kind === 'history')
         this.send(ws, {
           type: 'history',
           requestId: o.clientRequestId,
+          heads: await this.heads(o.data.sessionId),
           ...result,
         });
-      else if (o.kind === 'history-open') {
+      else if (o.kind === 'delivery') {
+        this.send(ws, {
+          type: 'delivery-window',
+          heads: await this.heads(o.data.sessionId, o.data.stream),
+          lane: o.data.lane,
+          seq: o.data.seq,
+          ...result,
+        });
+      } else if (o.kind === 'history-open') {
         a.authenticated = true;
         a.deadline = a.auth.expires;
         ws.serializeAttachment(a);
-        this.send(ws, { type: 'history-ready' });
+        this.send(ws, {
+          type: 'history-ready',
+          heads: await this.heads(a.sessionId),
+        });
       } else {
         a.epoch = o.reservation!.epoch;
         a.authenticated = true;
         a.deadline = a.auth.expires;
         ws.serializeAttachment(a);
-        this.send(ws, { type: 'attached', epoch: a.epoch });
+        this.send(ws, {
+          type: 'attached',
+          epoch: a.epoch,
+          controller: a.id,
+          heads: await this.heads(a.sessionId),
+          delivery: (
+            this.agent()?.deserializeAttachment() as Attachment | undefined
+          )?.deliveryVersion,
+        });
       }
     } else {
       await this.saveOperation(o);
@@ -654,6 +829,42 @@ export class HostRelayDO extends DurableObject<Env> {
         new AppError(error.code, error.message, agentErrorStatus(error.code)),
       );
     await this.authorized(o.auth.hash);
+    if (o.action === 'list') {
+      const sessions = Array.isArray(data) ? data : data?.data;
+      if (Array.isArray(sessions))
+        for (const session of sessions)
+          if (session?.heads) {
+            await this.advanceAgentHead(
+              session.id,
+              session.heads.agent,
+              o.agentInstance,
+            );
+            await this.advanceAgentHead(
+              'rpc:' + session.id,
+              session.heads.rpc,
+              o.agentInstance,
+            );
+          }
+    }
+    if (o.action === 'delivery' && data?.window?.sent !== undefined)
+      await this.advanceAgentHead(
+        'result:' + o.data.stream,
+        data.window.sent,
+        o.agentInstance,
+      );
+    if (o.action === 'snapshot' && data?.history?.snapshotSeq !== undefined)
+      await this.advanceAgentHead(
+        o.data.sessionId,
+        data.history.snapshotSeq,
+        o.agentInstance,
+      );
+    if (o.kind === 'history' && data?.snapshotSeq !== undefined)
+      await this.advanceAgentHead(
+        o.data.sessionId,
+        data.snapshotSeq,
+        o.agentInstance,
+      );
+
     if (o.action === 'projectManage') {
       const current: Auth = await registryCall(this.env, 'authHash', {
         hash: o.auth.hash,
@@ -674,6 +885,7 @@ export class HostRelayDO extends DurableObject<Env> {
           new AppError('FORBIDDEN', 'Wrong credential for session mode', 403),
         );
       o.info = data;
+      await this.storage.put('session-mode:' + o.data.sessionId, data.mode);
       if (o.kind === 'history-open') return this.complete(o, {});
       if (o.kind === 'ticket') {
         if (data.state !== 'ready')
@@ -682,7 +894,7 @@ export class HostRelayDO extends DurableObject<Env> {
             undefined,
             new AppError('SESSION_CLOSED', 'Session is not active', 409),
           );
-        if (data.mode === 'cli' && data.canReattach === false)
+        if (data.mode === 'cli' && data.canReattach === false && !o.data.resume)
           return this.complete(
             o,
             undefined,
@@ -696,13 +908,38 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       if (o.kind === 'attach' || (o.kind === 'ticket' && data.mode === 'cli')) {
         o.stage = 'attach';
-        o.reservation = await this.reserve(o.data.sessionId, o.data.takeover);
+        let resumeStream: string | undefined;
+        if (o.data.resume) {
+          const current = await this.storage.get<Lease>(
+            'lease:' + o.data.sessionId,
+          );
+          if (
+            o.auth.role !== 'cli' ||
+            !current?.delivery ||
+            current.owner !== o.auth.hash ||
+            (current?.controllerId !== o.data.resume.controller &&
+              current?.previousControllerId !== o.data.resume.controller) ||
+            current?.delivery?.id !== o.data.resume.stream
+          )
+            throw new AppError(
+              'STALE_CONTROLLER',
+              'Resume proof does not match the original controller',
+              409,
+            );
+          resumeStream = current.delivery.normal;
+        }
+        o.reservation = await this.reserve(
+          o.data.sessionId,
+          o.data.takeover || !!resumeStream,
+          o.data.resume?.controller,
+        );
         return this.command(
           'attach',
           {
             sessionId: o.data.sessionId,
             epoch: o.reservation.epoch,
             expires: o.reservation.expires,
+            ...(resumeStream ? { deliveryResume: resumeStream } : {}),
           },
           o,
         );
@@ -744,6 +981,12 @@ export class HostRelayDO extends DurableObject<Env> {
           epoch: o.reservation!.epoch,
           nextEpoch: Math.max(lease.nextEpoch || 0, o.reservation!.epoch),
           active: true,
+          owner: o.auth.hash,
+          controllerId: o.socketId || lease.controllerId,
+          ...(o.data.resume
+            ? { previousControllerId: lease.previousControllerId }
+            : {}),
+          ...(o.data.resume ? { delivery: lease.delivery } : {}),
           ...(o.kind === 'ticket' ? { expires: o.reservation!.expires } : {}),
         } satisfies Lease);
       });
@@ -763,7 +1006,7 @@ export class HostRelayDO extends DurableObject<Env> {
         const a = ws.deserializeAttachment() as Attachment;
         return ws.readyState < 2 && a.authenticated && !a.history;
       });
-    if (active && !o.data.takeover)
+    if (active && !o.data.takeover && !o.data.resume)
       return this.complete(
         o,
         undefined,
@@ -778,6 +1021,11 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.storage.put(key, {
       sessionId: o.data.sessionId,
       mode: o.info.mode,
+      delivery:
+        o.info.mode === 'cli' && o.data.delivery === 1
+          ? (this.agent()?.deserializeAttachment() as Attachment | undefined)
+              ?.deliveryVersion
+          : undefined,
       hash: o.auth.hash,
       expires,
       takeover: o.data.takeover === true,
@@ -786,6 +1034,11 @@ export class HostRelayDO extends DurableObject<Env> {
     await expireAt(this.storage, key, expires);
     await this.complete(o, {
       ticket: value,
+      delivery:
+        o.info.mode !== 'cli' || o.data.delivery === 1
+          ? (this.agent()?.deserializeAttachment() as Attachment | undefined)
+              ?.deliveryVersion
+          : undefined,
       mode: o.info.mode,
       sandbox: o.info.sandbox,
       expiresIn: Math.max(1, Math.floor((expires - Date.now()) / 1000)),
@@ -931,6 +1184,192 @@ export class HostRelayDO extends DurableObject<Env> {
         }
         return json({ state: o.state, result: o.result, error: o.error });
       }
+      if (u.pathname === '/progress') {
+        const sessionId = u.searchParams.get('sessionId') || '';
+        if (
+          !sessionId.startsWith(hostId + '~') ||
+          !['web', 'cli'].includes(auth.role)
+        )
+          throw new AppError('FORBIDDEN', 'Wrong progress scope', 403);
+        const mode = await this.storage.get('session-mode:' + sessionId);
+        if (mode !== auth.role)
+          throw new AppError('NOT_FOUND', 'No verified session progress', 404);
+        return json({
+          heads: await this.heads(sessionId),
+          received:
+            (await this.storage.get<number>(
+              'receive-head:' + sessionId + ':' + auth.hash,
+            )) || 0,
+        });
+      }
+      if (u.pathname === '/delivery') {
+        const d = await body(req);
+        const sessionId = String(d.sessionId);
+        if (
+          !sessionId.startsWith(hostId + '~') ||
+          !['web', 'cli'].includes(auth.role)
+        )
+          throw new AppError('FORBIDDEN', 'Wrong delivery session', 403);
+        const external = idSchema.parse(d.stream);
+        const lane =
+          d.lane === 'priority'
+            ? 'priority'
+            : d.lane === 'normal'
+              ? 'normal'
+              : undefined;
+        if (!lane)
+          throw new AppError('INVALID_REQUEST', 'Invalid delivery lane');
+        const stream = await digest(
+          JSON.stringify([auth.hash, sessionId, external, lane]),
+        );
+        if (d.operation === 'read') {
+          if (d.controller)
+            await this.storage.transaction(async (tx) => {
+              const current = await tx.get<Lease>('lease:' + sessionId);
+              if (
+                !current?.active ||
+                current.owner !== auth.hash ||
+                current.controllerId !== d.controller
+              )
+                throw new AppError(
+                  'STALE_CONTROLLER',
+                  'Controller replaced',
+                  409,
+                );
+              if (current.delivery && current.delivery.id !== external)
+                throw new AppError(
+                  'SESSION_BUSY',
+                  'Another reliable stream owns this controller',
+                  409,
+                );
+              if (!current.delivery)
+                await tx.put('lease:' + sessionId, {
+                  ...current,
+                  delivery: {
+                    id: external,
+                    normal: await digest(
+                      JSON.stringify([
+                        auth.hash,
+                        sessionId,
+                        external,
+                        'normal',
+                      ]),
+                    ),
+                    priority: await digest(
+                      JSON.stringify([
+                        auth.hash,
+                        sessionId,
+                        external,
+                        'priority',
+                      ]),
+                    ),
+                  },
+                });
+            });
+          const data = controlCommandSchema.parse({
+            action: 'delivery',
+            data: {
+              sessionId,
+              mode: auth.role,
+              stream,
+              lane,
+              ...(d.seq === undefined ? {} : { seq: d.seq }),
+            },
+          }).data;
+          const operation = await this.start({
+            auth,
+            hostId,
+            kind: 'control',
+            stage: 'execute',
+            action: 'delivery',
+            data,
+          });
+          return json(
+            { accepted: true, operationId: operation.id, hostId },
+            202,
+          );
+        }
+        const frame = deliveryFrameSchema.parse(d);
+        if (frame.type === 'delivery-receipt') {
+          await this.resultReceipt(stream, frame.received);
+          return json({ ok: true, heads: await this.heads(sessionId, stream) });
+        }
+        if (frame.type !== 'delivery-command')
+          throw new AppError('INVALID_REQUEST', 'Expected a command frame');
+        const lease = await this.storage.get<Lease>('lease:' + sessionId);
+        if (
+          !lease?.active ||
+          lease.owner !== auth.hash ||
+          !lease.controllerId ||
+          lease.controllerId !== d.controller ||
+          lease.delivery?.id !== external
+        )
+          throw new AppError(
+            'STALE_CONTROLLER',
+            'Reliable command requires the current controller',
+            409,
+          );
+        const agent = this.agent();
+        if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline', 503);
+        const aa = agent.deserializeAttachment() as Attachment;
+        if (aa.deliveryVersion !== 1)
+          throw new AppError(
+            'UPGRADE_REQUIRED',
+            'Upgrade Agent for reliable commands',
+            409,
+          );
+        await this.authorized(aa.auth.hash);
+        const payload = JSON.parse(frame.body);
+        if (auth.role === 'web') webCommandSchema.parse(payload);
+        if (
+          (auth.role === 'web'
+            ? webDeliveryLane(payload)
+            : rpcDeliveryLane(payload)) !== lane
+        )
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Incorrect mutation command lane',
+          );
+        await this.advanceHead(stream, frame.seq);
+        // Recheck the lease after awaits, before delivering a side effect.
+        const current = await this.storage.get<Lease>('lease:' + sessionId);
+        if (
+          !current?.active ||
+          current.epoch !== lease.epoch ||
+          current.controllerId !== lease.controllerId
+        )
+          throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
+        const heads = await this.controllerHeads(
+          {
+            role: auth.role as 'cli' | 'web',
+            auth,
+            hostId,
+            sessionId,
+            epoch: lease.epoch,
+            id: d.controller,
+            authenticated: true,
+            deadline: auth.expires,
+          },
+          aa,
+          stream,
+        );
+        this.send(agent, {
+          v: 1,
+          type: auth.role === 'cli' ? 'rpc' : 'web',
+          sessionId,
+          epoch: lease.epoch,
+          payload,
+          delivery: {
+            stream,
+            lane,
+            seq: frame.seq,
+            end: frame.end,
+            body: frame.body,
+          },
+          heads,
+        });
+        return json({ sent: true, heads: await this.heads(sessionId, stream) });
+      }
       if (u.pathname === '/control' || u.pathname === '/ticket') {
         if (req.headers.get('x-coc-async') !== '1')
           throw new AppError(
@@ -973,21 +1412,28 @@ export class HostRelayDO extends DurableObject<Env> {
         const lease = await s.get<Lease>('lease:' + sessionId);
         if (lease?.epoch !== t.epoch)
           throw new AppError('STALE_CONTROLLER', 'Ticket superseded', 409);
-        const response = await this.upgrade(req, {
+        const attachment: Attachment = {
           role: 'cli',
+          deliveryVersion: t.delivery,
           auth: a,
           hostId,
           sessionId,
           epoch: t.epoch,
           authenticated: true,
           deadline: a.expires,
-        });
+        };
+        const response = await this.upgrade(req, attachment);
         await s.transaction(async (tx) => {
           const current = await tx.get<Lease>('lease:' + sessionId);
-          if (current?.epoch === t.epoch)
+          if (current && current.epoch === t.epoch)
             await tx.put('lease:' + sessionId, {
+              ...current,
               epoch: t.epoch,
               active: true,
+              owner: a.hash,
+              controllerId: attachment.id,
+              previousControllerId:
+                current.previousControllerId || current.controllerId,
             });
         });
         return response;
@@ -1044,10 +1490,24 @@ export class HostRelayDO extends DurableObject<Env> {
       return t;
     });
   }
-  async reserve(sessionId: string, takeover: boolean) {
+  async reserve(
+    sessionId: string,
+    takeover: boolean,
+    expectedController?: string,
+  ) {
     return this.storage.transaction(async (tx) => {
       const key = 'lease:' + sessionId;
       const lease = (await tx.get<Lease>(key)) || { epoch: 0, active: false };
+      if (
+        expectedController &&
+        lease.controllerId !== expectedController &&
+        lease.previousControllerId !== expectedController
+      )
+        throw new AppError(
+          'STALE_CONTROLLER',
+          'Controller changed during resume',
+          409,
+        );
       if (lease.pending && lease.pending.expires > Date.now())
         throw new AppError('SESSION_BUSY', 'Attach in progress', 409);
       if (
@@ -1112,6 +1572,15 @@ export class HostRelayDO extends DurableObject<Env> {
         type: 'hello',
         epoch: a.epoch,
         demand: 1,
+      });
+    if (a.role === 'cli' && a.deliveryVersion === 1)
+      this.send(pair[1], {
+        type: 'delivery-ready',
+        instance: (
+          this.agent()?.deserializeAttachment() as Attachment | undefined
+        )?.deliveryInstance,
+        controller: a.id,
+        delivery: 1,
       });
     if (a.subscription)
       this.send(pair[1], {
@@ -1231,6 +1700,13 @@ export class HostRelayDO extends DurableObject<Env> {
               409,
             );
           a.protocol = d.protocol;
+          a.deliveryVersion = d.delivery === 1 ? 1 : undefined;
+          a.deliveryInstance =
+            d.delivery === 1 ? idSchema.parse(d.deliveryInstance) : undefined;
+          await this.storage.put(
+            'agentInstance',
+            a.deliveryInstance || 'legacy',
+          );
           a.build = agentBuildSchema.parse(d.build);
           if (d.wakeUrl !== undefined)
             await registryCall(this.env, 'agentSetWakeUrl', {
@@ -1291,6 +1767,18 @@ export class HostRelayDO extends DurableObject<Env> {
             operation.expires > Date.now()
           ) {
             try {
+              if (operation.data.sessionId && d.heads) {
+                await this.advanceAgentHead(
+                  operation.data.sessionId,
+                  d.heads.agent,
+                  a.deliveryInstance,
+                );
+                await this.advanceAgentHead(
+                  'rpc:' + operation.data.sessionId,
+                  d.heads.rpc,
+                  a.deliveryInstance,
+                );
+              }
               await this.result(operation, d.data, d.error);
             } catch (error) {
               await this.complete(operation, undefined, error);
@@ -1308,6 +1796,40 @@ export class HostRelayDO extends DurableObject<Env> {
           ].includes(d.payload?.event?.type)
         )
           await this.changed('sessions');
+        if (d.sessionId && d.heads) {
+          await this.advanceAgentHead(
+            d.sessionId,
+            d.heads.agent,
+            a.deliveryInstance,
+          );
+          await this.advanceAgentHead(
+            'rpc:' + d.sessionId,
+            d.heads.rpc,
+            a.deliveryInstance,
+          );
+        }
+        if (
+          d.type === 'notice' &&
+          ['delivery-window', 'delivery-result'].includes(d.payload?.type) &&
+          d.payload?.window?.sent !== undefined
+        )
+          await this.advanceAgentHead(
+            'result:' + idSchema.parse(d.payload.window.stream),
+            d.payload.window.sent,
+            a.deliveryInstance,
+          );
+        if (d.type === 'rpc' && d.payload?.type === 'delivery-data')
+          await this.advanceAgentHead(
+            'rpc:' + d.sessionId,
+            d.payload.seq,
+            a.deliveryInstance,
+          );
+        if (d.type === 'event' && d.payload?.maxRevision !== undefined)
+          await this.advanceAgentHead(
+            d.sessionId,
+            d.payload.maxRevision,
+            a.deliveryInstance,
+          );
         if (['rpc', 'event', 'notice'].includes(d.type)) {
           const bytes = new TextEncoder().encode(
             JSON.stringify(d.payload),
@@ -1328,13 +1850,33 @@ export class HostRelayDO extends DurableObject<Env> {
             }
             if (d.type === 'rpc' && ca.role === 'cli')
               this.forward(client, d.payload, bytes);
-            if (d.type !== 'rpc' && ca.role === 'web')
+            if (
+              d.type !== 'rpc' &&
+              (ca.role === 'web' ||
+                (ca.role === 'cli' &&
+                  d.type === 'notice' &&
+                  String(d.payload?.type).startsWith('delivery-')))
+            )
               this.forward(client, d.payload, bytes);
           }
         }
         return;
       }
       if (a.history) {
+        if (
+          a.authenticated &&
+          Number.isSafeInteger(d.receivedRevision) &&
+          d.receivedRevision >= 0
+        ) {
+          await this.storage.transaction(async (tx) => {
+            const sent =
+              (await tx.get<number>('send-head:' + a.sessionId)) || 0;
+            const key = 'receive-head:' + a.sessionId + ':' + a.auth.hash;
+            const previous = (await tx.get<number>(key)) || 0;
+            if (d.receivedRevision <= sent && d.receivedRevision > previous)
+              await tx.put(key, d.receivedRevision);
+          });
+        }
         const { requestId, ...data } = historyCommandSchema.parse(d);
         if (!a.authenticated)
           throw new AppError(
@@ -1384,12 +1926,184 @@ export class HostRelayDO extends DurableObject<Env> {
       const lease = await this.fence<Lease>('lease:' + a.sessionId);
       if (lease?.epoch !== a.epoch)
         throw new AppError('STALE_CONTROLLER', 'Controller replaced');
+      if (d.type === 'delivery-output') {
+        if (a.role !== 'cli' || a.deliveryVersion !== 1)
+          throw new AppError(
+            'FORBIDDEN',
+            'Reliable CLI output negotiation required',
+            403,
+          );
+        for (const key of ['received', 'credit', 'byteCredit'])
+          if (!Number.isSafeInteger(d[key]) || d[key] < 0)
+            throw new AppError('INVALID_REQUEST', 'Invalid output window');
+        if (d.credit < d.received || d.credit - d.received > 100)
+          throw new AppError('INVALID_REQUEST', 'Invalid output slot credit');
+        const published =
+          (await this.storage.get<number>('send-head:rpc:' + a.sessionId)) || 0;
+        if (d.received > published)
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Receipt exceeds published output',
+          );
+        await this.advanceHead(
+          'rpc-received:' + a.sessionId + ':' + a.auth.hash,
+          d.received,
+        );
+        this.send(agent, {
+          v: 1,
+          type: 'delivery-output',
+          sessionId: a.sessionId,
+          epoch: a.epoch,
+          received: d.received,
+          credit: d.credit,
+          byteCredit: d.byteCredit,
+          replay: d.replay === true,
+          heads: await this.heads(a.sessionId, a.delivery?.normal),
+        });
+        return;
+      }
+      if (typeof d.type === 'string' && d.type.startsWith('delivery-')) {
+        const frame = deliveryFrameSchema.parse(d);
+        if ((agent.deserializeAttachment() as Attachment).deliveryVersion !== 1)
+          throw new AppError(
+            'UPGRADE_REQUIRED',
+            'Agent does not support reliable commands',
+            409,
+          );
+        if (frame.type === 'delivery-open') {
+          a.delivery = {
+            id: frame.stream,
+            normal: await digest(
+              JSON.stringify([
+                a.auth.hash,
+                a.sessionId,
+                frame.stream,
+                'normal',
+              ]),
+            ),
+            priority: await digest(
+              JSON.stringify([
+                a.auth.hash,
+                a.sessionId,
+                frame.stream,
+                'priority',
+              ]),
+            ),
+          };
+          ws.serializeAttachment(a);
+          await this.storage.transaction(async (tx) => {
+            const current = await tx.get<Lease>('lease:' + a.sessionId);
+            if (current?.epoch !== a.epoch)
+              throw new AppError(
+                'STALE_CONTROLLER',
+                'Controller replaced',
+                409,
+              );
+            await tx.put('lease:' + a.sessionId, {
+              ...current,
+              delivery: a.delivery,
+            });
+          });
+          for (const lane of ['normal', 'priority'] as const) {
+            if (frame.received)
+              await this.resultReceipt(a.delivery[lane], frame.received[lane]);
+            await this.start({
+              auth: a.auth,
+              hostId: a.hostId,
+              socketId: a.id,
+              kind: 'delivery',
+              stage: 'execute',
+              action: 'delivery',
+              data: {
+                sessionId: a.sessionId,
+                mode: a.role,
+                lane,
+                stream: a.delivery[lane],
+              },
+            });
+          }
+          return;
+        }
+        if (!a.delivery || a.delivery.id !== frame.stream)
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Open the delivery stream first',
+          );
+        const stream = a.delivery[frame.lane];
+        if (frame.type === 'delivery-receipt') {
+          await this.resultReceipt(stream, frame.received);
+          this.send(agent, {
+            type: 'delivery-heads',
+            sessionId: a.sessionId,
+            epoch: a.epoch,
+            heads: await this.heads(a.sessionId, stream),
+          });
+          return;
+        }
+        if (frame.type === 'delivery-query') {
+          await this.start({
+            auth: a.auth,
+            hostId: a.hostId,
+            socketId: a.id,
+            kind: 'delivery',
+            stage: 'execute',
+            action: 'delivery',
+            data: {
+              sessionId: a.sessionId,
+              mode: a.role,
+              lane: frame.lane,
+              stream,
+              seq: frame.seq,
+            },
+          });
+          return;
+        }
+        const payload = JSON.parse(frame.body);
+        if (a.role === 'web') webCommandSchema.parse(payload);
+        if (
+          (a.role === 'web'
+            ? webDeliveryLane(payload)
+            : rpcDeliveryLane(payload)) !== frame.lane
+        )
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Use the original protocol for reads and the correct command lane',
+          );
+        await this.advanceHead(stream, frame.seq);
+        const heads = await this.controllerHeads(
+          a,
+          agent.deserializeAttachment() as Attachment,
+          stream,
+        );
+        this.send(agent, {
+          v: 1,
+          type: a.role === 'cli' ? 'rpc' : 'web',
+          sessionId: a.sessionId,
+          epoch: a.epoch,
+          payload,
+          delivery: {
+            stream,
+            lane: frame.lane,
+            seq: frame.seq,
+            end: frame.end,
+            body: frame.body,
+          },
+          heads,
+        });
+        return;
+      }
+      const heads = await this.controllerHeads(
+        a,
+        agent.deserializeAttachment() as Attachment,
+        a.delivery?.normal,
+      );
       this.send(agent, {
         v: 1,
         type: a.role === 'cli' ? 'rpc' : 'web',
         sessionId: a.sessionId,
         epoch: a.epoch,
         payload: a.role === 'web' ? webCommandSchema.parse(d) : d,
+        heads,
       });
     } catch (e) {
       try {
@@ -1421,7 +2135,10 @@ export class HostRelayDO extends DurableObject<Env> {
       }
     }
   }
-  async webSocketClose(ws: WebSocket) {
+  async webSocketClose(ws: WebSocket, code = 1000) {
+    // Complete the peer's closing handshake; otherwise callers can remain in
+    // CLOSING until the transport timeout and never start their recovery.
+    ws.close([1005, 1006, 1015].includes(code) ? 1000 : code, 'Closed');
     this.handlers++;
     try {
       await this.prepare((ws.deserializeAttachment() as Attachment).hostId);

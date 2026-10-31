@@ -15,6 +15,18 @@ export class Agent {
   private peers = new Set<WebSocket>();
   private starting?: Promise<void>;
   private loseAttach = false;
+  private loseDeliveryResult = false;
+  private loseOutput = false;
+  private loseCommand = false;
+  loseNextDeliveryResult() {
+    this.loseDeliveryResult = true;
+  }
+  loseNextOutput() {
+    this.loseOutput = true;
+  }
+  loseNextReliableCommand() {
+    this.loseCommand = true;
+  }
   private lostReplies = new Set<string>();
   loseNextAttachReply() {
     this.loseAttach = true;
@@ -73,6 +85,23 @@ export class Agent {
       downstream.on('message', (d) => {
         const message = JSON.parse(d.toString());
         if (
+          this.loseDeliveryResult &&
+          message.type === 'notice' &&
+          message.payload?.type === 'delivery-result'
+        ) {
+          this.loseDeliveryResult = false;
+          return;
+        }
+        if (
+          this.loseOutput &&
+          message.type === 'rpc' &&
+          message.payload?.type === 'delivery-data'
+        ) {
+          this.loseOutput = false;
+          return;
+        }
+
+        if (
           message.type === 'result' &&
           this.lostReplies.delete(message.requestId)
         )
@@ -86,6 +115,11 @@ export class Agent {
       });
       upstream.on('message', (d) => {
         const message = JSON.parse(d.toString());
+        if (this.loseCommand && message.delivery) {
+          this.loseCommand = false;
+          return;
+        }
+
         if (
           this.loseAttach &&
           message.type === 'control' &&

@@ -1053,6 +1053,69 @@ export default {
           }),
         );
       }
+      const progress = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/progress$/);
+      if (progress && req.method === 'GET') {
+        const hostId = idSchema.parse(progress[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        return hostStub(env, hostId).fetch(
+          internal(req, '/progress?sessionId=' + progress[1], auth, hostId),
+        );
+      }
+      const delivery = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/delivery$/);
+      if (delivery && ['GET', 'POST'].includes(req.method)) {
+        const hostId = idSchema.parse(delivery[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        const data =
+          req.method === 'GET'
+            ? {
+                operation: 'read',
+                controller: req.headers.get('x-coc-controller'),
+                stream: u.searchParams.get('stream'),
+                lane: u.searchParams.get('lane'),
+                ...(u.searchParams.has('seq')
+                  ? {
+                      seq: z.coerce
+                        .number()
+                        .int()
+                        .min(1)
+                        .max(Number.MAX_SAFE_INTEGER)
+                        .parse(u.searchParams.get('seq')),
+                    }
+                  : {}),
+              }
+            : await body(req);
+        return hostStub(env, hostId).fetch(
+          internal(req, '/delivery', auth, hostId, {
+            ...data,
+            sessionId: delivery[1],
+          }),
+        );
+      }
+      const snapshot = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/snapshot$/);
+      if (snapshot && req.method === 'GET') {
+        const hostId = idSchema.parse(snapshot[1].split('~')[0]);
+        const auth = await authenticate(req, env, hostId);
+        if (!['web', 'cli'].includes(auth.role))
+          throw new AppError('FORBIDDEN', 'Client credential required', 403);
+        const after = u.searchParams.has('after')
+          ? z.coerce
+              .number()
+              .int()
+              .min(0)
+              .max(Number.MAX_SAFE_INTEGER)
+              .parse(u.searchParams.get('after'))
+          : undefined;
+        return hostStub(env, hostId).fetch(
+          internal(req, '/control', auth, hostId, {
+            action: 'snapshot',
+            data: {
+              sessionId: snapshot[1],
+              mode: auth.role,
+              ...(after === undefined ? {} : { after }),
+            },
+          }),
+        );
+      }
       const session = p.match(
         /^\/api\/v1\/sessions\/([\w~-]+)\/(attach|takeover|stop)$/,
       );
@@ -1060,6 +1123,13 @@ export default {
         const hostId = idSchema.parse(session[1].split('~')[0]);
         const auth = await authenticate(req, env, hostId);
         await registryCall(env, 'host', { id: hostId });
+        const options = session[2] === 'stop' ? {} : await body(req);
+        const resume =
+          options.resume === undefined
+            ? undefined
+            : z
+                .object({ stream: idSchema, controller: idSchema })
+                .parse(options.resume);
         return hostStub(env, hostId).fetch(
           internal(
             req,
@@ -1068,7 +1138,12 @@ export default {
             hostId,
             session[2] === 'stop'
               ? { action: 'stop', data: { sessionId: session[1] } }
-              : { sessionId: session[1], takeover: session[2] === 'takeover' },
+              : {
+                  sessionId: session[1],
+                  takeover: session[2] === 'takeover',
+                  delivery: options.delivery === 1 ? 1 : undefined,
+                  ...(resume ? { resume } : {}),
+                },
           ),
         );
       }
