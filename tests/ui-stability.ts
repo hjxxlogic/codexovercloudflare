@@ -2057,6 +2057,15 @@ try {
     name: 'Running Agent versions',
     exact: true,
   });
+  await expect(updates).not.toBeVisible();
+  await expect(versions).not.toBeVisible();
+  await page
+    .getByRole('tab', { name: 'Running Agent versions', exact: true })
+    .click();
+  await expect(
+    page.getByRole('tabpanel', { name: 'Running Agent versions', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
   await expect(
     versions.getByRole('row').filter({ hasText: '示例服务器' }),
   ).toContainText('0.5.16');
@@ -2090,6 +2099,22 @@ try {
     await page.keyboard.press('Escape');
   }
   await page.setViewportSize(versionViewport);
+  await page
+    .getByRole('tab', { name: 'Running Agent versions', exact: true })
+    .press('End');
+  const miscTab = page.getByRole('tab', { name: 'Miscellaneous', exact: true });
+  await expect(miscTab).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('tabpanel', { name: 'Miscellaneous', exact: true }),
+  ).toBeVisible();
+  await expect(versions).not.toBeVisible();
+  await expect(updates).toBeVisible();
+  await miscTab.press('Home');
+  await expect(
+    page.getByRole('tab', { name: 'Pending access requests', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(updates).not.toBeVisible();
+  await miscTab.click();
   const notifyUpdate = updates.getByRole('button');
   const publishedRelease = {
     version: '0.5.15',
@@ -2141,6 +2166,18 @@ try {
   await notifyUpdate.click();
   await expect(notifyUpdate).toBeDisabled();
   await expect(notifyUpdate).toHaveText('Sending update notification…');
+  for (const name of ['Running Agent versions', 'API Key management']) {
+    await page.getByRole('tab', { name, exact: true }).click();
+    await expect(updates).not.toBeVisible();
+    await expect(page.getByRole('tabpanel')).toHaveCount(1);
+    await miscTab.click();
+    await expect(notifyUpdate).toBeDisabled();
+    assert.equal(
+      releaseRequests.length,
+      2,
+      'switching tabs preserves the in-flight update notification',
+    );
+  }
   finishNotification();
   await expect(updates.getByRole('status')).toHaveText(
     'Update notification submitted for 0.5.15.',
@@ -2156,6 +2193,23 @@ try {
   await updates.screenshot({
     path: join(artifacts, 'admin-agent-updates.png'),
   });
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const [name, file] of [
+      ['Running Agent versions', 'agent-versions-tab'],
+      ['Miscellaneous', 'misc-tab'],
+    ]) {
+      await page.getByRole('tab', { name, exact: true }).click();
+      await expect(
+        page.getByRole('tabpanel', { name, exact: true }),
+      ).toBeVisible();
+      await page.screenshot({
+        path: join(artifacts, `${file}-${width}.png`),
+        animations: 'disabled',
+      });
+    }
+  }
+  await page.setViewportSize(versionViewport);
   await page.unroute('**/downloads/index.json');
   await page.unroute('**/api/v1/admin/releases');
   await page
@@ -2278,6 +2332,7 @@ try {
     for (const [tab, name] of [
       ['pending', '待授权请求'],
       ['authorized', '已授权设备'],
+      ['versions', 'Agent 运行版本'],
       ['wake', '服务器唤醒配置'],
       ['emails', 'Agent 邮箱关联'],
       ['keys', 'API Key 管理'],

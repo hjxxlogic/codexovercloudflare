@@ -49,7 +49,7 @@ export function AgentUpdates() {
 
   return (
     <section className="card" aria-label={t('Agent 更新')}>
-      <h2>{t('Agent 更新')}</h2>
+      <h3>{t('Agent 更新')}</h3>
       <p>
         {t(
           '通知所有已授权 Agent 检查已发布版本。仅启用自动更新的 Agent 会升级，并等待所有会话结束；相同版本不重复通知。',

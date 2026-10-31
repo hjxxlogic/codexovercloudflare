@@ -104,7 +104,14 @@ function App() {
   const language = useLanguage();
   const [view, setView] = useState<View>('chat');
   const [adminTab, setAdminTab] = useState<
-    'pending' | 'authorized' | 'wake' | 'emails' | 'projects' | 'sessions'
+    | 'pending'
+    | 'authorized'
+    | 'versions'
+    | 'wake'
+    | 'emails'
+    | 'projects'
+    | 'sessions'
+    | 'misc'
   >('pending');
   const [mode, setMode] = useState<Mode>('cw');
   const adminLogin = mode === 'admin';
@@ -2828,19 +2835,19 @@ function App() {
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
       <ManagerPairing />
-      {mode === 'admin' && admin && <AgentVersions hosts={keyHosts} />}
-      {mode === 'admin' && admin && <AgentUpdates />}
       {mode === 'admin' && admin && (
         <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
           {(
             [
               ['pending', t('待授权请求')],
               ['authorized', t('已授权设备')],
+              ['versions', t('Agent 运行版本')],
               ['wake', t('服务器唤醒配置')],
               ['emails', t('Agent 邮箱关联')],
               ['projects', t('项目管理')],
               ['keys', t('API Key 管理')],
               ['sessions', t('管理会话')],
+              ['misc', t('杂项')],
             ] as const
           ).map(([id, label]) => {
             const selected = view === 'keys' ? id === 'keys' : id === adminTab;
@@ -2888,7 +2895,7 @@ function App() {
           })}
         </nav>
       )}
-      {admin && view === 'devices' && (
+      {admin && view === 'devices' && adminTab !== 'misc' && (
         <section
           className="card"
           role="tabpanel"
@@ -2901,15 +2908,18 @@ function App() {
                 ? '待授权请求'
                 : adminTab === 'authorized'
                   ? '已授权设备'
-                  : adminTab === 'wake'
-                    ? '服务器唤醒配置'
-                    : adminTab === 'emails'
-                      ? 'Agent 邮箱关联'
-                      : adminTab === 'projects'
-                        ? '项目管理'
-                        : '管理会话',
+                  : adminTab === 'versions'
+                    ? 'Agent 运行版本'
+                    : adminTab === 'wake'
+                      ? '服务器唤醒配置'
+                      : adminTab === 'emails'
+                        ? 'Agent 邮箱关联'
+                        : adminTab === 'projects'
+                          ? '项目管理'
+                          : '管理会话',
             )}
           </h2>
+          {adminTab === 'versions' && <AgentVersions hosts={keyHosts} />}
           {adminTab === 'pending' && (
             <>
               <p>
@@ -3177,6 +3187,18 @@ function App() {
               </button>
             </>
           )}
+        </section>
+      )}
+      {mode === 'admin' && admin && (
+        <section
+          className="card"
+          role="tabpanel"
+          id="admin-panel-misc"
+          aria-labelledby="admin-tab-misc"
+          hidden={view !== 'devices' || adminTab !== 'misc'}
+        >
+          <h2>{t('杂项')}</h2>
+          <AgentUpdates />
         </section>
       )}
       {admin && view === 'keys' && (

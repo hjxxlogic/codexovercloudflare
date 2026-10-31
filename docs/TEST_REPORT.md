@@ -1,5 +1,12 @@
 # 本机测试记录
 
+## 管理页面 Tab 整理 · 2026-10-31（本地验证，未部署）
+
+- “Agent 运行版本”改为独立 Tab；“Agent 更新”移入新增“杂项”Tab，其他页面不再显示这两张常驻卡片。杂项面板隐藏时保留更新通知实例，切换 Tab 不重置发送状态。
+- TypeScript、ESLint / Prettier、Vite 构建与差异空白检查通过；20 个 Vitest 文件共 250 项通过。本次仅调整网页布局和 Tab 状态，未修改后端或原生行为。
+- 隔离 Chromium 完整 UI 回归通过，验证中英文版本 / 杂项 Tab、每次仅一个活动 tabpanel、Home / End 键盘切换、桌面 / 手机布局与版本表排序；模拟更新通知发送中切到版本页及 API Key 页再返回，发送按钮保持禁用、请求数不增加，并保留最终成功结果。
+- [桌面 / 手机验收截图](assets/admin-tabs-2026-10-31/)。模拟 API / 通知不涉及生产凭据、真实更新或模型调用；日志位于忽略目录 `.local/admin-tabs/`。网站发布版本为 0.5.20，保留原生 0.5.18 下载；部署等待最终源码提交六项 CI 全部通过。
+
 ## 运行版本展示与过程输出折叠 · 2026-10-31（CI 通过，已部署）
 
 最终源码 `cf755f0fedea06fb47b209fac23be0cb4c7bd6c3` 的 [Actions 41155282936](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936) 六项必需作业全部成功，包含普通 / D1 原生与 Chromium 完整回归。使用核对摘要和源码身份的 CI Worker / web 制品部署 0.5.19；Worker `61056a3f-0ed0-48d4-ba22-7b6533f33cb7` 接收 100% 流量。线上七项资源字节与八项认证边界核验通过，原生 0.5.18 下载清单 / 校验清单保持不变，未重启 Agent。[发布证据](assets/version-display-2026-10-31/deployment.json)。

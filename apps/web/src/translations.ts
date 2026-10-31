@@ -1,6 +1,7 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
   网站版本: 'Website version',
+  杂项: 'Miscellaneous',
   'Agent 运行版本': 'Running Agent versions',
   'Agent 版本': 'Agent version',
   未上报: 'Not reported',
