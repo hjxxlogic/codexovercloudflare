@@ -1,0 +1,1281 @@
+{
+  "commit": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+  "jobs": [
+    {
+      "id": 124400602543,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqNrw",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602543",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602543",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:39:48Z",
+      "name": "windows-x64",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:31Z",
+          "completed_at": "2026-10-31T01:25:32Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:37Z"
+        },
+        {
+          "name": "Run actions/setup-python@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:37Z",
+          "completed_at": "2026-10-31T01:25:37Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:25:37Z",
+          "completed_at": "2026-10-31T01:25:38Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:25:38Z",
+          "completed_at": "2026-10-31T01:25:52Z"
+        },
+        {
+          "name": "Prepare dependency cache",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:25:52Z",
+          "completed_at": "2026-10-31T01:25:53Z"
+        },
+        {
+          "name": "Configure Windows x64 with static dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:25:53Z",
+          "completed_at": "2026-10-31T01:34:25Z"
+        },
+        {
+          "name": "Run python scripts/ci-command.py cmake --build build-windows --config Release --parallel 2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:34:25Z",
+          "completed_at": "2026-10-31T01:38:38Z"
+        },
+        {
+          "name": "Run python scripts/ci-command.py ctest --test-dir build-windows -C Release --output-on-failure",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-31T01:38:38Z",
+          "completed_at": "2026-10-31T01:38:42Z"
+        },
+        {
+          "name": "Verify native Windows login recovery and generated defaults",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-31T01:38:42Z",
+          "completed_at": "2026-10-31T01:39:35Z"
+        },
+        {
+          "name": "Validate executable metadata and startup",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-31T01:39:35Z",
+          "completed_at": "2026-10-31T01:39:35Z"
+        },
+        {
+          "name": "Verify Windows release packaging guards",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-31T01:39:35Z",
+          "completed_at": "2026-10-31T01:39:41Z"
+        },
+        {
+          "name": "Package verified Windows x64 binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-31T01:39:41Z",
+          "completed_at": "2026-10-31T01:39:43Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-31T01:39:43Z",
+          "completed_at": "2026-10-31T01:39:43Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 15,
+          "started_at": "2026-10-31T01:39:43Z",
+          "completed_at": "2026-10-31T01:39:43Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-31T01:39:43Z",
+          "completed_at": "2026-10-31T01:39:45Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-31T01:39:45Z",
+          "completed_at": "2026-10-31T01:39:45Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-31T01:39:45Z",
+          "completed_at": "2026-10-31T01:39:47Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-31T01:39:47Z",
+          "completed_at": "2026-10-31T01:39:47Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602543",
+      "labels": ["windows-2022"],
+      "runner_id": 1000000767,
+      "runner_name": "GitHub Actions 1000000767",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124400602653,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqOHQ",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602653",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602653",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:28:31Z",
+      "name": "linux-musl",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:34Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:34Z",
+          "completed_at": "2026-10-31T01:25:35Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:35Z",
+          "completed_at": "2026-10-31T01:25:36Z"
+        },
+        {
+          "name": "Run docker/setup-buildx-action@v3",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:25:36Z",
+          "completed_at": "2026-10-31T01:25:47Z"
+        },
+        {
+          "name": "Prepare Alpine musl toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:25:47Z",
+          "completed_at": "2026-10-31T01:26:22Z"
+        },
+        {
+          "name": "Build, test and package fully static Linux x86_64 binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:26:22Z",
+          "completed_at": "2026-10-31T01:28:20Z"
+        },
+        {
+          "name": "Verify startup and musl update selection on the glibc host",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:28:20Z",
+          "completed_at": "2026-10-31T01:28:23Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:28:23Z",
+          "completed_at": "2026-10-31T01:28:25Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-31T01:28:25Z",
+          "completed_at": "2026-10-31T01:28:25Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-31T01:28:25Z",
+          "completed_at": "2026-10-31T01:28:27Z"
+        },
+        {
+          "name": "Post Prepare Alpine musl toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-31T01:28:27Z",
+          "completed_at": "2026-10-31T01:28:29Z"
+        },
+        {
+          "name": "Post Run docker/setup-buildx-action@v3",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-31T01:28:29Z",
+          "completed_at": "2026-10-31T01:28:29Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-31T01:28:29Z",
+          "completed_at": "2026-10-31T01:28:30Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-31T01:28:30Z",
+          "completed_at": "2026-10-31T01:28:30Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602653",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": 1000000769,
+      "runner_name": "GitHub Actions 1000000769",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124400602676,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqONA",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602676",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602676",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:28:04Z",
+      "name": "linux-release (debian12, debian:12)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:33Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:33Z",
+          "completed_at": "2026-10-31T01:25:37Z"
+        },
+        {
+          "name": "Install target build dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:37Z",
+          "completed_at": "2026-10-31T01:25:59Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:25:59Z",
+          "completed_at": "2026-10-31T01:26:01Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:26:01Z",
+          "completed_at": "2026-10-31T01:26:06Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:26:06Z",
+          "completed_at": "2026-10-31T01:26:09Z"
+        },
+        {
+          "name": "Build and test target binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:26:09Z",
+          "completed_at": "2026-10-31T01:27:48Z"
+        },
+        {
+          "name": "Package verified Linux binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:27:48Z",
+          "completed_at": "2026-10-31T01:27:50Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-31T01:27:50Z",
+          "completed_at": "2026-10-31T01:27:53Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-31T01:27:53Z",
+          "completed_at": "2026-10-31T01:27:53Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-31T01:27:53Z",
+          "completed_at": "2026-10-31T01:27:58Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-31T01:27:58Z",
+          "completed_at": "2026-10-31T01:27:58Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-31T01:27:58Z",
+          "completed_at": "2026-10-31T01:27:59Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-31T01:27:59Z",
+          "completed_at": "2026-10-31T01:28:02Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-31T01:28:02Z",
+          "completed_at": "2026-10-31T01:28:02Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602676",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": 1000000768,
+      "runner_name": "GitHub Actions 1000000768",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124400602687,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqOPw",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602687",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602687",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:28:01Z",
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:33Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:33Z",
+          "completed_at": "2026-10-31T01:25:36Z"
+        },
+        {
+          "name": "Install target build dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:36Z",
+          "completed_at": "2026-10-31T01:26:05Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:26:05Z",
+          "completed_at": "2026-10-31T01:26:06Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:26:06Z",
+          "completed_at": "2026-10-31T01:26:11Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:26:11Z",
+          "completed_at": "2026-10-31T01:26:14Z"
+        },
+        {
+          "name": "Build and test target binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:26:14Z",
+          "completed_at": "2026-10-31T01:27:47Z"
+        },
+        {
+          "name": "Package verified Linux binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:27:47Z",
+          "completed_at": "2026-10-31T01:27:49Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-31T01:27:49Z",
+          "completed_at": "2026-10-31T01:27:51Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-31T01:27:51Z",
+          "completed_at": "2026-10-31T01:27:51Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-31T01:27:51Z",
+          "completed_at": "2026-10-31T01:27:56Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-31T01:27:56Z",
+          "completed_at": "2026-10-31T01:27:56Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-31T01:27:56Z",
+          "completed_at": "2026-10-31T01:27:56Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-31T01:27:56Z",
+          "completed_at": "2026-10-31T01:27:59Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-31T01:27:59Z",
+          "completed_at": "2026-10-31T01:27:59Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602687",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": 1000000771,
+      "runner_name": "GitHub Actions 1000000771",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124400602725,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqOZQ",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602725",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602725",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:40:51Z",
+      "name": "regression",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:31Z",
+          "completed_at": "2026-10-31T01:25:32Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:34Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:34Z",
+          "completed_at": "2026-10-31T01:25:41Z"
+        },
+        {
+          "name": "Run sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:25:41Z",
+          "completed_at": "2026-10-31T01:25:59Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:25:59Z",
+          "completed_at": "2026-10-31T01:25:59Z"
+        },
+        {
+          "name": "Install locked dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:25:59Z",
+          "completed_at": "2026-10-31T01:26:33Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run lint && python3 scripts/ci-command.py npm run lint:cpp && python3 scripts/ci-command.py npm run typecheck && python3 scripts/ci-command.py npm run protocol:check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:26:33Z",
+          "completed_at": "2026-10-31T01:26:53Z"
+        },
+        {
+          "name": "Build with compiler cache",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:26:53Z",
+          "completed_at": "2026-10-31T01:27:35Z"
+        },
+        {
+          "name": "Native and unit regressions including DO archive and CW recovery",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-31T01:27:35Z",
+          "completed_at": "2026-10-31T01:27:48Z"
+        },
+        {
+          "name": "Run npm run test:tls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-31T01:27:48Z",
+          "completed_at": "2026-10-31T01:28:59Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run test:billing",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-31T01:28:59Z",
+          "completed_at": "2026-10-31T01:32:31Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run test:projects",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-31T01:32:31Z",
+          "completed_at": "2026-10-31T01:32:33Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run test:delivery",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-31T01:32:33Z",
+          "completed_at": "2026-10-31T01:32:35Z"
+        },
+        {
+          "name": "Run python3 tests/native-login.py",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-10-31T01:32:35Z",
+          "completed_at": "2026-10-31T01:33:26Z"
+        },
+        {
+          "name": "Run npm run test:backup",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-31T01:33:26Z",
+          "completed_at": "2026-10-31T01:33:27Z"
+        },
+        {
+          "name": "Run npm run test:release",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-31T01:33:27Z",
+          "completed_at": "2026-10-31T01:33:28Z"
+        },
+        {
+          "name": "Run python3 tests/agent-deploy.py",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-31T01:33:28Z",
+          "completed_at": "2026-10-31T01:33:29Z"
+        },
+        {
+          "name": "Run python3 tests/cloud-deploy.py",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-31T01:33:29Z",
+          "completed_at": "2026-10-31T01:33:29Z"
+        },
+        {
+          "name": "Run python3 tests/cloudflare-access-tools.py",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-31T01:33:29Z",
+          "completed_at": "2026-10-31T01:33:29Z"
+        },
+        {
+          "name": "Run python3 tests/ci-command.py",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-31T01:33:29Z",
+          "completed_at": "2026-10-31T01:33:29Z"
+        },
+        {
+          "name": "Run npm run test:update",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-31T01:33:29Z",
+          "completed_at": "2026-10-31T01:33:30Z"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-31T01:33:30Z",
+          "completed_at": "2026-10-31T01:33:41Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-31T01:33:41Z",
+          "completed_at": "2026-10-31T01:37:15Z"
+        },
+        {
+          "name": "Run python3 scripts/ci-command.py npm run test:projects:e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 24,
+          "started_at": "2026-10-31T01:37:15Z",
+          "completed_at": "2026-10-31T01:37:21Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-10-31T01:37:21Z",
+          "completed_at": "2026-10-31T01:37:22Z"
+        },
+        {
+          "name": "D1 activation, idle archive and restart recovery",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 26,
+          "started_at": "2026-10-31T01:37:22Z",
+          "completed_at": "2026-10-31T01:38:33Z"
+        },
+        {
+          "name": "D1 native and Chromium end-to-end regression",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 27,
+          "started_at": "2026-10-31T01:38:33Z",
+          "completed_at": "2026-10-31T01:40:44Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 28,
+          "started_at": "2026-10-31T01:40:44Z",
+          "completed_at": "2026-10-31T01:40:45Z"
+        },
+        {
+          "name": "Record cloud artifact provenance",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 29,
+          "started_at": "2026-10-31T01:40:45Z",
+          "completed_at": "2026-10-31T01:40:45Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 30,
+          "started_at": "2026-10-31T01:40:45Z",
+          "completed_at": "2026-10-31T01:40:46Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-31T01:40:46Z",
+          "completed_at": "2026-10-31T01:40:47Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-31T01:40:47Z",
+          "completed_at": "2026-10-31T01:40:47Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-31T01:40:47Z",
+          "completed_at": "2026-10-31T01:40:49Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 65,
+          "started_at": "2026-10-31T01:40:49Z",
+          "completed_at": "2026-10-31T01:40:49Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 66,
+          "started_at": "2026-10-31T01:40:49Z",
+          "completed_at": "2026-10-31T01:40:50Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 67,
+          "started_at": "2026-10-31T01:40:50Z",
+          "completed_at": "2026-10-31T01:40:50Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602725",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": 1000000770,
+      "runner_name": "GitHub Actions 1000000770",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124400602767,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9tqOjw",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124400602767",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124400602767",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-31T01:25:29Z",
+      "started_at": "2026-10-31T01:25:31Z",
+      "completed_at": "2026-10-31T01:27:20Z",
+      "name": "sanitizers",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-31T01:25:32Z",
+          "completed_at": "2026-10-31T01:25:33Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-31T01:25:33Z",
+          "completed_at": "2026-10-31T01:25:34Z"
+        },
+        {
+          "name": "Run sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-31T01:25:34Z",
+          "completed_at": "2026-10-31T01:25:46Z"
+        },
+        {
+          "name": "Run actions/cache/restore@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-31T01:25:46Z",
+          "completed_at": "2026-10-31T01:25:53Z"
+        },
+        {
+          "name": "Run ccache --zero-stats && cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake --build build-sanitize -j 2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-31T01:25:53Z",
+          "completed_at": "2026-10-31T01:26:41Z"
+        },
+        {
+          "name": "Run ctest --test-dir build-sanitize --output-on-failure",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-31T01:26:41Z",
+          "completed_at": "2026-10-31T01:27:13Z"
+        },
+        {
+          "name": "Report compiler cache statistics",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-31T01:27:13Z",
+          "completed_at": "2026-10-31T01:27:13Z"
+        },
+        {
+          "name": "Run actions/cache/save@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-31T01:27:13Z",
+          "completed_at": "2026-10-31T01:27:18Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-31T01:27:18Z",
+          "completed_at": "2026-10-31T01:27:18Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-31T01:27:18Z",
+          "completed_at": "2026-10-31T01:27:18Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124400602767",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": 1000000772,
+      "runner_name": "GitHub Actions 1000000772",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 124404370383,
+      "run_id": 41155282936,
+      "workflow_name": "checks",
+      "head_branch": "master",
+      "run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/runs/41155282936",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVVebPs8AAAAc9xQLzw",
+      "head_sha": "cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/actions/jobs/124404370383",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936/job/124404370383",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-31T01:40:52Z",
+      "started_at": "2026-10-31T01:40:52Z",
+      "completed_at": "2026-10-31T01:40:52Z",
+      "name": "publish-release",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/hjxxlogic/codexovercloudflare/check-runs/124404370383",
+      "labels": ["ubuntu-24.04"],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13024934815,
+      "digest": "sha256:31ff9290fe3d03d0a2c994e880a3ce9fc5063e953f0caee71b41e4aaf655fe8c"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13025044334,
+      "digest": "sha256:0b74ca936b34545c744fbc9d0a64856964a5934c21c1d8bd074abe072f264afa"
+    }
+  ],
+  "sourceDigest": "2b86868b356e099e6b8267790f906b378c31057de2c046b8a73485ebe54ecc72",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.18",
+    "commit": "493912b324361a751567c08f360f977cb0d34b60",
+    "sourceDigest": "c6ed8fbf363b544fdbe057f1c1c53f855251b22fa846943b4f2f302d7c572359",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.18-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.18-linux-x86_64-musl.tar.gz",
+      "coc-0.5.18-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.18-windows-x64.zip",
+      "codex-over-cloudflare-0.5.18-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.19",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "assets": [
+      {
+        "path": "/",
+        "sha256": "21b90f17bd20ddad9aeb48d60094397a1b42500650ec05e18a5b198c65f901ff"
+      },
+      {
+        "path": "/deploy-source.json",
+        "sha256": "7298485e9a594c482f8132538d4944dc468f2bde3634757667c050c3f68ec9bc"
+      },
+      {
+        "path": "/assets/index-CQw5ADkF.css",
+        "sha256": "7b7fc65cf15078e65abd8266f30b3faa224b0f6eb45880d86b46658ee43a5834"
+      },
+      {
+        "path": "/assets/index-T_a5kiuc.js",
+        "sha256": "e6ceed8ea337db91ec7fe0ae9c5bfb3ad17a51c85f2d56336a809d9681492a82"
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "sha256": "0885303765dc105e5abce991378aef44e12a3c20dc55e26519a0dacbd31e1c25"
+      },
+      {
+        "path": "/downloads/index.json",
+        "sha256": "0931b099d409eee73b732a334218eff0291419cbaa3fea9f534f54a44be6bd5a"
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "sha256": "fcf9c06e07863ef2aec5c3742c98a10bccf6875c03ef62f5e5afb9ca1c4ff3a4"
+      }
+    ],
+    "endpoints": [
+      {
+        "path": "/api/v1/auth/email",
+        "serviceAdmission": true,
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "ACCESS_USER_REQUIRED",
+            "message": "Verified email login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/admin/hosts",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/snapshot",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/delivery",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/progress",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "serviceAdmission": false,
+        "status": 200,
+        "body": {
+          "enabled": false
+        }
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "serviceAdmission": false,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts",
+        "serviceAdmission": false,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      }
+    ],
+    "preservedNativeDownloads": {
+      "index.json": {
+        "sha256": "0931b099d409eee73b732a334218eff0291419cbaa3fea9f534f54a44be6bd5a",
+        "manifest": {
+          "version": "0.5.18",
+          "commit": "493912b324361a751567c08f360f977cb0d34b60",
+          "sourceDigest": "c6ed8fbf363b544fdbe057f1c1c53f855251b22fa846943b4f2f302d7c572359",
+          "protocol": 1,
+          "files": [
+            "coc-0.5.18-linux-x86_64-debian12.tar.gz",
+            "coc-0.5.18-linux-x86_64-musl.tar.gz",
+            "coc-0.5.18-linux-x86_64-ubuntu20.04.tar.gz",
+            "coc-0.5.18-windows-x64.zip",
+            "codex-over-cloudflare-0.5.18-source.tar.gz"
+          ],
+          "checksums": "SHA256SUMS",
+          "manual": "USER_GUIDE.md"
+        }
+      },
+      "SHA256SUMS": {
+        "sha256": "fcf9c06e07863ef2aec5c3742c98a10bccf6875c03ef62f5e5afb9ca1c4ff3a4",
+        "checksums": {
+          "coc-0.5.18-linux-x86_64-debian12.tar.gz": "b73e1101aaf1b36584b244fc9f7ffc901e2a9033de515a41b69258bf324cd71f",
+          "coc-0.5.18-linux-x86_64-musl.tar.gz": "815fd07546d97d53359815f743a7bf36f463260df985c677f93bcb12e292775e",
+          "coc-0.5.18-linux-x86_64-ubuntu20.04.tar.gz": "f272b1cdfbc2d15999e3f4a9adb010673e03ad5d7847f38e96e6d7e896e4e866",
+          "coc-0.5.18-windows-x64.zip": "72e817f5b08b0d86af1b54846e18b5d02b5c8c1691e4f0a5ed02c0703c5a5d56",
+          "codex-over-cloudflare-0.5.18-source.tar.gz": "f89d1d982ef1def035125f6b5a882cfb4e0a009c667e251c217060711a1496c5"
+        }
+      }
+    },
+    "preservedNativeManifestAndChecksumsUnchanged": true
+  },
+  "limitations": [
+    "Online checks verified deployed asset bytes and anonymous authorization boundaries; no real administrator email browser or model task was used. Exact-source CI covers synthetic authenticated administrator/browser behavior, normal/D1 end-to-end checks and native regressions.",
+    "Relay/web is 0.5.19. Native downloads remain the previously verified 0.5.18 archives with unchanged manifest and checksums; no native installation, update notification or forced Agent restart occurred.",
+    "D1 backup excludes active Durable Object state. No schema migrations were pending; production variables, Secrets, D1 UUID and Cron were retained.",
+    "Only the final cf755f0 source and all six successful required jobs from Actions 41155282936 authorized this deployment. The earlier version-only ec6af90 run was superseded before publication.",
+    "GitHub API metadata used the Windows network exit; TLS verification remained enabled. Deployment used the checked-in script and digest-verified CI Worker/web artifacts."
+  ],
+  "cloudflareDeployment": {
+    "id": "5773c7b8-e9b0-4528-9a58-e2c010f48801",
+    "created_on": "2026-10-31T01:43:07.840034Z",
+    "versions": [
+      {
+        "version_id": "61056a3f-0ed0-48d4-ba22-7b6533f33cb7",
+        "percentage": 100
+      }
+    ],
+    "annotations": {
+      "workers/message": "Actions 41155282936 commit cf755f0fedea06fb47b209fac23be0cb4c7bd6c3",
+      "workers/triggered_by": "deployment"
+    }
+  },
+  "backup": {
+    "database": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+    "bytes": 42728,
+    "sha256": "15dc7c2d0532195da9c68a3cabbcf9b9cf60815b1274e8f41937803d370ed09b",
+    "sqliteIntegrity": "ok",
+    "limitation": "D1 export does not include active Durable Object state"
+  },
+  "releaseNotification": {
+    "status": "not_requested",
+    "reason": "This release changes only Relay/web behavior and preserves native 0.5.18. No Agent was restarted or sent an update notification."
+  }
+}

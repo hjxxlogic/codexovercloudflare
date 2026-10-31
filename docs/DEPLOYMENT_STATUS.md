@@ -1,4 +1,16 @@
-# 发布状态：0.5.18
+# 发布状态：网站 0.5.19 / 原生下载 0.5.18
+
+## 运行版本展示与连续过程输出折叠 · 2026-10-31
+
+最终源码 `cf755f0fedea06fb47b209fac23be0cb4c7bd6c3` 的 [Actions 41155282936](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41155282936) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。包含普通 / D1 后端完整原生与 Chromium 回归，以及版本展示、连续过程输出分组、权限、缓存和恢复检查。版本展示提交 `ec6af90` 后补充了过程输出折叠，最终以 `cf755f0` 重新通过的完整 CI 发布。
+
+通过 `scripts/deploy-cloud.py` 校验 CI Worker / web 制品摘要与源码身份，于 UTC 01:43:07 发布至 `https://r.xlogic.cc`。部署 ID `5773c7b8-e9b0-4528-9a58-e2c010f48801`，Worker `61056a3f-0ed0-48d4-ba22-7b6533f33cb7` 接收 100% 流量。线上健康返回 0.5.19，七项网页 / 手册 / 下载元数据逐字节一致，八项认证边界检查通过。
+
+管理页面新增当前 Agent 运行版本表，区分在线、离线、未上报与未知状态；菜单底部显示当前网页构建版本。CW 连续的非对用户过程输出统一折叠为工具组，代码差异、计划及其它执行详情可逐项展开，保留增删高亮与按需读取；用户正文和面向用户的告警 / 状态保留为分界。
+
+原生下载继续使用 `493912b` 的 0.5.18，五个归档在保留时重新核对 SHA256，发布后的下载清单和校验清单与发布前字节一致。没有发布新原生包、发送更新通知或重启 Agent。保留原 D1 UUID、STATE_BACKEND、Cron、Access 变量、Secret 和授权数据，没有待执行迁移；发布前私有 D1 导出通过 SQLite 完整性检查，不包含活动 DO 状态。
+
+线上未使用真实管理员邮箱会话或模型任务验收；认证后的页面行为由最终提交的 CI 模拟身份验证。GitHub 官方元数据通过 Windows 网络出口读取，TLS 校验保持开启。[完整 CI、摘要、部署与线上验收证据](assets/version-display-2026-10-31/deployment.json)。[桌面 / 手机版本与折叠截图](assets/version-display-2026-10-31/)。私有备份和日志位于忽略目录 `.local/version-release/`，部署制品位于 `.local/deploy-cloud/41155282936/`。
 
 ## A / C 可靠会话传输与 CW 恢复 · 2026-10-31
 
