@@ -1,5 +1,9 @@
 # 发布状态：网站 / 原生下载 0.5.20
 
+## D1 查询与写入优化 · 2026-10-31
+
+源码 `79caa1e59ea651f5339957032ee73d3ab592467b` 的 [Actions 41199314010](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010) 六项必需 CI 全部成功，包含完整普通 / D1 原生与 Chromium 回归。通过 `scripts/deploy-cloud.py` 校验 SHA256 和源码身份后部署 Worker / 网站 0.5.21，Worker `1c0f47e5-aa74-4216-a8d5-be2dc21b1d88`。线上 7 项资源和 15 项认证边界核验通过；保留原 D1 UUID、后端模式、Cron 与原生 0.5.20 下载，未重启 Agent。优化减少事务重复读取和相同值重写，无 schema migration。整体日成本收益仍需同等流量的完整发布后窗口观察。[分析报告](d1-usage-2026-10-31.md)；[发布证据和制品摘要](assets/d1-usage-2026-10-31/deployment.json)。
+
 ## 远程配置、重启与 Agent 连接配置 · 2026-10-31
 
 最终源码 `78418e6eccbe69bbb36dc05ffc7077092660f93c` 的 [Actions 41166072609](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41166072609) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。包含真实 3 分钟重连、超过 30 秒仍可管理的客户端连接、配置 / 备份 / 重启去重、代理隔离、普通及 D1 后端和 Chromium 回归。仅此最终提交的制品用于发布。

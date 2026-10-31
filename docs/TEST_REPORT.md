@@ -2,7 +2,7 @@
 
 ## D1 查询与写入优化 · 2026-10-31
 
-本地 Vitest 21 文件、260 项及 TypeScript、ESLint / Prettier 检查通过；新增事务读取复用、对象隔离、授权撤销、CAS 冲突失效和同值写入计数测试。线上只读指标与执行计划、效果边界见 [D1 使用分析](d1-usage-2026-10-31.md)。完整 CI 与部署结果随后记录。
+本地 Vitest 21 文件、260 项及 TypeScript、ESLint / Prettier 检查通过；新增事务读取复用、对象隔离、授权撤销、CAS 冲突失效和同值写入计数测试。线上只读指标与执行计划、效果边界见 [D1 使用分析](d1-usage-2026-10-31.md)。源码 `79caa1e` 的 [Actions 41199314010](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010) 六项必需作业全部成功，包含普通 / D1 原生与 Chromium 端到端。已通过仓库脚本发布 0.5.21 Worker / 网站；线上 7 项资源与 15 项认证边界核验通过，保留 D1 绑定、Cron 和 0.5.20 原生下载，未重启 Agent。[发布证据](assets/d1-usage-2026-10-31/deployment.json)。
 
 ## 远程配置、管理 Tab 与 Agent 连接配置 · 2026-10-31（CI 通过，已部署）
 

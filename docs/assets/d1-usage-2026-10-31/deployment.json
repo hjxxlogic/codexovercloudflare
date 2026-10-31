@@ -1,0 +1,255 @@
+{
+  "commit": "79caa1e59ea651f5339957032ee73d3ab592467b",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13042367229,
+      "digest": "sha256:d742ab3ff0c8bd2ff550e9993649ce26cce892ea310761bcc2a0467c24a6aad0"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13042561834,
+      "digest": "sha256:cb7761c65abab669d3049a52cc160b92c9763c1942a88a06fa8da4d592100329"
+    }
+  ],
+  "sourceDigest": "79ccc8c84a031631d7138bffc2029c1f4cd86e608d00a07312f8ec9d37b04e6f",
+  "target": "https://r.xlogic.cc",
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "applied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.5.21",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "assets": [
+      {
+        "path": "/",
+        "sha256": "bfba3acda4f5936804c4d42ee599795ced57fc8509440607809158bb1a1b8396"
+      },
+      {
+        "path": "/deploy-source.json",
+        "sha256": "3e873dbe7d3310f332a2e760481bc311f0f1080d9e380cf28cd7c6e95fe45bb1"
+      },
+      {
+        "path": "/assets/index-Cy95QFWU.js",
+        "sha256": "d13d968c387789c6028832cb56739c1e9d5663dac16ee3c61e89e762a64ca3eb"
+      },
+      {
+        "path": "/assets/index-DdWY9-46.css",
+        "sha256": "fad97aa9847b26186fd522816012c03d4776badd741381dbab7214fe1f55a5d0"
+      },
+      {
+        "path": "/downloads/USER_GUIDE.md",
+        "sha256": "d37e15e127d66102c796c6edf74689f0a0b0c35594b8f24dd68483b4a16cb467"
+      },
+      {
+        "path": "/downloads/index.json",
+        "sha256": "217c5da696581216840900cd089f477bc73478f9489063372f5b8ccfaa371a14"
+      },
+      {
+        "path": "/downloads/SHA256SUMS",
+        "sha256": "180b10089aa8ef937eedc49a5d3b0adffea1057074af64935e92599980894397"
+      }
+    ],
+    "endpoints": [
+      {
+        "path": "/api/v1/auth/email",
+        "serviceAdmission": true,
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "ACCESS_USER_REQUIRED",
+            "message": "Verified email login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/admin/hosts",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/admin/hosts/00000000-0000-4000-8000-000000000001/configuration",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/snapshot",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/delivery",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000001~00000000-0000-4000-8000-000000000002/progress",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "serviceAdmission": true,
+        "status": 200,
+        "body": {
+          "enabled": false
+        }
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Login required"
+          }
+        }
+      },
+      {
+        "path": "/ws/v1/client-management/00000000-0000-4000-8000-000000000001",
+        "serviceAdmission": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Expired or invalid credentials"
+          }
+        }
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "serviceAdmission": false,
+        "status": 302,
+        "blockedBy": "Cloudflare Access",
+        "redirectOrigin": "https://x1x3.cloudflareaccess.com"
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "serviceAdmission": false,
+        "status": 302,
+        "blockedBy": "Cloudflare Access",
+        "redirectOrigin": "https://x1x3.cloudflareaccess.com"
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts",
+        "serviceAdmission": false,
+        "status": 302,
+        "blockedBy": "Cloudflare Access",
+        "redirectOrigin": "https://x1x3.cloudflareaccess.com"
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts/00000000-0000-4000-8000-000000000001/configuration",
+        "serviceAdmission": false,
+        "status": 302,
+        "blockedBy": "Cloudflare Access",
+        "redirectOrigin": "https://x1x3.cloudflareaccess.com"
+      },
+      {
+        "path": "/api/v1/hosts",
+        "serviceAdmission": true,
+        "invalidCredential": true,
+        "status": 401,
+        "body": {
+          "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Expired or invalid credentials"
+          }
+        }
+      }
+    ]
+  },
+  "limitations": [
+    "Online verification uses entry admission and unauthenticated CoC boundary requests; no real user task or configuration was changed.",
+    "Relay/web is 0.5.21; existing native 0.5.20 downloads were preserved, no Agent restart or update notification.",
+    "D1 daily savings require a full post-deployment window with comparable traffic; aggregate cost reduction is not yet established.",
+    "Production guest paths still redirect requests without entry admission to Cloudflare Access."
+  ],
+  "jobs": [
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768311"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768479"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768484"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768497"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768541"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124531768561"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010/job/124535997371"
+    }
+  ],
+  "workerVersion": "1c0f47e5-aa74-4216-a8d5-be2dc21b1d88",
+  "preservedNativeVersion": "0.5.20",
+  "preservedNativeCommit": "78418e6eccbe69bbb36dc05ffc7077092660f93c",
+  "noSchemaMigration": true
+}
