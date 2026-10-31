@@ -13,6 +13,8 @@ let approvals = 0,
   pings = 0;
 let peer: WebSocket | undefined;
 let replyToPing = true;
+let rejectConnections = false;
+const connectedAt: number[] = [];
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (req.url === '/api/v1/agent/requests') {
@@ -24,6 +26,11 @@ const sockets = new WebSocketServer({ server, autoPong: false });
 sockets.on('connection', (ws) => {
   peer = ws;
   connections++;
+  connectedAt.push(performance.now());
+  if (rejectConnections) {
+    ws.close(1013, 'Synthetic temporary outage');
+    return;
+  }
   if (connections > 1) replyToPing = true;
   ws.send(JSON.stringify({ type: 'hello', minProtocol: 1, demand: 1 }));
   ws.on('message', () => frames++);
@@ -129,6 +136,59 @@ try {
   assert.match(output, /WebSocket Pong timeout after 90 seconds/);
   assert.equal(agent.exitCode, null);
   assert.ok(pings > healthyPings);
+  const pongRecoveryMs = Date.now() - lostAt;
+  const beforeOutage = connections;
+  const approvalsBeforeOutage = approvals;
+  rejectConnections = true;
+  peer!.close(1012, 'Synthetic outage');
+  await wait(
+    () => connections === beforeOutage + 5,
+    'five failed fast reconnects',
+    45000,
+  );
+  await wait(
+    () =>
+      output.includes(
+        'Reconnect budget exhausted; next attempt in 180 seconds',
+      ),
+    'three-minute retry scheduled',
+  );
+  assert.equal(
+    agent.exitCode,
+    null,
+    'exhausting fast retries must not stop the Agent',
+  );
+  const lastFastAttempt = connectedAt.at(-1)!;
+  rejectConnections = false;
+  await wait(
+    () =>
+      connections === beforeOutage + 6 &&
+      approvals === approvalsBeforeOutage + 1,
+    'automatic recovery after three-minute cooldown',
+    205000,
+  );
+  const slowRecoveryMs = connectedAt.at(-1)! - lastFastAttempt;
+  assert.ok(
+    slowRecoveryMs >= 180000,
+    'slow retry must wait a full three minutes',
+  );
+  const recoveredAt = performance.now();
+  peer!.close(1012, 'Verify fast retries reset after successful negotiation');
+  await wait(
+    () =>
+      connections === beforeOutage + 7 &&
+      approvals === approvalsBeforeOutage + 2,
+    'successful recovery resets the fast retry budget',
+    5000,
+  );
+  assert.ok(performance.now() - recoveredAt < 5000);
+  peer!.close(4001, 'Synthetic authorization revocation');
+  await wait(
+    () => agent.exitCode !== null,
+    'revocation still stops the Agent',
+    5000,
+  );
+  assert.match(output, /Device authorization revoked; stopping Agent/);
   console.log(
     JSON.stringify({
       scenario: 'A-only',
@@ -138,7 +198,10 @@ try {
       protocolPings: healthyPings,
       idleReconnects: 0,
       missingPongReconnect: 'passed',
-      missingPongRecoveryMs: Date.now() - lostAt,
+      missingPongRecoveryMs: pongRecoveryMs,
+      exhaustedRetryRecoveryMs: slowRecoveryMs,
+      retryBudgetReset: 'passed',
+      revokedAuthorizationStops: 'passed',
       approvalEvent: 'passed',
       probe: 'passed',
     }),

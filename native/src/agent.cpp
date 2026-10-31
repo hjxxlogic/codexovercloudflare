@@ -171,14 +171,15 @@ public:
     }
     if (stopped_)
       return;
-    if (attempts_ >= 5) {
-      std::cerr << "Reconnect budget exhausted; restart Agent or send SIGUSR1 to reconnect\n";
-      return;
+    int delay = 180000;
+    if (attempts_ < 5) {
+      delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
+      unsigned char random = 0;
+      RAND_bytes(&random, 1);
+      delay = delay * (0.8 + random / 255.0 * 0.4);
+    } else {
+      std::cerr << "Reconnect budget exhausted; next attempt in 180 seconds\n";
     }
-    auto delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
-    unsigned char random = 0;
-    RAND_bytes(&random, 1);
-    delay = delay * (0.8 + random / 255.0 * 0.4);
     retry_.expires_after(std::chrono::milliseconds(delay));
     retry_.async_wait([this](auto ec) {
       if (!ec)

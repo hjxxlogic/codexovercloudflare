@@ -56,7 +56,7 @@ Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq
 
 ## Agent 协议心跳回归 · 2026-10-28
 
-`npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。默认约三分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。
+`npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。随后模拟连续握手失败：验证五次快速重试耗尽后，真实等待至少 180 秒再自动连接；恢复成功后再次断连须回到快速退避，4001 撤销仍停止 Agent。默认约七分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。
 
 ## 0.5.12 通知与计费回归
 
