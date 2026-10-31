@@ -22,6 +22,7 @@ const peers = new Map<string, WebSocket>();
 const connections = { agent: 0, client: 0 };
 const pending = new Map<string, (value: any) => void>();
 let attaches = 0;
+let clientPings = 0;
 const clientInstances: string[] = [];
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -60,6 +61,10 @@ sockets.on('connection', (ws, req) => {
           : { type: 'history-ready' },
     ),
   );
+  if (kind === 'client')
+    ws.on('ping', () => {
+      clientPings++;
+    });
   ws.on('message', (raw) => {
     const value = JSON.parse(String(raw));
     if (value.type === 'capabilities' || value.type === 'management-register') {
@@ -88,8 +93,12 @@ sockets.on('connection', (ws, req) => {
     if (peers.get(kind) === ws) peers.delete(kind);
   });
 });
-async function waitFor(predicate: () => boolean, message: string) {
-  const deadline = Date.now() + 15000;
+async function waitFor(
+  predicate: () => boolean,
+  message: string,
+  timeout = 15000,
+) {
+  const deadline = Date.now() + timeout;
   while (!predicate()) {
     assert(Date.now() < deadline, message);
     await new Promise((done) => setTimeout(done, 25));
@@ -228,6 +237,11 @@ try {
     () => peers.has('client') && existsSync(tuiLog),
     'Client/TUI did not register',
   );
+  await waitFor(
+    () => clientPings > 0,
+    'Client management must keep working past the first 30-second protocol ping',
+    45000,
+  );
   const clientOriginal = (await command('client', { action: 'read' })).result;
   assert.equal(clientOriginal.busy, true);
   const clientReplacement = { ...credentials, autoUpdateIntervalHours: 2 };
@@ -294,6 +308,7 @@ try {
     JSON.stringify({
       agentRestart: 'passed',
       clientOriginalCommand: 'passed',
+      clientKeepalive: 'passed',
       tuiCleanup: 'passed',
       duplicateRestart: 'passed',
       offlineClient: 'passed',

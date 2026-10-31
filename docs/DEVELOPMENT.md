@@ -2,7 +2,7 @@
 
 ## 远程配置验证
 
-`npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。
+`npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端管理连接持续超过 30 秒并完成协议 Ping / Pong 后仍能操作、关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。
 
 Linux / Windows 的 CTest 共用 `native/tests/remote-config.hpp`，覆盖配置语义校验、私有备份、文件版本冲突、幂等回执、活动任务确认及重启后去重；Vitest 的 remote-configuration 测试覆盖 owner 权限、主机隔离、在线目标、回复冒充、回包前撤权、原文不落盘及有界超时。`test:ui` 验证编辑、跨 Tab 保留、校验错误保留草稿、重启确认、丢回执沿用原编号、浏览器持久存储不含配置及桌面 / 手机截图。
 

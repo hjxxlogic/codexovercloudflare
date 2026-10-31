@@ -16,7 +16,7 @@ public:
 };
 class ClientManagement {
   asio::io_context io_;
-  asio::steady_timer retry_, maintenance_;
+  asio::steady_timer retry_;
   std::shared_ptr<Socket> socket_;
   RemoteConfiguration config_;
   Json credential_;
@@ -25,7 +25,6 @@ class ClientManagement {
   std::atomic<bool> restart_{false};
   bool stopped_ = false;
   void connect();
-  void maintain();
 
 public:
   ClientManagement(const std::filesystem::path &path, Json credential);

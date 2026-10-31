@@ -166,7 +166,7 @@ Json RemoteConfiguration::request(const Json &d, bool busy, bool &restart) {
   return result;
 }
 ClientManagement::ClientManagement(const std::filesystem::path &path, Json credential)
-    : retry_(io_), maintenance_(io_), config_(path, false), credential_(std::move(credential)) {
+    : retry_(io_), config_(path, false), credential_(std::move(credential)) {
   const auto inherited = std::getenv("COC_CLIENT_RESTART_INSTANCE");
   instance_ =
       inherited &&
@@ -181,7 +181,6 @@ ClientManagement::ClientManagement(const std::filesystem::path &path, Json crede
   unsetenv("COC_CLIENT_RESTART_INSTANCE");
 #endif
   connect();
-  maintain();
   thread_ = std::thread([this] {
     try {
       io_.run();
@@ -195,7 +194,6 @@ ClientManagement::~ClientManagement() {
   asio::post(io_, [this] {
     stopped_ = true;
     retry_.cancel();
-    maintenance_.cancel();
     if (socket_)
       socket_->close();
     io_.stop();
@@ -239,17 +237,8 @@ void ClientManagement::connect() {
         });
       },
       "/ws/v1/client-management/" + credential_.at("hostId").get<std::string>());
+  socket_->keepalive();
   socket_->start();
-}
-void ClientManagement::maintain() {
-  maintenance_.expires_after(std::chrono::seconds(30));
-  maintenance_.async_wait([this](auto ec) {
-    if (!ec && !stopped_) {
-      if (socket_)
-        socket_->keepalive();
-      maintain();
-    }
-  });
 }
 void restart_process(int, char **argv, const std::string &client_instance) {
 #ifdef _WIN32
