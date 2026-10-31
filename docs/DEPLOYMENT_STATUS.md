@@ -1,4 +1,16 @@
-# 发布状态：网站 0.5.19 / 原生下载 0.5.18
+# 发布状态：网站 / 原生下载 0.5.20
+
+## 远程配置、重启与 Agent 连接配置 · 2026-10-31
+
+最终源码 `78418e6eccbe69bbb36dc05ffc7077092660f93c` 的 [Actions 41166072609](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41166072609) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。包含真实 3 分钟重连、超过 30 秒仍可管理的客户端连接、配置 / 备份 / 重启去重、代理隔离、普通及 D1 后端和 Chromium 回归。仅此最终提交的制品用于发布。
+
+通过 `scripts/deploy-cloud.py --publish-downloads --apply` 核对六份 CI 制品摘要与源码身份，于 UTC 04:21:44 发布至 `https://r.xlogic.cc`。部署 ID `d5e1124b-4582-4717-b0b8-7eb00d7f6ca2`，Worker `9c1014aa-fd41-4b07-b2d4-1368d85d5a04` 接收 100% 流量。健康接口返回 0.5.20，七项资源字节一致，十四项认证边界核验通过；五份新下载归档和五份保留的 0.5.18 归档均在线重新核对 SHA256。
+
+“Agent 运行版本”使用独立 Tab，“Agent 更新”和“远程配置与重启”位于“杂项”。平台管理员可完整读取 / 替换在线原生端的启动配置文件，并显式确认重启。coc-client 退出后不可管理；重启关闭 TUI 并重新执行原启动命令。配置原文仅经 Worker 内存转发，本地私有备份与回执支持冲突和重复请求保护。Agent 快速重试耗尽后每 3 分钟继续重连，Codex 默认隔离 Agent 代理，可用 `codexUseProxy` 开启。
+
+原生端须升级到 0.5.20 才能使用新功能；本次发布下载包，没有直接安装、发送更新通知或强制重启现场 Agent。保留现有 D1 UUID、变量、Secret、Cron 和授权数据，没有待执行迁移。发布前最新私有 D1 导出通过 SQLite 完整性检查，不包含活动 DO 状态。
+
+线上未使用真实管理员邮箱会话或模型任务修改生产配置，认证后的功能由最终 CI 模拟身份与真实 Worker / 原生进程验证。当前生产 `/guest/*` 无入口凭据请求被 Cloudflare Access 重定向；带共享入口凭据时已验证 Worker 游客身份和权限，本次没有调整 Access 策略。Windows 原生 CTest 已通过，真实 TUI 重启流程在 Linux 夹具验证。[完整发布证据](assets/admin-tabs-2026-10-31/deployment.json)、[操作说明](REMOTE_CONFIGURATION.md)、[桌面 / 手机截图](assets/admin-tabs-2026-10-31/)。私有日志和备份位于忽略目录 `.local/admin-tabs-release/`，制品位于 `.local/deploy-cloud/41166072609/`。
 
 ## 运行版本展示与连续过程输出折叠 · 2026-10-31
 
