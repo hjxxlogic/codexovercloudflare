@@ -7,6 +7,7 @@
 #include "coc/update.hpp"
 #include "external-approvals.hpp"
 #include "process-proxy.hpp"
+#include "remote-config.hpp"
 #include <aclapi.h>
 #include <algorithm>
 #include <cctype>
@@ -34,6 +35,7 @@ int main() {
   auto root = std::filesystem::temp_directory_path() / wide("coc-windows-" + uuid());
   std::filesystem::create_directories(root);
   try {
+    remote_configuration_fixture(root / L"远程配置");
     std::cout << "RUN: private credentials and ACL" << std::endl;
     auto config = root / L"配置.json";
     save_private(config, {{"token", "secret"}}, true);

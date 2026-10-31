@@ -55,6 +55,7 @@ import {
 import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { AgentUpdates } from './agent-updates.tsx';
+import { RemoteConfiguration } from './remote-configuration.tsx';
 import { AgentVersions } from './agent-versions.tsx';
 import { version as webVersion } from '../../../package.json';
 import {
@@ -3199,6 +3200,7 @@ function App() {
         >
           <h2>{t('杂项')}</h2>
           <AgentUpdates />
+          <RemoteConfiguration hosts={keyHosts} />
         </section>
       )}
       {admin && view === 'keys' && (

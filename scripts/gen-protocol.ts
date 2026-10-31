@@ -1,3 +1,8 @@
+import {
+  configurationCommandSchema,
+  managementRequestSchema,
+  managementMetadataSchema,
+} from '../packages/protocol/src/management.ts';
 // Zod is the wire-shape source; native validation additionally uses shared fixtures.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -16,6 +21,9 @@ import {
   deliveryWindowSchema,
 } from '../packages/protocol/src/delivery.ts';
 const schemas = {
+  configurationCommand: configurationCommandSchema,
+  managementRequest: managementRequestSchema,
+  managementMetadata: managementMetadataSchema,
   deliveryFrame: deliveryFrameSchema,
   deliveryWindow: deliveryWindowSchema,
   webCommand: webCommandSchema,

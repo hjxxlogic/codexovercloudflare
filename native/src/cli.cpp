@@ -4,6 +4,7 @@
 #include "coc/login.hpp"
 #include "coc/projects.hpp"
 #include "coc/proxy.hpp"
+#include "coc/remote_config.hpp"
 #include "coc/store.hpp"
 #include "coc/tui_bridge.hpp"
 #include "coc/update.hpp"
@@ -26,6 +27,11 @@ class Cli {
   Options options_;
   std::filesystem::path credentials_;
   bool takeover_ = false;
+  std::unique_ptr<ClientManagement> management_;
+  void start_management(const Json &credential) {
+    if (!management_ && option("offline") != "true")
+      management_ = std::make_unique<ClientManagement>(credentials_, credential);
+  }
   Json store() {
     if (!std::filesystem::exists(credentials_))
       return {{"version", 2},
@@ -63,6 +69,7 @@ class Cli {
   }
   Json api(const std::string &p, const Json &body = nullptr, const std::string &request_id = "") {
     const auto c = load();
+    start_management(c);
     const auto id = request_id.empty() ? option("request-id", uuid()) : request_id;
     try {
       return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
@@ -165,6 +172,7 @@ class Cli {
       return;
     }
     wait_for_host(c);
+    start_management(c);
     asio::io_context io;
     asio::steady_timer timeout(io);
     std::shared_ptr<Socket> socket;
@@ -430,7 +438,24 @@ class Cli {
 #else
     int status;
 #endif
+    bool terminating = false;
+    int64_t terminate_started = 0;
     while (true) {
+      if (management_ && management_->restarting()) {
+        if (!terminating) {
+          terminating = true;
+          terminate_started = now();
+#ifdef _WIN32
+          child.terminate();
+#else
+          kill(pid, SIGTERM);
+#endif
+        }
+#ifndef _WIN32
+        else if (now() - terminate_started > 2000)
+          kill(pid, SIGKILL);
+#endif
+      }
 #ifdef _WIN32
       if (child.poll(status))
         break;
@@ -458,7 +483,8 @@ class Cli {
 #else
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
 #endif
-      throw Error("CODEX_EXITED", "Codex TUI exited unsuccessfully");
+      if (!terminating)
+        throw Error("CODEX_EXITED", "Codex TUI exited unsuccessfully");
   }
 
 public:
@@ -467,6 +493,8 @@ public:
         credentials_(std::filesystem::u8path(option(
             "config", config_path("COC_CREDENTIALS", "coc-client/credentials.json").u8string()))),
         takeover_(options_.takeover) {}
+  std::string management_instance() const { return management_ ? management_->instance() : ""; }
+  bool restarting() const { return management_ && management_->restarting(); }
   void run() {
     auto command = options_.args.empty() ? "help" : options_.args[0];
     if (options_.api_key && command != "login")
@@ -729,7 +757,7 @@ public:
       if (command != "help")
         throw Error("USAGE", "Unknown command");
     }
-    if (command != "help" && command != "logout" && command != "doctor" &&
+    if (!restarting() && command != "help" && command != "logout" && command != "doctor" &&
         option("offline") != "true") {
       try {
         if (std::filesystem::exists(credentials_))
@@ -754,7 +782,23 @@ int coc_main(int argc, char **argv) {
       std::cout << COC_BUILD_JSON << '\n';
       return 0;
     }
-    coc::Cli(argc, argv).run();
+    bool restart = false;
+    std::string management_instance;
+    {
+      coc::Cli cli(argc, argv);
+      try {
+        cli.run();
+      } catch (...) {
+        if (!cli.restarting())
+          throw;
+      }
+      restart = cli.restarting();
+      management_instance = cli.management_instance();
+      if (restart)
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+    if (restart)
+      coc::restart_process(argc, argv, management_instance);
     return 0;
   } catch (const std::exception &e) {
     std::cerr << coc::error_data(e).dump() << '\n';

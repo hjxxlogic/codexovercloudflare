@@ -1,5 +1,11 @@
 # 开发与本机测试
 
+## 远程配置验证
+
+`npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。
+
+Linux / Windows 的 CTest 共用 `native/tests/remote-config.hpp`，覆盖配置语义校验、私有备份、文件版本冲突、幂等回执、活动任务确认及重启后去重；Vitest 的 remote-configuration 测试覆盖 owner 权限、主机隔离、在线目标、回复冒充、回包前撤权、原文不落盘及有界超时。`test:ui` 验证编辑、跨 Tab 保留、校验错误保留草稿、重启确认、丢回执沿用原编号、浏览器持久存储不含配置及桌面 / 手机截图。
+
 ## Codex 子进程代理验证
 
 `native/tests/process-proxy.hpp` 由 Linux / Windows CTest 共用，启动真实子进程，覆盖默认关闭、显式关闭、开启及开启但代理为空四种配置。分别检查版本探测和 app-server 初始化取得的代理环境、loopback 绕过、其它变量保留与父进程不变；夹具不联网。C++ / Zod 校验拒绝非布尔开关，原生登录测试验证默认保存 false 并保留已有 true。Windows 使用原生测试子程序，Linux 使用确定性 Node 夹具；不调用模型。

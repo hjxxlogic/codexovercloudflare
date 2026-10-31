@@ -7,6 +7,7 @@
 #include "coc/login.hpp"
 #include "coc/projects.hpp"
 #include "coc/proxy.hpp"
+#include "coc/remote_config.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include <atomic>
@@ -53,6 +54,9 @@ class Agent {
   std::atomic<size_t> inbound_{0}, outbound_{0};
   Json config_;
   std::filesystem::path config_file_;
+  RemoteConfiguration remote_config_;
+  asio::steady_timer remote_restart_timer_;
+  std::atomic<bool> remote_restart_{false};
   AgentUpdater &updater_;
   std::atomic<bool> update_restart_{false};
   Store store_;
@@ -83,9 +87,11 @@ class Agent {
 public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
-        config_file_(std::move(config_file)), updater_(updater), store_(config_["dataDir"]),
+        config_file_(std::move(config_file)), remote_config_(config_file_, true),
+        remote_restart_timer_(io_), updater_(updater), store_(config_["dataDir"]),
         projects_(config_), file_store_(config_["dataDir"], false), files_(&file_store_),
         retry_(io_), maintenance_(io_), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
+  bool remote_restart() const { return remote_restart_; }
   bool update_restart() const { return update_restart_; }
   ~Agent() {
     if (worker_.joinable()) {
@@ -128,7 +134,7 @@ public:
           close();
         }
       }
-      if (update_restart_)
+      if (update_restart_ || remote_restart_)
         asio::post(relay_io_, [this] { relay_io_.stop(); });
       relay_work_.reset();
     });
@@ -414,6 +420,26 @@ public:
       }
     }
 
+    if (type == "management-request") {
+      Json reply = {{"type", "management-result"}, {"wire", d.value("wire", "")}};
+      bool restart = false;
+      try {
+        reply["result"] = remote_config_.request(
+            d.at("data"), !runtimes_.empty() || file_requests_ || listing_threads_, restart);
+      } catch (const std::exception &error) {
+        reply["error"] = error_data(error);
+      }
+      send(reply);
+      if (restart) {
+        remote_restart_ = true;
+        remote_restart_timer_.expires_after(std::chrono::seconds(2));
+        remote_restart_timer_.async_wait([this](auto ec) {
+          if (!ec)
+            close();
+        });
+      }
+      return;
+    }
     if (type == "hello") {
       if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1) {
         std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
@@ -424,7 +450,8 @@ public:
                            {"build", Json::parse(COC_BUILD_JSON)},
                            {"protocol", 1},
                            {"delivery", 1},
-                           {"deliveryInstance", store_.delivery_instance()}};
+                           {"deliveryInstance", store_.delivery_instance()},
+                           {"management", remote_config_.metadata()}};
       if (config_.contains("wakeUrl"))
         capabilities["wakeUrl"] = config_["wakeUrl"];
       const auto latest = read_json(config_file_);
@@ -2114,6 +2141,7 @@ public:
     stopped_ = true;
     project_control_.reset();
     event_timer_.cancel();
+    remote_restart_timer_.cancel();
     asio::post(file_pool_, [this] { files_.clear(); });
     retry_.cancel();
     maintenance_.cancel();
@@ -2360,13 +2388,16 @@ int coc_main(int argc, char **argv) {
     coc::verify_codex(config);
     boost::asio::io_context io;
     coc::AgentUpdater updater;
-    bool restart = false;
+    bool restart = false, remote_restart = false;
     {
       coc::Agent agent(io, config, file, updater);
       agent.start();
       io.run();
       restart = agent.update_restart();
+      remote_restart = agent.remote_restart();
     }
+    if (remote_restart)
+      coc::restart_process(argc, argv);
     if (restart && updater.install())
       coc::restart_updated(argc, argv);
     return 0;

@@ -1,5 +1,35 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  远程配置与重启: 'Remote configuration and restart',
+  '已确认重启请求。请刷新在线目标，确认重新连接。':
+    'Restart request acknowledged. Refresh online targets to verify reconnection.',
+  '配置已完整替换，重启后生效。':
+    'Configuration replaced. Restart to apply it.',
+  '已读取远程配置。': 'Remote configuration loaded.',
+  '配置不得超过 64 KiB。': 'Configuration must not exceed 64 KiB.',
+  '配置必须是有效的 JSON。': 'Configuration must be valid JSON.',
+  '完整替换远程配置文件？连接凭据错误可能需要在目标机器上恢复。':
+    'Replace the entire remote configuration file? Invalid credentials may require recovery on the target machine.',
+  '重启会中断当前工作。coc-client 会关闭 TUI 并重新执行原启动命令，可能重复执行命令。是否继续？':
+    'Restart interrupts current work. coc-client closes its TUI and reruns the original startup command, which may repeat commands. Continue?',
+  '仅管理员可操作。仅列出支持此功能的在线 Agent 和 coc-client；客户端退出后不可管理。':
+    'Administrators only. Only online Agents and coc-clients supporting this feature are listed. Clients cannot be managed after they exit.',
+  '配置包含敏感凭据，仅保留在当前页面内存中。完整替换前会校验并在目标机器保留上一份配置备份；启动参数仍优先于文件配置。':
+    'Configuration contains sensitive credentials and stays in this page memory. Replacement is validated and the previous configuration is backed up on the target. Startup arguments still override file settings.',
+  刷新在线目标: 'Refresh online targets',
+  在线目标: 'Online target',
+  选择在线目标: 'Select an online target',
+  读取配置: 'Read configuration',
+  '完整配置 JSON': 'Complete configuration JSON',
+  完整替换配置: 'Replace configuration',
+  远程重启: 'Restart remotely',
+  清除页面中的配置: 'Clear configuration from page',
+  '请求结果未确认。重试将使用原请求编号；重启回执只表示已接受，不保证进程已恢复。':
+    'Request result is unconfirmed. Retrying keeps the original request ID. A restart receipt confirms acceptance, not process recovery.',
+  '放弃确认不会撤销已提交的操作。是否继续？':
+    'Abandoning confirmation does not cancel submitted operations. Continue?',
+  放弃确认并清除配置: 'Abandon confirmation and clear configuration',
+
   网站版本: 'Website version',
   杂项: 'Miscellaneous',
   'Agent 运行版本': 'Running Agent versions',

@@ -85,7 +85,7 @@ Json read_json(const std::filesystem::path &p) {
   return j;
 }
 #ifndef _WIN32
-void save_private(const std::filesystem::path &p, const Json &j, bool exclusive) {
+void save_private_text(const std::filesystem::path &p, const std::string &text, bool exclusive) {
   auto parent = p.parent_path();
   if (!parent.empty() && !std::filesystem::exists(parent)) {
     std::filesystem::create_directories(parent);
@@ -106,7 +106,6 @@ void save_private(const std::filesystem::path &p, const Json &j, bool exclusive)
       throw Error("CONFIG_ERROR", "Cannot create private configuration");
     if (fchmod(fd, 0600) != 0)
       throw Error("CONFIG_ERROR", "Cannot set private configuration permissions");
-    const auto text = j.dump(2) + "\n";
     size_t offset = 0;
     while (offset < text.size()) {
       auto count = write(fd, text.data() + offset, text.size() - offset);
@@ -138,7 +137,7 @@ void save_private(const std::filesystem::path &p, const Json &j, bool exclusive)
   }
 }
 #else
-void save_private(const std::filesystem::path &path, const Json &data, bool exclusive) {
+void save_private_text(const std::filesystem::path &path, const std::string &text, bool exclusive) {
   if (!path.parent_path().empty())
     std::filesystem::create_directories(path.parent_path());
   auto temporary = path.wstring() + L".tmp-" + wide(uuid());
@@ -146,7 +145,6 @@ void save_private(const std::filesystem::path &path, const Json &data, bool excl
   if (!file)
     throw Error("CONFIG_ERROR", "Cannot create private configuration");
   try {
-    auto text = data.dump(2) + "\n";
     DWORD count = 0;
     if (!WriteFile(file.get(), text.data(), DWORD(text.size()), &count, nullptr) ||
         count != text.size() || !FlushFileBuffers(file.get()))
@@ -166,6 +164,10 @@ void save_private(const std::filesystem::path &path, const Json &data, bool excl
   }
 }
 #endif
+
+void save_private(const std::filesystem::path &path, const Json &data, bool exclusive) {
+  save_private_text(path, data.dump(2) + "\n", exclusive);
+}
 
 Url relay_url(std::string s) {
   std::smatch m;

@@ -29,6 +29,8 @@ std::string uuid();
 bool valid_id(const std::string &s);
 std::string id_key(const Json &id);
 Json read_json(const std::filesystem::path &path);
+void save_private_text(const std::filesystem::path &path, const std::string &text,
+                       bool exclusive = false);
 void save_private(const std::filesystem::path &path, const Json &data, bool exclusive = false);
 struct Url {
   std::string origin, host, authority, port;

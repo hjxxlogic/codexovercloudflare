@@ -2115,6 +2115,156 @@ try {
   ).toHaveAttribute('aria-selected', 'true');
   await expect(updates).not.toBeVisible();
   await miscTab.click();
+  const configuration = page.getByRole('region', {
+    name: 'Remote configuration and restart',
+    exact: true,
+  });
+  const configurationRequests: any[] = [];
+  let failReplacement = true;
+  let failRestart = true;
+  const configRevision = 'a'.repeat(64);
+  await page.route(
+    '**/api/v1/admin/hosts/sample/configuration',
+    async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          json: {
+            targets: [
+              {
+                id: 'client-runtime',
+                kind: 'client',
+                path: '/synthetic/credentials.json',
+                pid: 42,
+                build: { version: webVersion },
+              },
+            ],
+          },
+        });
+        return;
+      }
+      const request = route.request().postDataJSON();
+      configurationRequests.push(request);
+      if (request.command.action === 'read') {
+        await route.fulfill({
+          json: {
+            text: '{"syntheticSecret":"fixture-only"}',
+            revision: configRevision,
+          },
+        });
+      } else if (request.command.action === 'replace' && failReplacement) {
+        failReplacement = false;
+        await route.fulfill({
+          status: 409,
+          json: {
+            error: {
+              code: 'CONFIG_ERROR',
+              message: 'Invalid fixture configuration',
+            },
+          },
+        });
+      } else if (request.command.action === 'restart' && failRestart) {
+        failRestart = false;
+        await route.fulfill({
+          status: 504,
+          json: {
+            error: { code: 'RESULT_UNKNOWN', message: 'Acknowledgement lost' },
+          },
+        });
+      } else
+        await route.fulfill({
+          json: {
+            revision: configRevision,
+            state:
+              request.command.action === 'replace'
+                ? 'replaced'
+                : 'restart-requested',
+          },
+        });
+    },
+  );
+  await configuration
+    .getByLabel('Host', { exact: true })
+    .selectOption('sample');
+  await configuration
+    .getByRole('button', { name: 'Refresh online targets', exact: true })
+    .click();
+  await configuration
+    .getByLabel('Online target', { exact: true })
+    .selectOption('client-runtime');
+  await configuration
+    .getByRole('button', { name: 'Read configuration', exact: true })
+    .click();
+  const configEditor = configuration.getByLabel('Complete configuration JSON', {
+    exact: true,
+  });
+  await expect(configEditor).toHaveValue('{"syntheticSecret":"fixture-only"}');
+  await configEditor.fill('{"syntheticSecret":"edited-fixture"}');
+  await page
+    .getByRole('tab', { name: 'API Key management', exact: true })
+    .click();
+  await miscTab.click();
+  await expect(configEditor).toHaveValue(
+    '{"syntheticSecret":"edited-fixture"}',
+  );
+  page.once('dialog', (dialog) => dialog.accept());
+  await configuration
+    .getByRole('button', { name: 'Replace configuration', exact: true })
+    .click();
+  await expect(configuration.getByRole('alert')).toContainText('CONFIG_ERROR');
+  await expect(configEditor).toBeEnabled();
+  await expect(configEditor).toHaveValue(
+    '{"syntheticSecret":"edited-fixture"}',
+  );
+  page.once('dialog', (dialog) => dialog.accept());
+  await configuration
+    .getByRole('button', { name: 'Replace configuration', exact: true })
+    .click();
+  await expect(configuration.getByRole('status')).toHaveText(
+    'Configuration replaced. Restart to apply it.',
+  );
+  page.once('dialog', (dialog) => {
+    assert.match(dialog.message(), /reruns the original startup command/);
+    return dialog.accept();
+  });
+  await configuration
+    .getByRole('button', { name: 'Restart remotely', exact: true })
+    .click();
+  await expect(configuration.getByRole('alert')).toContainText(
+    'RESULT_UNKNOWN',
+  );
+  await configuration
+    .getByRole('button', { name: 'Retry original request', exact: true })
+    .click();
+  await expect(configuration.getByRole('status')).toContainText(
+    'Restart request acknowledged.',
+  );
+  const restartRequests = configurationRequests.filter(
+    (request) => request.command.action === 'restart',
+  );
+  assert.deepEqual(restartRequests[0], restartRequests[1]);
+  assert.equal(restartRequests[0].command.allowActive, true);
+  const storedConfiguration = await page.evaluate(() =>
+    JSON.stringify({
+      local: { ...localStorage },
+      session: { ...sessionStorage },
+    }),
+  );
+  assert(!storedConfiguration.includes('edited-fixture'));
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: join(artifacts, `remote-configuration-${width}.png`),
+      animations: 'disabled',
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize(versionViewport);
+  await configuration
+    .getByRole('button', { name: 'Clear configuration from page', exact: true })
+    .click();
+  await expect(configEditor).toHaveCount(0);
+  await page.unroute('**/api/v1/admin/hosts/sample/configuration');
   const notifyUpdate = updates.getByRole('button');
   const publishedRelease = {
     version: '0.5.15',

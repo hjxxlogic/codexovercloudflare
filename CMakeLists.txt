@@ -65,7 +65,7 @@ if(WIN32)
 else()
  set(COC_PLATFORM_SOURCES native/src/files.cpp)
 endif()
-add_library(coc_core ${COC_PLATFORM_SOURCES} native/src/projects.cpp native/src/update.cpp native/src/external.cpp native/src/approvals.cpp native/src/socket_unix.cpp native/src/login.cpp native/src/common.cpp native/src/store.cpp native/src/delivery.cpp native/src/delivery_client.cpp native/src/process.cpp native/src/network.cpp native/src/access.cpp native/src/proxy.cpp native/src/tui_bridge.cpp native/src/socket_plain.cpp native/src/socket_tls.cpp)
+add_library(coc_core ${COC_PLATFORM_SOURCES} native/src/remote_config.cpp native/src/projects.cpp native/src/update.cpp native/src/external.cpp native/src/approvals.cpp native/src/socket_unix.cpp native/src/login.cpp native/src/common.cpp native/src/store.cpp native/src/delivery.cpp native/src/delivery_client.cpp native/src/process.cpp native/src/network.cpp native/src/access.cpp native/src/proxy.cpp native/src/tui_bridge.cpp native/src/socket_plain.cpp native/src/socket_tls.cpp)
 add_custom_target(coc_access_defaults ALL
  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-access.py ${CMAKE_CURRENT_BINARY_DIR}/generated/coc/access_defaults.hpp
  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

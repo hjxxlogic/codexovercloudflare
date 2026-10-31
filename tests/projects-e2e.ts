@@ -9,6 +9,7 @@ import {
   writeFileSync,
   rmSync,
   existsSync,
+  readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -142,6 +143,86 @@ try {
   agent.stdout!.on('data', (d) => (agentLog += d));
   agent.stderr!.on('data', (d) => (agentLog += d));
   await wait(() => agentLog.includes('Agent connected'), 'Agent connects');
+  const configurationEndpoint = `/admin/hosts/${host}/configuration`;
+  await wait(
+    async () =>
+      (await api(configurationEndpoint)).targets.some(
+        (target: any) => target.id === 'agent',
+      ),
+    'Agent configuration capability',
+  );
+  const originalConfiguration = await api(configurationEndpoint, {
+    target: 'agent',
+    command: { action: 'read' },
+  });
+  const nextConfiguration = {
+    ...JSON.parse(originalConfiguration.text),
+    codexUseProxy: true,
+  };
+  const replacementCommand = {
+    action: 'replace',
+    requestId: randomUUID(),
+    revision: originalConfiguration.revision,
+    text: JSON.stringify(nextConfiguration, null, 2) + '\n',
+  };
+  const replacement = await api(configurationEndpoint, {
+    target: 'agent',
+    command: replacementCommand,
+  });
+  assert.equal(replacement.state, 'replaced');
+  assert.equal(readFileSync(file, 'utf8'), replacementCommand.text);
+  assert.equal(
+    readFileSync(file + '.remote.previous', 'utf8'),
+    originalConfiguration.text,
+  );
+  assert.deepEqual(
+    await api(configurationEndpoint, {
+      target: 'agent',
+      command: replacementCommand,
+    }),
+    replacement,
+  );
+  const restartCommand = {
+    action: 'restart',
+    requestId: randomUUID(),
+    revision: replacement.revision,
+    allowActive: false,
+  };
+  assert.equal(
+    (
+      await api(configurationEndpoint, {
+        target: 'agent',
+        command: restartCommand,
+      })
+    ).state,
+    'restart-requested',
+  );
+  await wait(
+    () => agentLog.split('Agent connected').length === 3,
+    'Real Worker management restart reconnects',
+  );
+  await wait(
+    async () =>
+      (await api(configurationEndpoint)).targets.some(
+        (target: any) => target.id === 'agent',
+      ),
+    'Restarted Agent management capability',
+  );
+  assert.equal(
+    (
+      await api(configurationEndpoint, {
+        target: 'agent',
+        command: restartCommand,
+      })
+    ).state,
+    'restart-requested',
+  );
+  await new Promise((done) => setTimeout(done, 2200));
+  assert.equal(
+    agentLog.split('Agent connected').length,
+    3,
+    'Real Worker retry cannot trigger a second restart',
+  );
   const endpoint = `/admin/hosts/${host}/project-management`;
   const empty = await api(endpoint);
   assert.equal(empty.projects.length, 0);
@@ -292,7 +373,7 @@ try {
   assert.equal((await api(endpoint)).projects.length, 1);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: real Worker + native Agent/CC + Chromium project CRUD, administrator binding, manager pairing, responsive UI',
+    'PASS: real Worker configuration read/replace/restart and deduplication + native Agent/CC + Chromium project CRUD, administrator binding, manager pairing, responsive UI',
   );
 } catch (e) {
   writeFileSync(join(artifacts, 'worker.log'), logs);

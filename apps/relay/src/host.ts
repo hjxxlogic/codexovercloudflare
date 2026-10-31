@@ -1,3 +1,8 @@
+import { ManagementRequests } from './management.ts';
+import {
+  managementMetadataSchema,
+  managementRequestSchema,
+} from '../../../packages/protocol/src/management.ts';
 import {
   deliveryFrameSchema,
   webDeliveryLane,
@@ -43,6 +48,8 @@ const registryCall = (env: Env, op: string, data: unknown = {}) =>
 type Attachment = {
   id?: string;
   subscription?: boolean;
+  management?: boolean;
+  managementMetadata?: unknown;
   receipts?: { sent: number; acked: number; seq: number; ack: number };
   role: 'agent' | 'web' | 'cli';
   auth: Auth;
@@ -104,6 +111,17 @@ export class HostRelayDO extends DurableObject<Env> {
   private state?: HostLifecycle;
   private preparing?: Promise<void>;
   private handlers = 0;
+  private managementRequests = new ManagementRequests();
+  private async managementTarget(a: Attachment) {
+    return a.role === 'agent'
+      ? 'agent'
+      : 'client-' +
+          (await digest(
+            a.auth.hash +
+              ':' +
+              managementMetadataSchema.parse(a.managementMetadata).instance,
+          ));
+  }
   private migrationReady = false;
   private get storage(): StateStorage {
     return this.ctx.storage as unknown as StateStorage;
@@ -1147,6 +1165,91 @@ export class HostRelayDO extends DurableObject<Env> {
         decodeURIComponent(req.headers.get('x-auth') || '%7B%7D'),
       );
       const hostId = req.headers.get('x-host')!;
+      if (u.pathname === '/configuration') {
+        const current: Auth = await registryCall(this.env, 'authHash', {
+          hash: auth.hash,
+        });
+        if (auth.role !== 'owner' || current.role !== 'owner')
+          throw new AppError(
+            'FORBIDDEN',
+            'Platform administrator required',
+            403,
+          );
+        const targets = this.ctx.getWebSockets().filter((ws) => {
+          const a = ws.deserializeAttachment() as Attachment;
+          return (
+            ws.readyState < 2 &&
+            a.authenticated &&
+            a.managementMetadata &&
+            a.deadline > Date.now()
+          );
+        });
+        if (req.method === 'GET') {
+          const visible = [];
+          for (const ws of targets) {
+            const a = ws.deserializeAttachment() as Attachment;
+            try {
+              await this.authorized(a.auth.hash);
+              visible.push({
+                id: await this.managementTarget(a),
+                ...managementMetadataSchema.parse(a.managementMetadata),
+              });
+            } catch (error) {
+              if (!authorizationFailed(error)) throw error;
+            }
+          }
+          return json({ targets: visible }, 200, {
+            'Cache-Control': 'no-store',
+          });
+        }
+        const d = managementRequestSchema.parse(await body(req));
+        let ws: WebSocket | undefined;
+        for (const socket of targets) {
+          const attachment = socket.deserializeAttachment() as Attachment;
+          if (d.target === (await this.managementTarget(attachment))) {
+            ws = socket;
+            break;
+          }
+        }
+        if (!ws)
+          throw new AppError(
+            'TARGET_OFFLINE',
+            'Target is offline or does not support configuration management',
+            409,
+          );
+        const a = ws.deserializeAttachment() as Attachment;
+        await this.authorized(a.auth.hash);
+        if (a.role === 'agent' && a.epoch !== (await this.fence('agentEpoch')))
+          throw new AppError('STALE_AGENT', 'Agent replaced', 409);
+        const result = await this.managementRequests.request(ws, d.command);
+        const checked: Auth = await registryCall(this.env, 'authHash', {
+          hash: auth.hash,
+        });
+        if (checked.role !== 'owner')
+          throw new AppError(
+            'FORBIDDEN',
+            'Administrator authorization changed',
+            403,
+          );
+        return json(result, 200, { 'Cache-Control': 'no-store' });
+      }
+      if (u.pathname === '/client-management') {
+        if (auth.role !== 'cli' || auth.hostId !== hostId)
+          throw new AppError(
+            'FORBIDDEN',
+            'Host-scoped client credential required',
+            403,
+          );
+        return this.upgrade(req, {
+          role: 'cli',
+          auth,
+          hostId,
+          epoch: 0,
+          authenticated: true,
+          management: true,
+          deadline: auth.expires,
+        });
+      }
       if (u.pathname === '/agent')
         return await this.upgrade(req, {
           role: 'agent',
@@ -1544,11 +1647,14 @@ export class HostRelayDO extends DurableObject<Env> {
   async upgrade(req: Request, a: Attachment) {
     if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
       throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
-    if (a.role !== 'agent' && !a.subscription && !this.agent())
+    if (a.role !== 'agent' && !a.subscription && !a.management && !this.agent())
       throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
     if (a.role === 'agent') {
       for (const ws of this.ctx.getWebSockets())
-        if (!(ws.deserializeAttachment() as Attachment).subscription)
+        if (
+          !(ws.deserializeAttachment() as Attachment).subscription &&
+          !(ws.deserializeAttachment() as Attachment).management
+        )
           ws.close(1012, 'Agent reconnected');
       a.epoch = await this.storage.transaction(async (tx) => {
         const epoch = ((await tx.get<number>('agentEpoch')) || 0) + 1;
@@ -1573,6 +1679,7 @@ export class HostRelayDO extends DurableObject<Env> {
         epoch: a.epoch,
         demand: 1,
       });
+    if (a.management) this.send(pair[1], { type: 'management-ready' });
     if (a.role === 'cli' && a.deliveryVersion === 1)
       this.send(pair[1], {
         type: 'delivery-ready',
@@ -1659,6 +1766,48 @@ export class HostRelayDO extends DurableObject<Env> {
       const d = parseFrame(raw);
       if (typeof d.requestId === 'string' && d.requestId.length <= 100)
         requestId = d.requestId;
+      if (
+        d.type === 'management-result' &&
+        (a.role === 'agent' || a.management)
+      ) {
+        if (a.role === 'agent' && a.epoch !== (await this.fence('agentEpoch')))
+          throw new AppError('STALE_AGENT', 'Old Agent connection', 409);
+        this.managementRequests.reply(ws, d);
+        return;
+      }
+      if (a.management) {
+        if (d.type !== 'management-register')
+          throw new AppError(
+            'FORBIDDEN',
+            'Client management channel only',
+            403,
+          );
+        const metadata = managementMetadataSchema.parse(d.metadata);
+        if (metadata.kind !== 'client')
+          throw new AppError('INVALID_REQUEST', 'Client metadata required');
+        if (!metadata.instance)
+          throw new AppError('INVALID_REQUEST', 'Client instance ID required');
+        for (const peer of this.ctx.getWebSockets()) {
+          if (peer === ws || peer.readyState >= 2) continue;
+          const previous = peer.deserializeAttachment() as Attachment;
+          if (
+            previous.management &&
+            (previous.managementMetadata as { instance?: string } | undefined)
+              ?.instance === metadata.instance
+          ) {
+            if (previous.auth.hash !== a.auth.hash)
+              throw new AppError(
+                'FORBIDDEN',
+                'Client instance belongs to another credential',
+                403,
+              );
+            peer.close(1012, 'Client management reconnected');
+          }
+        }
+        a.managementMetadata = metadata;
+        ws.serializeAttachment(a);
+        return;
+      }
       if (d.type === 'receipt' && typeof d.receiptId === 'string') {
         const [seq, bytes] = d.receiptId.split(':').map(Number),
           counter = a.receipts;
@@ -1699,6 +1848,12 @@ export class HostRelayDO extends DurableObject<Env> {
               'Unsupported Agent protocol',
               409,
             );
+          if (d.management !== undefined) {
+            const metadata = managementMetadataSchema.parse(d.management);
+            if (metadata.kind !== 'agent')
+              throw new AppError('INVALID_REQUEST', 'Agent metadata required');
+            a.managementMetadata = metadata;
+          }
           a.protocol = d.protocol;
           a.deliveryVersion = d.delivery === 1 ? 1 : undefined;
           a.deliveryInstance =

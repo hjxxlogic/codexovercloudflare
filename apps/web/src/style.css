@@ -1357,3 +1357,26 @@ progress {
   width: 100%;
   min-width: 0;
 }
+
+.remote-configuration label {
+  display: block;
+  margin: 0.8rem 0;
+}
+.remote-configuration select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.remote-configuration textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: monospace;
+  resize: vertical;
+}
+.remote-configuration button {
+  margin: 0.3rem;
+}
+.remote-configuration code {
+  overflow-wrap: anywhere;
+}

@@ -11,6 +11,7 @@
 #include "external-approvals.hpp"
 #include "process-proxy.hpp"
 #include "proxy.hpp"
+#include "remote-config.hpp"
 #include <condition_variable>
 #include <cstdlib>
 #include <ctime>
@@ -1167,6 +1168,10 @@ int main(int argc, char **argv) {
       std::cout << "RUN: core\n";
       core();
       proxy_tests();
+      {
+        Temp remote;
+        remote_configuration_fixture(remote.path);
+      }
       external_test();
       external_refresh_test();
       std::cout << "RUN: history\n";

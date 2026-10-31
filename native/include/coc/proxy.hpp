@@ -4,6 +4,7 @@
 #include <optional>
 namespace coc {
 // Configure once, before starting network threads. Never changes subprocess environment.
+void validate_proxy(const std::string &url);
 void configure_proxy(const std::string &url);
 bool proxy_enabled();
 bool local_address(const asio::ip::address &address);

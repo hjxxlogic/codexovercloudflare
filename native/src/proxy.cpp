@@ -173,11 +173,9 @@ public:
   }
 };
 } // namespace
-void configure_proxy(const std::string &text) {
-  if (text.empty()) {
-    configured.reset();
-    return;
-  }
+static std::optional<Proxy> parse_proxy(const std::string &text) {
+  if (text.empty())
+    return {};
   std::smatch m;
   static const std::regex pattern(
       R"(^(http|socks5|socks5h|socks)://(?:([^/@:]+):([^/@]*)@)?(\[[0-9a-fA-F:]+\]|[a-zA-Z0-9.-]+):([0-9]{1,5})/?$)");
@@ -196,8 +194,10 @@ void configure_proxy(const std::string &text) {
   p.url = {"", m[4], m[4], m[5], false};
   if (p.url.host.front() == '[')
     p.url.host = p.url.host.substr(1, p.url.host.size() - 2);
-  configured = std::move(p);
+  return p;
 }
+void validate_proxy(const std::string &text) { (void)parse_proxy(text); }
+void configure_proxy(const std::string &text) { configured = parse_proxy(text); }
 bool proxy_enabled() { return configured.has_value(); }
 bool local_address(const asio::ip::address &a) {
   if (a.is_loopback() || a.is_unspecified())

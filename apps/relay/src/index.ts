@@ -503,6 +503,22 @@ export default {
       }
       if (p.startsWith('/api/v1/admin/')) {
         const owner = await authenticate(req, env, undefined, true);
+        const configuration = p.match(
+          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/configuration$/,
+        );
+        if (configuration && ['GET', 'POST'].includes(req.method)) {
+          const hostId = idSchema.parse(configuration[1]);
+          await registryCall(env, 'host', { id: hostId });
+          return hostStub(env, hostId).fetch(
+            internal(
+              req,
+              '/configuration',
+              owner,
+              hostId,
+              req.method === 'POST' ? await body(req) : undefined,
+            ),
+          );
+        }
         if (p === '/api/v1/admin/state/migrate' && req.method === 'POST') {
           if (!d1Enabled(env))
             throw new AppError(
@@ -856,6 +872,25 @@ export default {
               : 'agentDeviceReject',
             { id: idSchema.parse(agentDecision[1]), agentHash: auth.hash },
           ),
+        );
+      }
+      const managementClient = p.match(
+        /^\/ws\/v1\/client-management\/([\w-]+)$/,
+      );
+      if (managementClient) {
+        const auth: Auth = await registryCall(env, 'auth', {
+          token: bearer(req) || '',
+        });
+        const hostId = idSchema.parse(managementClient[1]);
+        if (auth.role !== 'cli' || auth.hostId !== hostId)
+          throw new AppError(
+            'FORBIDDEN',
+            'Host-scoped client credential required',
+            403,
+          );
+        await registryCall(env, 'host', { id: hostId });
+        return hostStub(env, hostId).fetch(
+          internal(req, '/client-management', auth, hostId),
         );
       }
       if (p === '/ws/v1/agent') {

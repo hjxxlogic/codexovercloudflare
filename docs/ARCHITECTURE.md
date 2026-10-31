@@ -1,5 +1,11 @@
 # 技术架构与选型
 
+## 在线配置管理通道
+
+平台 owner 经 `/admin/hosts/:id/configuration` 读取目标、替换配置和重启；HostRelay 使用不依赖 Storage 的 `ManagementRequests` 将活跃 HTTP 请求关联到实际目标 WebSocket，20 秒超时按原请求编号恢复。配置正文与结果不进入普通持久 Operation、D1、attachment 或业务日志；发送及返回前重新鉴权，目标回复按 socket 绑定。Agent 在 capabilities 上报管理元数据，CLI 使用独立、主机凭据限定的 `/ws/v1/client-management/:hostId` 通道；Agent 重连不会关闭其它机器上的客户端管理通道。
+
+共享 C++ `RemoteConfiguration` 限定本进程启动配置路径，执行 64 KiB / 语义校验、SHA-256 CAS、私有锁、原文备份及原子替换。本地 `.remote/` 回执以请求摘要去重，替换的 prepared 回执以文件 before/after 摘要恢复；重启在确认前写至多一次回执。Agent 在回复后延迟关闭 runtime，CLI 清理 TUI 后重执行原 argv。独立客户端有随机实例 UUID，受控重启通过仅在重执行时传递、由新管理实例消费并清除的环境变量保持 UUID；它不传给新 TUI，也不是认证凭据；Worker 目标 ID 额外绑定认证摘要，凭据变化后属于新目标。CLI 退出即结束管理线程，无守护进程。详见 [配置管理边界](REMOTE_CONFIGURATION.md)。
+
 ## 运行版本展示
 
 管理员主机目录在现有读取中合并 `hostStatus` 的连接状态和 Agent 已校验的 `build.version`，沿用活动 DO / 空闲 D1 状态读取路径；停用主机不触发状态读取。单个主机查询失败时仅将该行标为状态未知，不伪造成离线或阻止其他管理操作。网页仅对在线主机展示运行版本；功能菜单在构建时导入包版本，不依赖下载清单、远端 health 或新增轮询。
