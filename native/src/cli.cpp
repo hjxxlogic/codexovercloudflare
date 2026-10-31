@@ -249,11 +249,11 @@ class Cli {
     std::unique_ptr<TuiBridge> bridge;
     auto url = remote_address(u, "/ws/v1/cli/" + id);
     if (proxy_enabled() || access_enabled(u) || t.value("delivery", 0) == 1) {
-      bridge = std::make_unique<TuiBridge>(
-          history_io, u, t.at("ticket"), "/ws/v1/cli/" + id, command_store.get(),
-          [this, id](Json resume) {
-            return api("/sessions/" + id + "/attach", {{"delivery", 1}, {"resume", resume}});
-          });
+      const auto resume_connection = [this, id](Json resume) {
+        return api("/sessions/" + id + "/attach", {{"delivery", 1}, {"resume", resume}});
+      };
+      bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id,
+                                           command_store.get(), resume_connection);
       url = bridge->url();
     }
     std::vector<std::string> args = {"codex",
