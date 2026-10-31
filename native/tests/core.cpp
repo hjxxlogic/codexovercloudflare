@@ -9,6 +9,7 @@
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include "external-approvals.hpp"
+#include "process-proxy.hpp"
 #include "proxy.hpp"
 #include <condition_variable>
 #include <cstdlib>
@@ -420,6 +421,12 @@ void external_test() {
        {"token", std::string(24, 'x')},
        {"dataDir", temp.path + "/state"},
        {"projects", Json::array({{{"id", "project"}, {"name", "Project"}, {"path", temp.path}}})}});
+  check(config["codexUseProxy"] == false, "Codex proxy is opt-in by default");
+  auto proxy_config = config;
+  proxy_config["codexUseProxy"] = true;
+  check(agent_config(proxy_config)["codexUseProxy"] == true, "Preserve Codex proxy opt-in");
+  proxy_config["codexUseProxy"] = "true";
+  rejects([&] { agent_config(proxy_config); }, "CONFIG_ERROR");
   check(config["externalSessions"]["allowApprovals"] == false &&
             config["externalSessions"]["allowQueue"] == false,
         "External side effects disabled by default");
@@ -1027,6 +1034,7 @@ void process_test(bool real, bool task) {
                  {"sandbox", task ? "workspace-write" : "read-only"}};
   verify_codex(config);
   if (!real) {
+    codex_proxy_fixture(config, temp.path);
     auto version_config = [](const std::string &script) {
       return Json{{"codexPath", "node"}, {"codexArgs", Json::array({"-e", script, "--"})}};
     };

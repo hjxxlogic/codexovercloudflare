@@ -629,6 +629,7 @@ try {
     process.env.COC_AGENT_BINARY || 'build/coc-agent',
   );
   agent = new Agent({
+    codexUseProxy: false,
     relayUrl: origin,
     hostId: enrolled.hostId,
     token: enrolled.token,
@@ -706,6 +707,7 @@ try {
     'Agent startup reports only explicitly targeted pending requests with escaped text and manual commands; no automatic approval',
   );
   otherAgent = new Agent({
+    codexUseProxy: false,
     relayUrl: origin,
     hostId: other.hostId,
     token: other.token,

@@ -106,6 +106,8 @@ A 不发送 JSON heartbeat 或后台审批轮询；Beast 的自动 idle timeout 
 
 原生 `proxy.cpp` 共享 HTTP CONNECT / SOCKS5 异步隧道，HTTP 和 WebSocket 在目标 DNS 分类后选择直连或代理；私网与本地结果直连。HTTP 沿用同一可取消 DNS / 请求总期限，代理握手使用最低层 tcp_stream 超时，TLS 保留目标主机验证。进程启动前设置代理配置，网络线程只读，不修改环境。`tui_bridge.cpp` 在启用代理时提供 loopback 随机端口和远程票据鉴权，双向转发有界 WebSocket 消息，让独立 Codex TUI 使用同一网络策略；本机 app-server 独立连接保持直连。
 
+Agent 配置 `codexUseProxy` 为严格布尔值、默认 false。Codex 子进程使用独立环境副本，默认移除大小写 HTTP / HTTPS / ALL / NO_PROXY；启用且有效 Agent 代理非空时才显式设置代理变量，并保留 loopback 绕过。POSIX 在 fork 前构造完整环境，通过 execvpe 交给子进程；Windows 在 CreateProcessW 的 Unicode 环境块中按大小写不敏感键合并。环境策略同时覆盖 app-server 和 Agent 版本探测，不修改父进程全局环境或 CLI TUI 的票据 / 环境路径。
+
 `displayName` 与客户端条目的目标主机 `name` 分离。`POST /api/v1/instance/name` 只接受 agent/cli Bearer，Worker 从已验证身份注入 hash；Registry 事务复核凭证、API Key 与主机状态，仅更新自身 auth，Agent 同时更新其 host.name。Agent capabilities 可登记 displayName，API Key 登录更新实例名并保留 Key 管理名称。管理员视图按五个 Tab 展示功能；待授权、设备、唤醒和 API Key 使用共用原生表格、行标题和局部滚动区域，不改变管理权限范围。
 
 ## 离线唤醒补充（2026-10-25）

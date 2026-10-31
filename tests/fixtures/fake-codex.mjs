@@ -2,6 +2,20 @@
 import { createInterface } from 'node:readline';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 const stateFile = '.fake-external.json';
+const proxyEnvironment = () =>
+  Object.fromEntries(
+    [
+      'HTTP_PROXY',
+      'http_proxy',
+      'HTTPS_PROXY',
+      'https_proxy',
+      'ALL_PROXY',
+      'all_proxy',
+      'NO_PROXY',
+      'no_proxy',
+      'COC_PROXY_TEST',
+    ].map((key) => [key, process.env[key] ?? null]),
+  );
 function externalState() {
   return existsSync(stateFile)
     ? JSON.parse(readFileSync(stateFile, 'utf8'))
@@ -39,7 +53,11 @@ function externalPage(m) {
   };
 }
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.164.0');
+  console.log(
+    process.argv.includes('--proxy-env')
+      ? JSON.stringify(proxyEnvironment())
+      : 'codex-cli 0.164.0',
+  );
   process.exit(0);
 }
 const send = (d) => console.log(JSON.stringify(d));
@@ -86,6 +104,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.id === undefined) return;
   let result = {};
   if (m.method === 'initialize') result = { userAgent: 'fake-codex' };
+  if (m.method === 'initialize' && process.argv.includes('--proxy-env'))
+    result.environment = proxyEnvironment();
   if (m.method === 'thread/start')
     result = { thread: { id: 'thread-' + process.pid, turns: [] } };
   if (m.method === 'thread/list')

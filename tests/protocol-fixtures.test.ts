@@ -27,7 +27,7 @@ it('normalizes and validates Agent email access consistently with native configu
     accessEmailsSchema.safeParse(Array(21).fill('user@example.com')).success,
   ).toBe(true);
 });
-it('preserves the automatic-update opt-out in parsed Agent configuration', () => {
+it('preserves update opt-out and validates the Codex proxy opt-in in Agent configuration', () => {
   const input = {
     hostId: 'test-host',
     token: 'x'.repeat(32),
@@ -36,6 +36,14 @@ it('preserves the automatic-update opt-out in parsed Agent configuration', () =>
     autoUpdate: false,
   };
   expect(agentConfigSchema.parse(input).autoUpdate).toBe(false);
+  expect(agentConfigSchema.parse(input).codexUseProxy).toBe(false);
+  expect(
+    agentConfigSchema.parse({ ...input, codexUseProxy: true }).codexUseProxy,
+  ).toBe(true);
+  for (const value of ['true', 1, null])
+    expect(
+      agentConfigSchema.safeParse({ ...input, codexUseProxy: value }).success,
+    ).toBe(false);
   expect(
     agentConfigSchema.safeParse({ ...input, autoUpdate: 'false' }).success,
   ).toBe(false);

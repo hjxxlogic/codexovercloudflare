@@ -1,4 +1,6 @@
 #include "coc/process.hpp"
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #ifndef _WIN32
 #include <fcntl.h>
@@ -10,12 +12,53 @@
 #include "coc/windows.hpp"
 #endif
 namespace coc {
+namespace {
+Json codex_environment(const Json &config) {
+  Json environment = Json::object();
+  const auto proxy = config.value("codexUseProxy", false) ? config.value("proxy", "") : "";
+  for (const auto key : {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
+                         "all_proxy", "NO_PROXY", "no_proxy"})
+    environment[key] = nullptr;
+  if (!proxy.empty()) {
+    for (const auto key :
+         {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"})
+      environment[key] = proxy;
+    environment["NO_PROXY"] = environment["no_proxy"] = "localhost,127.0.0.1,::1";
+  }
+  return environment;
+}
+#ifndef _WIN32
+std::vector<std::string> child_environment(const Json &changes) {
+  std::vector<std::string> environment;
+  for (auto entry = ::environ; *entry; ++entry) {
+    std::string value(*entry);
+    const auto end = value.find('=');
+    auto key = value.substr(0, end);
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return char(std::toupper(c)); });
+    if (!changes.contains(key))
+      environment.push_back(std::move(value));
+  }
+  for (auto it = changes.begin(); it != changes.end(); ++it)
+    if (!it.value().is_null())
+      environment.push_back(it.key() + "=" + it.value().get<std::string>());
+  return environment;
+}
+#endif
+} // namespace
 #ifndef _WIN32
 std::string verify_codex(const Json &c) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
   args.push_back("--version");
+  const auto changes =
+      c.contains("codexUseProxy") || c.contains("proxy") ? codex_environment(c) : Json::object();
+  auto environment = child_environment(changes);
+  std::vector<char *> envp;
+  for (auto &entry : environment)
+    envp.push_back(entry.data());
+  envp.push_back(nullptr);
   std::vector<char *> argv;
   for (auto &a : args)
     argv.push_back(a.data());
@@ -34,7 +77,7 @@ std::string verify_codex(const Json &c) {
     }
     ::close(fds[0]);
     ::close(fds[1]);
-    execvp(argv[0], argv.data());
+    execvpe(argv[0], argv.data(), envp.data());
     _exit(127);
   }
   ::close(fds[1]);
@@ -90,6 +133,11 @@ CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::strin
   args.insert(args.end(), {"app-server", "--listen", "stdio://", "-c",
                            "sandbox_mode=\"" + c.at("sandbox").get<std::string>() + "\"", "-c",
                            "approval_policy=\"on-request\""});
+  auto environment = child_environment(codex_environment(c));
+  std::vector<char *> envp;
+  for (auto &entry : environment)
+    envp.push_back(entry.data());
+  envp.push_back(nullptr);
   std::vector<char *> argv;
   for (auto &a : args)
     argv.push_back(a.data());
@@ -118,7 +166,7 @@ CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::strin
     ::close(in[1]);
     ::close(out[0]);
     ::close(out[1]);
-    execvp(argv[0], argv.data());
+    execvpe(argv[0], argv.data(), envp.data());
     _exit(127);
   }
   ::close(in[0]);
@@ -146,7 +194,9 @@ std::string verify_codex(const Json &c) {
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
   args.push_back("--version");
-  auto text = windows_capture(args);
+  const auto changes =
+      c.contains("codexUseProxy") || c.contains("proxy") ? codex_environment(c) : Json::object();
+  auto text = windows_capture(args, 4096, changes);
   while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
     text.pop_back();
   if (text.empty())
@@ -163,7 +213,7 @@ CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::strin
   args.insert(args.end(), {"app-server", "--listen", "stdio://", "-c",
                            "sandbox_mode=\"" + c.at("sandbox").get<std::string>() + "\"", "-c",
                            "approval_policy=\"on-request\""});
-  child_ = std::make_unique<WindowsChild>(args, cwd);
+  child_ = std::make_unique<WindowsChild>(args, cwd, true, "", codex_environment(c));
   input_.assign(child_->input.release());
   output_.assign(child_->output.release());
 }

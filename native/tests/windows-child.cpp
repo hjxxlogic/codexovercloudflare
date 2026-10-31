@@ -1,6 +1,26 @@
 #include "coc/windows.hpp"
+#include <cstdlib>
 #include <iostream>
 int main(int argc, char **argv) {
+  bool proxy_env = false;
+  for (int i = 1; i < argc; ++i)
+    proxy_env = proxy_env || std::string(argv[i]) == "--proxy-env";
+  const auto environment = [] {
+    coc::Json result = coc::Json::object();
+    for (const auto key : {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
+                           "all_proxy", "NO_PROXY", "no_proxy", "COC_PROXY_TEST"}) {
+      const auto value = std::getenv(key);
+      result[key] = value ? coc::Json(value) : coc::Json();
+    }
+    return result;
+  };
+  if (proxy_env) {
+    for (int i = 1; i < argc; ++i)
+      if (std::string(argv[i]) == "--version") {
+        std::cout << environment().dump() << '\n';
+        return 0;
+      }
+  }
   if (argc > 1 && std::string(argv[1]) == "--version") {
     std::cout << "codex-cli 0.164.0\n";
     return 0;
@@ -37,7 +57,11 @@ int main(int argc, char **argv) {
   std::string line;
   while (std::getline(std::cin, line)) {
     auto value = coc::Json::parse(line);
-    if (value.contains("id"))
-      std::cout << coc::Json{{"id", value["id"]}, {"result", {{"ok", true}}}}.dump() << std::endl;
+    if (value.contains("id")) {
+      coc::Json result = {{"ok", true}};
+      if (proxy_env)
+        result["environment"] = environment();
+      std::cout << coc::Json{{"id", value["id"]}, {"result", result}}.dump() << std::endl;
+    }
   }
 }

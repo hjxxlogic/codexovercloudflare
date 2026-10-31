@@ -195,6 +195,19 @@ coc-agent proxy ''
 
 优先级：`--proxy` 高于配置文件；未设置或空字符串为直连，不自动读取系统代理环境变量。`proxy` 命令持久保存配置，运行中的 Agent 需重启。支持 `http://host:port`（CONNECT）、`socks5://host:port`，`socks://` 与 `socks5h://` 为 SOCKS5 别名。端口必须显式指定；IPv6 使用 `[::1]:1080`。可选 `user:password@` 认证，特殊字符使用百分号编码。HTTP 使用 Basic，SOCKS5 使用用户名密码认证；密码仅写入私有本地配置，不输出代理 URL，不上传 Relay。应使用可信代理，代理认证本身不加密。
 
+Agent 的 `codexUseProxy` 默认为 `false`：配置的代理只供 Agent 使用，启动 Codex 时清除继承的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写形式，其它环境保留。此规则同样适用于 Agent 的 Codex 版本探测、会话和历史读取进程，不修改 Codex 自己的配置文件。
+
+需要 Codex 也使用 Agent 代理时，在 `agent.json` 设置：
+
+```json
+{
+  "proxy": "http://127.0.0.1:7890",
+  "codexUseProxy": true
+}
+```
+
+开启后，将当前有效代理（包括 `run --proxy` 覆盖值）写入 Codex 子进程的 HTTP / HTTPS / ALL 代理环境变量，`NO_PROXY` 设为 `localhost,127.0.0.1,::1`；代理协议的实际支持由安装的 Codex 决定。Agent 未配置代理时仍清除子进程代理环境，不回退到系统代理。选项在 Agent 启动时读取；修改后等待任务结束再重启 Agent，对新启动的 Codex 生效。不会修改 Agent 父进程环境，也不改变 coc-client TUI 的代理策略。
+
 代理覆盖登录、状态、更新下载、业务 HTTP、Agent/客户端 WebSocket、历史流及 `connect` / `attach` 的远程 TUI。TUI 通过仅监听 `127.0.0.1` 随机端口、凭票据鉴权的本地 WebSocket 转接外部流量；TLS 校验在 coc-client 访问目标服务器时完成，不修改 Codex 子进程的代理环境。未启用代理的 TUI 地址始终显式包含 `:443` / `:80`，避免 Codex 的 `invalid remote address` 错误。遇到该错误时可用 `coc-client attach <Remote session 中的完整 ID>` 重连已有会话。
 
 本机、局域网地址自动直连：IPv4 loopback、10/8、172.16/12、192.168/16、169.254/16、100.64/10、未指定地址，以及 IPv6 loopback、link-local、site-local、ULA 和映射的 IPv4 本地地址。域名先在本机解析；任一结果属于上述范围则对本次解析结果直连，包含 `localhost`。即使选择 `socks5h://`，也需要本地 DNS 完成绕过判断；仅公网目标交给代理。DNS、隧道和 TLS 均纳入 HTTP 总超时；代理失败不会回退公网直连。Codex app-server 的本机 WebSocket、私有 Unix socket 和 stdio 通道始终直连，不受此配置影响。
@@ -244,7 +257,7 @@ Windows 支持授权、审批、Agent 会话、CC 历史和工作区文件传输
 
 Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配置与状态，校验新版 ZIP 后替换两个程序，再重新运行；不改变凭据或数据库。Windows 不执行自动替换，`update` 返回手动升级提示。后台常驻可由任务计划程序以同一普通用户身份运行 `coc-agent.exe run`；当前不提供 Windows Service 注册命令。源码构建和测试见 [开发说明](DEVELOPMENT.md)。
 
-`coc-agent login` 保存 `agent.json` 时会写出全部默认选项，包括 `wakeUrl`、`codexPath`、`codexArgs`、`sandbox`、`externalSessions` 的四个字段及 `autoUpdate` 的 enabled / intervalHours / platform。默认外部入队和审批均关闭；审批地址和令牌文件为空，平台为空表示自动匹配；自动更新 Linux 默认开启、Windows 默认关闭。使用已有无令牌配置登录时，补齐缺失项并保留自定义值；不会在 Agent 运行时重写配置。完整字段示例见 `examples/agent.example.json`。
+`coc-agent login` 保存 `agent.json` 时会写出全部默认选项，包括 `wakeUrl`、`codexPath`、`codexArgs`、`codexUseProxy`、`sandbox`、`externalSessions` 的四个字段及 `autoUpdate` 的 enabled / intervalHours / platform。默认外部入队和审批均关闭；审批地址和令牌文件为空，平台为空表示自动匹配；自动更新 Linux 默认开启、Windows 默认关闭。使用已有无令牌配置登录时，补齐缺失项并保留自定义值；不会在 Agent 运行时重写配置。完整字段示例见 `examples/agent.example.json`。
 
 ### 原生程序自动更新
 

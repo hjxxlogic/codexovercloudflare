@@ -304,6 +304,9 @@ Json agent_config(Json c) {
                            {"approvalTokenFile", external.value("approvalTokenFile", "")}};
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
+  if (!c.value("codexUseProxy", Json(false)).is_boolean())
+    throw Error("CONFIG_ERROR", "codexUseProxy must be boolean");
+  c["codexUseProxy"] = c.value("codexUseProxy", false);
   c["sandbox"] = c.value("sandbox", "workspace-write");
   if (c["sandbox"] != "workspace-write" && c["sandbox"] != "read-only")
     throw Error("CONFIG_ERROR", "Invalid sandbox");

@@ -2355,6 +2355,7 @@ int coc_main(int argc, char **argv) {
     if (command != "run")
       throw coc::Error("USAGE", "Unknown command: " + command);
     auto config = coc::agent_config(coc::read_json(file));
+    config["proxy"] = options.get("proxy", config.value("proxy", ""));
     coc::update_settings(config);
     coc::verify_codex(config);
     boost::asio::io_context io;

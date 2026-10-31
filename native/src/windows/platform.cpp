@@ -196,7 +196,7 @@ void pipe_pair(WinHandle &parent, WinHandle &child, bool parent_reads) {
 }
 } // namespace
 WindowsChild::WindowsChild(const std::vector<std::string> &args, const std::string &cwd,
-                           bool redirected, const std::string &ticket) {
+                           bool redirected, const std::string &ticket, const Json &overrides) {
   if (args.empty())
     throw Error("SPAWN_FAILED", "Empty process arguments");
   auto executable = args[0] == "codex" ? wide(codex_executable()) : wide(args[0]);
@@ -206,17 +206,38 @@ WindowsChild::WindowsChild(const std::vector<std::string> &args, const std::stri
   for (size_t i = 1; i < args.size(); ++i)
     command += L" " + quote_windows_argument(wide(args[i]));
   std::vector<wchar_t> environment;
-  if (!ticket.empty()) {
+  if (!ticket.empty() || !overrides.empty()) {
     auto raw = GetEnvironmentStringsW();
     if (!raw)
       throw Error("SPAWN_FAILED", "Cannot copy process environment");
     std::vector<std::wstring> entries;
+    std::vector<std::wstring> removed;
+    for (auto it = overrides.begin(); it != overrides.end(); ++it)
+      removed.push_back(wide(it.key()) + L"=");
+    if (!ticket.empty())
+      removed.push_back(L"COC_REMOTE_TICKET=");
     for (auto entry = raw; *entry; entry += wcslen(entry) + 1) {
-      if (_wcsnicmp(entry, L"COC_REMOTE_TICKET=", 18) != 0)
+      if (std::none_of(removed.begin(), removed.end(), [&](const auto &key) {
+            return _wcsnicmp(entry, key.c_str(), key.size()) == 0;
+          }))
         entries.emplace_back(entry);
     }
     FreeEnvironmentStringsW(raw);
-    entries.push_back(L"COC_REMOTE_TICKET=" + wide(ticket));
+    for (auto it = overrides.begin(); it != overrides.end(); ++it) {
+      if (it.value().is_null())
+        continue;
+      const auto key = wide(it.key()) + L"=";
+      if (!ticket.empty() && _wcsicmp(key.c_str(), L"COC_REMOTE_TICKET=") == 0)
+        continue;
+      entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                   [&](const auto &entry) {
+                                     return _wcsnicmp(entry.c_str(), key.c_str(), key.size()) == 0;
+                                   }),
+                    entries.end());
+      entries.push_back(key + wide(it.value().get<std::string>()));
+    }
+    if (!ticket.empty())
+      entries.push_back(L"COC_REMOTE_TICKET=" + wide(ticket));
     std::sort(entries.begin(), entries.end(),
               [](const auto &a, const auto &b) { return _wcsicmp(a.c_str(), b.c_str()) < 0; });
     for (auto &entry : entries) {
@@ -224,6 +245,8 @@ WindowsChild::WindowsChild(const std::vector<std::string> &args, const std::stri
       environment.push_back(0);
     }
     environment.push_back(0);
+    if (entries.empty())
+      environment.push_back(0);
   }
   WinHandle child_in, child_out, child_err;
   STARTUPINFOEXW startup{};
@@ -295,8 +318,9 @@ bool WindowsChild::poll(DWORD &code) const {
   return true;
 }
 void WindowsChild::terminate() { TerminateJobObject(job_.get(), 1); }
-std::string windows_capture(const std::vector<std::string> &args, size_t limit) {
-  WindowsChild child(args);
+std::string windows_capture(const std::vector<std::string> &args, size_t limit,
+                            const Json &environment) {
+  WindowsChild child(args, "", true, "", environment);
   child.input.reset();
   boost::asio::io_context io;
   boost::asio::windows::stream_handle output(io, child.output.release());

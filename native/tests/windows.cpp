@@ -6,6 +6,7 @@
 #include "coc/tls.hpp"
 #include "coc/update.hpp"
 #include "external-approvals.hpp"
+#include "process-proxy.hpp"
 #include <aclapi.h>
 #include <algorithm>
 #include <cctype>
@@ -88,6 +89,10 @@ int main() {
                                                               {"name", "Windows project"},
                                                               {"path", project.u8string()}}})}});
     auto path = validated.at("projects").at(0).at("path").get<std::string>();
+    check(validated["codexUseProxy"] == false, "Codex proxy is opt-in on Windows");
+    auto invalid_proxy = validated;
+    invalid_proxy["codexUseProxy"] = "true";
+    rejects([&] { agent_config(invalid_proxy); }, "CONFIG_ERROR");
     approval_configuration_fixture(path);
     shared_approval_fixture(path);
     auto duplicate = validated;
@@ -169,6 +174,7 @@ int main() {
             "Codex job terminates the complete process tree");
     }
     Json settings{{"codexPath", child}, {"codexArgs", Json::array()}, {"sandbox", "read-only"}};
+    codex_proxy_fixture(settings, path);
     verify_codex(settings);
     boost::asio::io_context io;
     bool initialized = false, exited = false;

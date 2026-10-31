@@ -47,11 +47,13 @@ class WindowsChild {
 public:
   WinHandle input, output;
   WindowsChild(const std::vector<std::string> &args, const std::string &cwd = "",
-               bool redirected = true, const std::string &ticket = "");
+               bool redirected = true, const std::string &ticket = "",
+               const Json &environment = Json::object());
   bool poll(DWORD &code) const;
   void terminate();
 };
-std::string windows_capture(const std::vector<std::string> &args, size_t limit = 4096);
+std::string windows_capture(const std::vector<std::string> &args, size_t limit = 4096,
+                            const Json &environment = Json::object());
 void windows_console();
 } // namespace coc
 #endif

@@ -118,6 +118,7 @@ export const agentConfigSchema = z.object({
     .optional(),
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
+  codexUseProxy: z.boolean().default(false),
   dataDir: z.string().min(1),
   projects: z.array(projectSchema),
   sandbox: z.enum(['read-only', 'workspace-write']).default('workspace-write'),

@@ -1,5 +1,9 @@
 # 开发与本机测试
 
+## Codex 子进程代理验证
+
+`native/tests/process-proxy.hpp` 由 Linux / Windows CTest 共用，启动真实子进程，覆盖默认关闭、显式关闭、开启及开启但代理为空四种配置。分别检查版本探测和 app-server 初始化取得的代理环境、loopback 绕过、其它变量保留与父进程不变；夹具不联网。C++ / Zod 校验拒绝非布尔开关，原生登录测试验证默认保存 false 并保留已有 true。Windows 使用原生测试子程序，Linux 使用确定性 Node 夹具；不调用模型。
+
 ## 可靠协议验证（0.5.18）
 
 `npm run test:delivery` 启动真实原生 Agent 与确定性 Codex 夹具，验证持久命令结果、重复补发只产生一次任务、原 CC 的输出条数 / 字节窗口及同 runtime 补发，不调用模型。已加入 regression CI。原生 core 验证接收窗口、确认边界、重启后的待执行 / 结果不明状态，以及输出日志回收。
