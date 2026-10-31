@@ -42,7 +42,8 @@
     "test:billing:web": "tsx tests/browser-demand.ts",
     "test:projects": "tsx tests/native-projects.ts",
     "test:projects:e2e": "tsx tests/projects-e2e.ts",
-    "test:delivery": "tsx tests/native-delivery.ts"
+    "test:delivery": "tsx tests/native-delivery.ts",
+    "test:configuration": "tsx tests/native-configuration.ts"
   },
   "dependencies": {
     "react": "^19.3.1",
