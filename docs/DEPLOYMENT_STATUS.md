@@ -1,4 +1,18 @@
-# 发布状态：0.5.17
+# 发布状态：0.5.18
+
+## A / C 可靠会话传输与 CW 恢复 · 2026-10-31
+
+源码 `493912b324361a751567c08f360f977cb0d34b60` 的 [Actions 41149659054](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41149659054) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。完整普通 / D1 后端原生与 Chromium 回归通过，包括 CW 两个会话 WebSocket 同时停滞 OPEN 时经 HTTP 恢复命令、回复和完成状态，以及同一 CC TUI 网络重连、输出和结果丢失恢复。首次 `874e3b1` 运行因不同 clang-format 版本换行失败，修正后重新运行整套 CI，未部署失败运行制品。
+
+使用 `scripts/deploy-cloud.py --publish-downloads --apply` 核对六份 CI 制品摘要和源码身份，于 UTC 00:42:15 发布至 `https://r.xlogic.cc`。部署 ID `96e52163-a6c5-4779-a558-90ca4138b922`，Worker `707c5aff-7734-468b-a468-61c14b0d432a` 接收 100% 流量。Relay、CW、四平台 Agent / CC 下载与源码归档均为 0.5.18，旧下载归档保留；未创建 GitHub Release 标签。
+
+线上健康版本为 0.5.18，七项网页 / 手册 / 下载元数据与 CI 制品字节一致；重新下载五个归档后 SHA256 全部匹配。八项认证边界检查通过，新增 snapshot / delivery / progress 入口在无 CoC 凭据时均返回 401。压缩资源响应逐字节核验；额外的未压缩 HTML 探测含已有 Cloudflare analytics 注入，未将其视作构建资源变化。GitHub 匿名 API 限流后通过 Windows 网络出口完成官方元数据读取，TLS 校验保持开启。
+
+保留原 D1 UUID、STATE_BACKEND、Cron、Access 变量、Secret 和授权数据；没有待执行迁移。发布前 D1 私有导出通过 SQLite 完整性检查，摘要记录在发布证据中，备份不包含活动 DO 状态。没有重启本机或远程活动 Agent，也没有重发任务。
+
+**原生安装状态尚未确认。** 新通道须 Agent / CC 升级到 0.5.18；仅更新 Worker / CW 不会赋予旧 Agent 可靠协议保证。发布工具的通知请求先返回 403；通过支持的 guest 管理入口及部署 User-Agent 重试后返回 401，现有私有管理员凭据未获接受，因此自动更新通知未发出。可使用当前有效管理员登录在管理页通知更新，或从下载页安装；自动更新仍等待空闲。没有为完成通知而修改认证策略或凭据。
+
+未使用真实用户邮箱会话或线上模型任务验收，不宣称已确认所有用户链路或所有 Agent 升级。协议范围、崩溃后结果不明边界与兼容行为见 [可靠传输说明](RELIABLE_TRANSPORT.md)。[完整 CI、摘要、部署与线上验收证据](assets/reliable-transport-2026-10-31/deployment.json)。私有备份在 `.local/reliable-release/private/`，制品和部署日志在 `.local/deploy-cloud/41149659054/` 及 `.local/reliable-env/`。
 
 ## 网页临时 HTML 错误识别 · 2026-10-30
 
