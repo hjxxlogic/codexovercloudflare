@@ -178,6 +178,45 @@ describe('web reply assembly', () => {
 });
 
 describe('consecutive tool groups', () => {
+  it('folds consecutive process output including unknown types while preserving messages and user-facing alerts', () => {
+    const types = [
+      'item/completed',
+      'turn/diff/updated',
+      'turn/plan/updated',
+      'largeRpc',
+      'future/process/updated',
+      'item/agentMessage/delta',
+      'turn/diff/updated',
+      'error',
+      'turn/plan/updated',
+      'user',
+      'warning',
+      'sessionClosed',
+      'queueAccepted',
+      'turn/completed',
+    ];
+    const events = types.map((type, seq) => ({
+      seq,
+      type,
+      time: seq,
+      data: {},
+    }));
+    const original = structuredClone(events);
+    expect(
+      groupToolEvents(events).map((group) => [
+        group.tools,
+        group.events.map((e) => e.type),
+      ]),
+    ).toEqual([
+      [true, types.slice(0, 5)],
+      [false, [types[5]]],
+      [true, [types[6]]],
+      [false, [types[7]]],
+      [true, [types[8]]],
+      ...types.slice(9).map((type) => [false, [type]]),
+    ]);
+    expect(events).toEqual(original);
+  });
   it('groups adjacent tools and keeps chat and warnings as visible boundaries', () => {
     const tool = (seq: number): Event => ({
       seq,

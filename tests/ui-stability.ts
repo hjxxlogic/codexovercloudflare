@@ -112,7 +112,7 @@ const adminPending = [
 ];
 const events: Event[] = [
   { seq: 1, type: 'user', data: { text: '示例任务' }, time: 1 },
-  ...[2, 3, 4].map((seq) => ({
+  ...[2].map((seq) => ({
     seq,
     type: 'item/completed',
     data: {
@@ -125,6 +125,23 @@ const events: Event[] = [
     },
     time: seq,
   })),
+  {
+    seq: 3,
+    time: 3,
+    type: 'turn/diff/updated',
+    data: {
+      diff: 'diff --git a/example.ts b/example.ts\n-old value\n+new value',
+    },
+  },
+  {
+    seq: 4,
+    time: 4,
+    type: 'turn/plan/updated',
+    data: {
+      explanation: '示例执行计划',
+      plan: [{ step: '更新示例文件', status: 'completed' }],
+    },
+  },
   {
     seq: 5,
     type: 'item/agentMessage/delta',
@@ -626,6 +643,25 @@ try {
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);
   assert.match(await group.locator(':scope > summary').innerText(), /3 项/);
+  const diffEntry = group.locator('.tool-output[data-event-seq="3"]');
+  const planEntry = group.locator('.tool-output[data-event-seq="4"]');
+  await expect(diffEntry.locator('summary')).not.toBeVisible();
+  await group.locator(':scope > summary').click();
+  await expect(diffEntry.locator('summary')).toHaveText('代码差异');
+  await expect(planEntry.locator('summary')).toHaveText('执行计划');
+  await diffEntry.locator('summary').click();
+  await expect(diffEntry.locator('.diff-add')).toContainText('+new value');
+  await expect(diffEntry.locator('.diff-remove')).toContainText('-old value');
+  await planEntry.locator('summary').click();
+  await expect(planEntry).toContainText('更新示例文件');
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await group.screenshot({
+      path: join(artifacts, `tool-details-${width}.png`),
+    });
+  }
+  await group.locator(':scope > summary').click();
+  await expect(diffEntry.locator('summary')).not.toBeVisible();
   await page.getByLabel('任务内容').fill('/model');
   await page.getByLabel('任务内容').press('Enter');
   await expect(

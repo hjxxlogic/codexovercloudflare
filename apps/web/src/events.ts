@@ -144,16 +144,22 @@ export function visibleEvents(events: Event[]) {
   return result;
 }
 
-// Group only adjacent tool activity. Chat, plans, warnings and errors keep their order.
+const userFacingEvents = new Set([
+  'user',
+  'item/agentMessage/delta',
+  'warning',
+  'error',
+  'queueAccepted',
+  'sessionClosed',
+  'turn/completed',
+]);
+
+// Fold all consecutive process output, including future event types. Messages,
+// alerts and terminal status remain visible boundaries.
 export function groupToolEvents(events: Event[]) {
   const groups: { tools: boolean; events: Event[] }[] = [];
   for (const event of events) {
-    const tools = [
-      'item/started',
-      'item/completed',
-      'item/commandExecution/outputDelta',
-      'item/fileChange/outputDelta',
-    ].includes(event.type);
+    const tools = !userFacingEvents.has(event.type);
     const previous = groups.at(-1);
     if (tools && previous?.tools) previous.events.push(event);
     else groups.push({ tools, events: [event] });
