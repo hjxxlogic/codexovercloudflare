@@ -44,6 +44,8 @@ Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq
 
 ## D1 模式开发
 
+`python3 scripts/d1-usage.py --database coc-relay-state [--period 7d]` 通过 Wrangler 只读读取线上使用数据，原始证据保存在忽略目录 `.local/d1-usage/`。`info` 的 24 小时滚动窗口与 Insights 采集时刻不同，Insights 可能采样且最多保留 100 种 SQL，不能将其总量等同于账单。D1 事务读取缓存仅在单次 CAS 尝试内有效，返回独立对象；相同值 UPSERT 跳过状态行写入，scope 修订仍推进。
+
 `npm run dev:d1` 生成 `.local/wrangler-d1.json`，应用本地 D1 schema 后启动开发服务；需要已有 `.dev.vars`，与原模式共用 `.wrangler/state`。`npm run test:d1:migration` 验证真实旧 DO 迁移及重启，`npm run test:e2e:d1` 运行 D1 的原生 / 浏览器完整回归；CI 两种模式均执行。旧宿主系统使用下文容器及独立原生构建目录。`tests/host-lifecycle.test.ts` 覆盖 DO / D1 权威切换和中断恢复，`tests/d1-state.test.ts` 断言活动并发控制不访问主机会话 D1。迁移集成等待真实 60 秒空闲归档，直接读取临时 D1 检查完成，避免探测请求重新激活 DO。Actions 单独运行迁移和 D1 E2E，保存 `d1-regression-evidence`；schema、并发失败及部署制品测试见 [D1 说明](d1-relay-state.md)。
 
 若本地磁盘造成集成测试超时，Docker 添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，让测试创建的 Wrangler / 原生 SQLite 数据库驻留内存。仍运行真实 D1 SQL、迁移和重启；不替换成放宽持久性或鉴权的假服务，也不改变生产超时策略。单元测试的 SQLite 已使用 `:memory:`。临时数据随测试容器退出丢弃，日志与截图仍保存到忽略目录。

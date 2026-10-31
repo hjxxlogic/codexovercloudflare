@@ -27,6 +27,58 @@ afterEach(() => {
 });
 
 describe('D1 authoritative state', () => {
+  it('reuses transaction reads without sharing mutable objects or retaining revoked state', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'registry');
+    await state.put('auth:key', { active: true });
+    const get = vi.spyOn(state, 'get');
+    await state.transaction(async (tx) => {
+      const [a, b] = await Promise.all([
+        tx.get<any>('auth:key'),
+        tx.get<any>('auth:key'),
+      ]);
+      a.active = false;
+      expect(b.active).toBe(true);
+      expect(await tx.get('auth:key')).toEqual({ active: true });
+      expect(await tx.get('missing')).toBeUndefined();
+      expect(await tx.get('missing')).toBeUndefined();
+      await tx.put('auth:key', { active: false });
+      expect(await tx.get('auth:key')).toEqual({ active: false });
+      await tx.delete('auth:key');
+      expect(await tx.get('auth:key')).toBeUndefined();
+    });
+    expect(get.mock.calls).toEqual([['auth:key'], ['missing']]);
+    await state.transaction(async (tx) => {
+      expect(await tx.get('auth:key')).toBeUndefined();
+    });
+    expect(get).toHaveBeenCalledTimes(3);
+  });
+  it('refreshes cached reads on a scope conflict before committing', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'registry');
+    const other = new D1State(db.binding(), 'registry');
+    await state.put('auth:key', { active: true });
+    let attempts = 0;
+    const result = await state.transaction(async (tx) => {
+      const auth = await tx.get<any>('auth:key');
+      if (++attempts === 1) await other.delete('auth:key');
+      return auth;
+    });
+    expect(attempts).toBe(2);
+    expect(result).toBeUndefined();
+  });
+  it('does not rewrite unchanged state or expiry indexes', async () => {
+    const db = database();
+    const state = new D1State(db.binding(), 'registry');
+    const expires = Date.now() + 10000;
+    await state.put('auth:key', { active: true, expires });
+    const before = db.sqlite.prepare('SELECT total_changes() AS n').get()!.n;
+    await state.put('auth:key', { active: true, expires });
+    const after = db.sqlite.prepare('SELECT total_changes() AS n').get()!.n;
+    // Keep the fencing revision; neither state nor its due index is rewritten.
+    expect(Number(after) - Number(before)).toBe(1);
+    expect(await state.get('auth:key')).toEqual({ active: true, expires });
+  });
   it('scans beyond the default D1 page, including transaction changes', async () => {
     const db = database();
     const state = new D1State(db.binding(), 'registry');

@@ -121,13 +121,23 @@ export class D1State implements StateStorage {
     for (let attempt = 0; attempt < 8; attempt++) {
       const revision = await this.revision();
       const changes = new Map<string, string | null>();
+      // Cache only within this CAS attempt. Decode for each caller so mutating
+      // a returned object without put() cannot change subsequent reads.
+      const reads = new Map<string, Promise<string | undefined>>();
       const tx: StateTransaction = {
-        get: async <V = any>(key: string) =>
-          changes.has(key)
-            ? changes.get(key) === null
-              ? undefined
-              : (JSON.parse(changes.get(key)!) as V)
-            : this.get<V>(key),
+        get: async <V = any>(key: string) => {
+          if (changes.has(key)) {
+            const value = changes.get(key);
+            return value === null ? undefined : (JSON.parse(value!) as V);
+          }
+          if (!reads.has(key))
+            reads.set(
+              key,
+              this.get(key).then((value) => JSON.stringify(value)),
+            );
+          const value = await reads.get(key)!;
+          return value === undefined ? undefined : (JSON.parse(value) as V);
+        },
         put: async (key, value) => {
           for (const [name, entry] of typeof key === 'string'
             ? [[key, value]]
@@ -217,7 +227,7 @@ export class D1State implements StateStorage {
                 .bind(this.scope, key, this.scope, token)
             : this.db
                 .prepare(
-                  'INSERT INTO relay_state(scope, key, value) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM relay_scopes WHERE scope = ? AND token = ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value',
+                  'INSERT INTO relay_state(scope, key, value) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM relay_scopes WHERE scope = ? AND token = ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value WHERE relay_state.value IS NOT excluded.value',
                 )
                 .bind(this.scope, key, value, this.scope, token),
         );

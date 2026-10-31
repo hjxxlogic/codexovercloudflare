@@ -1,5 +1,9 @@
 # 本机测试记录
 
+## D1 查询与写入优化 · 2026-10-31
+
+本地 Vitest 21 文件、260 项及 TypeScript、ESLint / Prettier 检查通过；新增事务读取复用、对象隔离、授权撤销、CAS 冲突失效和同值写入计数测试。线上只读指标与执行计划、效果边界见 [D1 使用分析](d1-usage-2026-10-31.md)。完整 CI 与部署结果随后记录。
+
 ## 远程配置、管理 Tab 与 Agent 连接配置 · 2026-10-31（CI 通过，已部署）
 
 最终源码 `78418e6eccbe69bbb36dc05ffc7077092660f93c` 的 [Actions 41166072609](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41166072609) 六项必需作业全部成功，已配套发布 Relay / 网页、四平台原生程序和源码归档 0.5.20。[完整发布与验收证据](assets/admin-tabs-2026-10-31/deployment.json)。

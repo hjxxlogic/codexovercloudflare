@@ -56,3 +56,7 @@ python3 scripts/deploy-cloud.py --commit HEAD --state-db-id DATABASE_UUID
 ```
 
 全部必需 Actions 作业成功、获得部署授权后加 `--apply`。后续部署必须继续携带同一 UUID。既有 Agent / CLI 与协议 1 兼容，不需要为本次存储分层重启原生服务。
+
+## 查询与写入优化 · 2026-10-31
+
+D1State 在一次 CAS 尝试内复用同一 key 的读取（包括不存在的 key），每次返回独立 JSON 对象；本地 put / delete 优先，冲突重试重新读取。事务仍在成功返回前验证 scope 修订号，授权缓存时长不变。UPSERT 对相同 JSON 文本跳过状态行更新，scope CAS 仍提交，避免 lastSeen 更新反复重写相同 due 索引。无 SQL migration；生产指标、执行计划与验收边界见 [使用分析](d1-usage-2026-10-31.md)。
