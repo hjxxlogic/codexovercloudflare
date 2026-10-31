@@ -568,8 +568,21 @@ export default {
         }
         if (p === '/api/v1/admin/devices' && req.method === 'GET')
           return json(await registryCall(env, 'devices'));
-        if (p === '/api/v1/admin/hosts' && req.method === 'GET')
-          return json(await registryCall(env, 'hosts'));
+        if (p === '/api/v1/admin/hosts' && req.method === 'GET') {
+          const hosts = await registryCall(env, 'hosts');
+          return json(
+            await Promise.all(
+              hosts.map(async (host: any) => {
+                if (host.disabled) return { ...host, online: false };
+                try {
+                  return { ...host, ...(await hostStatus(env, host.id)) };
+                } catch {
+                  return { ...host, online: null };
+                }
+              }),
+            ),
+          );
+        }
         const emailConfig = p.match(
           /^\/api\/v1\/admin\/hosts\/([\w-]+)\/access-emails$/,
         );

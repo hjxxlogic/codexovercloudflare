@@ -55,6 +55,8 @@ import {
 import { FilePreview } from './file-preview.tsx';
 import { AutoApproval } from './auto-approval.tsx';
 import { AgentUpdates } from './agent-updates.tsx';
+import { AgentVersions } from './agent-versions.tsx';
+import { version as webVersion } from '../../../package.json';
 import {
   ProjectManager,
   AgentAdminEmail,
@@ -2743,6 +2745,9 @@ function App() {
                 <span aria-hidden="true">⇄</span>
                 {t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
               </button>
+              <small className="site-version">
+                {t('网站版本')} {webVersion}
+              </small>
             </div>
           </nav>
         )}
@@ -2823,6 +2828,7 @@ function App() {
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
       {(view !== 'chat' || !logged) && loginForm}
       <ManagerPairing />
+      {mode === 'admin' && admin && <AgentVersions hosts={keyHosts} />}
       {mode === 'admin' && admin && <AgentUpdates />}
       {mode === 'admin' && admin && (
         <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>

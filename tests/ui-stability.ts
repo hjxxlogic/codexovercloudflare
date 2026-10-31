@@ -6,6 +6,7 @@ import { resolve, extname, join } from 'node:path';
 import { chromium, expect, type Page } from '@playwright/test';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Event } from '../packages/protocol/src/index.ts';
+import { version as webVersion } from '../package.json';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
@@ -78,12 +79,16 @@ const adminHost: {
   id: string;
   name: string;
   disabled: boolean;
+  online: boolean;
+  build?: { version: string };
   agentAccessEmails?: string[];
   accessEmailsOverride?: string[];
 } = {
   id: 'sample',
   name: '示例服务器',
   disabled: false,
+  online: true,
+  build: { version: '0.5.16' },
   agentAccessEmails: ['agent@example.com'],
 };
 const adminPending = [
@@ -220,7 +225,16 @@ const server = createServer((req, res) => {
         : [];
     else if (path === '/admin/hosts')
       body = adminSamples
-        ? [adminHost, { id: 'second', name: '第二服务器', disabled: false }]
+        ? [
+            adminHost,
+            {
+              id: 'second',
+              name: '第二服务器',
+              disabled: false,
+              online: false,
+              build: { version: '0.0.1' },
+            },
+          ]
         : [];
     else if (path === '/hosts') {
       if (hostListError) {
@@ -1277,6 +1291,9 @@ try {
   const callsBeforeModeSwitch = attachCalls;
   await openMenu(page);
   const menu = page.getByRole('navigation', { name: '功能菜单' });
+  await expect(
+    menu.getByText(`网站版本 ${webVersion}`, { exact: true }),
+  ).toBeVisible();
   const cwFeatures = [
     /^会话记录/,
     /^新建对话/,
@@ -1974,6 +1991,9 @@ try {
   await page.getByLabel('语言 / Language').selectOption('en');
   const englishMenu = page.getByRole('navigation', { name: 'Feature menu' });
   await expect(
+    englishMenu.getByText(`Website version ${webVersion}`, { exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByRole('heading', { name: 'Administrator sign-in' }),
   ).toBeVisible();
   await expect(page.getByLabel('Owner secret')).toBeVisible();
@@ -1997,6 +2017,43 @@ try {
     name: 'Agent updates',
     exact: true,
   });
+  const versions = page.getByRole('table', {
+    name: 'Running Agent versions',
+    exact: true,
+  });
+  await expect(
+    versions.getByRole('row').filter({ hasText: '示例服务器' }),
+  ).toContainText('0.5.16');
+  await expect(
+    versions.getByRole('row').filter({ hasText: '第二服务器' }),
+  ).toContainText('Offline');
+  await expect(versions).not.toContainText('0.0.1');
+  if (await page.locator('.error').isVisible())
+    await page
+      .locator('.error')
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
+  const versionViewport = page.viewportSize()!;
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page
+      .getByRole('heading', { name: 'Running Agent versions', exact: true })
+      .locator('..')
+      .screenshot({
+        path: join(artifacts, `agent-versions-${width}.png`),
+      });
+    await page
+      .getByRole('button', { name: 'Feature menu', exact: true })
+      .click();
+    await expect(
+      englishMenu.getByText(`Website version ${webVersion}`, { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: join(artifacts, `website-version-${width}.png`),
+    });
+    await page.keyboard.press('Escape');
+  }
+  await page.setViewportSize(versionViewport);
   const notifyUpdate = updates.getByRole('button');
   const publishedRelease = {
     version: '0.5.15',

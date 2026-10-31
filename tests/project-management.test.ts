@@ -101,6 +101,31 @@ beforeEach(async () => {
   });
 });
 describe('project management identities', () => {
+  it('exposes running Agent builds only to administrators and preserves unknown status on failure', async () => {
+    const status = vi.fn((id: string) => ({
+      fetch: async () =>
+        id === 'alice'
+          ? Response.json({ online: true, build: { version: '0.5.16' } })
+          : Response.json(
+              { error: { code: 'INTERNAL_ERROR', message: 'Unavailable' } },
+              { status: 503 },
+            ),
+    }));
+    (env.HOSTS as any).get = status;
+    expect((await request('/admin/hosts', 'client')).status).toBe(403);
+    expect(status).not.toHaveBeenCalled();
+    const result = await request('/admin/hosts', 'owner');
+    expect(result.status).toBe(200);
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        id: 'alice',
+        online: true,
+        build: { version: '0.5.16' },
+      }),
+      expect.objectContaining({ id: 'bob', online: null }),
+    ]);
+    expect(result.data[1]).not.toHaveProperty('build');
+  });
   it('allows ordinary clients to list only their instance, rejects mutations and forged identity', async () => {
     expect(
       (await request('/hosts/alice/project-management', 'client')).status,

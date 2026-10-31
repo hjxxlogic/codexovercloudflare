@@ -147,6 +147,11 @@ h3 {
   border-top: 1px solid #3b414e;
   padding-top: 8px;
 }
+.site-version {
+  display: block;
+  padding: 8px;
+  color: #b8c0cc;
+}
 .language-picker {
   display: flex;
   flex-direction: row;
