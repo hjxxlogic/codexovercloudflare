@@ -6,6 +6,7 @@ import {
 } from '../../../packages/protocol/src/management.ts';
 import {
   deliveryFrameSchema,
+  stopsDeliveryRecovery,
   webDeliveryLane,
   rpcDeliveryLane,
 } from '../../../packages/protocol/src/delivery.ts';
@@ -863,15 +864,7 @@ export class HostRelayDO extends DurableObject<Env> {
       if (o.error)
         this.send(ws, {
           type:
-            o.data.exchangeId &&
-            [
-              'DELIVERY_STATE_MISMATCH',
-              'STREAM_CLOSED',
-              'RESULT_UNAVAILABLE',
-              'STALE_CONTROLLER',
-              'UNAUTHORIZED',
-              'FORBIDDEN',
-            ].includes(o.error.code)
+            o.data.exchangeId && stopsDeliveryRecovery(o.error.code)
               ? 'delivery-reset'
               : 'error',
           lane: o.data.lane,

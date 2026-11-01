@@ -139,19 +139,27 @@ export const transferDescriptorSchema = z.object({
   length: counter.positive().max(2 * 1024 * 1024),
   digest: z.string().regex(/^[a-f0-9]{64}$/),
 });
+export const deliveryRecoveryErrorSchema = z.enum([
+  'DELIVERY_STATE_MISMATCH',
+  'STREAM_CLOSED',
+  'RESULT_UNAVAILABLE',
+  'STALE_CONTROLLER',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+]);
+
+// These errors stop the current recovery exchange. Transport uncertainty and
+// backpressure must remain retryable under the original durable identity.
+export function stopsDeliveryRecovery(code: unknown): boolean {
+  return deliveryRecoveryErrorSchema.safeParse(code).success;
+}
+
 export const deliveryResetSchema = z.object({
   type: z.literal('delivery-reset'),
   lane: deliveryLaneSchema,
   exchangeId: idSchema,
   error: z.object({
-    code: z.enum([
-      'DELIVERY_STATE_MISMATCH',
-      'STREAM_CLOSED',
-      'RESULT_UNAVAILABLE',
-      'STALE_CONTROLLER',
-      'UNAUTHORIZED',
-      'FORBIDDEN',
-    ]),
+    code: deliveryRecoveryErrorSchema,
     message: z.string().max(1024),
   }),
 });

@@ -40,3 +40,11 @@ CW/CC 现在都在连续前缀推进时，将结果从 buffer 移到 cache。操
 已有账本无需迁移；如果旧 cache 和 buffer 同时含有同一结果，在该结果进入连续前缀时移除旧 cache 副本再追加一次。未闭合缺口时暂时保留既有布局，避免启动时新增写入或破坏原恢复状态。新写入的乱序结果只占一份持久正文。cache 淘汰顺序改为结果连续序号顺序，与 buffer 的未确认保留责任分离。没有改变 wire、schema、结果确认事实或 Worker 责任。
 
 确定的收益是消除新乱序结果在账本 JSON 内的第二份正文/描述符/transfer 全文；具体减少量等于这些原重复记录的编码大小，不据此推断生产 RSS、磁盘硬配额或云端费用。未新增层或第三套缓存。
+
+## 第三批：恢复拒绝分类唯一来源
+
+审计发现同一组六种错误在 deliveryResetSchema、HostRelayDO.complete 的 delivery 分支和 CW refreshOnce 的 HTTP 异常分支分别硬编码。三处都表示当前恢复交换必须停止，分类完全一致；不涉及业务执行未知终态与普通 API 重试分类。
+
+现由 packages/protocol/src/delivery.ts 的 deliveryRecoveryErrorSchema 定义唯一集合，schema 和 stopsDeliveryRecovery 共用。Worker 仍须存在 exchangeId 才发 reset，仍在响应前鉴权；CW 仍先核验当前 connection generation/exchangeId 再冻结。没有改变错误码、错误正文、授权检查或转发/持久化责任。C++ 接收显式 reset 的路径没有这份重复列表，本批不人为增加另一份。
+
+测试将真实 HostRelayDO 的原单一拒绝场景扩为十种错误：六种终止恢复错误发 reset；RESULT_UNKNOWN、RESULT_PENDING、BACKPRESSURE、HOST_OFFLINE 发普通错误，不改变原请求恢复资格。验证交换 ID 绑定及没有云端业务持久回执。全套 26 文件/413 项 Vitest、TypeScript、协议生成检查及 lint 通过；本批未改 C++，不重复原生构建。完整 S0–S5 仍未完成。

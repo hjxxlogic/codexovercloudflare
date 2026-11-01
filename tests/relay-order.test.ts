@@ -1870,37 +1870,54 @@ describe('reliable session streams', () => {
     ).toBe(true);
     expect(writes).not.toHaveBeenCalled();
   });
-  it('binds endpoint recovery refusal to the original exchange without saving a cloud receipt', async () => {
-    const h = await connected();
-    await h.current.webSocketMessage(
-      h.client as unknown as WebSocket,
-      JSON.stringify({
-        type: 'delivery-open',
-        stream: 'browser',
-        exchangeId: 'current-reset',
-        received: { normal: 0, priority: 0 },
-        receivedBytes: { normal: 0, priority: 0 },
-      }),
-    );
-    const frames = h.frames().slice(-2);
-    for (const frame of frames)
-      await h.reply(frame, undefined, {
-        code: 'DELIVERY_STATE_MISMATCH',
-        message: 'Receiver lost acknowledged results',
-      });
-    const resets = h.client.send.mock.calls
-      .map(([raw]) => JSON.parse(raw))
-      .filter((frame) => frame.type === 'delivery-reset');
-    expect(resets).toHaveLength(2);
-    expect(resets.every((frame) => frame.exchangeId === 'current-reset')).toBe(
-      true,
-    );
-    expect(
-      [...h.storage.values.keys()].some((key) =>
-        /^(operation|wire|part):/.test(key),
-      ),
-    ).toBe(false);
-  });
+  it.each([
+    ['DELIVERY_STATE_MISMATCH', 'delivery-reset'],
+    ['STREAM_CLOSED', 'delivery-reset'],
+    ['RESULT_UNAVAILABLE', 'delivery-reset'],
+    ['STALE_CONTROLLER', 'delivery-reset'],
+    ['UNAUTHORIZED', 'delivery-reset'],
+    ['FORBIDDEN', 'delivery-reset'],
+    ['RESULT_UNKNOWN', 'error'],
+    ['RESULT_PENDING', 'error'],
+    ['BACKPRESSURE', 'error'],
+    ['HOST_OFFLINE', 'error'],
+  ])(
+    'classifies recovery error %s as %s without a cloud receipt',
+    async (code, type) => {
+      const h = await connected();
+      await h.current.webSocketMessage(
+        h.client as unknown as WebSocket,
+        JSON.stringify({
+          type: 'delivery-open',
+          stream: 'browser',
+          exchangeId: 'current-reset',
+          received: { normal: 0, priority: 0 },
+          receivedBytes: { normal: 0, priority: 0 },
+        }),
+      );
+      const frames = h.frames().slice(-2);
+      for (const frame of frames)
+        await h.reply(frame, undefined, {
+          code,
+          message: 'Receiver lost acknowledged results',
+        });
+      const resets = h.client.send.mock.calls
+        .map(([raw]) => JSON.parse(raw))
+        .filter(
+          (frame) =>
+            frame.type === type && frame.exchangeId === 'current-reset',
+        );
+      expect(resets).toHaveLength(2);
+      expect(
+        resets.every((frame) => frame.exchangeId === 'current-reset'),
+      ).toBe(true);
+      expect(
+        [...h.storage.values.keys()].some((key) =>
+          /^(operation|wire|part):/.test(key),
+        ),
+      ).toBe(false);
+    },
+  );
   it('forwards output confirmations without cloud publication state and still fences a replaced Agent', async () => {
     const h = await connected();
     h.client.serializeAttachment({

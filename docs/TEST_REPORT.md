@@ -1,5 +1,9 @@
 # 本机测试记录
 
+## 恢复错误分类验证（2026-11-01，第三批）
+
+26 文件/413 项 Vitest、TypeScript、协议生成一致性及 ESLint/Prettier 通过。HostRelayDO 恢复测试覆盖六种 reset 错误与四种保持原请求恢复资格的错误，并检查交换 ID 和无云端业务回执持久写入。日志 `/tmp/coc-recovery-errors-{test,lint}.log`。本批仅修改 TypeScript 共享分类，不重复原生构建；未发布部署，完整简化计划未完成。
+
 ## 结果缓存去重验证（2026-11-01，第二批，未提交发行）
 
 CW/CC 新乱序结果仅存入缺口缓冲，连续前缀推进时原子移入有界尾部。复用已有存储结构及确认规则，无 wire/schema 变更。审计证明见 [简化审计记录](TRANSPORT_SIMPLIFICATION_AUDIT.md)。

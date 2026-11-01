@@ -44,3 +44,5 @@ CC RPC 输出先保存正文和连续接收位置，再确认并交给 TUI；TUI
 创建会话在保存 session 的同一 SQLite 事务内，向原操作结果槽保存包含 sessionId 的恢复证据。初始化期间仍为 RESULT_PENDING，禁止提前确认；该期间崩溃后，原请求返回带 sessionId 的 RESULT_UNKNOWN，可核对原会话，不自动再次创建，也不表示初始化成功。已有真实终态仍返回原终态。
 
 CW/CC 未闭合缺口的结果正文只进入持久 buffer；连续前缀推进时在同一提交中移入有界结果 cache，不重复持久保存正文。旧账本已有副本在缺口闭合时一并压缩，确认及 transfer 正文保留条件不变。
+
+恢复拒绝错误由共享 deliveryRecoveryErrorSchema 定义；Worker 的 reset 分类和 CW HTTP 恢复停止条件复用该定义。传输未知、结果待定、背压与主机离线不属于 reset 分类。当前交换/连接校验仍先于冻结状态转换。

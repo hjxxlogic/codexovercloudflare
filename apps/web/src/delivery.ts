@@ -7,6 +7,7 @@ import {
 } from '../../../packages/protocol/src/index.ts';
 import {
   deliveryWindowSchema,
+  stopsDeliveryRecovery,
   deliveryResetSchema,
   deliveryDigest,
   webDeliveryLane,
@@ -684,14 +685,7 @@ export class CommandDelivery {
             if (
               generation === this.generation &&
               exchangeId === this.exchangeId &&
-              [
-                'DELIVERY_STATE_MISMATCH',
-                'STREAM_CLOSED',
-                'RESULT_UNAVAILABLE',
-                'STALE_CONTROLLER',
-                'UNAUTHORIZED',
-                'FORBIDDEN',
-              ].includes(error?.code)
+              stopsDeliveryRecovery(error?.code)
             ) {
               this.fatal =
                 error instanceof Error ? error : new Error(error.code);
