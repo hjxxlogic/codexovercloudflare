@@ -250,3 +250,7 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 ```
 
 默认仅准备；`--apply` 校验完整 Actions 门禁、GitHub artifact SHA256、提交 / 干净来源及网页和 Worker 的来源摘要一致后，通过 Wrangler `--no-bundle --keep-vars` 上传 CI 产物。部署目标来自 CI 保存的配置；当前 JSONC 配置仅使用尾随逗号，新增注释前需扩展解析。保留线上下载清单和包，逐包验证 SHA256；手册使用此次 CI 源码。此流程不创建 GitHub Release，不把分支包冒充已发布版本。发布后检查 health 及网页、脚本、样式、手册、清单 / 校验和的线上字节。凭据由已有 Wrangler 登录提供，不写入文档或仓库。证据位于忽略的 `.local/deploy-cloud/<run-id>/`。Agent 仍单独使用 `deploy-agent.py`，等待空闲，不随云端脚本重启。
+
+### 协议简化候选的存储切换
+
+本候选移除 transport2_control.ready 与 transport2_command_keys.digest。升级前停止共用数据目录的旧进程并保存完整一致备份；新程序在同一 SQLite 启动事务内校验副本后转换。转换失败回滚，禁止自动重建冲突身份。转换后不能只换回旧二进制；回退须使用匹配整套组件与一致备份并核对切换后的副作用。本次仅隔离库测试，未实际发布部署。

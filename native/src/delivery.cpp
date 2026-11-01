@@ -44,11 +44,14 @@ void positive_sequence(int64_t value) {
 }
 } // namespace
 Json Store::control_state(const std::string &session) {
-  const auto rows = query(
-      "SELECT epoch,control_id,owner,ready FROM transport2_control WHERE session=?", {session});
+  const auto rows =
+      query("SELECT epoch,control_id,owner FROM transport2_control WHERE session=?", {session});
   if (rows.empty())
     return nullptr;
-  return Json::parse(rows.at(0).at("ready").get<std::string>());
+  return {{"controlEpoch", rows.at(0).at("epoch")},
+          {"controlId", rows.at(0).at("control_id")},
+          {"owner", rows.at(0).at("owner")},
+          {"instance", delivery_instance_}};
 }
 Json Store::control_apply(const std::string &session, int64_t epoch, const std::string &control_id,
                           const std::string &owner) {
@@ -100,10 +103,9 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
     run("DELETE FROM transport2_cancel WHERE stream IN (SELECT stream FROM transport2_flow_control "
         "WHERE session=? AND closed=1)",
         {session});
-    run("INSERT INTO transport2_control VALUES(?,?,?,?,?) ON CONFLICT(session) DO UPDATE SET "
-        "epoch=excluded.epoch,control_id=excluded.control_id,owner=excluded.owner,ready=excluded."
-        "ready",
-        {session, epoch, control_id, owner, ready.dump()});
+    run("INSERT INTO transport2_control VALUES(?,?,?,?) ON CONFLICT(session) DO UPDATE SET "
+        "epoch=excluded.epoch,control_id=excluded.control_id,owner=excluded.owner",
+        {session, epoch, control_id, owner});
     run("COMMIT");
     return ready;
   } catch (...) {
@@ -383,8 +385,7 @@ Json Store::delivery_receive(const std::string &stream, int64_t seq, int64_t end
     run("UPDATE transport2_streams SET received=?,received_bytes=? WHERE stream=?",
         {seq, end, stream});
     if (!request.empty()) {
-      run("INSERT INTO transport2_command_keys VALUES(?,?,?,?)",
-          {stream, request, seq, delivery_digest(body)});
+      run("INSERT INTO transport2_command_keys VALUES(?,?,?)", {stream, request, seq});
       if (!query("SELECT 1 AS present FROM transport2_cancel WHERE stream=? AND request_id=?",
                  {stream, request})
                .empty()) {

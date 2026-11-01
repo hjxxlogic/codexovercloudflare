@@ -226,7 +226,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE INDEX IF NOT EXISTS transport2_pending ON transport2_commands(stream,phase) WHERE "
         "phase!='finished'");
     run("CREATE TABLE IF NOT EXISTS transport2_control(session TEXT PRIMARY KEY,epoch INTEGER NOT "
-        "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL,ready TEXT NOT NULL)");
+        "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL)");
     run("CREATE TABLE IF NOT EXISTS transport2_flow_control(stream TEXT PRIMARY KEY,session TEXT "
         "NOT NULL,epoch INTEGER NOT NULL,control_id TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT "
         "0)");
@@ -236,7 +236,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "NULL)");
     run("CREATE TABLE IF NOT EXISTS transport2_command_keys(stream TEXT NOT NULL,request_id TEXT "
         "NOT NULL,"
-        "seq INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY "
+        "seq INTEGER NOT NULL,PRIMARY "
         "KEY(stream,request_id),UNIQUE(stream,seq))");
     run("CREATE TABLE IF NOT EXISTS transport2_cancel(stream TEXT NOT NULL,request_id TEXT NOT "
         "NULL,"
@@ -269,15 +269,37 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("INSERT INTO transport2_cache_budget SELECT scope,SUM(bytes),COUNT(*) FROM "
         "transport2_cache_entries GROUP BY scope ON CONFLICT(scope) DO UPDATE SET "
         "bytes=excluded.bytes,records=excluded.records");
-    for (const auto &command : query("SELECT stream,seq,body FROM transport2_commands WHERE "
-                                     "body!='' ORDER BY stream,seq")) {
-      const auto original = Json::parse(command.at("body").get<std::string>());
-      run("INSERT OR IGNORE INTO transport2_command_digests VALUES(?,?,?)",
-          {command.at("stream"), command.at("seq"), delivery_digest(command.at("body"))});
-      const auto key = delivery_request_key(original);
-      if (!key.empty())
-        run("INSERT OR IGNORE INTO transport2_command_keys VALUES(?,?,?,?)",
-            {command.at("stream"), key, command.at("seq"), delivery_digest(command.at("body"))});
+    // Compact only redundant columns from the supported delivery:2 layout. The
+    // enclosing startup transaction preserves the old schema/data on any failure.
+    const auto has_column = [&](const std::string &table, const std::string &name) {
+      const auto columns = query("PRAGMA table_info(" + table + ")");
+      return std::any_of(columns.begin(), columns.end(),
+                         [&](const Json &column) { return column.at("name") == name; });
+    };
+    if (has_column("transport2_control", "ready")) {
+      for (const auto &row : query("SELECT session,ready FROM transport2_control"))
+        if (Json::parse(row.at("ready").get<std::string>()) != control_state(row.at("session")))
+          throw Error("STORAGE_CORRUPT", "Control confirmation disagrees with durable identity");
+      run("CREATE TABLE transport2_control_compact(session TEXT PRIMARY KEY,epoch INTEGER NOT "
+          "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL)");
+      run("INSERT INTO transport2_control_compact SELECT session,epoch,control_id,owner "
+          "FROM transport2_control");
+      run("DROP TABLE transport2_control");
+      run("ALTER TABLE transport2_control_compact RENAME TO transport2_control");
+    }
+    if (has_column("transport2_command_keys", "digest")) {
+      if (!query(
+               "SELECT 1 FROM transport2_command_keys k LEFT JOIN transport2_command_digests d "
+               "ON d.stream=k.stream AND d.seq=k.seq WHERE d.digest IS NULL OR k.digest<>d.digest "
+               "LIMIT 1")
+               .empty())
+        throw Error("STORAGE_CORRUPT", "Command identity disagrees with durable digest");
+      run("CREATE TABLE transport2_command_keys_compact(stream TEXT NOT NULL,request_id TEXT NOT "
+          "NULL,seq INTEGER NOT NULL,PRIMARY KEY(stream,request_id),UNIQUE(stream,seq))");
+      run("INSERT INTO transport2_command_keys_compact SELECT stream,request_id,seq "
+          "FROM transport2_command_keys");
+      run("DROP TABLE transport2_command_keys");
+      run("ALTER TABLE transport2_command_keys_compact RENAME TO transport2_command_keys");
     }
     run("CREATE TABLE IF NOT EXISTS transport2_result_heads(stream TEXT PRIMARY KEY,"
         "sent INTEGER NOT NULL DEFAULT 0,sent_bytes INTEGER NOT NULL DEFAULT 0,"

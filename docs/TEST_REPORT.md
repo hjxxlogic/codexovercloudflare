@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 持久状态精简验证（2026-11-01，第六批）
+
+原生构建、8 项 CTest、27 文件/414 项 Vitest、真实 Agent 传输故障测试及全部静态检查通过。新增 native-store-compaction：原布局转换、控制证明与原请求唯一键保留、再次启动幂等、控制实例冲突和摘要冲突拒绝，以及第二张表转换失败后第一张表 DDL/数据一起回滚。既有控制接管、原命令去重、取消目标、正文回收和关闭流测试通过。
+
+日志 `/tmp/coc-state-compact-{build,test,delivery,lint}.log`。仅隔离测试库转换，未修改运行实例/生产库。转换后不支持旧二进制直接读取，切换约束已写入 RELEASE 和 USER_GUIDE。
+
 ## 原生恢复策略验证（2026-11-01，第五批）
 
 原生构建、7 项 CTest、27 文件/414 项 Vitest、真实 Agent/CLI 原请求测试及全部静态检查通过。HistorySubscription 接入后再次构建并通过 native-core（含历史订阅测试）。共享延迟样例覆盖两种快速预算、慢速端点和计数上界；原请求测试覆盖结果/确认丢失、重启、实例替换和未知结果不重做。日志 `/tmp/coc-recovery-native-{build,test,operations,lint}.log`、`/tmp/coc-recovery-history-{build,test}.log`。未发布部署。
