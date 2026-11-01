@@ -1,3 +1,4 @@
+import { recoveryDelay } from './recovery.ts';
 import {
   controlProofSchema,
   commandTargetSchema,
@@ -743,14 +744,12 @@ export class CommandDelivery {
     this.retryTimer = setTimeout(
       () => {
         this.retryTimer = undefined;
-        this.readAttempts++;
+        this.readAttempts = Math.min(5, this.readAttempts + 1);
         void this.refresh()
           .catch(() => {})
           .finally(() => this.schedule());
       },
-      this.readAttempts < 5
-        ? Math.min(10000, 1000 * 2 ** this.readAttempts)
-        : 30000 + Math.random() * 30000,
+      recoveryDelay(this.readAttempts, 5),
     );
   }
   private async flush() {

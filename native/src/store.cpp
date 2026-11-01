@@ -198,7 +198,8 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE INDEX IF NOT EXISTS transport2_local_operations_allocation ON "
         "transport2_local_operations(allocation,key)");
     if (authoritative)
-      run("UPDATE transport2_operations SET phase='unknown',result=? WHERE phase='started'",
+      run("UPDATE transport2_operations SET phase='unknown',result=COALESCE(result,?) WHERE "
+          "phase='started'",
           {Json{{"error",
                  {{"code", "RESULT_UNKNOWN"},
                   {"message", "Agent restarted after the original operation began; "

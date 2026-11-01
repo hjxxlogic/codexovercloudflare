@@ -1,5 +1,16 @@
 # 本机测试记录
 
+## 协议简化首批验证（2026-11-01，未发布）
+
+本批仅修复创建会话与原请求关联的崩溃窗口，以及统一 CW 命令、HTTP 原请求和上传的恢复延迟公式，不表示简化计划 S0–S5 完成。完整审计与未执行项见 [简化审计记录](TRANSPORT_SIMPLIFICATION_AUDIT.md)。
+
+- `npm run build:native`、`npm run typecheck`、`npm run protocol:check`、`npm run lint:cpp`、`npm run lint` 通过。
+- `npm test`：7 项 CTest、26 文件 / 403 项 Vitest 通过。新增原生操作断言覆盖 session/恢复证据原子提交、注入写失败后的事务回滚、重复分配拒绝、运行中查询与提前 ACK 拒绝、重启恢复原 sessionId。
+- `npm run test:operations`：真实 Agent 与 CLI 测试通过；Agent 初始化期间 SIGKILL 后按原编号返回 RESULT_UNKNOWN，消息包含已分配 sessionId，session 数量不增加；已有成功终态仍原样恢复。
+- 日志：`/tmp/coc-simplify-{build,tests,operations,web,lint}.log`。这些是本机临时日志，不是发行制品证明。
+
+未执行 GitHub Actions、跨平台验证、完整浏览器 E2E、发布部署。创建恢复证据没有将外部 Codex 副作用与 SQLite 合并成事务，不声明 exactly-once。修复前已丢失关联的未知请求不能自动补救。
+
 ## 0.6.0 最终本机验收（2026-11-01，未发布部署）
 
 P0–P7 已按本轮用户限定的本机范围完成并勾选。保留现有 delivery:2，无旧业务兼容分支；选择停服后手动更新 Agent。以下早期阶段记录为历史快照，其中的“尚未完成”不覆盖本节结果。未运行 GitHub Actions、其它平台构建、模型任务、生产发布或部署；依赖位于用户 ~/.local。

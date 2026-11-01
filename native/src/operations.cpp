@@ -56,7 +56,7 @@ Json Store::operation_begin(const Json &intent, const std::string &action, const
       if (record.at("phase") == "acked")
         throw Error("RESULT_UNAVAILABLE", "Original operation was confirmed and retired");
       Json result = {{"key", key}, {"state", record.at("phase")}};
-      if (!record.at("result").is_null())
+      if (record.at("phase") != "started" && !record.at("result").is_null())
         result["result"] = Json::parse(record.at("result").get<std::string>());
       run("COMMIT");
       return result;
@@ -76,6 +76,31 @@ Json Store::operation_begin(const Json &intent, const std::string &action, const
         {key, intent.at("owner"), intent.at("requestId"), digest, credit::operation_slot});
     run("COMMIT");
     return {{"key", key}, {"state", "new"}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+void Store::operation_session(const std::string &key, const Json &session) {
+  run("BEGIN IMMEDIATE");
+  try {
+    const auto rows = query("SELECT phase,result FROM transport2_operations WHERE key=?", {key});
+    if (rows.empty() || rows.at(0).at("phase") != "started")
+      throw Error("RESULT_UNAVAILABLE", "Session creation requires its original started operation");
+    if (!rows.at(0).at("result").is_null())
+      throw Error("IDEMPOTENCY_CONFLICT", "Original operation already allocated a session");
+    const auto id = session.at("id").get<std::string>();
+    const Json recovery = {
+        {"error",
+         {{"code", "RESULT_UNKNOWN"},
+          {"message", "Session " + id +
+                          " was allocated by this request; initialization outcome "
+                          "is unknown. Inspect this session before a new intent."}}}};
+    // This is recovery evidence, not a terminal result while execution is live.
+    // It shares the session commit and the already reserved operation result slot.
+    save(session);
+    run("UPDATE transport2_operations SET result=? WHERE key=?", {recovery.dump(), key});
+    run("COMMIT");
   } catch (...) {
     run("ROLLBACK");
     throw;

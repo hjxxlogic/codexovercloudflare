@@ -59,6 +59,7 @@ public:
   Json history_hint(const Json &request);
   Json history_budget();
   Json operation_begin(const Json &intent, const std::string &action, const Json &data);
+  void operation_session(const std::string &key, const Json &session);
   Json operation_finish(const std::string &key, Json envelope);
   Json operation_ack(const Json &intent, const std::string &action, const Json &data);
   Json operation_budget();

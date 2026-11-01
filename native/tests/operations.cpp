@@ -94,6 +94,54 @@ void recovery() {
           "Oversized side-effect result has a reserved uncertain terminal, never false success");
   }
 }
+void session_recovery() {
+  Temp temp;
+  Json request;
+  const Json input = {{"projectId", "project"}, {"mode", "web"}};
+  {
+    Store journal(temp.path);
+    request = identity(journal, "create-crash");
+    const auto key = journal.operation_begin(request, "create", input).at("key");
+    const Json session = {{"id", "host~allocated"}, {"state", "starting"}, {"running", false}};
+    rejects([&] { journal.operation_session("missing", session); }, "RESULT_UNAVAILABLE");
+    check(journal.sessions().empty(), "Missing original intent cannot publish an orphan session");
+    sqlite3 *fault = nullptr;
+    check(sqlite3_open((temp.path + "/agent.db").c_str(), &fault) == SQLITE_OK,
+          "Open fault injection connection");
+    check(sqlite3_exec(fault,
+                       "CREATE TRIGGER fail_session_receipt BEFORE UPDATE OF result ON "
+                       "transport2_operations BEGIN SELECT RAISE(ABORT,'receipt failure'); END",
+                       nullptr, nullptr, nullptr) == SQLITE_OK,
+          "Install receipt failure");
+    rejects([&] { journal.operation_session(key, session); }, "STORAGE_ERROR");
+    check(journal.sessions().empty(),
+          "Receipt failure rolls back the session in the same transaction");
+    check(sqlite3_exec(fault, "DROP TRIGGER fail_session_receipt", nullptr, nullptr, nullptr) ==
+              SQLITE_OK,
+          "Remove receipt failure");
+    sqlite3_close(fault);
+    journal.operation_session(key, session);
+    auto pending = journal.operation_begin(request, "create", input);
+    check(pending.at("state") == "started" && !pending.contains("result"),
+          "Recovery evidence cannot be acknowledged as a live terminal result");
+    rejects([&] { journal.operation_ack(request, "create", input); }, "RESULT_PENDING");
+    rejects([&] { journal.operation_session(key, {{"id", "host~duplicate"}}); },
+            "IDEMPOTENCY_CONFLICT");
+    check(journal.sessions().size() == 1, "Allocation retry cannot create another session");
+  }
+  {
+    Store journal(temp.path);
+    const auto result = journal.operation_begin(request, "create", input);
+    check(result.at("state") == "unknown" &&
+              result.at("result").at("error").at("message").get<std::string>().find(
+                  "host~allocated") != std::string::npos,
+          "Original request recovers the session identity across the initialization crash gap");
+    check(journal.get("host~allocated").at("state") == "failed",
+          "Recovering the identity does not claim that its runtime survived restart");
+    journal.operation_ack(request, "create", input);
+    rejects([&] { journal.operation_begin(request, "create", input); }, "RESULT_UNAVAILABLE");
+  }
+}
 void reservations() {
   Temp temp;
   Store journal(temp.path);
@@ -292,6 +340,7 @@ int main() {
       check(operation_write(fixture.at("action"), fixture.at("data")) == fixture.at("write"),
             "Shared C++/Worker write admission classification");
     recovery();
+    session_recovery();
     reservations();
     retirement();
     local_recovery();

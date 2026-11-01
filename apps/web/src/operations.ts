@@ -1,3 +1,4 @@
+import { recoveryDelay } from './recovery.ts';
 import { api, ApiError, retryable } from './api.ts';
 import type { HistoryCache } from './history.ts';
 import {
@@ -576,11 +577,8 @@ export class OperationClient {
               'BACKPRESSURE',
             ].includes(error.code))
         ) {
-          const delay =
-            this.attempts < 3
-              ? 1000 * 2 ** this.attempts++
-              : 30000 +
-                Math.floor((this.options.random ?? Math.random)() * 30001);
+          const delay = recoveryDelay(this.attempts, 3, this.options.random);
+          this.attempts = Math.min(3, this.attempts + 1);
           this.timer = setTimeout(() => {
             this.timer = undefined;
             this.kick();

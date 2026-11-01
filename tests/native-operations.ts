@@ -288,11 +288,20 @@ createInterface({input:process.stdin}).on('line',()=>{});
     ack: true,
   });
   assert.equal(premature.error.code, 'RESULT_PENDING');
+  const allocated = database
+    .prepare(
+      "SELECT value FROM sessions WHERE json_extract(value,'$.state')='starting'",
+    )
+    .all()
+    .map((row) => JSON.parse(String(row.value)));
+  assert.equal(allocated.length, 1);
+  const allocatedId = allocated[0].id;
   await stop('SIGKILL');
   settings.codexArgs = [resolve('tests/fixtures/fake-codex.mjs')];
   await start();
   const unknown = await control('create', uncertainData, uncertain);
   assert.equal(unknown.error.code, 'RESULT_UNKNOWN');
+  assert(unknown.error.message.includes(allocatedId));
   assert.deepEqual(unknown.intent, uncertain);
   assert.equal(
     count(),

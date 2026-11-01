@@ -664,7 +664,7 @@ public:
               }
               respond(envelope, intent);
             },
-            intent.is_null() ? "" : intent.at("owner").get<std::string>());
+            intent.is_null() ? "" : intent.at("owner").get<std::string>(), operation_key);
       } catch (const std::exception &e) {
         auto error = error_data(e);
         Json envelope = {{"error", error}};
@@ -867,7 +867,7 @@ public:
     }
   }
   void control(const std::string &action, const Json &d, Completion done,
-               const std::string &owner = "") {
+               const std::string &owner = "", const std::string &operation_key = "") {
     if (action == "delivery") {
       const auto id = d.at("sessionId").get<std::string>();
       const auto session = store_.get(id);
@@ -1274,17 +1274,19 @@ public:
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
     auto rt = std::make_shared<Runtime>();
+    bool session_saved = false;
     try {
       rt->process = std::make_shared<CodexProcess>(
           io_, config_, p["path"], [this, id](Json m) { on_codex(id, m); },
           [this, id] { on_exit(id); });
-      store_.save(s);
+      store_.operation_session(operation_key, s);
+      session_saved = true;
       runtimes_[id] = rt;
       rt->process->start();
     } catch (const std::exception &error) {
       if (runtimes_.erase(id))
         rt->process->close();
-      if (error_data(error).value("code", "") != "BACKPRESSURE") {
+      if (session_saved && error_data(error).value("code", "") != "BACKPRESSURE") {
         s["state"] = "failed";
         store_.save(s);
       }

@@ -1,3 +1,4 @@
+import { recoveryDelay } from './recovery.ts';
 import { api, ApiError, retryable } from './api.ts';
 import type { HistoryCache } from './history.ts';
 import type { OperationClient } from './operations.ts';
@@ -298,10 +299,8 @@ export async function resumeUpload(
                 )
               )
                 throw error;
-              const delay =
-                attempts < 3
-                  ? 1000 * 2 ** attempts++
-                  : 30000 + Math.floor(Math.random() * 30001);
+              const delay = recoveryDelay(attempts);
+              attempts = Math.min(3, attempts + 1);
               await wait(delay, signal);
             }
           }
