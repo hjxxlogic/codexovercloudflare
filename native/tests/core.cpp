@@ -1891,12 +1891,18 @@ void stabilization_test() {
                   .at("error")
                   .at("code") == "PROJECT_BUSY",
           "Original business failure remains queryable");
-    WorkspaceFiles files(&store);
-    files.request(
-        temp.path, "workspace-write", "owner",
-        {{"operation", "begin"}, {"uploadId", "persistent"}, {"path", "empty"}, {"size", 0}});
+    WorkspaceFiles files(store);
+    files.request(temp.path, "workspace-write", "owner",
+                  {{"operation", "begin"},
+                   {"uploadId", "persistent"},
+                   {"path", "empty"},
+                   {"size", 0},
+                   {"sha256", delivery_digest("")}});
     const auto result = files.request(temp.path, "workspace-write", "owner",
-                                      {{"operation", "finish"}, {"uploadId", "persistent"}});
+                                      {{"operation", "finish"},
+                                       {"uploadId", "persistent"},
+                                       {"agentInstance", store.delivery_instance()},
+                                       {"sha256", delivery_digest("")}});
     check(result["state"] == "completed" &&
               result["sha256"] ==
                   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1904,9 +1910,11 @@ void stabilization_test() {
   }
   {
     Store store(temp.path);
-    WorkspaceFiles files(&store);
+    WorkspaceFiles files(store);
     auto result = files.request(temp.path, "read-only", "owner",
-                                {{"operation", "status"}, {"uploadId", "persistent"}});
+                                {{"operation", "status"},
+                                 {"uploadId", "persistent"},
+                                 {"agentInstance", store.delivery_instance()}});
     check(result["state"] == "completed",
           "Upload result survives Agent restart and policy changes");
     rejects(
@@ -1915,12 +1923,14 @@ void stabilization_test() {
                         {{"operation", "begin"},
                          {"uploadId", "persistent"},
                          {"path", "another"},
-                         {"size", 0}});
+                         {"size", 0},
+                         {"sha256", delivery_digest("")}});
         },
-        "UPLOAD_EXISTS");
+        "IDEMPOTENCY_CONFLICT");
     check(files.request(temp.path, "read-only", "other",
-                        {{"operation", "status"}, {"uploadId", "persistent"}})["state"] ==
-              "not_found",
+                        {{"operation", "status"},
+                         {"uploadId", "persistent"},
+                         {"agentInstance", store.delivery_instance()}})["state"] == "not_found",
           "Upload status credential isolation");
   }
   auto path = std::filesystem::path(temp.path) / "credential.json";
@@ -2124,9 +2134,24 @@ void performance_test() {
   std::cout << "PASS: batched journal atomicity, Unicode, statement reuse and indexed expiry\n";
 }
 void files_test() {
-  Temp t, outside;
-  WorkspaceFiles files;
+  Temp t, outside, state;
+  Store store(state.path);
+  WorkspaceFiles files(store);
+  std::map<std::string, std::string> checksums;
   auto call = [&](Json data, std::string owner = "owner", std::string sandbox = "workspace-write") {
+    const auto operation = data.at("operation");
+    if (operation == "begin") {
+      const auto id = data.at("uploadId").get<std::string>();
+      const auto bytes = data.at("size") == 0 ? std::string()
+                         : id == "pipeline"   ? std::string("abcdef")
+                         : id == "race"       ? std::string("abc")
+                                              : std::string("\0\1\xff", 3);
+      data["sha256"] = checksums[id] = delivery_digest(bytes);
+    } else if (operation != "list" && operation != "read") {
+      data["agentInstance"] = store.delivery_instance();
+      if (operation == "finish")
+        data["sha256"] = checksums.at(data.at("uploadId").get<std::string>());
+    }
     return files.request(t.path, sandbox, owner, data);
   };
   auto begin = [&](std::string id, bool overwrite = false) {
@@ -2151,8 +2176,13 @@ void files_test() {
   auto chunk =
       Json{{"operation", "chunk"}, {"uploadId", "upload"}, {"offset", 0}, {"data", "AAH/"}};
   rejects([&] { call(chunk, "other"); }, "UPLOAD_NOT_FOUND");
-  rejects([&] { files.request(outside.path, "workspace-write", "owner", chunk); },
-          "UPLOAD_NOT_FOUND");
+  rejects(
+      [&] {
+        auto foreign = chunk;
+        foreign["agentInstance"] = store.delivery_instance();
+        files.request(outside.path, "workspace-write", "owner", foreign);
+      },
+      "UPLOAD_NOT_FOUND");
   rejects([&] { call({{"operation", "finish"}, {"uploadId", "upload"}}); }, "UPLOAD_INCOMPLETE");
   check(call(chunk)["offset"] == 3 && call(chunk)["offset"] == 3, "Chunk retry is idempotent");
   chunk["data"] = "YWJj";

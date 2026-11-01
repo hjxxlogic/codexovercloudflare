@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## 上传强制原摘要与实例（2026-11-01，仅本机，未部署）
+
+- 完整 `npm run build`（本机原生 / 网页、TypeScript 与 Worker dry-run）、5 项 CTest、26 文件 / 383 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。C++ / Zod 共用 29 项上传格式样例，覆盖 begin / finish 摘要和后续操作实例的必填、类型、长度及小写十六进制格式。
+- 实际 WorkspaceFiles / SQLite 验证缺失或错误实例不改变暂存承诺；重复 begin 更改 SHA-256 返回冲突；错误 finish 摘要和与初始摘要不符的实际字节均不发布；原完成回执、取消、资源释放、重启未知及存储失败继续通过。上传实现必须使用 Store，无内存回执路径。
+- Worker 对全部非法共享样例只返回 INVALID_REQUEST，不转发文件操作或持久写云端业务数据。`test:operations` 经真实 Agent 控制连接验证这些样例和四类实例替换请求，上传表保持为空；需要原操作回执的失败先保存结果并可按原身份确认。真实 CC 原请求丢回复、重启及确认回归也通过。
+- 网页将完整文件原 SHA-256 放入 begin 正文，之后携带原实例并以同一摘要 finish；上传单元测试核验这些字段。完整 `test:e2e` 通过真实 Worker / Agent / CLI / Chromium 的二进制上传下载、丢块回包后沿原偏移恢复、面板关闭重开、SHA-256 校验、显式覆盖、控制隔离与权限撤销。首次 E2E 在接管测试发现上一阶段 socket 夹具把未确认结果的正常重传计为第二次界面完成；修复后按 lane / resultSeq 校验原结果并去重，分别验证线上再次返回原结果与界面仅完成一次。随后给文件超限样例补齐合法 SHA-256，确认拒绝来自大小限制；再次完整重跑通过。
+
+日志共同前缀 `/tmp/coc-upload-proof-`；依赖继续使用用户 `~/.local`。未运行 GitHub Actions 或 Windows 构建，没有发布、部署及生产状态变更。统一资源预算、真实旧程序升级和最终 0.6.0 切换仍待完成。
+
 ## 会话写入唯一命令窗口（2026-11-01，仅本机，未部署）
 
 - 完整 `npm run build`（本机原生 / 网页、TypeScript 与 Worker dry-run）、5 项 CTest、26 文件 / 381 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。

@@ -1287,6 +1287,10 @@
           "overwrite": {
             "default": false,
             "type": "boolean"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         },
         "required": [
@@ -1294,7 +1298,8 @@
           "path",
           "uploadId",
           "size",
-          "overwrite"
+          "overwrite",
+          "sha256"
         ],
         "additionalProperties": false
       },
@@ -1325,6 +1330,7 @@
         },
         "required": [
           "operation",
+          "agentInstance",
           "uploadId",
           "offset",
           "data"
@@ -1353,7 +1359,9 @@
         },
         "required": [
           "operation",
-          "uploadId"
+          "uploadId",
+          "agentInstance",
+          "sha256"
         ],
         "additionalProperties": false
       },
@@ -1378,6 +1386,7 @@
         },
         "required": [
           "operation",
+          "agentInstance",
           "uploadId"
         ],
         "additionalProperties": false
@@ -2565,6 +2574,10 @@
                   "overwrite": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
                   }
                 },
                 "required": [
@@ -2574,7 +2587,8 @@
                   "path",
                   "uploadId",
                   "size",
-                  "overwrite"
+                  "overwrite",
+                  "sha256"
                 ],
                 "additionalProperties": false
               },
@@ -2615,6 +2629,7 @@
                   "projectId",
                   "owner",
                   "operation",
+                  "agentInstance",
                   "uploadId",
                   "offset",
                   "data"
@@ -2653,7 +2668,9 @@
                   "projectId",
                   "owner",
                   "operation",
-                  "uploadId"
+                  "uploadId",
+                  "agentInstance",
+                  "sha256"
                 ],
                 "additionalProperties": false
               },
@@ -2688,6 +2705,7 @@
                   "projectId",
                   "owner",
                   "operation",
+                  "agentInstance",
                   "uploadId"
                 ],
                 "additionalProperties": false

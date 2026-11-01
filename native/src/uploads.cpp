@@ -9,48 +9,50 @@ std::string workspace_upload_identity(const std::string &root, const std::string
     throw Error("INVALID_REQUEST", "Invalid upload identity");
   return delivery_digest(Json::array({root, owner, id}).dump());
 }
+namespace {
+bool valid_checksum(const Json &value) {
+  if (!value.is_string())
+    return false;
+  const auto checksum = value.get<std::string>();
+  return checksum.size() == 64 &&
+         checksum.find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+} // namespace
+void validate_workspace_upload(const Json &data, const std::string &instance) {
+  if (!data.is_object() || !data.contains("operation") || !data.at("operation").is_string())
+    throw Error("INVALID_REQUEST", "Invalid file operation");
+  const auto operation = data.at("operation").get<std::string>();
+  if (operation == "list" || operation == "read")
+    return;
+  if (operation != "begin" && operation != "chunk" && operation != "finish" &&
+      operation != "cancel" && operation != "status")
+    throw Error("INVALID_REQUEST", "Unknown file operation");
+  if (!data.contains("uploadId") || !data.at("uploadId").is_string() ||
+      !valid_id(data.at("uploadId")))
+    throw Error("INVALID_REQUEST", "Invalid upload identity");
+  // begin is already pinned by its mandatory original-operation intent.
+  if (operation != "begin") {
+    if (!data.contains("agentInstance") || !data.at("agentInstance").is_string() ||
+        !valid_id(data.at("agentInstance")))
+      throw Error("INVALID_REQUEST", "Upload requires its original Agent instance");
+    if (data.at("agentInstance") != instance)
+      throw Error("DELIVERY_STATE_MISMATCH", "Upload belongs to another Agent store");
+  }
+  if ((operation == "begin" || operation == "finish") &&
+      (!data.contains("sha256") || !valid_checksum(data.at("sha256"))))
+    throw Error("INVALID_REQUEST", "Upload requires its original complete SHA-256");
+}
 Json WorkspaceFiles::upload_receipt(const std::string &root, const std::string &owner,
                                     const std::string &id) {
-  const auto key = workspace_upload_identity(root, owner, id);
-  if (store_)
-    return store_->upload_record(root, owner, id);
-  const auto found = completed_.find(key);
-  return found == completed_.end() ? Json() : found->second;
+  return store_.upload_record(root, owner, id);
 }
 void WorkspaceFiles::begin_receipt(const std::string &root, const std::string &owner,
                                    const std::string &id, const Json &body) {
-  if (store_) {
-    store_->upload_prepare(root, owner, id, body);
-    return;
-  }
-  const auto key = workspace_upload_identity(root, owner, id);
-  const Json intention = {{"path", body.at("path")},
-                          {"size", body.at("size")},
-                          {"overwrite", body.value("overwrite", false)}};
-  const auto digest = delivery_digest(intention.dump());
-  const auto previous = upload_receipt(root, owner, id);
-  if (!previous.is_null()) {
-    if (previous.at("phase") == "completed")
-      throw Error("UPLOAD_EXISTS", "Upload identity already completed");
-    if (previous.at("digest") != digest)
-      throw Error("IDEMPOTENCY_CONFLICT", "Original upload intention changed");
-    if (previous.at("phase") != "started")
-      throw Error("RESULT_UNKNOWN", "Original upload was retired");
-    return;
-  }
-  if (completed_.size() >= credit::upload_records)
-    throw Error("BACKPRESSURE", "Upload identity budget exhausted");
-  completed_[key] = {{"phase", "started"}, {"digest", digest}, {"result", nullptr}};
+  store_.upload_prepare(root, owner, id, body);
 }
 void WorkspaceFiles::finish_receipt(const std::string &root, const std::string &owner,
                                     const std::string &id, const Json &result, bool reclaimed) {
-  if (store_) {
-    store_->upload_complete(root, owner, id, result, reclaimed);
-    return;
-  }
-  auto &record = completed_.at(workspace_upload_identity(root, owner, id));
-  record["phase"] = result.value("state", "") == "completed" ? "completed" : "retired";
-  record["result"] = result;
+  store_.upload_complete(root, owner, id, result, reclaimed);
 }
 Json Store::upload_record(const std::string &root, const std::string &owner,
                           const std::string &id) {
@@ -66,7 +68,10 @@ Json Store::upload_record(const std::string &root, const std::string &owner,
 Json Store::upload_prepare(const std::string &root, const std::string &owner, const std::string &id,
                            const Json &input) {
   const auto key = workspace_upload_identity(root, owner, id);
+  if (!input.contains("sha256") || !valid_checksum(input.at("sha256")))
+    throw Error("INVALID_REQUEST", "Upload intention requires its complete SHA-256");
   const Json body = {{"path", input.at("path")},
+                     {"sha256", input.at("sha256")},
                      {"size", input.at("size")},
                      {"overwrite", input.value("overwrite", false)}};
   const auto size = body.at("size").get<int64_t>();
@@ -78,10 +83,10 @@ Json Store::upload_prepare(const std::string &root, const std::string &owner, co
   try {
     auto previous = upload_record(root, owner, id);
     if (!previous.is_null()) {
-      if (previous.at("phase") == "completed")
-        throw Error("UPLOAD_EXISTS", "Upload identity already completed");
       if (previous.at("digest") != digest)
         throw Error("IDEMPOTENCY_CONFLICT", "Original upload intention changed");
+      if (previous.at("phase") == "completed")
+        throw Error("UPLOAD_EXISTS", "Upload identity already completed");
       if (previous.at("phase") != "started")
         throw Error("RESULT_UNKNOWN", "Upload was retired; reconcile its original result");
       run("COMMIT");

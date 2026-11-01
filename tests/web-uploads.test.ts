@@ -73,6 +73,7 @@ function harness() {
     ) => {
       if (path.endsWith('/probe')) return { deliveryInstance: instance };
       const stored = (await uploadRecords(journal))[0];
+      if (body.operation !== 'begin') expect(body.agentInstance).toBeDefined();
       if (body.agentInstance && body.agentInstance !== instance)
         throw new ApiError('DELIVERY_STATE_MISMATCH', 'Replaced Agent', 409);
       if (exchange?.ack) {
@@ -89,6 +90,7 @@ function harness() {
         expect(stored.phase).toBe('queued');
         expect(stored.size).toBe(data.length);
         expect(stored.sha256).toBe(sha256);
+        expect(body.sha256).toBe(sha256);
         begins++;
         result = { offset, window: 4 };
       } else if (body.operation === 'status')

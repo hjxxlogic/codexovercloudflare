@@ -1,5 +1,6 @@
 // Real endpoint receipts, process death and recovery; no cloud or model calls.
 import assert from 'node:assert/strict';
+import uploadFixtures from './upload-binding-fixtures.json';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -172,6 +173,50 @@ try {
   assert.equal(
     (await control('request', { requestId: 'legacy' })).error.code,
     'UNSUPPORTED_ACTION',
+  );
+  for (const fixture of uploadFixtures.filter((entry) => entry.error)) {
+    const args = {
+      ...fixture.input,
+      projectId: 'project',
+      owner: 'a'.repeat(64),
+    };
+    const original = ['begin', 'finish'].includes(args.operation)
+      ? { requestId: randomUUID(), owner: args.owner, instance }
+      : undefined;
+    // The shared fixture's valid binding must match this real Agent journal.
+    if (args.agentInstance === 'agent-store') args.agentInstance = instance;
+    const rejected = await control('files', args, original);
+    assert.equal(rejected.error.code, 'INVALID_REQUEST', fixture.name);
+    if (original) {
+      const ack = await control('files', args, { ...original, ack: true });
+      assert.equal(ack.data.confirmed, true);
+    }
+  }
+  for (const operation of ['chunk', 'finish', 'cancel', 'status']) {
+    const args = {
+      operation,
+      projectId: 'project',
+      owner: 'a'.repeat(64),
+      uploadId: 'foreign',
+      agentInstance: 'another-store',
+      sha256: 'a'.repeat(64),
+      offset: 0,
+      data: 'YWJj',
+    };
+    const original =
+      operation === 'finish'
+        ? { requestId: randomUUID(), owner: args.owner, instance }
+        : undefined;
+    assert.equal(
+      (await control('files', args, original)).error.code,
+      'DELIVERY_STATE_MISMATCH',
+    );
+    if (original) await control('files', args, { ...original, ack: true });
+  }
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS n FROM transport2_uploads').get()!.n,
+    0,
+    'Malformed or foreign-instance upload commands cannot allocate staging promises',
   );
   const intent = { requestId: randomUUID(), owner: 'a'.repeat(64), instance };
   const data = { key: 'original-create', projectId: 'project', mode: 'web' };

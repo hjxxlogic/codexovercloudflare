@@ -25,6 +25,10 @@ export class WindowPeer {
     normal: { seq: 0, bytes: 0 },
     priority: { seq: 0, bytes: 0 },
   };
+  private results = new Map<
+    string,
+    { seq: number; end: number; body: string; digest: string }
+  >();
   private pending: Promise<void> = Promise.resolve();
   private failure?: unknown;
   constructor(
@@ -185,6 +189,19 @@ export class WindowPeer {
         (v) => v.lane === lane && v.seq === result.seq,
       );
       assert(original, 'Result has no original command');
+      const identity = lane + ':' + result.resultSeq;
+      const value = {
+        seq: result.seq,
+        end: result.resultEnd,
+        body: result.resultBody,
+        digest: result.resultDigest,
+      };
+      const known = this.results.get(identity);
+      if (known) {
+        assert.deepEqual(value, known, 'Repeated result identity changed');
+        return;
+      }
+      this.results.set(identity, value);
       let payload = JSON.parse(result.resultBody);
       if (payload?.error && !payload.type && this.mode === 'web')
         payload = {

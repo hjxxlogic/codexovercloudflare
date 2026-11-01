@@ -322,3 +322,10 @@ Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 b
 Worker 和 Agent 均拒绝没有持久命令窗口的会话写入（UPGRADE_REQUIRED），包括网页任务、审批 / 策略 / 中断及 CLI 初始化、线程 / 任务修改和审批答复；只读 sync / models 与 RPC 读取允许列表继续直接转发。Agent 只由带原控制证明的 OPEN 生效控制权，不再由普通帧激活待定 epoch，接收命令前核验原流所属会话。CLI 输出始终写入有界持久日志，TUI 桥必须提供持久 Store，删除无账本直发分支。
 
 网页及外部队列 / 审批已移除旧 begin / submitted / finish 回执和 external-submission 普通缓存路径；删除旧 Store API，新库不再创建 requests / request_states 表，重复与未知结果只由原命令或 transport2_operations 账本决定。此次不删除现有机器的数据文件，发行切换的备份 / 清理仍待实施。
+
+
+## 上传原始摘要与实例的强制格式（2026-11-01，本机阶段）
+
+上传 begin 必须携带完整文件 SHA-256，并随原路径、大小、覆盖选择一起纳入持久意图摘要；begin 的 Agent 实例由必需的 HTTP 原请求证明固定。chunk / status / cancel / finish 均必须携带原 agentInstance，finish 还须携带与 begin 相同的 SHA-256。Agent 在处理前拒绝缺失或错误实例及格式不合法的摘要；发布前重新读取暂存全文校验，原摘要、finish 摘要或实际字节不一致时均不发布。相同上传身份更改内容意图返回冲突，已完成或退役身份不能重新创建暂存文件。WorkspaceFiles 必须使用持久 Store，删除内存回执实现；不导入旧的缺摘要 / 无实例业务格式。
+
+本机验证涵盖 C++ / Zod 共享缺字段与错误格式、实例替换、重复 begin 内容冲突、暂存字节不符以及持久回执与资源承诺；仍需完成统一资源预算、真实旧程序升级与最终切换，不能据此声明 0.6.0 整体验收完成。

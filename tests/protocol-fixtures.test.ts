@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fixtures from './protocol-fixtures.json';
+import uploadFixtures from './upload-binding-fixtures.json';
 import emailFixtures from './access-email-fixtures.json';
 import operationFixtures from './operation-intent-fixtures.json';
 import writeFixtures from './original-write-fixtures.json';
@@ -12,11 +13,19 @@ import {
   agentConfigSchema,
   accessEmailsSchema,
   webCommandSchema,
+  workspaceFileCommandSchema,
   operationIntentSchema,
   operationWrite,
   controlCommandSchema,
 } from '../packages/protocol/src/index.ts';
 describe('shared C++/Zod protocol examples', () => {
+  it('requires the same original upload instance and complete checksum as native', () => {
+    for (const fixture of uploadFixtures)
+      expect(
+        workspaceFileCommandSchema.safeParse(fixture.input).success,
+        fixture.name,
+      ).toBe(!fixture.error);
+  });
   it('requires an original HTTP ledger only for the same writes as native', () => {
     for (const fixture of writeFixtures)
       expect(operationWrite(fixture.action, fixture.data)).toBe(fixture.write);

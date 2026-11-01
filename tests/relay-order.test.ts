@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStorage } from './helpers/do-state.ts';
+import uploadFixtures from './upload-binding-fixtures.json';
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {
     constructor(
@@ -154,6 +155,23 @@ beforeEach(() => {
     .mockResolvedValue({ expires: Number.MAX_SAFE_INTEGER });
 });
 afterEach(() => vi.useRealTimers());
+it('rejects incomplete upload bindings and checksums before forwarding or durable cloud writes', async () => {
+  const h = harness();
+  const writes = vi.spyOn(h.storage, 'put');
+  for (const fixture of uploadFixtures.filter((entry) => entry.error)) {
+    const rejected = await h.start('files', {
+      ...fixture.input,
+      projectId: 'demo',
+      owner: 'a'.repeat(64),
+    });
+    const result = rejected.data.operationId
+      ? (await h.read(rejected.data.operationId)).data
+      : rejected.data;
+    expect(result.error.code, fixture.name).toBe('INVALID_REQUEST');
+  }
+  expect(h.agent.send).not.toHaveBeenCalled();
+  expect(writes).not.toHaveBeenCalled();
+});
 describe('recoverable asynchronous controls', () => {
   it('keeps original write forwarding in memory and binds receipts to authenticated intent across reconstruction', async () => {
     const h = harness();
@@ -250,6 +268,8 @@ describe('recoverable asynchronous controls', () => {
         owner: 'a'.repeat(64),
         operation: 'begin',
         uploadId: 'old',
+        agentInstance: 'test-agent-store',
+        sha256: 'a'.repeat(64),
         path: 'old.txt',
         size: 0,
       },
@@ -261,6 +281,8 @@ describe('recoverable asynchronous controls', () => {
         owner: 'a'.repeat(64),
         operation: 'finish',
         uploadId: 'old',
+        agentInstance: 'test-agent-store',
+        sha256: 'a'.repeat(64),
       },
     ],
   ])(
@@ -813,6 +835,7 @@ describe('recoverable asynchronous controls', () => {
         projectId: 'demo',
         owner: 'a'.repeat(64),
         operation: 'status',
+        agentInstance: 'test-agent-store',
         uploadId: 'upload',
       },
     ],

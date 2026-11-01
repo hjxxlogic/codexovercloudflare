@@ -842,6 +842,7 @@ try {
         projectId: 'test-project',
         path: 'too-large',
         uploadId: 'large',
+        sha256: 'a'.repeat(64),
         size: 20 * 1024 * 1024 + 1,
       })
     ).r.status,
@@ -1491,13 +1492,24 @@ try {
       .join(''),
     'echo: hello',
   );
+  const originalResults = () =>
+    p.messages.filter(
+      (m) =>
+        m.type === 'delivery-result' &&
+        JSON.parse(m.resultBody).requestId === prompt.requestId,
+    );
+  const resultAttempts = originalResults().length;
   p.send(JSON.stringify(prompt));
   await wait(
-    () =>
-      p.messages.filter(
-        (m) => m.type === 'ack' && m.requestId === prompt.requestId,
-      ).length === 2,
-    'duplicate ack',
+    () => originalResults().length > resultAttempts,
+    'duplicate command returns its original result',
+  );
+  assert.equal(
+    p.messages.filter(
+      (m) => m.type === 'ack' && m.requestId === prompt.requestId,
+    ).length,
+    1,
+    'Repeated original results produce one UI completion',
   );
   assert.equal(p.messages.filter((m) => m.event?.type === 'user').length, 1);
   pass('streaming and duplicate prompt suppression');
@@ -1545,7 +1557,7 @@ try {
     p.messages.filter(
       (m) => m.type === 'ack' && m.requestId === prompt.requestId,
     ).length,
-    2,
+    1,
   );
   p = await web(s.id, true, lostClaim);
   assert.equal(

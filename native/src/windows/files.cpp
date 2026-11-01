@@ -200,7 +200,7 @@ struct WorkspaceFiles::Upload {
   WinHandle file, previous_file;
   std::wstring name;
   std::string root, owner, previous;
-  std::string id;
+  std::string id, sha256;
   int64_t size = 0, offset = 0, touched = now();
   bool published = false;
   std::map<int64_t, std::string> pending;
@@ -212,7 +212,7 @@ struct WorkspaceFiles::Upload {
     }
   }
 };
-WorkspaceFiles::WorkspaceFiles(Store *store) : store_(store) {}
+WorkspaceFiles::WorkspaceFiles(Store &store) : store_(store) {}
 WorkspaceFiles::~WorkspaceFiles() = default;
 void WorkspaceFiles::clear() { uploads_.clear(); }
 void WorkspaceFiles::cleanup() {
@@ -232,6 +232,7 @@ void WorkspaceFiles::cleanup() {
 }
 Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox,
                              const std::string &owner, const Json &d) {
+  validate_workspace_upload(d, store_.delivery_instance());
   cleanup();
   auto operation = d.at("operation").get<std::string>();
   if (operation == "list") {
@@ -311,7 +312,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
   const auto receipt = upload_receipt(root, owner, id);
   if (operation == "status" || operation == "finish") {
     if (!receipt.is_null() && receipt.at("phase") != "started") {
-      if (operation == "finish" && receipt.at("phase") == "completed" && d.contains("sha256") &&
+      if (operation == "finish" && receipt.at("phase") == "completed" &&
           d.at("sha256") != receipt.at("result").at("sha256"))
         throw Error("UPLOAD_CONFLICT",
                     "Completed file checksum differs from the original intention");
@@ -354,6 +355,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     upload->owner = owner;
     upload->id = id;
     upload->size = size;
+    upload->sha256 = d.at("sha256");
     try {
       auto previous = open_file(*upload->parent, upload->name, GENERIC_READ, OPEN_EXISTING,
                                 FILE_SHARE_READ | FILE_SHARE_DELETE);
@@ -379,6 +381,8 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
   if (it == uploads_.end() || it->second->root != root || it->second->owner != owner)
     throw Error("UPLOAD_NOT_FOUND", "Upload is missing, expired or belongs to another credential");
   auto &upload = *it->second;
+  if (operation == "finish" && d.at("sha256") != upload.sha256)
+    throw Error("UPLOAD_CONFLICT", "Finish checksum differs from the original upload intention");
   upload.touched = now();
   if (operation == "cancel") {
     if (!upload.published) {
@@ -444,22 +448,25 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
   if (!raw)
     throw Error("RESULT_UNKNOWN", "Cannot calculate upload checksum");
   std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> hash(raw, EVP_MD_CTX_free);
-  EVP_DigestInit_ex(raw, EVP_sha256(), nullptr);
+  if (EVP_DigestInit_ex(raw, EVP_sha256(), nullptr) != 1)
+    throw Error("RESULT_UNKNOWN", "Cannot initialize upload checksum");
   char buffer[65536];
   for (int64_t offset = 0; offset < upload.size;) {
     auto count = read_at(upload.file.get(), buffer, sizeof(buffer), offset);
     if (count <= 0)
       throw Error("RESULT_UNKNOWN", "Cannot verify published file");
-    EVP_DigestUpdate(raw, buffer, count);
+    if (EVP_DigestUpdate(raw, buffer, count) != 1)
+      throw Error("RESULT_UNKNOWN", "Cannot calculate upload checksum");
     offset += count;
   }
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned length = 0;
-  EVP_DigestFinal_ex(raw, digest, &length);
+  if (EVP_DigestFinal_ex(raw, digest, &length) != 1)
+    throw Error("RESULT_UNKNOWN", "Cannot complete upload checksum");
   std::ostringstream checksum;
   for (unsigned i = 0; i < length; ++i)
     checksum << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(digest[i]);
-  if (d.contains("sha256") && (!d.at("sha256").is_string() || d.at("sha256") != checksum.str()))
+  if (checksum.str() != upload.sha256)
     throw Error("UPLOAD_CONFLICT", "Staging file checksum differs from the original intention");
   if (!upload.published) {
     if (!upload.previous.empty()) {

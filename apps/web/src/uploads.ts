@@ -240,6 +240,7 @@ export async function resumeUpload(
                 path: record.path,
                 size: record.size,
                 overwrite: record.overwrite,
+                sha256: record.sha256,
               },
               id + '-begin',
               { kind: 'upload-begin', uploadId: id },

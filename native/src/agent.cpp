@@ -93,7 +93,7 @@ public:
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
         config_file_(std::move(config_file)), remote_config_(config_file_, true),
         remote_restart_timer_(io_), updater_(updater), store_(config_["dataDir"]),
-        projects_(config_), file_store_(config_["dataDir"], false), files_(&file_store_),
+        projects_(config_), file_store_(config_["dataDir"], false), files_(file_store_),
         retry_(io_), maintenance_(io_), event_timer_(io_), history_retry_(io_),
         signals_(io_, SIGINT, SIGTERM) {}
   bool remote_restart() const { return remote_restart_; }
@@ -984,8 +984,7 @@ public:
       return;
     }
     if (action == "files") {
-      if (d.contains("agentInstance") && d.at("agentInstance") != store_.delivery_instance())
-        throw Error("DELIVERY_STATE_MISMATCH", "Upload belongs to another Agent store");
+      validate_workspace_upload(d, store_.delivery_instance());
       auto p = project(d.at("projectId"));
       const auto bytes = d.dump().size();
       if (file_requests_ >= 8 || file_bytes_ + bytes > 512 * 1024)

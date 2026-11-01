@@ -1,0 +1,289 @@
+[
+  {
+    "name": "begin",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "error": false
+  },
+  {
+    "name": "chunk",
+    "input": {
+      "operation": "chunk",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "error": false
+  },
+  {
+    "name": "finish",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "error": false
+  },
+  {
+    "name": "cancel",
+    "input": {
+      "operation": "cancel",
+      "uploadId": "original",
+      "agentInstance": "agent-store"
+    },
+    "error": false
+  },
+  {
+    "name": "status",
+    "input": {
+      "operation": "status",
+      "uploadId": "original",
+      "agentInstance": "agent-store"
+    },
+    "error": false
+  },
+  {
+    "name": "begin-sha-missing",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3
+    },
+    "error": true
+  },
+  {
+    "name": "begin-sha-number",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": 1
+    },
+    "error": true
+  },
+  {
+    "name": "begin-sha-short",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "begin-sha-long",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "begin-sha-upper",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "error": true
+  },
+  {
+    "name": "begin-sha-nonhex",
+    "input": {
+      "operation": "begin",
+      "uploadId": "original",
+      "path": "proof.bin",
+      "size": 3,
+      "sha256": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-missing",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-number",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": 1
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-short",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-long",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-upper",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-sha-nonhex",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "agent-store",
+      "sha256": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    },
+    "error": true
+  },
+  {
+    "name": "chunk-instance-missing",
+    "input": {
+      "operation": "chunk",
+      "uploadId": "original",
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "error": true
+  },
+  {
+    "name": "chunk-instance-number",
+    "input": {
+      "operation": "chunk",
+      "uploadId": "original",
+      "agentInstance": 1,
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "error": true
+  },
+  {
+    "name": "chunk-instance-empty",
+    "input": {
+      "operation": "chunk",
+      "uploadId": "original",
+      "agentInstance": "",
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-instance-missing",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-instance-number",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": 1,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "error": true
+  },
+  {
+    "name": "finish-instance-empty",
+    "input": {
+      "operation": "finish",
+      "uploadId": "original",
+      "agentInstance": "",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    "error": true
+  },
+  {
+    "name": "cancel-instance-missing",
+    "input": {
+      "operation": "cancel",
+      "uploadId": "original"
+    },
+    "error": true
+  },
+  {
+    "name": "cancel-instance-number",
+    "input": {
+      "operation": "cancel",
+      "uploadId": "original",
+      "agentInstance": 1
+    },
+    "error": true
+  },
+  {
+    "name": "cancel-instance-empty",
+    "input": {
+      "operation": "cancel",
+      "uploadId": "original",
+      "agentInstance": ""
+    },
+    "error": true
+  },
+  {
+    "name": "status-instance-missing",
+    "input": {
+      "operation": "status",
+      "uploadId": "original"
+    },
+    "error": true
+  },
+  {
+    "name": "status-instance-number",
+    "input": {
+      "operation": "status",
+      "uploadId": "original",
+      "agentInstance": 1
+    },
+    "error": true
+  },
+  {
+    "name": "status-instance-empty",
+    "input": {
+      "operation": "status",
+      "uploadId": "original",
+      "agentInstance": ""
+    },
+    "error": true
+  }
+]

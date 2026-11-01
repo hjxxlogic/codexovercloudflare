@@ -1,4 +1,5 @@
 #include "coc/credit.hpp"
+#include "coc/delivery.hpp"
 #include "coc/files.hpp"
 #include "coc/store.hpp"
 #include <fstream>
@@ -25,13 +26,20 @@ struct Temp {
 };
 void recovery() {
   Temp temp;
-  const Json start = {
-      {"operation", "begin"}, {"uploadId", "original"}, {"path", "proof.bin"}, {"size", 3}};
+  const Json start = {{"operation", "begin"},
+                      {"uploadId", "original"},
+                      {"path", "proof.bin"},
+                      {"size", 3},
+                      {"sha256", delivery_digest("abc")}};
   Json receipt;
   {
     Store store(temp.path + "/state");
-    WorkspaceFiles files(&store);
+    WorkspaceFiles files(store);
     const auto call = [&](Json d, const std::string &owner = "owner") {
+      if (d.at("operation") != "begin")
+        d["agentInstance"] = store.delivery_instance();
+      if (d.at("operation") == "finish" && !d.contains("sha256"))
+        d["sha256"] = delivery_digest("abc");
       return files.request(temp.path, "workspace-write", owner, d);
     };
     call(start);
@@ -41,6 +49,33 @@ void recovery() {
     auto changed = start;
     changed["path"] = "other.bin";
     rejects([&] { call(changed); }, "IDEMPOTENCY_CONFLICT");
+    changed = start;
+    changed["sha256"] = std::string(64, '0');
+    rejects([&] { call(changed); }, "IDEMPOTENCY_CONFLICT");
+    const auto before_invalid = store.upload_budget();
+    for (const auto &operation : {"chunk", "finish", "cancel", "status"}) {
+      Json missing = {{"operation", operation},
+                      {"uploadId", "original"},
+                      {"offset", 0},
+                      {"data", "YWJj"},
+                      {"sha256", delivery_digest("abc")}};
+      rejects([&] { files.request(temp.path, "workspace-write", "owner", missing); },
+              "INVALID_REQUEST");
+      missing["agentInstance"] = "another-agent";
+      rejects([&] { files.request(temp.path, "workspace-write", "owner", missing); },
+              "DELIVERY_STATE_MISMATCH");
+    }
+    auto missing_sha = start;
+    missing_sha.erase("sha256");
+    rejects([&] { files.request(temp.path, "workspace-write", "owner", missing_sha); },
+            "INVALID_REQUEST");
+    missing_sha = {{"operation", "finish"},
+                   {"uploadId", "original"},
+                   {"agentInstance", store.delivery_instance()}};
+    rejects([&] { files.request(temp.path, "workspace-write", "owner", missing_sha); },
+            "INVALID_REQUEST");
+    check(store.upload_budget() == before_invalid,
+          "Invalid upload bindings and checksums cannot consume or release staging promises");
     call({{"operation", "chunk"}, {"uploadId", "original"}, {"offset", 0}, {"data", "YWJj"}});
     rejects(
         [&] {
@@ -71,6 +106,15 @@ void recovery() {
     store.cache_clear();
     check(call({{"operation", "status"}, {"uploadId", "original"}}) == receipt,
           "Ordinary cache cleanup cannot erase an upload result");
+    auto corrupted = start;
+    corrupted["uploadId"] = "corrupted";
+    corrupted["path"] = "corrupted.bin";
+    call(corrupted);
+    call({{"operation", "chunk"}, {"uploadId", "corrupted"}, {"offset", 0}, {"data", "YWJk"}});
+    rejects([&] { call({{"operation", "finish"}, {"uploadId", "corrupted"}}); }, "UPLOAD_CONFLICT");
+    check(!std::filesystem::exists(temp.path + "/corrupted.bin"),
+          "Bytes differing from begin SHA cannot publish with the original finish SHA");
+    call({{"operation", "cancel"}, {"uploadId", "corrupted"}});
     auto interrupted = start;
     interrupted["uploadId"] = "interrupted";
     interrupted["path"] = "pending.bin";
@@ -87,14 +131,21 @@ void recovery() {
   }
   {
     Store store(temp.path + "/state");
-    WorkspaceFiles files(&store);
+    WorkspaceFiles files(store);
     const auto call = [&](Json d) {
+      if (d.at("operation") != "begin")
+        d["agentInstance"] = store.delivery_instance();
+      if (d.at("operation") == "finish" && !d.contains("sha256"))
+        d["sha256"] = delivery_digest("abc");
       return files.request(temp.path, "workspace-write", "owner", d);
     };
     check(call({{"operation", "finish"}, {"uploadId", "original"}}) == receipt,
           "Completed upload survives restart without cache TTL or repeated publication");
     std::ofstream(temp.path + "/proof.bin") << "later edit";
     rejects([&] { call(start); }, "UPLOAD_EXISTS");
+    auto altered = start;
+    altered["sha256"] = std::string(64, '0');
+    rejects([&] { call(altered); }, "IDEMPOTENCY_CONFLICT");
     check(call({{"operation", "status"}, {"uploadId", "interrupted"}}).at("state") == "unknown",
           "An interrupted upload is durably unknown, never a fresh begin");
     auto interrupted = start;
@@ -121,9 +172,12 @@ void storage_failure() {
                    "RAISE(ABORT,'forced upload admission failure'); END";
   check(sqlite3_exec(fault, sql, nullptr, nullptr, nullptr) == SQLITE_OK,
         "Install admission storage fault");
-  WorkspaceFiles files(&store);
-  const Json request = {
-      {"operation", "begin"}, {"uploadId", "storage-failure"}, {"path", "proof.bin"}, {"size", 3}};
+  WorkspaceFiles files(store);
+  const Json request = {{"operation", "begin"},
+                        {"uploadId", "storage-failure"},
+                        {"path", "proof.bin"},
+                        {"size", 3},
+                        {"sha256", delivery_digest("abc")}};
   rejects([&] { files.request(temp.path, "workspace-write", "owner", request); }, "STORAGE_ERROR");
   check(stopped && store.upload_budget().at("records") == 0,
         "Failed admission rolls back and stops new side effects");
@@ -140,7 +194,8 @@ void storage_failure() {
 void capacities() {
   Temp temp;
   Store store(temp.path);
-  const Json body = {{"path", "proof"}, {"size", credit::upload_file}};
+  const Json body = {
+      {"path", "proof"}, {"size", credit::upload_file}, {"sha256", delivery_digest("")}};
   for (int i = 0; i < 4; ++i)
     store.upload_prepare("/project", "owner-" + std::to_string(i / 2),
                          "active-" + std::to_string(i), body);
@@ -159,7 +214,8 @@ void capacities() {
   for (int i = 0; i < credit::upload_records; ++i) {
     const auto owner = "owner-" + std::to_string(i / credit::upload_owner_records);
     const auto id = "retired-" + std::to_string(i);
-    journal.upload_prepare("/project", owner, id, {{"path", "empty"}, {"size", 0}});
+    journal.upload_prepare("/project", owner, id,
+                           {{"path", "empty"}, {"size", 0}, {"sha256", delivery_digest("")}});
     journal.upload_complete("/project", owner, id, {{"state", "completed"}}, true);
     if (i == credit::upload_owner_records - 1)
       rejects([&] { journal.upload_prepare("/project", owner, "owner-overflow", body); },
@@ -172,13 +228,21 @@ void capacities() {
   rejects(
       [&] {
         journal.upload_prepare("/project", "owner-0", "retired-0",
-                               {{"path", "empty"}, {"size", 0}});
+                               {{"path", "empty"}, {"size", 0}, {"sha256", delivery_digest("")}});
       },
       "UPLOAD_EXISTS");
 }
 } // namespace
 int main() {
   try {
+    for (const auto &fixture :
+         read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/upload-binding-fixtures.json")) {
+      if (fixture.value("error", false))
+        rejects([&] { validate_workspace_upload(fixture.at("input"), "agent-store"); },
+                "INVALID_REQUEST");
+      else
+        validate_workspace_upload(fixture.at("input"), "agent-store");
+    }
     recovery();
     storage_failure();
     capacities();

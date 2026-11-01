@@ -1,4 +1,5 @@
 #include "coc/windows.hpp"
+#include "coc/delivery.hpp"
 #include "coc/files.hpp"
 #include "coc/network.hpp"
 #include "coc/process.hpp"
@@ -110,8 +111,19 @@ int main() {
     duplicate["projects"].push_back(
         {{"id", "duplicate"}, {"name", "Duplicate"}, {"path", upper_path}});
     rejects([&] { agent_config(duplicate); }, "CONFIG_ERROR");
-    WorkspaceFiles files;
+    Store file_store((root / "file-state").u8string());
+    WorkspaceFiles files(file_store);
+    std::map<std::string, std::string> checksums;
     auto request = [&](Json value, const std::string &policy = "workspace-write") {
+      const auto operation = value.at("operation");
+      const auto id = value.value("uploadId", "");
+      if (operation == "begin")
+        value["sha256"] = checksums[id] = delivery_digest(value.at("size") == 0 ? "" : "hello");
+      else if (operation != "list" && operation != "read") {
+        value["agentInstance"] = file_store.delivery_instance();
+        if (operation == "finish")
+          value["sha256"] = checksums.at(id);
+      }
       std::cout << "FILE: " << value.at("operation").get<std::string>() << " "
                 << value.value("path", "") << std::endl;
       return files.request(path, policy, "owner", value);

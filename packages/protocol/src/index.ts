@@ -307,10 +307,11 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
       .min(0)
       .max(20 * 1024 * 1024),
     overwrite: z.boolean().default(false),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
   z.object({
     operation: z.literal('chunk'),
-    agentInstance: idSchema.optional(),
+    agentInstance: idSchema,
     uploadId: idSchema,
     offset: z
       .number()
@@ -322,15 +323,12 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('finish'),
     uploadId: idSchema,
-    agentInstance: idSchema.optional(),
-    sha256: z
-      .string()
-      .regex(/^[a-f0-9]{64}$/)
-      .optional(),
+    agentInstance: idSchema,
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
   z.object({
     operation: z.enum(['cancel', 'status']),
-    agentInstance: idSchema.optional(),
+    agentInstance: idSchema,
     uploadId: idSchema,
   }),
 ]);
