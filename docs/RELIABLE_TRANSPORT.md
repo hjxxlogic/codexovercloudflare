@@ -46,3 +46,5 @@ CC RPC 输出先保存正文和连续接收位置，再确认并交给 TUI；TUI
 CW/CC 未闭合缺口的结果正文只进入持久 buffer；连续前缀推进时在同一提交中移入有界结果 cache，不重复持久保存正文。旧账本已有副本在缺口闭合时一并压缩，确认及 transfer 正文保留条件不变。
 
 恢复拒绝错误由共享 deliveryRecoveryErrorSchema 定义；Worker 的 reset 分类和 CW HTTP 恢复停止条件复用该定义。传输未知、结果待定、背压与主机离线不属于 reset 分类。当前交换/连接校验仍先于冻结状态转换。
+
+Agent 恢复响应复用 ACK 前经过水位校验的结果后缀页；ACK 只回收该水位及以前的前缀，响应窗口仍在 ACK 后读取。大结果描述符的 contentId/digest 复用一次固定正文摘要计算，wire 与保留语义不变。

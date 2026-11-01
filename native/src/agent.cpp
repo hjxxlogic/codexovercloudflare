@@ -938,8 +938,11 @@ public:
             runtime->second->cli_delivery_stream.empty())
           runtime->second->cli_delivery_stream = stream;
       }
+      Json results;
       if (d.contains("resultReceived")) {
-        store_.delivery_results(stream, d.at("resultReceived"));
+        // Read once: this also rejects a recovery snapshot behind the durable ACK.
+        // The ACK below only reclaims the prefix, never this suffix page.
+        results = store_.delivery_results(stream, d.at("resultReceived"));
         store_.delivery_result_ack(stream, d.at("resultReceived"), d.at("resultBytes"));
         window = store_.delivery_window(stream);
       }
@@ -953,7 +956,7 @@ public:
         return;
       }
       if (d.contains("resultReceived"))
-        result["results"] = store_.delivery_results(stream, d.at("resultReceived"));
+        result["results"] = std::move(results);
       if (d.contains("exchangeId"))
         result["exchangeId"] = d.at("exchangeId");
       if (d.contains("seq")) {

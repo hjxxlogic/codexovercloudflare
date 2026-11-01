@@ -1,5 +1,11 @@
 # 本机测试记录
 
+## 结果处理重复计算验证（2026-11-01，第四批）
+
+原生构建、7 项 CTest、真实 Agent `test:delivery`、TypeScript、协议生成一致性、C++ 格式及 ESLint/Prettier 通过。新增真实端点断言：结果已确认后，恢复请求报告旧水位 0 仍返回 DELIVERY_STATE_MISMATCH；原有 ACK 回收、transfer 全文、关闭流结果、历史尾部恢复测试通过。日志 `/tmp/coc-result-work-{build,test,delivery,lint}.log`。
+
+本批复用同步恢复请求中已校验的结果后缀页，以及固定大正文的 SHA-256；wire、schema、权限与确认生命周期不变。不重复未受修改影响的 Vitest 全套（第三批 413 项已通过），未发布部署。
+
 ## 恢复错误分类验证（2026-11-01，第三批）
 
 26 文件/413 项 Vitest、TypeScript、协议生成一致性及 ESLint/Prettier 通过。HostRelayDO 恢复测试覆盖六种 reset 错误与四种保持原请求恢复资格的错误，并检查交换 ID 和无云端业务回执持久写入。日志 `/tmp/coc-recovery-errors-{test,lint}.log`。本批仅修改 TypeScript 共享分类，不重复原生构建；未发布部署，完整简化计划未完成。

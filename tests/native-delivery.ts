@@ -420,6 +420,18 @@ try {
     resultBytes: result.record.resultEnd,
   });
   assert.deepEqual(resumed.results, []);
+  await assert.rejects(
+    control('delivery', {
+      sessionId: web.id,
+      mode: 'web',
+      stream: 'web-normal',
+      lane: 'normal',
+      instance,
+      resultReceived: 0,
+      resultBytes: 0,
+    }),
+    /DELIVERY_STATE_MISMATCH/,
+  );
   assert.equal(resumed.window.streamSerial, allocation.streamSerial);
   assert.equal(resumed.window.creditGeneration, allocation.creditGeneration);
   assert.equal(

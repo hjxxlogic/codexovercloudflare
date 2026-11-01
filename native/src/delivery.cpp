@@ -443,14 +443,12 @@ void Store::delivery_finish(const std::string &stream, int64_t seq, const Json &
       throw Error("BACKPRESSURE", "Result exceeds durable content budget");
     std::string body = full_body;
     const bool transfer = Json(body).dump().size() > max_frame - 8192;
-    if (transfer)
-      body = Json{{"type", "delivery-content"},
-                  {"retention", "transfer"},
-                  {"revision", 1},
-                  {"length", full_body.size()},
-                  {"contentId", delivery_digest(full_body)},
-                  {"digest", delivery_digest(full_body)}}
+    if (transfer) {
+      const auto digest = delivery_digest(full_body);
+      body = Json{{"type", "delivery-content"}, {"retention", "transfer"}, {"revision", 1},
+                  {"length", full_body.size()}, {"contentId", digest},     {"digest", digest}}
                  .dump();
+    }
     const auto state = delivery_result_state(stream);
     const auto result_seq = state.at("sent").get<int64_t>() + 1;
     const auto end = state.at("sent_bytes").get<int64_t>() + int64_t(body.size());
