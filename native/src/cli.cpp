@@ -365,7 +365,7 @@ class Cli {
       return api("/sessions/" + id + "/attach", {{"delivery", 2}, {"resume", resume}});
     };
     auto bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id,
-                                              command_store.get(), resume_connection);
+                                              *command_store, resume_connection);
     auto url = bridge->url();
     std::vector<std::string> args = {"codex",
                                      "--remote",

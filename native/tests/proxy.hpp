@@ -61,6 +61,11 @@ inline void proxy_tests() {
         require(!proxy_route(target, {{asio::ip::make_address("10.1.2.3"), 443}}));
         require(
             !proxy_route(relay_url("http://localhost"), {{asio::ip::address_v4::loopback(), 80}}));
+        struct Journals {
+          std::string path =
+              (std::filesystem::temp_directory_path() / ("coc-proxy-" + uuid())).u8string();
+          ~Journals() { std::filesystem::remove_all(path); }
+        } journals;
         std::exception_ptr failure;
         std::thread server([&] {
           try {
@@ -113,14 +118,55 @@ inline void proxy_tests() {
             if (ws) {
               beast::websocket::stream<tcp::socket> websocket(std::move(socket));
               websocket.accept(request);
-              websocket.write(asio::buffer(std::string("{\"type\":\"hello\"}")));
+              const auto transmit = [&](const Json &value) {
+                websocket.write(asio::buffer(value.dump()));
+              };
               boost::system::error_code ignored;
-              websocket.read(buffer, ignored);
               if (auth) {
-                require(!ignored &&
-                        Json::parse(beast::buffers_to_string(buffer.data())).at("probe") == true);
+                Store receiver(journals.path + "/receiver");
+                const Json control = {{"controlEpoch", 1},
+                                      {"connectionGeneration", 1},
+                                      {"controlId", "proxy-claim"},
+                                      {"owner", "proxy-owner"}};
+                transmit({{"type", "delivery-ready"},
+                          {"delivery", 2},
+                          {"instance", receiver.delivery_instance()},
+                          {"controller", "proxy-controller"},
+                          {"control", control}});
+                websocket.read(buffer);
+                const auto opening = Json::parse(beast::buffers_to_string(buffer.data()));
                 buffer.consume(buffer.size());
-                websocket.write(asio::buffer(std::string("{\"ack\":true}")));
+                require(opening.at("type") == "delivery-open");
+                for (const auto &lane : {"normal", "priority"}) {
+                  const auto window =
+                      receiver.delivery_open(opening.at("stream").get<std::string>() + "_" + lane,
+                                             "proxy-session", 4, max_frame, lane);
+                  auto ready = control;
+                  ready["instance"] = receiver.delivery_instance();
+                  ready["exchangeId"] = opening.at("exchangeId");
+                  transmit({{"type", "delivery-window"},
+                            {"lane", lane},
+                            {"window", window},
+                            {"exchangeId", opening.at("exchangeId")},
+                            {"controlReady", ready}});
+                }
+                transmit({{"type", "hello"}});
+                Json request;
+                do {
+                  websocket.read(buffer);
+                  request = Json::parse(beast::buffers_to_string(buffer.data()));
+                  buffer.consume(buffer.size());
+                } while (request.value("type", "") == "delivery-output");
+                require(request.at("method") == "model/list" && request.at("id") == 7);
+                const auto body = Json{{"id", 7}, {"result", {{"ack", true}}}}.dump();
+                transmit(
+                    {{"type", "delivery-data"}, {"seq", 1}, {"end", body.size()}, {"body", body}});
+                do {
+                  websocket.read(buffer, ignored);
+                  buffer.consume(buffer.size());
+                } while (!ignored);
+              } else {
+                transmit({{"type", "hello"}});
                 websocket.read(buffer, ignored);
               }
             } else {
@@ -142,7 +188,8 @@ inline void proxy_tests() {
             bool received = false;
             std::shared_ptr<Socket> connection;
             if (auth) {
-              TuiBridge bridge(io, target, "target-token", "/ws/v1/cli/session");
+              Store sender(journals.path + "/sender", false);
+              TuiBridge bridge(io, target, "target-token", "/ws/v1/cli/session", sender);
               std::exception_ptr local_failure;
               std::thread tui([&] {
                 try {
@@ -170,9 +217,12 @@ inline void proxy_tests() {
                   received =
                       Json::parse(beast::buffers_to_string(buffer.data())).at("type") == "hello";
                   buffer.consume(buffer.size());
-                  websocket.write(asio::buffer(std::string("{\"probe\":true}")));
+                  websocket.write(asio::buffer(
+                      std::string("{\"id\":7,\"method\":\"model/list\",\"params\":{}}")));
                   websocket.read(buffer);
-                  require(Json::parse(beast::buffers_to_string(buffer.data())).at("ack") == true);
+                  require(
+                      Json::parse(beast::buffers_to_string(buffer.data())).at("result").at("ack") ==
+                      true);
                   boost::system::error_code ignored;
                   websocket.next_layer().close(ignored);
                 } catch (...) {

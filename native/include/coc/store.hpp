@@ -50,7 +50,6 @@ public:
   void save(const Json &session);
   Json sessions(bool active_only = false);
   Json session_page(const Json &filters);
-  Json request_status(const std::string &key);
   Json get(const std::string &id);
   Json event(const std::string &id, const std::string &type, const Json &data);
   Json event_batch(const Json &entries);
@@ -80,9 +79,6 @@ public:
   Json external_item(const std::string &id, const std::string &turn, Json item,
                      bool historical = false);
   Json archive_event(const std::string &id, const std::string &type, const Json &data);
-  Json begin(const std::string &key, const std::string &fingerprint);
-  void submitted(const std::string &key);
-  void finish(const std::string &key, const Json &value);
   const std::string &delivery_instance() const { return delivery_instance_; }
   Json control_state(const std::string &session);
   Json control_apply(const std::string &session, int64_t epoch, const std::string &control_id,

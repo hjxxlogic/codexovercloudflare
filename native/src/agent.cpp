@@ -1,6 +1,7 @@
 #include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/build.hpp"
+#include "coc/delivery.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
@@ -622,15 +623,6 @@ public:
       return;
     auto rt = it->second;
     const auto incoming_epoch = d.value("epoch", int64_t(-1));
-    if (store_.control_state(id).is_null() && rt->pending_epoch == incoming_epoch &&
-        rt->pending_expires > now() && type != "detach") {
-      rt->epoch = incoming_epoch;
-      rt->pending_epoch = 0;
-      rt->detached = 0;
-      rt->rpc_credit = 0;
-      rt->rpc_byte_credit = 0;
-      rt->rpc_sent = store_.output_state("rpc-output:" + id).at("acked");
-    }
     if (rt->epoch != incoming_epoch)
       return;
     if (type == "delivery-output") {
@@ -657,6 +649,26 @@ public:
       }
       return;
     }
+    if (type == "web" || type == "rpc") {
+      const auto payload = type == "web" ? web_command(d.at("payload")) : d.at("payload");
+      const auto action = payload.value("action", "");
+      const auto lane = type == "rpc" ? rpc_delivery_lane(payload)
+                                      : (action == "sync" || action == "models" ? ""
+                                         : action == "approval" || action == "interrupt" ||
+                                                 action == "autoApproval"
+                                             ? "priority"
+                                             : "normal");
+      if (!lane.empty() && !d.contains("delivery")) {
+        notice(id, {{"type", "error"},
+                    {"requestId", payload.value("requestId", Json())},
+                    {"error",
+                     {{"code", "UPGRADE_REQUIRED"},
+                      {"message", "Writes require the delivery:2 command window"}}}});
+        return;
+      }
+      if (d.contains("delivery") && d.at("delivery").at("lane") != lane)
+        throw Error("INVALID_REQUEST", "Command must use its original delivery lane");
+    }
     Json delivery;
     if (d.contains("delivery")) {
       delivery = d.at("delivery");
@@ -666,6 +678,7 @@ public:
         throw Error("IDEMPOTENCY_CONFLICT", "Delivery body does not match forwarded command");
       Json accepted;
       try {
+        store_.delivery_scope(stream, id);
         store_.delivery_verify(stream, delivery);
         accepted = store_.delivery_receive(stream, delivery.at("seq"), delivery.at("end"), body);
       } catch (const std::exception &error) {
@@ -1423,32 +1436,17 @@ public:
         !runtime->second->external_approvals || !s.value("approvalForwarding", false) ||
         s["state"] != "ready")
       throw Error("APPROVAL_UNAVAILABLE", "No connection to original approval server");
-    const bool reliable =
-        runtimes_.at(id)->deliveries.count(cmd.at("requestId").get<std::string>()) ||
-        cmd.value("internal", false);
-    const auto key = id + ":" + cmd.at("requestId").get<std::string>();
-    auto cached = (reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd)));
-    if (cached["cached"] == true) {
-      done(cached["value"], nullptr);
-      return;
-    }
     try {
       validate_approval(runtime->second, cmd);
-      if (!reliable)
-        store_.submitted(key);
       auto result =
           runtime->second->external_approvals->answer(cmd.at("approvalId"), cmd.at("allow"));
       auto approval = runtime->second->approvals.find(cmd.at("approvalId"));
       if (approval != runtime->second->approvals.end())
         approval->second.submitted = true;
-      if (!reliable)
-        store_.finish(key, result);
       emit(id, "approvalSubmitted", {{"approvalId", cmd.at("approvalId")}});
       done(result, nullptr);
     } catch (const std::exception &error) {
       auto value = error_data(error);
-      if (!reliable && value.value("code", "") != "RESULT_UNKNOWN")
-        store_.finish(key, {{"requestError", value}});
       done(nullptr, value);
     }
   }
@@ -1464,15 +1462,8 @@ public:
                   "Enable externalSessions.allowQueue on a workspace-write Agent to queue input; "
                   "the original client controls execution and approvals");
     auto reader = it->second->reader;
-    const bool reliable =
-        runtimes_.at(id)->deliveries.count(cmd.at("requestId").get<std::string>()) ||
-        cmd.value("internal", false);
-    const auto key = id + ":" + cmd.at("requestId").get<std::string>();
-    const auto marker = "external-submission:" + key;
-    auto complete = [this, key, cmd, id, done, reliable](Json result, Json error) {
+    auto complete = [this, cmd, id, done](Json result, Json error) {
       if (!error.is_null()) {
-        if (!reliable && error.value("code", "") != "RESULT_UNKNOWN")
-          store_.finish(key, {{"requestError", error}});
         done(nullptr, error);
         return;
       }
@@ -1480,8 +1471,6 @@ public:
           {"state", "queued"},
           {"queueId", result.at("queuedSubmission").at("id")},
           {"clientUserMessageId", result.at("queuedSubmission").at("clientUserMessageId")}};
-      if (!reliable)
-        store_.finish(key, queued);
       emit(id, "queueAccepted",
            {{"requestId", cmd.at("requestId")},
             {"queueId", queued["queueId"]},
@@ -1489,32 +1478,7 @@ public:
             {"message", "Message queued for the original Codex client"}});
       done(queued, nullptr);
     };
-    Json cached;
-    try {
-      cached = (reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd)));
-    } catch (const Error &error) {
-      if (error.code != "RESULT_UNKNOWN")
-        throw;
-      auto saved = store_.cache_get(marker);
-      if (saved.is_null()) {
-        done(nullptr, error_data(error));
-        return;
-      }
-      reader->find_queued(saved.at("clientUserMessageId"), complete);
-      return;
-    }
-    if (cached["cached"] == true) {
-      done(cached["value"], nullptr);
-      return;
-    }
-    const auto client_id = uuid();
-    if (!reliable)
-      store_.cache_put(marker, {{"clientUserMessageId", client_id}});
-    auto submitted = [this, key, reliable] {
-      if (!reliable)
-        store_.submitted(key);
-    };
-    reader->enqueue(cmd.at("text"), client_id, submitted, complete);
+    reader->enqueue(cmd.at("text"), uuid(), [] {}, complete);
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {
@@ -1696,7 +1660,7 @@ public:
       else
         return; // Full content remains in the Agent journal and read-only history stream.
     }
-    if (it != runtimes_.end() && it->second->rpc_delivery) {
+    if (it != runtimes_.end()) {
       try {
         store_.output_append("rpc-output:" + id, m);
       } catch (const Error &error) {
@@ -1714,11 +1678,6 @@ public:
       flush_rpc_output(id, it->second);
       return;
     }
-    if (it != runtimes_.end())
-      send({{"type", "rpc"},
-            {"sessionId", id},
-            {"epoch", it->second->epoch},
-            {"payload", redact(m)}});
   }
   void cli(const std::string &id, const Json &m) {
     auto s = store_.get(id);
@@ -1989,8 +1948,9 @@ public:
     if (s["mode"] != "web")
       throw Error("FORBIDDEN", "Not a web session");
     auto action = cmd.at("action").get<std::string>();
-    const bool reliable =
-        cmd.contains("requestId") && rt->deliveries.count(cmd.at("requestId").get<std::string>());
+    if (action != "sync" && action != "models" &&
+        !rt->deliveries.count(cmd.at("requestId").get<std::string>()))
+      throw Error("UPGRADE_REQUIRED", "Writes require the delivery:2 command window");
     if (action == "sync") {
       auto replay = store_.replay(id, cmd["after"]);
       replay["type"] = "sync";
@@ -2015,20 +1975,9 @@ public:
           (!config_["externalSessions"].value("allowApprovals", false) ||
            !s.value("approvalForwarding", false)))
         throw Error("APPROVAL_UNAVAILABLE", "Original approval forwarding is unavailable");
-      const auto key = id + ":" + cmd.at("requestId").get<std::string>();
-      auto cached = reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd));
-      if (cached["cached"] == true) {
-        notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", cached["value"]}});
-        done(cached["value"], nullptr);
-        return;
-      }
-      if (!reliable)
-        store_.submitted(key);
       s["autoApproval"] = cmd.at("enabled");
       store_.save(s);
       Json result = {{"autoApproval", s["autoApproval"]}};
-      if (!reliable)
-        store_.finish(key, result);
       emit(id, "autoApprovalChanged", result);
       notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
       done(result, nullptr);
@@ -2073,21 +2022,9 @@ public:
       });
       return;
     }
-    auto key = id + ":" + cmd["requestId"].get<std::string>();
-    auto cached = reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd));
-    if (cached["cached"] == true) {
-      notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", cached["value"]}});
-      done(nullptr, nullptr);
-      return;
-    }
-    auto complete = [this, id, key, cmd, done, reliable](Json result, Json error) {
-      if (!reliable && !error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
-        store_.finish(key, {{"requestError", error}});
-      if (error.is_null()) {
-        if (!reliable)
-          store_.finish(key, result);
+    auto complete = [this, id, cmd, done](Json result, Json error) {
+      if (error.is_null())
         notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
-      }
       done(result, error);
     };
     if (action == "prompt") {
@@ -2099,8 +2036,6 @@ public:
         complete(nullptr, error_data(error));
         return;
       }
-      if (!reliable)
-        store_.submitted(key);
       s["running"] = true;
       const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
       if (context != rt->deliveries.end())

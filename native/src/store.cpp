@@ -154,9 +154,6 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,session TEXT NOT "
         "NULL,value TEXT NOT NULL,time INTEGER NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS events_session ON events(session,seq)");
-    run("CREATE TABLE IF NOT EXISTS requests(key TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,value "
-        "TEXT,time INTEGER NOT NULL)");
-    run("CREATE TABLE IF NOT EXISTS request_states(key TEXT PRIMARY KEY,state TEXT NOT NULL)");
     run("BEGIN IMMEDIATE");
     const bool migrate =
         query("SELECT name FROM sqlite_master WHERE type='table' AND name='history'").empty();
@@ -388,17 +385,6 @@ Json Store::session_page(const Json &filters) {
     cursor = row["id"];
   }
   return {{"data", data}, {"nextCursor", data.size() < rows.size() ? Json(cursor) : Json()}};
-}
-Json Store::request_status(const std::string &key) {
-  auto rows = query("SELECT value FROM requests WHERE key=?", {key});
-  if (rows.empty())
-    return {{"state", "not_found"}};
-  if (rows[0]["value"].is_null()) {
-    auto state = query("SELECT state FROM request_states WHERE key=?", {key});
-    return {{"state", state.empty() ? Json("unknown") : state[0]["state"]}};
-  }
-  auto value = Json::parse(rows[0]["value"].get<std::string>());
-  return {{"state", value.contains("requestError") ? "failed" : "completed"}, {"result", value}};
 }
 Json Store::get(const std::string &id) {
   auto r = query("SELECT value FROM sessions WHERE id=?", {id});
@@ -777,34 +763,9 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
 }
 Json Store::replay(const std::string &id, int64_t after) {
   auto page = history(id, 0, after);
-  auto first = query("SELECT MIN(seq) AS seq FROM events WHERE session=?", {id});
-  bool pruned = !query("SELECT value FROM requests WHERE key=?", {"pruned:" + id}).empty();
-  page["gap"] = pruned && (first[0]["seq"].is_null() || after < first[0]["seq"].get<int64_t>());
+  // Events are retained under the history quota; admission refuses growth before pruning.
+  page["gap"] = false;
   return page;
-}
-Json Store::begin(const std::string &key, const std::string &fp) {
-  auto r = query("SELECT fingerprint,value FROM requests WHERE key=?", {key});
-  if (!r.empty()) {
-    if (r[0]["fingerprint"] != fp)
-      throw Error("IDEMPOTENCY_CONFLICT", "Request ID was used for different content");
-    if (r[0]["value"].is_null())
-      throw Error("RESULT_UNKNOWN", "Previous request may have executed; inspect session state");
-    auto value = Json::parse(r[0]["value"].get<std::string>());
-    if (value.contains("requestError"))
-      throw Error(value["requestError"]["code"], value["requestError"]["message"]);
-    return {{"cached", true}, {"value", value}};
-  }
-  run("INSERT INTO requests VALUES(?,?,NULL,?)", {key, fp, now()});
-  run("INSERT OR REPLACE INTO request_states VALUES(?,?)", {key, "received"});
-  return {{"cached", false}};
-}
-void Store::submitted(const std::string &key) {
-  run("INSERT OR REPLACE INTO request_states VALUES(?,?)", {key, "submitted"});
-}
-void Store::finish(const std::string &key, const Json &v) {
-  run("UPDATE requests SET value=? WHERE key=?", {v.dump(), key});
-  run("INSERT OR REPLACE INTO request_states VALUES(?,?)",
-      {key, v.contains("requestError") ? "failed" : "completed"});
 }
 Json Store::cache_get(const std::string &key) {
   auto rows = query("SELECT value FROM cache WHERE key=?", {cache_namespace_ + key});

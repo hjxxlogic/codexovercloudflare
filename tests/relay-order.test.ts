@@ -1340,6 +1340,69 @@ describe('reliable session streams', () => {
       },
     };
   }
+  it.each([
+    ['web', { action: 'prompt', requestId: 'raw', text: 'must not run' }],
+    ['web', { action: 'interrupt', requestId: 'raw' }],
+    ['web', { action: 'autoApproval', requestId: 'raw', enabled: true }],
+    [
+      'web',
+      {
+        action: 'approval',
+        requestId: 'raw',
+        approvalId: '1',
+        runtimeId: 'rt',
+        approvalVersion: 'v',
+        allow: true,
+      },
+    ],
+    ['cli', { id: 1, method: 'initialize', params: {} }],
+    ['cli', { id: 1, method: 'thread/start', params: {} }],
+    ['cli', { id: 1, method: 'turn/start', params: {} }],
+    ['cli', { id: 1, method: 'turn/interrupt', params: {} }],
+    ['cli', { id: 1, result: { decision: 'accept' } }],
+  ])('rejects raw %s writes before forwarding: %j', async (role, payload) => {
+    const h = await connected();
+    h.client.serializeAttachment({ ...h.client.deserializeAttachment(), role });
+    h.agent.send.mockClear();
+    h.client.send.mockClear();
+    const put = vi.spyOn(h.storage, 'put');
+    const remove = vi.spyOn(h.storage, 'delete');
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify(payload),
+    );
+    expect(h.agent.send).not.toHaveBeenCalled();
+    expect(
+      h.client.send.mock.calls.map(([raw]) => JSON.parse(raw)),
+    ).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.objectContaining({ code: 'UPGRADE_REQUIRED' }),
+      }),
+    );
+    expect(put).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['web', { action: 'sync', after: 0 }],
+    ['web', { action: 'models', requestId: 'read' }],
+    ['cli', { id: 1, method: 'model/list', params: {} }],
+  ])('keeps allowlisted raw %s reads: %j', async (role, payload) => {
+    const h = await connected();
+    h.client.serializeAttachment({ ...h.client.deserializeAttachment(), role });
+    h.agent.send.mockClear();
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify(payload),
+    );
+    expect(h.frames()).toContainEqual(
+      expect.objectContaining({
+        type: role === 'cli' ? 'rpc' : 'web',
+        payload,
+      }),
+    );
+    expect(h.client.close).not.toHaveBeenCalled();
+  });
   it('rejects late CONTROL_READY after another takeover reserved and after DO reconstruction', async () => {
     const h = await connected();
     const accepted = await h.request({

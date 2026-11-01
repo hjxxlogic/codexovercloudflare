@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 会话写入唯一命令窗口（2026-11-01，仅本机，未部署）
+
+- 完整 `npm run build`（本机原生 / 网页、TypeScript 与 Worker dry-run）、5 项 CTest、26 文件 / 381 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。
+- Worker 新增 12 项裸写 / 只读测试：网页任务、审批、自动审批、中断及 CLI 初始化、线程 / 任务写入、中断与审批回复缺少命令窗口时均拒绝；Agent 没有收到副作用帧，Worker 没有持久写入。sync / models 与允许的 RPC 读取仍直接转发。
+- 真实 Agent 拒绝裸网页 / CLI 写入且没有分配命令身份或更改自动审批；跨会话复用原流返回 FORBIDDEN，原接收位置不变。旧 requests / request_states 表不再创建；持久操作及命令日志的丢回复、重复、重启、不确定结果、确认、取消、输出背压和历史恢复测试通过。
+- HTTP / SOCKS5 代理夹具升级为完成 CONTROL_READY 握手的 TUI 桥，验证 ticket 鉴权、命令双窗口、读取转发及输出持久接收；无持久 Store 的 TUI 构造 / 直发入口已删除。端到端 socket 夹具使用原正文、窗口分配证明和序号发送写命令，故意保留结果未确认以验证 Agent 重复命令回执。
+- `test:delivery` 与 `test:operations`（真实 Agent / CC）通过。完整 `test:e2e` 通过真实 Worker / Agent / CLI / Chromium 的双窗口写入、去重 / 正文冲突、接管隔离、RPC 安全限制、网页断线恢复、审批、上传恢复与撤销；没有降低原业务断言。
+
+日志共同前缀 `/tmp/coc-window-only-`；依赖位于用户 `~/.local`。本阶段没有 GitHub Actions、Windows 构建、发布、部署或生产数据变更。唯一上传格式、统一资源预算、真实旧程序升级和最终 0.6.0 切换仍待完成。
+
 ## 控制类写入强制原请求证明（2026-11-01，仅本机，未部署）
 
 - 本机原生与网页构建、TypeScript、5 项 CTest、26 文件 / 369 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。Worker / Agent 共享 23 项分类样例，区分原请求账本写入、读取 / 权限事务和上传固有编号 / 偏移操作。

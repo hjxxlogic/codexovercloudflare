@@ -1334,11 +1334,15 @@ void core() {
   {
     Store s(t.path);
     rejects([&] { Store duplicate(t.path); }, "STATE_LOCKED");
-    check(s.begin("r", "a")["cached"] == false, "New request");
-    rejects([&] { s.begin("r", "a"); }, "RESULT_UNKNOWN");
-    rejects([&] { s.begin("r", "b"); }, "IDEMPOTENCY_CONFLICT");
-    s.finish("r", {{"ok", true}});
-    check(s.begin("r", "a")["value"]["ok"] == true, "Cached request");
+    const Json intent = {
+        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.delivery_instance()}};
+    const auto admitted = s.operation_begin(intent, "stop", {{"sessionId", "a"}});
+    check(admitted.at("state") == "new", "New original operation");
+    check(s.operation_begin(intent, "stop", {{"sessionId", "a"}}).at("state") == "started",
+          "Repeated original cannot dispatch again");
+    rejects([&] { s.operation_begin(intent, "stop", {{"sessionId", "b"}}); },
+            "IDEMPOTENCY_CONFLICT");
+    s.operation_finish(admitted.at("key"), {{"data", {{"ok", true}}}});
     s.save({{"id", "a"},
             {"projectId", "p"},
             {"mode", "web"},
@@ -1357,7 +1361,12 @@ void core() {
     Store s(t.path);
     check(s.get("a")["state"] == "failed" && s.get("a")["running"] == false,
           "Restart must fail old runtime");
-    check(s.begin("r", "a")["value"]["ok"] == true, "Persistent deduplication");
+    const Json intent = {
+        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.delivery_instance()}};
+    check(
+        s.operation_begin(intent, "stop", {{"sessionId", "a"}}).at("result").at("data").at("ok") ==
+            true,
+        "Original result survives restart");
   }
   auto file = std::filesystem::path(t.path) / "private.json";
   save_private(file, {{"token", "placeholder"}}, true);
@@ -1871,12 +1880,17 @@ void stabilization_test() {
         break;
     }
     check(text == std::string(1100000, 'x'), "Append-only chunks reconstruct 1 MiB stream");
-    store.begin("failed", "test");
-    store.finish("failed", {{"requestError", {{"code", "PROJECT_BUSY"}, {"message", "Busy"}}}});
-    check(store.request_status("failed")["state"] == "failed", "Known failure is queryable");
-    rejects([&] { store.begin("failed", "test"); }, "PROJECT_BUSY");
-    check(store.request_status("absent")["state"] == "not_found",
-          "Unknown identity is distinct from unknown execution");
+    const Json intent = {{"requestId", "failed"},
+                         {"owner", std::string(64, 'a')},
+                         {"instance", store.delivery_instance()}};
+    const auto admitted = store.operation_begin(intent, "stop", {{"sessionId", "busy"}});
+    store.operation_finish(admitted.at("key"),
+                           {{"error", {{"code", "PROJECT_BUSY"}, {"message", "Busy"}}}});
+    check(store.operation_begin(intent, "stop", {{"sessionId", "busy"}})
+                  .at("result")
+                  .at("error")
+                  .at("code") == "PROJECT_BUSY",
+          "Original business failure remains queryable");
     WorkspaceFiles files(&store);
     files.request(
         temp.path, "workspace-write", "owner",
@@ -2098,11 +2112,14 @@ void performance_test() {
   store.cache_put("upload:expired", {{"completedAt", now() - 86400001}});
   store.cache_put("upload:recent", {{"completedAt", now()}});
   store.cache_put("other", {{"completedAt", 0}});
-  store.begin("identity", "fingerprint");
+  const Json intent = {{"requestId", "identity"},
+                       {"owner", std::string(64, 'a')},
+                       {"instance", store.delivery_instance()}};
+  store.operation_begin(intent, "stop", {{"sessionId", "a"}});
   store.cleanup();
   check(store.cache_get("upload:expired").is_null() &&
             !store.cache_get("upload:recent").is_null() && !store.cache_get("other").is_null() &&
-            store.request_status("identity")["state"] == "received",
+            store.operation_begin(intent, "stop", {{"sessionId", "a"}}).at("state") == "started",
         "Expiry only removes completed uploads, preserving durable request identities");
   std::cout << "PASS: batched journal atomicity, Unicode, statement reuse and indexed expiry\n";
 }

@@ -185,7 +185,11 @@ try {
   assert.deepEqual(repeated.intent, intent);
   assert.equal(count(), originalCount);
   assert.equal(
-    database.prepare('SELECT COUNT(*) AS n FROM requests').get()!.n,
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('requests','request_states')",
+      )
+      .get()!.n,
     0,
     'Creating sessions uses only the original operation ledger',
   );

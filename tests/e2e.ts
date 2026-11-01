@@ -1,5 +1,6 @@
 import { resolveAsync } from './helpers/async-http.ts';
 import { OriginalHttpRequests } from './helpers/original-http.ts';
+import { WindowPeer } from './helpers/window-peer.ts';
 const originals = new OriginalHttpRequests();
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -186,32 +187,19 @@ function peer(path: string, auth?: string) {
   return {
     ws,
     messages,
+    send: (text: string) => ws.send(text),
     get closeCode() {
       return closeCode;
     },
   };
 }
 async function readyControl(p: ReturnType<typeof peer>) {
-  const exchangeId = randomUUID();
-  p.ws.send(
-    JSON.stringify({
-      type: 'delivery-open',
-      stream: randomUUID(),
-      exchangeId,
-      received: { normal: 0, priority: 0 },
-      receivedBytes: { normal: 0, priority: 0 },
-    }),
-  );
-  await wait(
-    () =>
-      p.messages.filter(
-        (m) =>
-          m.type === 'delivery-window' &&
-          m.exchangeId === exchangeId &&
-          m.controlReady,
-      ).length === 2,
-    'Agent CONTROL_READY',
-  );
+  await wait(() => p.messages.some((m) => m.control), 'controller binding');
+  const binding = [...p.messages].reverse().find((m) => m.control);
+  const mode = binding.type === 'delivery-ready' ? 'cli' : 'web';
+  const endpoint = new WindowPeer(p.ws, p.messages, mode, binding.control);
+  await wait(() => endpoint.ready, 'Agent CONTROL_READY');
+  p.send = endpoint.send;
 }
 async function web(id: string, takeover = false, claimId = randomUUID()) {
   const t = await api(`/sessions/${id}/${takeover ? 'takeover' : 'attach'}`, {
@@ -222,7 +210,7 @@ async function web(id: string, takeover = false, claimId = randomUUID()) {
     p.ws.once('open', r);
     p.ws.once('error', j);
   });
-  p.ws.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
+  p.send(JSON.stringify({ type: 'auth', ticket: t.ticket }));
   await wait(
     () =>
       p.messages.some((m) => m.type === 'attached' || m.type === 'error') ||
@@ -989,7 +977,7 @@ try {
     assert.equal(session.running, true);
     assert.equal(session.queueEnabled, true);
     const connection = await web(session.id);
-    connection.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+    connection.send(JSON.stringify({ action: 'sync', after: 0 }));
     await wait(
       () => connection.messages.some((m) => m.type === 'sync'),
       'external sync',
@@ -1051,7 +1039,7 @@ try {
       409,
     );
     const promptId = randomUUID();
-    connection.ws.send(
+    connection.send(
       JSON.stringify({
         action: 'prompt',
         requestId: promptId,
@@ -1076,7 +1064,7 @@ try {
       },
     ]) {
       const requestId = randomUUID();
-      connection.ws.send(JSON.stringify({ ...command, requestId }));
+      connection.send(JSON.stringify({ ...command, requestId }));
       await wait(
         () =>
           connection.messages.some(
@@ -1122,7 +1110,7 @@ try {
     assert.equal(changed.seq, updated.seq);
     assert(updated.revision > changed.revision);
     const interruptId = randomUUID();
-    connection.ws.send(
+    connection.send(
       JSON.stringify({ action: 'interrupt', requestId: interruptId }),
     );
     await wait(
@@ -1362,7 +1350,7 @@ try {
   );
   const historyRead = async (data: Record<string, unknown>) => {
     const requestId = randomUUID();
-    hp.ws.send(JSON.stringify({ ...data, requestId }));
+    hp.send(JSON.stringify({ ...data, requestId }));
     await wait(
       () => hp.messages.some((m) => m.requestId === requestId),
       'history response',
@@ -1441,7 +1429,7 @@ try {
     ),
   );
   competitors.forEach((p, i) =>
-    p.ws.send(JSON.stringify({ type: 'auth', ticket: tickets[i].ticket })),
+    p.send(JSON.stringify({ type: 'auth', ticket: tickets[i].ticket })),
   );
   await wait(
     () =>
@@ -1460,7 +1448,7 @@ try {
   await readyControl(p);
   pass('real DO concurrent attach permits exactly one controller');
   const modelsRequestId = randomUUID();
-  p.ws.send(JSON.stringify({ action: 'models', requestId: modelsRequestId }));
+  p.send(JSON.stringify({ action: 'models', requestId: modelsRequestId }));
   await wait(
     () =>
       p.messages.some(
@@ -1479,7 +1467,7 @@ try {
     text: 'hello',
     model: 'test-model-alt',
   };
-  p.ws.send(JSON.stringify(prompt));
+  p.send(JSON.stringify(prompt));
   await wait(
     () => p.messages.some((m) => m.event?.type === 'turn/completed'),
     'streamed turn',
@@ -1503,7 +1491,7 @@ try {
       .join(''),
     'echo: hello',
   );
-  p.ws.send(JSON.stringify(prompt));
+  p.send(JSON.stringify(prompt));
   await wait(
     () =>
       p.messages.filter(
@@ -1513,7 +1501,7 @@ try {
   );
   assert.equal(p.messages.filter((m) => m.event?.type === 'user').length, 1);
   pass('streaming and duplicate prompt suppression');
-  p.ws.send(JSON.stringify({ ...prompt, model: 'another-model' }));
+  p.send(JSON.stringify({ ...prompt, model: 'another-model' }));
   await wait(
     () =>
       p.messages.some(
@@ -1537,7 +1525,7 @@ try {
   });
   const lostController = peer('/ws/v1/web/' + s.id);
   await new Promise<void>((done) => lostController.ws.once('open', done));
-  lostController.ws.send(
+  lostController.send(
     JSON.stringify({ type: 'auth', ticket: lostTicket.ticket }),
   );
   await wait(
@@ -1548,7 +1536,7 @@ try {
     25000,
   );
   assert.equal(p.ws.readyState, WebSocket.OPEN);
-  p.ws.send(JSON.stringify(prompt));
+  p.send(JSON.stringify(prompt));
   await wait(
     () => p.messages.some((m) => m.error?.code === 'STALE_CONTROLLER'),
     'lost takeover confirmation keeps old writes fenced',
@@ -1567,7 +1555,7 @@ try {
   pass(
     'lost takeover confirmation fences old writes and the same persisted claim resumes through Agent CONTROL_READY',
   );
-  p.ws.send(
+  p.send(
     JSON.stringify({
       action: 'prompt',
       requestId: randomUUID(),
@@ -1585,7 +1573,7 @@ try {
     { runtimeId: approval.runtimeId, approvalVersion: randomUUID() },
   ]) {
     const staleId = randomUUID();
-    p.ws.send(
+    p.send(
       JSON.stringify({
         action: 'approval',
         requestId: staleId,
@@ -1605,7 +1593,7 @@ try {
       'stale approval rejected without resolving the original request',
     );
   }
-  p.ws.send(
+  p.send(
     JSON.stringify({
       action: 'approval',
       requestId: randomUUID(),
@@ -1629,14 +1617,14 @@ try {
   const takeover = await api(`/sessions/${s.id}/takeover`, {});
   const q = peer('/ws/v1/web/' + s.id);
   await new Promise<void>((r) => q.ws.once('open', r));
-  q.ws.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
+  q.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
   await wait(() => q.messages.some((m) => m.type === 'attached'), 'takeover');
   await wait(
     () => p.ws.readyState === WebSocket.CLOSED,
     'old controller closed',
   );
   await readyControl(q);
-  q.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+  q.send(JSON.stringify({ action: 'sync', after: 0 }));
   await wait(() => q.messages.some((m) => m.type === 'sync'), 'history replay');
   assert(
     q.messages
@@ -1646,7 +1634,7 @@ try {
   pass('exclusive control, explicit takeover and persistent replay');
   const reused = peer('/ws/v1/web/' + s.id);
   await new Promise<void>((r) => reused.ws.once('open', r));
-  reused.ws.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
+  reused.send(JSON.stringify({ type: 'auth', ticket: takeover.ticket }));
   await wait(
     () => reused.ws.readyState === WebSocket.CLOSED,
     'ticket replay rejected',
@@ -1666,7 +1654,7 @@ try {
     cp.ws.once('error', j);
   });
   await readyControl(cp);
-  cp.ws.send(
+  cp.send(
     JSON.stringify({
       id: 1,
       method: 'initialize',
@@ -1674,22 +1662,20 @@ try {
     }),
   );
   await wait(() => cp.messages.some((m) => m.id === 1 && m.result), 'CLI init');
-  cp.ws.send(JSON.stringify({ id: 2, method: 'thread/start', params: {} }));
+  cp.send(JSON.stringify({ id: 2, method: 'thread/start', params: {} }));
   await wait(
     () => cp.messages.some((m) => m.id === 2 && m.result),
     'CLI thread',
   );
-  cp.ws.send(
-    JSON.stringify({ id: 3, method: 'config/value/write', params: {} }),
-  );
+  cp.send(JSON.stringify({ id: 3, method: 'config/value/write', params: {} }));
   await wait(
     () => cp.messages.some((m) => m.id === 3 && m.error),
     'CLI prohibited method',
   );
   assert(!cp.messages.some((m) => m.id === 3 && m.result));
-  pass('CLI raw protocol routing and unsafe RPC rejection');
+  pass('CLI command windows, read routing and unsafe RPC rejection');
   const cliThread = cp.messages.find((m) => m.id === 2).result.thread.id;
-  cp.ws.send(
+  cp.send(
     JSON.stringify({
       id: 4,
       method: 'turn/start',
@@ -2823,7 +2809,7 @@ try {
     'Agent protocol negotiation after reconnect',
   );
   const restored = await web(reconnectSession.id, true);
-  restored.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
+  restored.send(JSON.stringify({ action: 'sync', after: 0 }));
   await wait(
     () => restored.messages.some((m) => m.type === 'sync'),
     'restored web session',

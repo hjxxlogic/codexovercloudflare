@@ -78,8 +78,14 @@ int main() {
       auto updated = store.external_item("session", "turn", item);
       check(updated["seq"] == first["seq"] && updated["revision"] > first["revision"],
             "External snapshot revision");
-      store.begin("request", "fingerprint");
-      rejects([&] { store.begin("request", "fingerprint"); }, "RESULT_UNKNOWN");
+      const Json intent = {{"requestId", "request"},
+                           {"owner", std::string(64, 'a')},
+                           {"instance", store.delivery_instance()}};
+      check(store.operation_begin(intent, "stop", {{"sessionId", "session"}}).at("state") == "new",
+            "Original operation admitted once");
+      check(store.operation_begin(intent, "stop", {{"sessionId", "session"}}).at("state") ==
+                "started",
+            "Original operation cannot dispatch twice");
     }
     std::cout << "RUN: workspace files and directory locks" << std::endl;
     auto project = root / L"项目";

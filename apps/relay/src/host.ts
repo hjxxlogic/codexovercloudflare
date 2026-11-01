@@ -2469,12 +2469,21 @@ export class HostRelayDO extends DurableObject<Env> {
         a,
         agent.deserializeAttachment() as Attachment,
       );
+      const payload = a.role === 'web' ? webCommandSchema.parse(d) : d;
+      if (
+        a.role === 'web' ? webDeliveryLane(payload) : rpcDeliveryLane(payload)
+      )
+        throw new AppError(
+          'UPGRADE_REQUIRED',
+          'Writes require the delivery:2 command window',
+          409,
+        );
       this.send(agent, {
         v: 1,
         type: a.role === 'cli' ? 'rpc' : 'web',
         sessionId: a.sessionId,
         epoch: a.epoch,
-        payload: a.role === 'web' ? webCommandSchema.parse(d) : d,
+        payload,
       });
     } catch (e) {
       try {

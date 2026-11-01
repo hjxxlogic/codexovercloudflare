@@ -314,4 +314,11 @@ HostRelayDO 的全部非 ticket / attach 请求只使用有界内存转发（128
 
 Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 begin / finish 强制要求原请求 intent，缺失证明在执行副作用前返回 UPGRADE_REQUIRED。读取、ticket / attach、可靠会话 OPEN 和按原上传编号 / 偏移校验的 chunk / cancel 不进入此 HTTP 原请求账本；读取携带写证明仍拒绝。两端使用同一组 23 项分类样例，Worker 保留会话模式与项目管理授权检查。
 
-会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支尚待移除，完整 P1 / P4 仍未完成。
+会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入、旧 Store API / 表创建及可选持久化 TUI 分支已在下阶段移除；完整 P1 / P4 仍需唯一上传格式和资源验收。
+
+
+## 会话写入唯一命令窗口（2026-11-01，本机阶段）
+
+Worker 和 Agent 均拒绝没有持久命令窗口的会话写入（UPGRADE_REQUIRED），包括网页任务、审批 / 策略 / 中断及 CLI 初始化、线程 / 任务修改和审批答复；只读 sync / models 与 RPC 读取允许列表继续直接转发。Agent 只由带原控制证明的 OPEN 生效控制权，不再由普通帧激活待定 epoch，接收命令前核验原流所属会话。CLI 输出始终写入有界持久日志，TUI 桥必须提供持久 Store，删除无账本直发分支。
+
+网页及外部队列 / 审批已移除旧 begin / submitted / finish 回执和 external-submission 普通缓存路径；删除旧 Store API，新库不再创建 requests / request_states 表，重复与未知结果只由原命令或 transport2_operations 账本决定。此次不删除现有机器的数据文件，发行切换的备份 / 清理仍待实施。

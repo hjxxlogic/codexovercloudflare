@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Worker / Agent 拒绝裸会话写入，全部任务、审批与 CLI 写 RPC 经过持久命令窗口；TUI 桥必须使用本地账本，RPC 输出统一落盘。删除旧 Store 回执 API、表创建及外部提交缓存回退，命令接收先核验会话范围。
+
 - Worker / Agent 控制类写操作必须携带持久原请求证明；创建会话移除旧 requests 重复回执，删除旧 requests 查询 API 与 create.key 字段。外部队列回复不明时沿原身份保持未知，不能由旧查询分支重开业务。
 
 - Worker 的全部业务 Operation 正文与结果改为有界内存转发；重建后由端点原请求恢复。ticket / 接管改用独立有界权限记录，旧业务回执不再归档或恢复。

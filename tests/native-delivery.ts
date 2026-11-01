@@ -198,6 +198,40 @@ try {
     expires: Date.now() + 15000,
   });
   const allocation = (await open(web.id, 'web', 'web-normal')).window;
+  const rawBudget = database
+    .prepare('SELECT COUNT(*) AS n FROM transport2_commands')
+    .get()!.n;
+  for (const payload of [
+    { action: 'prompt', requestId: 'raw-prompt', text: 'must not execute' },
+    { action: 'interrupt', requestId: 'raw-interrupt' },
+    { action: 'autoApproval', requestId: 'raw-policy', enabled: true },
+    {
+      action: 'approval',
+      requestId: 'raw-approval',
+      approvalId: '1',
+      runtimeId: 'rt',
+      approvalVersion: 'v',
+      allow: true,
+    },
+  ]) {
+    send({ type: 'web', sessionId: web.id, epoch: 1, payload });
+    await until(() =>
+      frames.some(
+        (frame) =>
+          frame.payload?.requestId === payload.requestId &&
+          frame.payload?.error?.code === 'UPGRADE_REQUIRED',
+      ),
+    );
+  }
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS n FROM transport2_commands').get()!.n,
+    rawBudget,
+  );
+  assert.equal(
+    (await control('snapshot', { sessionId: web.id, mode: 'web' })).session
+      .autoApproval,
+    false,
+  );
   assert.equal(allocation.streamSerial, 1);
   assert.equal(typeof allocation.creditGeneration, 'string');
   assert(allocation.creditGeneration.length > 0);
@@ -311,8 +345,10 @@ try {
   assert.equal(JSON.parse(result.record.resultBody).requestId, 'exact-task');
   assert.equal(
     database
-      .prepare('SELECT COUNT(*) AS count FROM requests WHERE key=?')
-      .get(web.id + ':exact-task')?.count,
+      .prepare(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('requests','request_states')",
+      )
+      .get()?.count,
     0,
     'Reliable commands use their bounded journal, without a duplicate generic receipt',
   );
@@ -546,6 +582,60 @@ try {
     expires: Date.now() + 15000,
   });
   await open(cli.id, 'cli', 'cli-normal');
+  for (const payload of [
+    { id: 90, method: 'initialize', params: {} },
+    { id: 91, method: 'thread/start', params: {} },
+    { id: 92, method: 'turn/start', params: {} },
+    { id: 93, method: 'turn/interrupt', params: {} },
+    { id: 94, result: { decision: 'accept' } },
+  ]) {
+    const before = frames.length;
+    send({ type: 'rpc', sessionId: cli.id, epoch: 1, payload });
+    await until(() =>
+      frames
+        .slice(before)
+        .some(
+          (frame) =>
+            frame.sessionId === cli.id &&
+            frame.payload?.error?.code === 'UPGRADE_REQUIRED',
+        ),
+    );
+  }
+  const foreignBefore = frames.length;
+  const foreignState = database
+    .prepare('SELECT received FROM transport2_streams WHERE stream=?')
+    .get('web-normal')!.received;
+  mutation(
+    cli.id,
+    'web-normal',
+    'normal',
+    Number(foreignState) + 1,
+    0,
+    { id: 95, method: 'thread/start', params: {} },
+    'cli',
+  );
+  await until(() =>
+    frames
+      .slice(foreignBefore)
+      .some(
+        (frame) =>
+          frame.payload?.type === 'delivery-rejected' &&
+          frame.payload?.error?.code === 'FORBIDDEN',
+      ),
+  );
+  assert.equal(
+    database
+      .prepare('SELECT received FROM transport2_streams WHERE stream=?')
+      .get('web-normal')!.received,
+    foreignState,
+  );
+  assert.equal(
+    database
+      .prepare('SELECT COUNT(*) AS n FROM transport2_commands WHERE stream=?')
+      .get('cli-normal')!.n,
+    0,
+  );
+
   send({
     type: 'delivery-output',
     sessionId: cli.id,
