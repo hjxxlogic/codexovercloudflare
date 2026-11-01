@@ -5,7 +5,10 @@ import {
   HostLifecycle,
 } from '../apps/relay/src/host-lifecycle.ts';
 import { D1State } from '../apps/relay/src/state.ts';
-import { d1Receipt, collectIdleState } from '../apps/relay/src/host-state.ts';
+import {
+  d1PermissionReceipt,
+  collectIdleState,
+} from '../apps/relay/src/host-state.ts';
 import type { Auth, Env } from '../apps/relay/src/common.ts';
 import { SqliteD1 } from './helpers/d1-state.ts';
 import { MemoryStorage } from './helpers/do-state.ts';
@@ -51,6 +54,10 @@ describe('active DO / inactive D1 authority', () => {
       'receive-head:session:owner': 9,
       'head-instance:session': 'old-db',
       agentInstance: 'old-db',
+      'operation:old': { data: 'old business body', result: 'old result' },
+      'part:old:0': 'old body',
+      'wire:old': 'old',
+      'due:0000000000000010:operation:old': { key: 'operation:old', at: 10 },
     };
     const permission = {
       agentEpoch: 7,
@@ -191,7 +198,7 @@ describe('active DO / inactive D1 authority', () => {
     await h.lifecycle.activate();
     await h.local.put({
       presence: { connected: 0 },
-      'operation:one': {
+      'permission-operation:one': {
         state: 'completed',
         auth: { hash: 'owner' },
         expires: Date.now() + 300000,
@@ -206,17 +213,23 @@ describe('active DO / inactive D1 authority', () => {
       'Interrupted cleanup',
     );
     expect(await h.archive.get('@location')).toMatchObject({ owner: 'd1' });
-    await d1Receipt(h.env, 'one', 'one', { hash: 'owner' } as Auth, true);
-    expect(await h.archive.get('operation:one')).toBeUndefined();
+    await d1PermissionReceipt(
+      h.env,
+      'one',
+      'one',
+      { hash: 'owner' } as Auth,
+      true,
+    );
+    expect(await h.archive.get('permission-operation:one')).toBeUndefined();
     await h.create().activate();
-    expect(await h.local.get('operation:one')).toBeUndefined();
+    expect(await h.local.get('permission-operation:one')).toBeUndefined();
   });
-  it('routes live receipts to DO and prevents offline GC from deleting active snapshots', async () => {
+  it('routes live permission receipts to DO and prevents offline GC from deleting active snapshots', async () => {
     const h = harness();
     await h.archive.put({
       '@migrated': true,
       presence: { connected: 0 },
-      'operation:old': {
+      'permission-operation:old': {
         auth: { hash: 'owner' },
         expires: Date.now() - 1,
         state: 'completed',
@@ -224,20 +237,32 @@ describe('active DO / inactive D1 authority', () => {
     });
     await h.lifecycle.activate();
     expect(
-      await d1Receipt(h.env, 'one', 'old', { hash: 'owner' } as Auth, false),
+      await d1PermissionReceipt(
+        h.env,
+        'one',
+        'old',
+        { hash: 'owner' } as Auth,
+        false,
+      ),
     ).toBeUndefined();
     expect(
-      await d1Receipt(h.env, 'one', 'old', { hash: 'owner' } as Auth, true),
+      await d1PermissionReceipt(
+        h.env,
+        'one',
+        'old',
+        { hash: 'owner' } as Auth,
+        true,
+      ),
     ).toBeUndefined();
     await collectIdleState(h.env);
-    expect(await h.archive.get('operation:old')).toBeDefined();
+    expect(await h.archive.get('permission-operation:old')).toBeDefined();
   });
   it('rechecks ownership when an offline acknowledgement races activation', async () => {
     const h = harness();
     await h.archive.put({
       '@migrated': true,
       presence: { connected: 0 },
-      'operation:one': {
+      'permission-operation:one': {
         auth: { hash: 'owner' },
         expires: Date.now() + 300000,
         state: 'completed',
@@ -248,9 +273,15 @@ describe('active DO / inactive D1 authority', () => {
       await h.lifecycle.activate();
     };
     expect(
-      await d1Receipt(h.env, 'one', 'one', { hash: 'owner' } as Auth, true),
+      await d1PermissionReceipt(
+        h.env,
+        'one',
+        'one',
+        { hash: 'owner' } as Auth,
+        true,
+      ),
     ).toBeUndefined();
-    expect(await h.local.get('operation:one')).toBeDefined();
+    expect(await h.local.get('permission-operation:one')).toBeDefined();
   });
   it('fails closed if local authoritative storage is missing instead of restoring a stale archive', async () => {
     const h = harness();

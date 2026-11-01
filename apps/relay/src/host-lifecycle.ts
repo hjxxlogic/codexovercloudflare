@@ -9,7 +9,8 @@ const PAGE_SIZE = 64;
 const copyable = (key: string) =>
   !key.startsWith('@') &&
   key !== 'agentInstance' &&
-  !/^(send-head|receive-head|head-instance):/.test(key);
+  !/^(send-head|receive-head|head-instance|operation|part|wire):/.test(key) &&
+  !/^due:\d+:operation:/.test(key);
 
 export type HostLocation = {
   version: 1;

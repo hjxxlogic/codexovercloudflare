@@ -129,30 +129,25 @@ type Operation = {
   result?: any;
   error?: { code: string; message: string; status?: number };
 };
-const transientOperation = (o: {
-  action: string;
-  kind?: string;
-  data?: { operation?: string };
-  intent?: OperationIntent;
-}) =>
-  !!o.intent ||
-  o.action === 'delivery' ||
-  o.action === 'history' ||
-  o.kind === 'history-open' ||
-  (o.kind === 'control' &&
-    ([
-      'probe',
-      'projects',
-      'threads',
-      'list',
-      'get',
-      'snapshot',
-      'request',
-      'approvals',
-    ].includes(o.action) ||
-      o.action === 'files' ||
-      (o.action === 'projectManage' &&
-        ['list', 'browse'].includes(o.data?.operation || ''))));
+// Business requests and results belong to endpoint journals. Only permission
+// handshakes may survive reconstruction in cloud storage.
+const transientOperation = (o: { kind?: string }) =>
+  o.kind !== 'ticket' && o.kind !== 'attach';
+const permissionKey = (id: string) => 'permission-operation:' + id;
+const permissionWire = (wire: string) => 'permission-wire:' + wire;
+const permissionDue = (o: Operation) =>
+  `due:${String(o.expires).padStart(16, '0')}:${permissionKey(o.id)}`;
+const MAX_PERMISSION_RECORD = 16 * 1024;
+function checkPermissionSize(o: Operation) {
+  if (
+    new TextEncoder().encode(JSON.stringify(o)).length > MAX_PERMISSION_RECORD
+  )
+    throw new AppError(
+      'BACKPRESSURE',
+      'Permission transaction exceeds budget',
+      429,
+    );
+}
 export class HostRelayDO extends DurableObject<Env> {
   private state?: HostLifecycle;
   private preparing?: Promise<void>;
@@ -181,6 +176,10 @@ export class HostRelayDO extends DurableObject<Env> {
           'Restore the D1 binding before using this host',
           503,
         );
+      if (!this.migrationReady) {
+        await nextExpiry(this.storage);
+        this.migrationReady = true;
+      }
       return;
     }
     if (this.preparing) await this.preparing;
@@ -427,83 +426,44 @@ export class HostRelayDO extends DurableObject<Env> {
       this.deliveryRequests.save(o);
       return;
     }
-    const encoded = JSON.stringify(o);
+    checkPermissionSize(o);
     await this.storage.transaction(async (tx) => {
-      const previous = await tx.get<{ parts?: number; wire?: string }>(
-        'operation:' + o.id,
-      );
-      const parts = Math.max(
-        previous?.parts || 0,
-        Math.ceil(encoded.length / 16000),
-      );
-      const records: Record<string, unknown> = {};
-      for (let i = 0; i < parts; i++)
-        records[`part:${o.id}:${i}`] = encoded.slice(
-          i * 16000,
-          (i + 1) * 16000,
-        );
-      records['operation:' + o.id] = {
-        id: o.id,
-        state: o.state,
-        auth: o.auth,
-        expires: o.expires,
-        wire: o.wire,
-        socketId: o.socketId,
-        kind: o.kind,
-        action: o.action,
-        parts,
+      const previous = await tx.get<Operation>(permissionKey(o.id));
+      const records: Record<string, unknown> = {
+        [permissionKey(o.id)]: o,
+        [permissionDue(o)]: { key: permissionKey(o.id), at: o.expires },
       };
-      if (o.wire && o.state === 'pending') records['wire:' + o.wire] = o.id;
+      if (o.wire && o.state === 'pending')
+        records[permissionWire(o.wire)] = o.id;
       await tx.put(records);
       if (
         previous?.wire &&
         (previous.wire !== o.wire || o.state === 'completed')
       )
-        await tx.delete('wire:' + previous.wire);
+        await tx.delete(permissionWire(previous.wire));
     });
   }
   private async loadOperation(id: string): Promise<Operation | undefined> {
     if (id.startsWith('delivery_')) return this.deliveryRequests.get(id);
-    return this.storage.transaction(async (tx) => {
-      const index = await tx.get<Operation & { parts?: number }>(
-        'operation:' + id,
-      );
-      if (!index || !index.parts) return index;
-      const parts = await Promise.all(
-        Array.from({ length: index.parts }, (_, i) =>
-          tx.get<string>(`part:${id}:${i}`),
-        ),
-      );
-      if (parts.some((part) => part === undefined))
-        throw new AppError(
-          'RESULT_UNKNOWN',
-          'Incomplete operation receipt',
-          409,
-        );
-      return JSON.parse(parts.join(''));
-    });
+    if (!id.startsWith('permission_')) return;
+    return this.storage.get<Operation>(permissionKey(id));
   }
   private async deleteOperation(id: string) {
     if (id.startsWith('delivery_')) {
       this.deliveryRequests.delete(id);
       return;
     }
+    if (!id.startsWith('permission_')) return;
     await this.storage.transaction(async (tx) => {
-      const index = await tx.get<{
-        parts?: number;
-        wire?: string;
-        expires?: number;
-      }>('operation:' + id);
+      const index = await tx.get<Operation>(permissionKey(id));
       await tx.delete([
-        'operation:' + id,
-        ...(index?.wire ? ['wire:' + index.wire] : []),
+        permissionKey(id),
+        ...(index?.wire ? [permissionWire(index.wire)] : []),
         ...(index?.expires
-          ? [`due:${String(index.expires).padStart(16, '0')}:operation:${id}`]
+          ? [
+              `due:${String(index.expires).padStart(16, '0')}:${permissionKey(id)}`,
+            ]
           : []),
-        ...Array.from(
-          { length: index?.parts || 0 },
-          (_, i) => `part:${id}:${i}`,
-        ),
       ]);
     });
   }
@@ -620,7 +580,8 @@ export class HostRelayDO extends DurableObject<Env> {
         409,
       );
     const requestId =
-      (transientOperation(operation) ? 'delivery_' : '') + crypto.randomUUID();
+      (transientOperation(operation) ? 'delivery_' : 'permission_') +
+      crypto.randomUUID();
     operation.wire = requestId;
     operation.agentEpoch = agent.epoch;
     operation.agentInstance = agent.deliveryInstance;
@@ -647,7 +608,7 @@ export class HostRelayDO extends DurableObject<Env> {
   private async start(input: Omit<Operation, 'id' | 'expires' | 'state'>) {
     const operation: Operation = {
       ...input,
-      id: crypto.randomUUID(),
+      id: 'permission_' + crypto.randomUUID(),
       expires: Date.now() + 300000,
       state: 'pending',
     };
@@ -661,7 +622,7 @@ export class HostRelayDO extends DurableObject<Env> {
         );
         if (previous) return previous;
       }
-      operation.id = 'delivery_' + operation.id;
+      operation.id = 'delivery_' + crypto.randomUUID();
       operation.expires = Date.now() + 20000;
       this.deliveryRequests.save(operation);
       try {
@@ -677,21 +638,16 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       return operation;
     }
-    const existing = await this.storage.transaction(async (tx) => {
+    // Persist only the permission input, never a session snapshot or an
+    // arbitrary request body passed through a ticket/attach route.
+    const { sessionId, takeover, claimId, resume, delivery } = operation.data;
+    operation.data = { sessionId, takeover, claimId, resume, delivery };
+    checkPermissionSize(operation);
+    await this.storage.transaction(async (tx) => {
       const pending = await tx.list<Operation>({
-        prefix: 'operation:',
+        prefix: 'permission-operation:',
         limit: 257,
       });
-      if (input.action === 'probe') {
-        const previous = [...pending.values()].find(
-          (o) =>
-            o.action === 'probe' &&
-            o.auth.hash === input.auth.hash &&
-            o.state === 'pending' &&
-            o.expires > Date.now(),
-        );
-        if (previous) return previous;
-      }
       if (
         [...pending.values()].filter((o) => o.state === 'pending').length >=
           64 ||
@@ -712,12 +668,17 @@ export class HostRelayDO extends DurableObject<Env> {
         )
       )
         throw new AppError('SESSION_BUSY', 'Attach already pending', 409);
-      await tx.put('operation:' + operation.id, { ...operation, data: {} });
+      await tx.put({
+        [permissionKey(operation.id)]: operation,
+        [permissionDue(operation)]: {
+          key: permissionKey(operation.id),
+          at: operation.expires,
+        },
+      });
     });
-    if (existing) return existing;
     await expireAt(
       this.storage,
-      'operation:' + operation.id,
+      permissionKey(operation.id),
       operation.expires,
     );
     try {
@@ -946,13 +907,10 @@ export class HostRelayDO extends DurableObject<Env> {
       // retrieve it without relying on a notification or cloud persistence.
       if (transientOperation(o)) o.expires = Date.now() + 20000;
       await this.saveOperation(o);
-      // Read results are ephemeral forwarding state. The caller polls only
+      // Business results are ephemeral forwarding state. The caller polls only
       // while outstanding and retries the original read after reconstruction.
       if (transientOperation(o)) return;
       await this.changed('operation', o.auth.hash, o.id);
-      if (o.action === 'create')
-        await this.changed('request-results', o.auth.hash);
-      if (['create', 'stop'].includes(o.action)) await this.changed('sessions');
     }
   }
   private async releaseReservation(o: Operation) {
@@ -1022,7 +980,7 @@ export class HostRelayDO extends DurableObject<Env> {
           undefined,
           new AppError('FORBIDDEN', 'Wrong credential for session mode', 403),
         );
-      o.info = data;
+      o.info = { mode: data.mode, sandbox: data.sandbox };
       if (
         (await this.storage.get('session-mode:' + o.data.sessionId)) !==
         data.mode
@@ -2176,7 +2134,7 @@ export class HostRelayDO extends DurableObject<Env> {
             typeof d.requestId === 'string' &&
             d.requestId.startsWith('delivery_')
               ? this.deliveryRequests.wire(d.requestId)
-              : await this.storage.get<string>('wire:' + d.requestId);
+              : await this.storage.get<string>(permissionWire(d.requestId));
           const operation = operationId
             ? await this.loadOperation(operationId)
             : undefined;
@@ -2556,7 +2514,7 @@ export class HostRelayDO extends DurableObject<Env> {
     const a = ws.deserializeAttachment() as Attachment;
     if (a.id)
       for (const o of (
-        await this.storage.list<Operation>({ prefix: 'operation:' })
+        await this.storage.list<Operation>({ prefix: 'permission-operation:' })
       ).values()) {
         if (o.socketId !== a.id) continue;
         if (o.kind === 'attach' && o.state === 'pending') {
@@ -2659,7 +2617,8 @@ export class HostRelayDO extends DurableObject<Env> {
       } else {
         const value = await s.get<any>(key);
         if (value?.expires <= Date.now()) {
-          if (value.wire) await s.delete('wire:' + value.wire);
+          if (value.wire && key.startsWith('permission-operation:'))
+            await s.delete(permissionWire(value.wire));
           if (key.startsWith('ticket:') && value.epoch)
             await s.transaction(async (tx) => {
               const lease = await tx.get<Lease>('lease:' + value.sessionId);
@@ -2669,8 +2628,10 @@ export class HostRelayDO extends DurableObject<Env> {
                   active: false,
                 });
             });
-          if (key.startsWith('operation:'))
-            await this.deleteOperation(key.slice(10));
+          if (key.startsWith('permission-operation:'))
+            await this.deleteOperation(
+              key.slice('permission-operation:'.length),
+            );
           else await s.delete(key);
         }
       }

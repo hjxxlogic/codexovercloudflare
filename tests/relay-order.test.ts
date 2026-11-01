@@ -408,45 +408,126 @@ describe('recoverable asynchronous controls', () => {
     expect(h.agent.close).not.toHaveBeenCalled();
     expect(relay.authorization.has('removed')).toBe(false);
   });
-  it('reads an operation index and all parts in one snapshot while completion replaces them', async () => {
+  it('preserves only bounded permission inputs and authorization fields across reconstruction', async () => {
+    const h = harness();
+    const operation = await (h.relay as any).start({
+      auth,
+      hostId: 'host',
+      kind: 'ticket',
+      stage: 'get',
+      action: 'get',
+      data: {
+        sessionId: 'host~session',
+        delivery: 2,
+        claimId: 'claim',
+        prompt: 'private business original',
+      },
+    });
+    expect(operation.id).toMatch(/^permission_/);
+    h.recreate();
+    await h.reply(h.frames()[0], {
+      mode: 'web',
+      state: 'ready',
+      sandbox: 'workspace-write',
+      title: 'private session title',
+      history: 'private transcript'.repeat(10000),
+    });
+    const stored = await (h.relay as any).loadOperation(operation.id);
+    expect(stored.state).toBe('completed');
+    expect(stored.result.ticket).toEqual(expect.any(String));
+    expect(stored.info).toEqual({ mode: 'web', sandbox: 'workspace-write' });
+    const serialized = JSON.stringify([...h.storage.values]);
+    expect(serialized).not.toContain('private');
+    expect(serialized).not.toContain('history');
+  });
+  it('keeps permission capacity and expiry bounded across reconstruction', async () => {
+    const h = harness();
+    const input = {
+      auth,
+      hostId: 'host',
+      kind: 'ticket',
+      stage: 'get',
+      action: 'get',
+      data: { sessionId: 'host~session', delivery: 2 },
+    };
+    for (let i = 0; i < 64; i++) await (h.relay as any).start(input);
+    h.recreate();
+    await expect((h.relay as any).start(input)).rejects.toMatchObject({
+      code: 'BACKPRESSURE',
+    });
+    expect(h.frames()).toHaveLength(64);
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 300001);
+    await (h.relay as any).expire();
+    expect(
+      (await h.storage.list({ prefix: 'permission-operation:' })).size,
+    ).toBe(0);
+    expect((await h.storage.list({ prefix: 'permission-wire:' })).size).toBe(0);
+    await (h.relay as any).start(input);
+    expect(h.frames()).toHaveLength(65);
+  });
+  it('recovers permission expiry after an exit before alarm scheduling', async () => {
+    const h = harness();
+    vi.spyOn(h.storage, 'setAlarm').mockRejectedValueOnce(
+      new Error('Exit before alarm scheduling'),
+    );
+    await expect(
+      (h.relay as any).start({
+        auth,
+        hostId: 'host',
+        kind: 'ticket',
+        stage: 'get',
+        action: 'get',
+        data: { sessionId: 'host~session', delivery: 2 },
+      }),
+    ).rejects.toThrow('Exit before alarm scheduling');
+    expect(
+      (await h.storage.list({ prefix: 'permission-operation:' })).size,
+    ).toBe(1);
+    expect((await h.storage.list({ prefix: 'due:' })).size).toBe(1);
+    h.recreate();
+    await (h.relay as any).prepare('host');
+    expect(h.storage.alarm).toEqual(expect.any(Number));
+    vi.useFakeTimers();
+    vi.setSystemTime(h.storage.alarm! + 1);
+    await (h.relay as any).expire();
+    expect(
+      (await h.storage.list({ prefix: 'permission-operation:' })).size,
+    ).toBe(0);
+    expect((await h.storage.list({ prefix: 'due:' })).size).toBe(0);
+    expect(h.agent.send).not.toHaveBeenCalled();
+  });
+  it('stores a permission transaction in one bounded record and rejects overflow atomically', async () => {
     const h = harness();
     const relay = h.relay as any;
-    const before = {
-      id: 'snapshot',
+    const permission = {
+      id: 'permission_snapshot',
+      kind: 'ticket',
       state: 'pending',
       auth,
       expires: Date.now() + 300000,
-      data: 'a'.repeat(20000),
+      data: { sessionId: 'host~session' },
+      wire: 'permission_old',
     };
-    const after = { ...before, state: 'completed', result: 'b'.repeat(100000) };
-    await relay.saveOperation(before);
-    let started!: () => void, release!: () => void;
-    const entering = new Promise<void>((done) => {
-      started = done;
-    });
-    const gate = new Promise<void>((done) => {
-      release = done;
-    });
-    const original = h.storage.get.bind(h.storage);
-    let first = true;
-    vi.spyOn(h.storage, 'get').mockImplementation(async (key) => {
-      const value = await original(key);
-      if (key === 'operation:snapshot' && first) {
-        first = false;
-        started();
-        await gate;
-      }
-      return value;
-    });
-    const reading = relay.loadOperation('snapshot');
-    await entering;
-    const writing = relay.saveOperation(after);
-    // Allow a writer outside the read transaction to finish during the gap.
-    await new Promise<void>((done) => setImmediate(done));
-    release();
-    expect(await reading).toEqual(before);
-    await writing;
-    expect(await relay.loadOperation('snapshot')).toEqual(after);
+    await relay.saveOperation(permission);
+    expect(await relay.loadOperation(permission.id)).toEqual(permission);
+    await expect(
+      relay.saveOperation({
+        ...permission,
+        wire: 'permission_new',
+        result: 'x'.repeat(16384),
+      }),
+    ).rejects.toMatchObject({ code: 'BACKPRESSURE' });
+    expect(await relay.loadOperation(permission.id)).toEqual(permission);
+    expect(
+      await h.storage.get('permission-wire:permission_new'),
+    ).toBeUndefined();
+    expect(await h.storage.get('permission-wire:permission_old')).toBe(
+      permission.id,
+    );
+    expect(
+      [...h.storage.values.keys()].some((key) => key.startsWith('part:')),
+    ).toBe(false);
   });
   it('releases a late attachment for a closed controller without reusing its epoch', async () => {
     const h = harness();
@@ -702,7 +783,7 @@ describe('recoverable asynchronous controls', () => {
       (await h.read(accepted[0].data.operationId)).data.result.online,
     ).toBe(true);
   });
-  it('stores large Unicode control data in bounded parts without losing its identity', async () => {
+  it('forwards large Unicode business data in memory and loses correlation on reconstruction', async () => {
     const h = harness();
     const text = '测'.repeat(60000);
     const request = await h.start('queue', {
@@ -712,29 +793,38 @@ describe('recoverable asynchronous controls', () => {
       text,
     });
     await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
-    expect(h.frames()[1].data.text).toBe(text);
+    const execution = h.frames()[1];
+    expect(execution.data.text).toBe(text);
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire|permission-operation|permission-wire):/.test(
+          key,
+        ),
+      ),
+    ).toBe(false);
     h.recreate();
-    await h.reply(h.frames()[1], { state: 'queued' });
-    expect((await h.read(request.data.operationId)).data.result.state).toBe(
-      'queued',
+    await h.reply(execution, { state: 'queued' });
+    expect((await h.read(request.data.operationId)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
     );
-    for (const [key, value] of h.storage.values)
-      if (key.startsWith('part:') || key.startsWith('operation:'))
-        expect(
-          new TextEncoder().encode(JSON.stringify(value)).length,
-        ).toBeLessThan(128 * 1024);
+    const retried = await h.start('queue', execution.data);
+    expect(retried.data.operationId).not.toBe(request.data.operationId);
+    expect((await h.read(retried.data.operationId)).data.state).toBe('pending');
   });
-  it('keeps the host capacity bound across recreation', async () => {
+  it('bounds business forwards in memory and recovers capacity after reconstruction', async () => {
     const h = harness();
-    for (let i = 0; i < 64; i++)
+    for (let i = 0; i < 128; i++)
       expect(
         (await h.start('stop', { sessionId: 'host~session' })).response.status,
       ).toBe(202);
-    h.recreate();
     expect(
       (await h.start('stop', { sessionId: 'host~session' })).response.status,
     ).toBe(429);
-    expect(h.frames()).toHaveLength(64);
+    h.recreate();
+    expect(
+      (await h.start('stop', { sessionId: 'host~session' })).response.status,
+    ).toBe(202);
+    expect(h.frames()).toHaveLength(129);
   });
   it('fences the old controller as soon as a takeover is reserved', async () => {
     const h = harness();

@@ -36,7 +36,7 @@ export interface StateStorage extends StateTransaction {
 }
 
 export function hasAutomaticExpiry(key: string) {
-  return /^(auth|device|limit|operation|ticket):/.test(key);
+  return /^(auth|device|limit|permission-operation|ticket):/.test(key);
 }
 
 // Reads use the primary. Never enable replica reads for authorization or fencing.

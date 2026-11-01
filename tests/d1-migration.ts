@@ -234,20 +234,37 @@ try {
           v: 1,
           type: 'result',
           requestId: frame.requestId,
-          data: { online: true, confirmedAt: Date.now() },
+          data:
+            frame.action === 'get'
+              ? {
+                  mode: 'cli',
+                  state: 'ready',
+                  sandbox: 'workspace-write',
+                  canReattach: true,
+                }
+              : { attached: true },
         }),
       );
   });
   const accepted = await request(
-    `/hosts/${identity.hostId}/probe`,
+    `/sessions/${identity.hostId}~permission-test/attach`,
     cli.apiKey,
-    {},
+    { delivery: 2, claimId: 'permission-claim' },
   );
+  assert.match(accepted.operationId, /^permission_/);
   const receiptPath = `/hosts/${identity.hostId}/operations/${accepted.operationId}`;
   await wait(
     async () => (await request(receiptPath, cli.apiKey)).state === 'completed',
     'receipt completion',
   );
+  const originalTicket = (await request(receiptPath, cli.apiKey)).result.ticket;
+  assert.equal(typeof originalTicket, 'string');
+  const probe = await request(
+    `/hosts/${identity.hostId}/probe`,
+    cli.apiKey,
+    {},
+  );
+  assert.match(probe.operationId, /^delivery_/);
   second.ws.close();
   await once(second.ws, 'close');
   await wait(
@@ -262,10 +279,18 @@ try {
   await stop();
   await start(true);
   assert.equal(
-    (await request(receiptPath, cli.apiKey)).result.online,
-    true,
-    'Receipt survives disconnect, cleanup and Worker restart',
+    (await request(receiptPath, cli.apiKey)).result.ticket,
+    originalTicket,
+    'Permission receipt survives disconnect, cleanup and Worker restart',
   );
+  const lostProbe = await fetch(
+    origin + `/api/v1/hosts/${identity.hostId}/operations/${probe.operationId}`,
+    {
+      headers: { Authorization: 'Bearer ' + cli.apiKey, 'X-CoC-Delivery': '2' },
+    },
+  );
+  assert.equal(lostProbe.status, 409);
+  assert.equal(((await lostProbe.json()) as any).error.code, 'RESULT_UNKNOWN');
   await request(receiptPath, cli.apiKey, {});
   const third = await connect(key.apiKey);
   agent = third.ws;
@@ -275,7 +300,7 @@ try {
   );
   assert.equal(archiveOwner(identity.hostId), 'do');
   const acknowledged = await fetch(origin + '/api/v1' + receiptPath, {
-    headers: { Authorization: 'Bearer ' + cli.apiKey },
+    headers: { Authorization: 'Bearer ' + cli.apiKey, 'X-CoC-Delivery': '2' },
   });
   assert.equal(
     acknowledged.status,
@@ -293,7 +318,8 @@ try {
           activeEpoch: second.epoch,
           restoredEpoch: third.epoch,
           idleArchivePublished: true,
-          receiptSurvivedRestart: true,
+          permissionReceiptSurvivedRestart: true,
+          businessCorrelationNotRestored: true,
           acknowledgementSurvivedActivation: true,
         },
         null,
@@ -302,7 +328,7 @@ try {
     );
   }
   console.log(
-    'D1 migration passed: legacy credentials, active DO state, idle archive, restart-safe receipts, acknowledgement and restoration fencing (real Wrangler).',
+    'D1 migration passed: legacy credentials, active DO state, idle archive, restart-safe permission receipts, discarded business correlation, acknowledgement and restoration fencing (real Wrangler).',
   );
 } catch (error) {
   console.error(logs.replaceAll(secret, '[test-secret]'));

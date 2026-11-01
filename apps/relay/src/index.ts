@@ -9,7 +9,7 @@ import {
 } from './access.ts';
 import { z } from 'zod';
 import { version } from '../../../package.json';
-import { collectIdleState, d1Receipt } from './host-state.ts';
+import { collectIdleState, d1PermissionReceipt } from './host-state.ts';
 import { d1Enabled } from './state.ts';
 import {
   AppError,
@@ -442,15 +442,15 @@ export default {
       );
       if (receipt && ['GET', 'POST'].includes(req.method)) {
         const auth = await authenticate(req, env, receipt[1]);
-        const stored = receipt[2].startsWith('delivery_')
-          ? undefined
-          : await d1Receipt(
+        const stored = receipt[2].startsWith('permission_')
+          ? await d1PermissionReceipt(
               env,
               receipt[1],
               receipt[2],
               auth,
               req.method === 'POST',
-            );
+            )
+          : undefined;
         if (stored) return stored;
         return hostStub(env, receipt[1]).fetch(
           internal(

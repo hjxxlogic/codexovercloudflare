@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## Worker 业务 Operation 去状态（2026-11-01，仅本机，未部署）
+
+- `npm run build` 通过，包含本机原生程序、网页、TypeScript 与 Worker dry-run。5 项 CTest 通过；最终 26 文件 / 362 项 Vitest 通过。ESLint / Prettier 和生成协议检查通过。依赖继续位于用户 `~/.local`，未运行 GitHub Actions，未构建 Windows，未发布或部署。
+- Worker 的全部非 ticket / attach 请求只保留有界内存关联，Unicode 大正文及原请求证明重试均不生成业务 operation / part / wire / due。重建后丢弃旧关联与回调，端点沿原身份恢复；内存容量在重建后释放。
+- 权限事务跨重建保留，最多 64 条 pending / 256 条总量，每条 16 KiB；超额拒绝不替换旧记录或 wire。额外业务输入、标题和历史不进入权限回执。权限记录与到期索引同事务提交，模拟写入后、调度前退出，再重建可恢复调度并回收记录。D1 的同快照读取、CAS 确认、并发激活和离线回收仍通过。
+- `npm run test:e2e:d1` 完整通过，使用真实 Agent / CLI、Wrangler 和 Chromium，覆盖原请求去重、并发附着、控制 / 审批、RPC 输出、历史恢复、上传丢块回包及面板重开恢复、权限撤销。随后补齐权限到期索引，再次运行全部 Vitest、完整构建、`test:d1:migration` 和 `test:ui` 均通过。
+- 真实 Wrangler 迁移回归验证旧授权保留、Agent fencing 递增、离线归档和 Worker 重启后的 permission_ ticket 回执读取 / 确认，以及确认后激活不复活。delivery_ 业务关联在重启后返回 RESULT_UNKNOWN；测试不再要求恢复云端业务回执。
+
+日志位于 `/tmp/coc-permission-final-build.log`、`tests.log`、`final-unit2.log`、`final-lint.log`、`protocol.log`、`migration2.log`、`ui.log` 和 `e2e.log`（共同前缀 `/tmp/coc-permission-`）。完整架构仍待执行端旧业务路径清理、统一资源验收、真实旧程序升级和最终切换；本阶段不标记 0.6.0 完成。
+
 ## 接收端信用代际强制绑定（2026-11-01，仅本机，未部署）
 
 - `npm run build`、5 项 CTest、26 文件 / 359 项 Vitest，以及 TypeScript、ESLint / Prettier、clang-format 和生成协议检查通过。真实 `coc-agent --version` / `coc-client --version` 声明 `delivery-v2`，发行 `protocol` 仍为 1，当前是未发布开发构建。

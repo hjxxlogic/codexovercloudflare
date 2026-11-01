@@ -3,9 +3,9 @@ import { json, type Auth, type Env } from './common.ts';
 import { D1State, d1Enabled } from './state.ts';
 import type { HostLocation } from './host-lifecycle.ts';
 
-// Reads use one SQL snapshot; acknowledgements use CAS so a concurrent
-// completion cannot be erased. Unrelated live writes must not starve polling.
-export async function d1Receipt(
+// Only permission handshakes have cloud receipts. Business correlation and
+// payloads are memory-only and can never be reconstructed from D1.
+export async function d1PermissionReceipt(
   env: Env,
   hostId: string,
   id: string,
@@ -14,26 +14,18 @@ export async function d1Receipt(
 ): Promise<Response | undefined> {
   if (!d1Enabled(env)) return;
   const state = new D1State(env.STATE_DB, 'host:' + hostId);
-  const metadata = await state.getMany(['@migrated', '@location', 'presence']);
-  if (!metadata.has('@migrated') || metadata.get('@location')?.owner === 'do')
+  const key = 'permission-operation:' + id;
+  const snapshot = await state.getMany([
+    '@migrated',
+    '@location',
+    'presence',
+    key,
+  ]);
+  if (!snapshot.has('@migrated') || snapshot.get('@location')?.owner === 'do')
     return;
-  // A live Host owns the transaction queue. Route acknowledgements there so
-  // Workers cannot repeatedly invalidate a handshake's scope revision.
-  if (acknowledge && metadata.get('presence')?.connected) return;
+  if (acknowledge && snapshot.get('presence')?.connected) return;
   if (!acknowledge) {
-    const prefix = `part:${id}:`;
-    const rows = await env.STATE_DB.prepare(
-      "SELECT key, value FROM relay_state WHERE scope = ? AND (key IN (?, '@location') OR (key >= ? AND key < ?)) ORDER BY key COLLATE BINARY",
-    )
-      .bind('host:' + hostId, 'operation:' + id, prefix, prefix + '\uffff')
-      .all<{ key: string; value: string }>();
-    const values = new Map(
-      rows.results.map((row) => [row.key, JSON.parse(row.value)]),
-    );
-    // Activation may have claimed ownership since the metadata read. Check
-    // routing in the SAME snapshot as the receipt, never return an old copy.
-    if (values.get('@location')?.owner === 'do') return;
-    const operation = decodeReceipt(values.get('operation:' + id), values);
+    const operation = decode(snapshot.get(key));
     return json({
       state: operation.state,
       result: operation.result,
@@ -42,42 +34,25 @@ export async function d1Receipt(
   }
   return state.transaction(async (tx) => {
     if ((await tx.get<HostLocation>('@location'))?.owner === 'do') return;
-    const index = await tx.get<any>('operation:' + id);
-    const parts = index?.parts
-      ? await tx.list<string>({ prefix: `part:${id}:` })
-      : new Map<string, string>();
-    const operation = decodeReceipt(index, parts);
+    const operation = decode(await tx.get<any>(key));
     if (operation.state === 'completed')
       await tx.delete([
-        'operation:' + id,
-        ...parts.keys(),
-        ...(index.wire ? ['wire:' + index.wire] : []),
+        key,
+        ...(operation.wire ? ['permission-wire:' + operation.wire] : []),
+        `due:${String(operation.expires).padStart(16, '0')}:${key}`,
       ]);
     return json({ ok: true });
   });
 
-  function decodeReceipt(index: any, parts: Map<string, any>) {
-    if (!index || index.auth.hash !== auth.hash)
-      throw new AppError('NOT_FOUND', 'Unknown operation', 404);
-    if (index.expires <= Date.now())
+  function decode(operation: any) {
+    if (!operation || operation.auth.hash !== auth.hash)
+      throw new AppError('NOT_FOUND', 'Unknown permission transaction', 404);
+    if (operation.expires <= Date.now())
       throw new AppError(
         'RESULT_UNKNOWN',
-        'Result receipt expired; query original request identity',
+        'Permission transaction expired; request a new ticket',
         409,
       );
-    let operation = index;
-    if (index.parts) {
-      const values = Array.from({ length: index.parts }, (_, i) =>
-        parts.get(`part:${id}:${i}`),
-      );
-      if (values.some((part) => part === undefined))
-        throw new AppError(
-          'RESULT_UNKNOWN',
-          'Incomplete operation receipt',
-          409,
-        );
-      operation = JSON.parse(values.join(''));
-    }
     return operation;
   }
 }
@@ -108,11 +83,9 @@ export async function collectIdleState(env: Env) {
         if (value?.expires <= now) {
           const keys = [
             key,
-            ...(value.wire ? ['wire:' + value.wire] : []),
-            ...Array.from(
-              { length: value.parts || 0 },
-              (_, i) => `part:${key.slice(10)}:${i}`,
-            ),
+            ...(key.startsWith('permission-operation:') && value.wire
+              ? ['permission-wire:' + value.wire]
+              : []),
           ];
           if (key.startsWith('ticket:') && value.epoch) {
             const lease = await tx.get<any>('lease:' + value.sessionId);

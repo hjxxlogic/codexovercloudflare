@@ -164,9 +164,9 @@ describe('D1 authoritative state', () => {
     const alarms = new MemoryStorage();
     const state = new D1State(db.binding(), 'host:a', alarms);
     const expires = Date.now() + 10000;
-    await state.put('operation:one', { expires });
+    await state.put('permission-operation:one', { expires });
     const batches = vi.spyOn(db, 'batch');
-    await expireAt(state, 'operation:one', expires);
+    await expireAt(state, 'permission-operation:one', expires);
     expect(batches).not.toHaveBeenCalled();
     expect(alarms.alarm).toBe(expires);
     expect((await state.list({ prefix: 'due:' })).size).toBe(1);
@@ -189,15 +189,18 @@ describe('D1 authoritative state', () => {
     const db = database();
     const state = new D1State(db.binding(), 'host:a');
     const expires = Date.now() + 300000;
-    await state.put('operation:one', { expires, state: 'pending' });
-    const key = `due:${String(expires).padStart(16, '0')}:operation:one`;
-    expect(await state.get(key)).toEqual({ key: 'operation:one', at: expires });
+    await state.put('permission-operation:one', { expires, state: 'pending' });
+    const key = `due:${String(expires).padStart(16, '0')}:permission-operation:one`;
+    expect(await state.get(key)).toEqual({
+      key: 'permission-operation:one',
+      at: expires,
+    });
     db.failBatch = () => true;
-    await expect(state.put('operation:two', { expires })).rejects.toThrow(
-      'Injected',
-    );
+    await expect(
+      state.put('permission-operation:two', { expires }),
+    ).rejects.toThrow('Injected');
     db.failBatch = undefined;
-    expect(await state.get('operation:two')).toBeUndefined();
+    expect(await state.get('permission-operation:two')).toBeUndefined();
     expect((await state.list({ prefix: 'due:' })).size).toBe(1);
   });
   it('isolates hosts and orders bounded prefix pages with buffered changes', async () => {
@@ -307,7 +310,10 @@ vi.mock('cloudflare:workers', () => ({
 }));
 import { HostRelayDO } from '../apps/relay/src/host.ts';
 import { RegistryCore, RegistryDO } from '../apps/relay/src/registry.ts';
-import { collectIdleState, d1Receipt } from '../apps/relay/src/host-state.ts';
+import {
+  collectIdleState,
+  d1PermissionReceipt,
+} from '../apps/relay/src/host-state.ts';
 import {
   hostStatus,
   registryCall,
@@ -462,7 +468,8 @@ describe('D1 relay lifecycle', () => {
     ) as any;
     await relay.prepare('host-a');
     const operation = {
-      id: 'one',
+      id: 'permission_one',
+      kind: 'ticket',
       state: 'pending',
       auth: { hash: 'owner' },
       expires: Date.now() + 10000,
@@ -477,17 +484,21 @@ describe('D1 relay lifecycle', () => {
     ).rejects.toThrow('Injected');
     failedWrite.mockRestore();
     h.db.failBatch = () => true; // Online state does not depend on D1 writes.
-    expect(await relay.storage.get('wire:old')).toBe('one');
-    expect(await relay.storage.get('wire:new')).toBeUndefined();
+    expect(await relay.storage.get('permission-wire:old')).toBe(
+      'permission_one',
+    );
+    expect(await relay.storage.get('permission-wire:new')).toBeUndefined();
     await relay.saveOperation({ ...operation, wire: 'new' });
-    expect(await relay.storage.get('wire:old')).toBeUndefined();
-    expect(await relay.storage.get('wire:new')).toBe('one');
+    expect(await relay.storage.get('permission-wire:old')).toBeUndefined();
+    expect(await relay.storage.get('permission-wire:new')).toBe(
+      'permission_one',
+    );
     await relay.saveOperation({
       ...operation,
       wire: 'new',
       state: 'completed',
     });
-    expect(await relay.storage.get('wire:new')).toBeUndefined();
+    expect(await relay.storage.get('permission-wire:new')).toBeUndefined();
   });
   it('routes live receipt acknowledgements to the Host without writing D1', async () => {
     const h = runtime();
@@ -495,7 +506,7 @@ describe('D1 relay lifecycle', () => {
     await state.put({ '@migrated': true, presence: { connected: 1 } });
     const batches = vi.spyOn(h.db, 'batch');
     expect(
-      await d1Receipt(
+      await d1PermissionReceipt(
         h.env,
         'host-a',
         'receipt',
@@ -556,7 +567,7 @@ describe('D1 relay lifecycle', () => {
     const h = runtime();
     h.legacy.values.set('agentEpoch', 7);
     h.legacy.values.set('lease:session', { epoch: 9, active: false });
-    h.legacy.values.set('operation:receipt', {
+    h.legacy.values.set('permission-operation:receipt', {
       state: 'completed',
       result: { id: 'original' },
       expires: Date.now() + 300000,
@@ -591,7 +602,7 @@ describe('D1 relay lifecycle', () => {
       epoch: 9,
       active: false,
     });
-    expect(await state.get('operation:receipt')).toMatchObject({
+    expect(await state.get('permission-operation:receipt')).toMatchObject({
       result: { id: 'original' },
     });
     h.env.HOSTS = {
@@ -744,34 +755,49 @@ describe('D1 relay lifecycle', () => {
     await relay.storage.put('agentEpoch', 6);
     expect(await relay.fence('agentEpoch')).toBe(6);
   });
-  it('retrieves split receipts offline, rejects other credentials and acknowledges only completed results', async () => {
+  it('retrieves bounded permission receipts offline and acknowledges only the authenticated result', async () => {
     const h = runtime();
     const state = new D1State(h.db.binding(), 'host:host-a');
     const auth = { hash: 'original' } as Auth;
-    const result = { state: 'completed', result: { value: 'retained' } };
+    const result = { state: 'completed', result: { ticket: 'retained' } };
     await state.put({
       '@migrated': true,
-      'operation:receipt': {
+      'permission-operation:receipt': {
         ...result,
         auth,
         expires: Date.now() + 10000,
-        parts: 1,
         wire: 'request',
       },
-      'part:receipt:0': JSON.stringify(result),
-      'wire:request': 'receipt',
+      'permission-wire:request': 'receipt',
+      'operation:receipt': { auth, result: 'legacy business result' },
+      'part:receipt:0': 'legacy business body',
     });
     expect(
-      await (await d1Receipt(h.env, 'host-a', 'receipt', auth, false))!.json(),
+      await (await d1PermissionReceipt(
+        h.env,
+        'host-a',
+        'receipt',
+        auth,
+        false,
+      ))!.json(),
     ).toEqual(result);
     await expect(
-      d1Receipt(h.env, 'host-a', 'receipt', { hash: 'other' } as Auth, true),
+      d1PermissionReceipt(
+        h.env,
+        'host-a',
+        'receipt',
+        { hash: 'other' } as Auth,
+        true,
+      ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-    expect(await state.get('operation:receipt')).toBeDefined();
-    await d1Receipt(h.env, 'host-a', 'receipt', auth, true);
-    expect(await state.get('operation:receipt')).toBeUndefined();
-    expect(await state.get('part:receipt:0')).toBeUndefined();
-    expect(await state.get('wire:request')).toBeUndefined();
+    expect(await state.get('permission-operation:receipt')).toBeDefined();
+    await d1PermissionReceipt(h.env, 'host-a', 'receipt', auth, true);
+    expect(await state.get('permission-operation:receipt')).toBeUndefined();
+    expect(await state.get('permission-wire:request')).toBeUndefined();
+    // Permission receipt handling never reads, changes or reconstructs legacy business data.
+    expect(await state.get('operation:receipt')).toMatchObject({
+      result: 'legacy business result',
+    });
   });
   it('polls a receipt while unrelated transport writes keep changing the scope', async () => {
     const h = runtime();
@@ -780,7 +806,11 @@ describe('D1 relay lifecycle', () => {
     const result = { state: 'completed', result: { accepted: true } };
     await state.put({
       '@migrated': true,
-      'operation:receipt': { ...result, auth, expires: Date.now() + 10000 },
+      'permission-operation:receipt': {
+        ...result,
+        auth,
+        expires: Date.now() + 10000,
+      },
     });
     const prepare = h.db.prepare.bind(h.db);
     vi.spyOn(h.db, 'prepare').mockImplementation((sql) => {
@@ -790,10 +820,22 @@ describe('D1 relay lifecycle', () => {
       return prepare(sql);
     });
     expect(
-      await (await d1Receipt(h.env, 'busy', 'receipt', auth, false))!.json(),
+      await (await d1PermissionReceipt(
+        h.env,
+        'busy',
+        'receipt',
+        auth,
+        false,
+      ))!.json(),
     ).toEqual(result);
     await expect(
-      d1Receipt(h.env, 'busy', 'receipt', { hash: 'other' } as Auth, false),
+      d1PermissionReceipt(
+        h.env,
+        'busy',
+        'receipt',
+        { hash: 'other' } as Auth,
+        false,
+      ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
   it('expires offline D1 receipts and tickets without touching DOs or resetting fencing', async () => {
@@ -808,11 +850,10 @@ describe('D1 relay lifecycle', () => {
       await state.put({
         presence: { connected },
         agentEpoch: 9,
-        'operation:expired': { expires: at, parts: 1, wire: 'wire' },
-        'part:expired:0': 'expired',
-        'wire:wire': 'expired',
-        [`due:${String(at).padStart(16, '0')}:operation:expired`]: {
-          key: 'operation:expired',
+        'permission-operation:expired': { expires: at, wire: 'wire' },
+        'permission-wire:wire': 'expired',
+        [`due:${String(at).padStart(16, '0')}:permission-operation:expired`]: {
+          key: 'permission-operation:expired',
           at,
         },
         'ticket:expired': { expires: at, epoch: 7, sessionId: 'session' },
@@ -824,15 +865,14 @@ describe('D1 relay lifecycle', () => {
       });
     }
     await collectIdleState(h.env);
-    expect(await idle.get('operation:expired')).toBeUndefined();
-    expect(await idle.get('part:expired:0')).toBeUndefined();
-    expect(await idle.get('wire:wire')).toBeUndefined();
+    expect(await idle.get('permission-operation:expired')).toBeUndefined();
+    expect(await idle.get('permission-wire:wire')).toBeUndefined();
     expect(await idle.get('ticket:expired')).toBeUndefined();
     expect(await idle.get('lease:session')).toEqual({
       epoch: 7,
       active: false,
     });
     expect(await idle.get('agentEpoch')).toBe(9);
-    expect(await live.get('operation:expired')).toBeDefined();
+    expect(await live.get('permission-operation:expired')).toBeDefined();
   });
 });

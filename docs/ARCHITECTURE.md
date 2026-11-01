@@ -10,6 +10,8 @@ CC 的创建 / 观察、停止、排队、审批及项目修改已接入 transpo
 
 上传执行端已将回执从普通 cache 移入 transport2_uploads；开始创建暂存文件前持久绑定主体 / 项目根 / uploadId 与原路径、大小、覆盖意图摘要，并预留完整暂存大小和 16 KiB 元数据。全局最多 4 个未解除资源承诺 / 80 MiB 暂存，每主体最多 2 个；拒绝身份全局 1024 / 每主体 256，总预算 96 MiB。分块推进连续偏移前同步文件；完成和取消先回收暂存资源再释放对应预留，永久保留旧身份，清普通缓存和旧一天期限不重新放行。重启中的上传固定为 unknown；无法证明资源已回收时保守保留预留，不能通过重启扩大磁盘承诺。网页完整正文首发持久化、上传恢复及云端写路径收敛仍待完成，本段仅描述执行端基础。
 
+Worker 的全部非 ticket / attach 请求现均只使用 128 条 / 8 MiB 的内存关联，pending / completed 各最多 20 秒，不持久保存业务正文或结果。权限事务使用独立 permission-operation / permission-wire，最多 64 条 pending / 256 条总记录，每条 16 KiB；输入仅保留准入字段，get 仅保存 mode / sandbox。记录、wire 和到期索引同事务提交，重建恢复到期调度；D1 离线读取 / 确认仅适用于权限事务。归档与恢复过滤旧业务 operation / part / wire 及对应 due，租约和 epoch 继续保留。执行端旧业务分支和最终资源 / 升级验收仍待完成。
+
 ## 在线配置管理通道
 
 平台 owner 经 `/admin/hosts/:id/configuration` 读取目标、替换配置和重启；HostRelay 使用不依赖 Storage 的 `ManagementRequests` 将活跃 HTTP 请求关联到实际目标 WebSocket，20 秒超时按原请求编号恢复。配置正文与结果不进入普通持久 Operation、D1、attachment 或业务日志；发送及返回前重新鉴权，目标回复按 socket 绑定。Agent 在 capabilities 上报管理元数据，CLI 使用独立、主机凭据限定的 `/ws/v1/client-management/:hostId` 通道；Agent 重连不会关闭其它机器上的客户端管理通道。

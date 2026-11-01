@@ -9,13 +9,13 @@
 | Host `send-head:*`、`head-instance:*` | `heads`、`advanceHead`、`advanceAgentHead`，命令、结果、RPC 输出及历史发送上界 | 已删除写入与读取；A/C 自身发布头及当前恢复快照提供上界，Worker 不验证 ACK 是否已落盘 |
 | Host `receive-head:*`、`send-head:rpc-received:*` | 历史接收确认及 CC 输出确认 | 已删除云端读写；C 本地连续游标，A 的订阅 / 输出接收确认；不能以一个 C 的确认代表其它订阅者 |
 | Host `send-head:result:*`、`send-head:result-received:*` | 结果发送 / 接收水位；目前基于命令序号 | 已迁移：A 完成日志独立 resultSeq；C 持久结果缓存及连续结果水位，ACK 向 A 转发；Worker 不再读写这两类头 |
-| `operation:*`、`part:*`、`wire:*` 及对应 `due:*` | `start / command / complete / result` 的业务正文、异步结果与关联 | delivery 的 OPEN / 查询 / transfer 分块、历史直读 / 历史 socket 准入与订阅，以及 probe / 项目与会话列表 / 线程 / snapshot / 原请求结果 / 审批列表 / 文件读取与状态等只读控制查询已改为 128 条 / 8 MiB 的纯内存关联（pending 与完成结果各保留最多 20 秒），无 Operation / part / wire / 到期索引写入；其它业务仍须迁出，权限事务回执另行保留 |
+| `operation:*`、`part:*`、`wire:*` 及对应 `due:*` | `start / command / complete / result` 的业务正文、异步结果与关联 | delivery 的 OPEN / 查询 / transfer 分块、历史直读 / 历史 socket 准入与订阅，以及 probe / 项目与会话列表 / 线程 / snapshot / 原请求结果 / 审批列表 / 文件读取与状态等只读控制查询已改为 128 条 / 8 MiB 的纯内存关联（pending 与完成结果各保留最多 20 秒），无 Operation / part / wire / 到期索引写入；全部业务入口现均使用同一有界内存关联；权限事务回执独立保留，不再复用这组业务键 |
 | `agentInstance` | 将云端发送头绑定到 Agent 数据库 | 已删除云端 agentInstance 记录；存储实例由端点对账；Agent 认证与连接代际仍由 Worker 核验；不以缺失实例默认为 `legacy` 后接受业务 |
 | `lease:*` 的 epoch、nextEpoch、owner、controllerId、previousControllerId、pending、active、expires | 接管、原控制端恢复、会话控制准入 | 保留为权限状态；区分 controlEpoch 与连接绑定；pending 不能因通知丢失回退到旧控制端 |
 | `lease:*` / socket attachment 的 delivery.id、normal、priority | 已认证主体、会话、lane 到内部流的绑定 | 保留必要的授权路由绑定，移除发送头依赖；不能从客户端自报 owner 或 epoch 建立权限 |
 | `agentEpoch`、ticket、handshake、授权缓存、session-mode | Agent fencing、一次性准入与读取模式检查 | 保留权限核验及失效边界；不得把移除可靠进度扩大为删除这些状态 |
 | Registry 的授权、撤销、目录及管理元数据 | 凭据权限、主机可见性、控制入口 | 保留；缓存失效、断连及 HTTP 入口必须一致执行 |
-| `host-lifecycle.ts` DO / D1 复制、`host-state.ts` 的 `d1Receipt` | 目前归档 / 离线读取也携带业务回执与进度 | 在业务入口迁出后取消相应归档和 D1 回执；只删除 `host.ts` 中的写入还不够 |
+| `host-lifecycle.ts` DO / D1 复制、`host-state.ts` 的 `d1PermissionReceipt` | 权限事务归档 / 离线读取 | 已过滤旧 operation / part / wire 及对应 due，旧业务回执不能恢复；仅 permission-operation / permission-wire 的 ticket / 接管事务继续持久化 |
 | `management.ts` 的 ManagementRequests | 管理通道临时 wire 关联 | 继续有界临时转发；配置执行回执在执行端，不混入业务 ACK |
 
 ## 业务入口责任
@@ -148,3 +148,10 @@ CW 已移除裸 WebSocket 写入和旧 requests 查询回退，CC 附着要求�
 WINDOW 必须包含 Agent instance、streamSerial 和 creditGeneration；CW / CC 在建立窗口及发布序号前验证并持久保存三者。delivery-command、delivery-query、delivery-content 和 delivery-receipt 均必须携带相同分配证明，Worker 只做结构和权限检查后原样转发，由 A 在接收命令、读取结果 / 正文或推进结果 ACK 前核验原分配。错误、缺失或跨流证明不消费原命令序号，也不为未知流分配信用。
 
 首次 OPEN 允许尚无分配证明，但只能确认结果位置 0 / 字节 0，不能夹带结果 / 正文查询；接收后沿原分配恢复。已知窗口的 OPEN 按 lane 附带 allocations，HTTP 恢复读携带相同三元组。transfer 分块响应也须与原窗口的全部分配字段一致。此改动不允许回退旧业务帧；其它旧业务路径和云端 Operation 清理仍待完成，P1 / P4 尚未整体验收。
+
+
+## Worker 业务 Operation 去状态（2026-11-01，本机阶段）
+
+所有非 ticket / attach 请求共用 128 条 / 8 MiB 的内存关联，pending / completed 最多各保留 20 秒。创建、停止、排队、审批、项目修改与读查询均不再写 operation / part / wire 或到期索引；Worker 重建后原临时编号返回 RESULT_UNKNOWN，由端点原请求账本恢复。未删除 Agent 的旧业务分支，此阶段不代表 P1 / P4 全部完成。
+
+权限握手使用 permission_ 编号和独立 permission-operation / permission-wire 命名空间；最多 64 条 pending、256 条总记录，每条 JSON UTF-8 不超过 16 KiB。输入仅保留 sessionId、takeover、claimId、resume、delivery，get 返回仅保存 mode / sandbox，不复制标题、历史或完整会话。权限结果、wire 替换及到期索引同事务保存，重建恢复到期调度，不再拆分正文。D1 只离线读取 / 确认这类权限回执，所有业务查询回到活跃 Host 的有界内存。旧 operation / part / wire 和相应 due 无法再被归档或恢复，租约 / epoch / ticket 保留；未修改线上数据库。

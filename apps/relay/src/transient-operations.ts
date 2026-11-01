@@ -1,7 +1,7 @@
 import { AppError, MAX_QUEUE } from '../../../packages/protocol/src/index.ts';
 
 // Pure forwarding correlations. Nothing in this container can be archived or
-// recovered by a new DO instance; endpoints retry their original read identity.
+// recovered by a new DO instance; endpoints recover using their original request identity.
 export class TransientOperations<
   T extends { id: string; wire?: string; expires: number; state: string },
 > {
