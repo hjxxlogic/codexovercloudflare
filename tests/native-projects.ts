@@ -271,6 +271,44 @@ try {
     control('alice', 'projectManage', { ...rename, name: 'changed' }),
     { code: 'IDEMPOTENCY_CONFLICT' },
   );
+  const otherOwner = await control(
+    'alice',
+    'projectManage',
+    {
+      ...rename,
+      revision: 4,
+      name: 'Another authenticated owner',
+    },
+    {
+      requestId: rename.requestId,
+      owner: 'b'.repeat(64),
+      instance: instances.get('alice'),
+    },
+  );
+  assert.equal(
+    otherOwner.result.revision,
+    5,
+    'The Agent passes the verified owner into the project journal',
+  );
+  assert.deepEqual(
+    await control('alice', 'projectManage', rename),
+    original,
+    'Another owner cannot replace the original project result',
+  );
+  const localSameId = await local('alice', [
+    'rename',
+    'two',
+    'Explicit local intent',
+    '--request-id',
+    rename.requestId,
+    '--revision',
+    '5',
+  ]);
+  assert.equal(
+    localSameId.revision,
+    6,
+    'Local control has a server-selected namespace independent of remote owners',
+  );
   const extraSessions = [];
   for (let i = 0; i < 6; i++)
     extraSessions.push(

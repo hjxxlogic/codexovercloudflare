@@ -420,17 +420,20 @@ public:
     if (buffered_events_.size() >= 128 || buffered_bytes_ >= 128 * 1024)
       flush_events();
   }
-  Json manage_projects(const Json &d) {
+  Json manage_projects(const Json &d, const std::string &owner = "local") {
     if (stopped_)
       throw Error("HOST_OFFLINE", "Agent is stopping");
-    auto result = projects_.request(d, [this](const std::string &id) {
-      if (file_requests_ || listing_threads_ || !archive_loading_.empty())
-        return true;
-      for (const auto &s : store_.sessions(true))
-        if (s.at("projectId") == id && runtimes_.count(s.at("id").get<std::string>()))
-          return true;
-      return false;
-    });
+    auto result = projects_.request(
+        d,
+        [this](const std::string &id) {
+          if (file_requests_ || listing_threads_ || !archive_loading_.empty())
+            return true;
+          for (const auto &s : store_.sessions(true))
+            if (s.at("projectId") == id && runtimes_.count(s.at("id").get<std::string>()))
+              return true;
+          return false;
+        },
+        owner);
     config_["projects"] = projects_.list().at("projects");
     if (d.contains("requestId"))
       send({{"type", "projects-changed"}});
@@ -578,19 +581,22 @@ public:
             throw Error("RESULT_PENDING", "Original operation is still executing");
           operation_key = original.at("key");
         }
-        control(action, args, [this, operation_key, intent, respond](Json data, Json error) {
-          Json envelope = error.is_null() ? Json{{"data", data}} : Json{{"error", error}};
-          if (!operation_key.empty()) {
-            try {
-              envelope = store_.operation_finish(operation_key, envelope);
-            } catch (const std::exception &failure) {
-              // A response without the receipt is not a durable terminal result.
-              respond({{"error", error_data(failure)}}, nullptr);
-              return;
-            }
-          }
-          respond(envelope, intent);
-        });
+        control(
+            action, args,
+            [this, operation_key, intent, respond](Json data, Json error) {
+              Json envelope = error.is_null() ? Json{{"data", data}} : Json{{"error", error}};
+              if (!operation_key.empty()) {
+                try {
+                  envelope = store_.operation_finish(operation_key, envelope);
+                } catch (const std::exception &failure) {
+                  // A response without the receipt is not a durable terminal result.
+                  respond({{"error", error_data(failure)}}, nullptr);
+                  return;
+                }
+              }
+              respond(envelope, intent);
+            },
+            intent.is_null() ? "" : intent.at("owner").get<std::string>());
       } catch (const std::exception &e) {
         auto error = error_data(e);
         Json envelope = {{"error", error}};
@@ -784,7 +790,8 @@ public:
       drain(id, rt);
     }
   }
-  void control(const std::string &action, const Json &d, Completion done) {
+  void control(const std::string &action, const Json &d, Completion done,
+               const std::string &owner = "") {
     if (action == "delivery") {
       const auto id = d.at("sessionId").get<std::string>();
       const auto session = store_.get(id);
@@ -1012,7 +1019,7 @@ public:
       return;
     }
     if (action == "projectManage") {
-      done(manage_projects(d), nullptr);
+      done(manage_projects(d, owner), nullptr);
       return;
     }
     if (action == "projects") {
@@ -2386,6 +2393,7 @@ public:
                           {"bufferedEvents", buffered_events_.size()},
                           {"historyBytes", history_usage.at("bytes")},
                           {"historyRecords", history_usage.at("records")},
+                          {"projects", projects_.usage()},
                           {"eventBatches", event_batches_},
                           {"batchedEvents", event_count_},
                           {"eventBatchMaxUs", event_batch_max_us_},

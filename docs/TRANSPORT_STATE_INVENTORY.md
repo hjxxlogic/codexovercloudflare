@@ -61,6 +61,9 @@ A 增加 transport2_flow_owner、transport2_command_keys 和 transport2_cancel�
 
 网页使用 Agent 发布的 activeTask / turnId 发停止命令。Web interrupt.target 现在是唯一必填格式；CW 入队、Worker 转发、A 记录接收之前均校验，已移除无目标中断与任意下一 turn 的延迟中断回退。CW / CC sender 的未发布取消与序号发布串行提交，已发布项不删除；诊断尾部 64 条 / 512 KiB。原生 CLI 已保存并附加中断目标，传输元数据在转交 TUI 前移除。TUI $/cancelRequest 已接入本地原子取消；已发布目标以 priority coc/cancel 提交，先到的标记阻止迟到启动。取消接收回执不伪造 turn/completed。审批现在绑定 runtime / version；CW 使用原事件证明，CLI 在输出确认前保存原证明、答复时附加，显式 HTTP / CLI 命令要求提供原证明。重复使用的 server request ID 以版本区分。R4 全局资源预留仍未完成，本段不表示完整架构已验收。
 
+
+项目执行端资源已加入独立固定预算：整个 Agent 的项目目录、按主体 / requestId 绑定的永久身份、短结果尾部、已移除项目 ID、原子替换副本和结果预留共用 16 MiB。永久身份 / 已移除 ID 各最多 1024，结果最多 16 项 / 4 MiB；保守计量同时预留原文件与一次原子替换，Linux 在下一次写入前清理并同步旧的未发布临时文件。目录创建前检查包含 available 字段的目录响应上限，先持久保存 started 与结果空间。结果尾部淘汰后返回 RESULT_UNAVAILABLE，原编号仍拒绝重开；执行中退出变为 RESULT_UNKNOWN。旧项目配置保留，旧业务 receipts 不导入新版 journal。其它运行时和管理资源仍需完整审计，不据此完成 R4。
+
 ## 资源与切换待办
 
 现有单流预算 normal 16 条 / 2 MiB、priority 4 条 / 512 KiB，发送缓冲 normal 96 条 / 1.5 MiB、priority 4 条 / 512 KiB，单帧 256 KiB。它们仍不是全局承诺预算，不能据此勾选 P0 / P2 完成。需在实现配置中确定并测试全局、会话、流、结果、取消标记及控制保留预算，事务预留的总占用必须满足设计 5.1 节公式。

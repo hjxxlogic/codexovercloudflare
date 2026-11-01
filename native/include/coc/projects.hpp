@@ -1,15 +1,20 @@
 #pragma once
 #include "login.hpp"
 namespace coc {
+// The caller holds the Agent state lock and serializes catalog mutations.
 class Projects {
   std::filesystem::path file_;
   Json state_;
-  Json execute(const Json &, const std::function<bool(const std::string &)> &);
+  bool failed_ = false;
+  void commit(Json);
+  Json execute(const Json &, const std::function<bool(const std::string &)> &, const std::string &);
 
 public:
   explicit Projects(const Json &config);
   Json list() const;
-  Json request(const Json &, const std::function<bool(const std::string &)> &busy);
+  Json usage() const;
+  Json request(const Json &, const std::function<bool(const std::string &)> &busy,
+               const std::string &owner = "local");
 };
 Json project_arguments(const Options &, bool remote = false);
 Json local_project_request(const Json &config, Json request);

@@ -12,6 +12,13 @@ constexpr int64_t priority_budget = 256 * 1024 * 1024;
 constexpr int64_t normal_session = 128 * 1024 * 1024;
 constexpr int64_t priority_session = 64 * 1024 * 1024;
 constexpr int64_t control_budget = 16 * 1024 * 1024;
+// Charge both the catalog and one atomic replacement, including metadata.
+constexpr int64_t project_budget = 16 * 1024 * 1024;
+constexpr int64_t project_records = 1024;
+constexpr int64_t project_result_reservation = 2 * (256 * 1024 + 16384);
+constexpr int64_t project_retired_ids = 1024;
+constexpr int64_t project_tail = 16;
+constexpr int64_t project_tail_bytes = 4 * 1024 * 1024;
 constexpr int64_t management_records = 256;
 constexpr int64_t management_record_bytes = 8192;
 constexpr int64_t local_command_reservation = 32 * 1024 * 1024;
