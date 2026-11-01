@@ -29,5 +29,13 @@
     "intervalHours": 1,
     "platform": ""
   },
-  "adminEmail": ""
+  "adminEmail": "",
+  "historyStorage": {
+    "maxBytes": 268435456,
+    "maxSessionBytes": 67108864,
+    "maxRecords": 250000,
+    "maxSessionRecords": 64000,
+    "maxSessions": 1024,
+    "minFreeDiskBytes": 536870912
+  }
 }

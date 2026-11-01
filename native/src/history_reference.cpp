@@ -24,7 +24,7 @@ Json history_reference_descriptor(const Json &value) {
         value.at(key) < -9007199254740991LL || value.at(key) > 9007199254740991LL)
       throw Error("INVALID_REQUEST", "Invalid history reference counter");
   if (value.at("revision") < 0 || value.at("length") < 0 ||
-      value.at("length") > credit::history_session)
+      value.at("length") > credit::history_reference_bytes)
     throw Error("INVALID_REQUEST", "Invalid history reference size or revision");
   return value;
 }
@@ -41,7 +41,7 @@ Json Store::history_reference(const std::string &id, int64_t seq) {
     const auto part = content(id, seq, offset, revision);
     const auto text = part.at("text").get<std::string>();
     bytes += static_cast<int64_t>(text.size());
-    if (bytes > credit::history_session)
+    if (bytes > credit::history_reference_bytes)
       throw Error("BACKPRESSURE", "History reference exceeds content budget");
     if (EVP_DigestUpdate(hash.get(), text.data(), text.size()) != 1)
       throw Error("STORAGE_ERROR", "Cannot hash history content");

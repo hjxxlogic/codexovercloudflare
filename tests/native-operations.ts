@@ -53,6 +53,7 @@ const settings = {
   token: 'original-operation-test-credential',
   dataDir: join(root, 'state'),
   autoUpdate: false,
+  historyStorage: { maxBytes: 4096, maxSessionBytes: 4096 },
   projects: [{ id: 'project', name: 'Project', path: root }],
   codexPath: process.execPath,
   codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
@@ -120,6 +121,36 @@ try {
     instance,
     frames.find((frame) => frame.type === 'capabilities').deliveryInstance,
   );
+  const refusedIntent = {
+    owner: 'e'.repeat(64),
+    requestId: randomUUID(),
+    instance,
+  };
+  const createArgs = { projectId: 'project', mode: 'web' };
+  const refused = await control('create', createArgs, refusedIntent);
+  assert.equal(refused.error.code, 'BACKPRESSURE');
+  assert.equal(
+    count(),
+    0,
+    'Admission rejects before allocating a session or starting Codex',
+  );
+  assert.equal((await control('probe', {})).data.deliveryInstance, instance);
+  assert.equal(child!.exitCode, null, 'Capacity admission does not stop Agent');
+  await stop();
+  settings.historyStorage = { maxBytes: 268435456, maxSessionBytes: 67108864 };
+  await start();
+  const repeatedRefusal = await control('create', createArgs, refusedIntent);
+  assert.deepEqual(
+    repeatedRefusal.error,
+    refused.error,
+    'Increasing quota never re-executes old intent',
+  );
+  assert.equal(count(), 0);
+  assert.equal(
+    (await control('create', createArgs, { ...refusedIntent, ack: true }))
+      .error,
+    undefined,
+  );
   for (const [action, args] of [
     ['create', { projectId: 'project', mode: 'web' }],
     ['stop', { sessionId: 'host~missing' }],
@@ -164,7 +195,7 @@ try {
   assert.equal(
     database.prepare('SELECT COUNT(*) AS n FROM transport2_operations').get()!
       .n,
-    0,
+    1, // Only the explicitly identified capacity refusal above was persisted.
   );
   assert.equal(
     database.prepare('SELECT COUNT(*) AS n FROM transport2_uploads').get()!.n,

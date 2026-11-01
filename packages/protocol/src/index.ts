@@ -117,10 +117,57 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
   }),
   z.object({ operation: z.literal('remove'), ...projectChange, id: idSchema }),
 ]);
+export const historyStorageSchema = z
+  .object({
+    maxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(268435456),
+    maxSessionBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(67108864),
+    maxRecords: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(250000),
+    maxSessionRecords: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(64000),
+    maxSessions: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(1024),
+    minFreeDiskBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(536870912),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.maxSessionBytes <= value.maxBytes &&
+      value.maxSessionRecords <= value.maxRecords,
+    'Session history limits exceed global limits',
+  );
 export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),
   hostId: idSchema,
   token: z.string().min(20),
+  historyStorage: historyStorageSchema.optional(),
   wakeUrl: wakeUrlSchema.optional(),
   accessEmails: accessEmailsSchema.optional(),
   adminEmail: z.union([z.literal(''), accessEmailSchema]).optional(),

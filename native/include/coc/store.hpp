@@ -19,13 +19,14 @@ public:
   };
 
 private:
+  Json history_policy_;
   Lock lock_;
   sqlite3 *db_ = nullptr;
   std::string delivery_instance_;
   std::string cache_namespace_;
   void cache_forget(const std::string &physical_key);
   void cache_uncharge(const std::string &physical_key);
-  void history_budget_init();
+  void history_budget_init(bool authoritative);
   std::string operation_key(const Json &intent);
   void local_operation_save(const std::string &request, const Json &record);
   std::map<std::string, sqlite3_stmt *> statements_;
@@ -42,7 +43,8 @@ private:
 
 public:
   explicit Store(const std::string &dir, bool authoritative = true,
-                 const std::string &cache_namespace = "");
+                 const std::string &cache_namespace = "",
+                 const Json &history_policy = Json::object());
   ~Store();
   Store(const Store &) = delete;
   Store &operator=(const Store &) = delete;
@@ -58,6 +60,7 @@ public:
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
   Json history_budget();
+  void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);
   Json operation_begin(const Json &intent, const std::string &action, const Json &data);
   void operation_session(const std::string &key, const Json &session);
   Json operation_finish(const std::string &key, Json envelope);

@@ -290,6 +290,23 @@ std::string display_name(const Json &value) {
     throw Error("CONFIG_ERROR", "displayName requires 1-100 characters without control characters");
   return name;
 }
+Json history_storage_config(Json value) {
+  Json defaults = {{"maxBytes", 268435456}, {"maxSessionBytes", 67108864},
+                   {"maxRecords", 250000},  {"maxSessionRecords", 64000},
+                   {"maxSessions", 1024},   {"minFreeDiskBytes", 536870912}};
+  if (!value.is_object())
+    throw Error("CONFIG_ERROR", "historyStorage must be an object");
+  for (auto it = value.begin(); it != value.end(); ++it) {
+    if (!defaults.contains(it.key()) || !it.value().is_number_integer() || it.value() < 1 ||
+        it.value() > 9007199254740991LL)
+      throw Error("CONFIG_ERROR", "Invalid historyStorage field: " + it.key());
+    defaults[it.key()] = it.value();
+  }
+  if (defaults["maxSessionBytes"] > defaults["maxBytes"] ||
+      defaults["maxSessionRecords"] > defaults["maxRecords"])
+    throw Error("CONFIG_ERROR", "Session history limits exceed global limits");
+  return defaults;
+}
 Json agent_config(Json c) {
   bool persisted_projects = false;
   if (c.contains("dataDir") && c["dataDir"].is_string()) {
@@ -328,6 +345,7 @@ Json agent_config(Json c) {
                            {"allowApprovals", external.value("allowApprovals", false)},
                            {"approvalEndpoint", external.value("approvalEndpoint", "")},
                            {"approvalTokenFile", external.value("approvalTokenFile", "")}};
+  c["historyStorage"] = history_storage_config(c.value("historyStorage", Json::object()));
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
   if (!c.value("codexUseProxy", Json(false)).is_boolean())

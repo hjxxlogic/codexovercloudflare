@@ -99,10 +99,10 @@ public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
       : relay_io_(io), relay_work_(asio::make_work_guard(io)), config_(std::move(c)),
         config_file_(std::move(config_file)), remote_config_(config_file_, true),
-        remote_restart_timer_(io_), updater_(updater), store_(config_["dataDir"]),
-        projects_(config_), file_store_(config_["dataDir"], false), files_(file_store_),
-        retry_(io_), maintenance_(io_), event_timer_(io_), history_retry_(io_),
-        signals_(io_, SIGINT, SIGTERM) {}
+        remote_restart_timer_(io_), updater_(updater),
+        store_(config_["dataDir"], true, "", config_.at("historyStorage")), projects_(config_),
+        file_store_(config_["dataDir"], false), files_(file_store_), retry_(io_), maintenance_(io_),
+        event_timer_(io_), history_retry_(io_), signals_(io_, SIGINT, SIGTERM) {}
   bool remote_restart() const { return remote_restart_; }
   bool update_restart() const { return update_restart_; }
   ~Agent() {
@@ -1275,6 +1275,7 @@ public:
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
+    store_.history_require_capacity(id, 64 * 1024, 16);
     auto rt = std::make_shared<Runtime>();
     bool session_saved = false;
     try {

@@ -125,8 +125,10 @@ void Store::clear_statements() {
   statements_.clear();
 }
 void Store::run(const std::string &s, const Json &a) { query(s, a); }
-Store::Store(const std::string &dir, bool authoritative, const std::string &cache_namespace)
-    : lock_(dir, authoritative), cache_namespace_(cache_namespace) {
+Store::Store(const std::string &dir, bool authoritative, const std::string &cache_namespace,
+             const Json &history_policy)
+    : history_policy_(history_storage_config(history_policy)), lock_(dir, authoritative),
+      cache_namespace_(cache_namespace) {
   if (cache_namespace_.size() > 128)
     throw Error("INVALID_REQUEST", "Invalid local cache namespace");
   std::filesystem::create_directories(std::filesystem::u8path(dir));
@@ -337,7 +339,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     }
     run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
-    history_budget_init();
+    history_budget_init(authoritative);
     run("COMMIT");
     // Restart terminal records enter the same durable completion log as live results.
     for (const auto &record :

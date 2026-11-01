@@ -47,6 +47,78 @@ struct Database {
     sql("DROP TABLE transport2_history_meta");
   }
 };
+void configurable_policy() {
+  for (const auto &fixture :
+       read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/history-policy-fixtures.json")) {
+    bool valid = true;
+    try {
+      history_storage_config(fixture.at("input"));
+    } catch (const Error &error) {
+      check(error.code == "CONFIG_ERROR", "Policy error category");
+      valid = false;
+    }
+    check(valid == fixture.at("valid").get<bool>(), fixture.at("name").get<std::string>().c_str());
+  }
+  Temp temp;
+  Json policy = {{"maxBytes", 32768},
+                 {"maxSessionBytes", 16384},
+                 {"maxRecords", 20},
+                 {"maxSessionRecords", 10}};
+  Json before;
+  {
+    Store journal(temp.path, true, "", policy);
+    journal.save({{"id", "one"}, {"state", "closed"}});
+    journal.event("one", "record", "small");
+    before = journal.history_budget();
+    Store auxiliary(temp.path, false);
+    check(auxiliary.history_budget() == before, "Auxiliary store preserves configured policy");
+    backpressure([&] { journal.event("one", "record", std::string(20000, 'x')); });
+  }
+  {
+    Database fixture(temp.path);
+    fixture.sql("CREATE TRIGGER history_policy_fault BEFORE INSERT ON transport2_history_policy "
+                "BEGIN SELECT RAISE(ABORT,'injected policy failure'); END");
+  }
+  bool rejected = false;
+  try {
+    Store failed(temp.path, true, "", {{"maxBytes", 131072}, {"maxSessionBytes", 65536}});
+  } catch (const Error &) {
+    rejected = true;
+  }
+  check(rejected, "Injected policy migration failure is reported");
+  {
+    Database fixture(temp.path);
+    fixture.sql("DROP TRIGGER history_policy_fault");
+  }
+  {
+    Store unchanged(temp.path, false);
+    check(unchanged.history_budget() == before,
+          "Failed policy transaction preserves quota and ledger");
+  }
+  policy["maxBytes"] = 262144;
+  policy["maxSessionBytes"] = 131072;
+  {
+    Store raised(temp.path, true, "", policy);
+    raised.event("one", "record", std::string(20000, 'x'));
+    check(raised.history_budget()["global"]["bytes"] > before["global"]["bytes"],
+          "Changed JSON replaces existing database trigger quota");
+    before = raised.history_budget();
+  }
+  policy["maxBytes"] = 4096;
+  policy["maxSessionBytes"] = 4096;
+  {
+    Store lowered(temp.path, true, "", policy);
+    check(lowered.history_budget()["global"] == before["global"] &&
+              lowered.history("one")["events"].size() == 2,
+          "Lower quota preserves existing authority and reads");
+    bool storage_failure = false;
+    lowered.on_failure([&] { storage_failure = true; });
+    backpressure([&] { lowered.history_require_capacity("one", 4096, 2); });
+    check(!storage_failure, "Pre-execution capacity rejection does not stop the Agent");
+    backpressure([&] { lowered.event("one", "record", "extra"); });
+    check(lowered.history_budget()["global"] == before["global"], "Rejected growth is atomic");
+  }
+}
 void accounting() {
   Temp temp;
   Json saved;
@@ -185,6 +257,7 @@ void oversized_legacy() {
 } // namespace
 int main() {
   try {
+    configurable_policy();
     accounting();
     capacity();
     namespaces();

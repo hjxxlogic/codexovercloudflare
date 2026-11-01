@@ -29,7 +29,9 @@ inline Json doctor(const Json &config, bool agent) {
   if (agent) {
     check("configuration", [&] {
       auto validated = agent_config(config);
-      return Json{{"projects", validated["projects"].size()}, {"sandbox", validated["sandbox"]}};
+      return Json{{"projects", validated["projects"].size()},
+                  {"sandbox", validated["sandbox"]},
+                  {"historyStorage", validated["historyStorage"]}};
     });
     check("project_access", [&] {
       for (auto &project : config.at("projects"))
@@ -71,7 +73,33 @@ inline Json doctor(const Json &config, bool agent) {
       if (sqlite3_step(statement) != SQLITE_ROW ||
           std::string(reinterpret_cast<const char *>(sqlite3_column_text(statement, 0))) != "ok")
         throw Error("STORAGE_ERROR", "Journal integrity check failed");
-      return Json("ok");
+      sqlite3_stmt *budget_query = nullptr;
+      // Old databases need not contain a history ledger; diagnostics never migrate them.
+      if (sqlite3_prepare_v2(
+              raw,
+              "SELECT COALESCE(SUM(CASE WHEN scope='@global' THEN bytes ELSE 0 END),0),"
+              "COALESCE(SUM(CASE WHEN scope='@global' THEN records ELSE 0 END),0),"
+              "COALESCE(MAX(CASE WHEN scope!='@global' THEN bytes ELSE 0 END),0),"
+              "COALESCE(MAX(CASE WHEN scope!='@global' THEN records ELSE 0 END),0),"
+              "COUNT(CASE WHEN scope!='@global' THEN 1 END) FROM transport2_history_budget",
+              -1, &budget_query, nullptr) != SQLITE_OK)
+        return Json("ok; history ledger unavailable");
+      std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> budget(budget_query,
+                                                                        sqlite3_finalize);
+      if (sqlite3_step(budget.get()) != SQLITE_ROW)
+        throw Error("STORAGE_ERROR", "Cannot inspect history capacity");
+      const auto policy = history_storage_config(config.value("historyStorage", Json::object()));
+      const char *limits[] = {"maxBytes", "maxRecords", "maxSessionBytes", "maxSessionRecords",
+                              "maxSessions"};
+      Json exceeded = Json::array();
+      for (int i = 0; i < 5; ++i)
+        if (sqlite3_column_int64(budget.get(), i) > policy.at(limits[i]).get<int64_t>())
+          exceeded.push_back(limits[i]);
+      return Json{{"integrity", "ok"},
+                  {"historyBytes", sqlite3_column_int64(budget.get(), 0)},
+                  {"historyRecords", sqlite3_column_int64(budget.get(), 1)},
+                  {"historyOverLimit", exceeded},
+                  {"historyGrowthRestricted", !exceeded.empty()}};
     });
   }
   return result;

@@ -15,7 +15,21 @@ std::string columns(std::string expression, const std::string &alias) {
   return expression;
 }
 } // namespace
-void Store::history_budget_init() {
+void Store::history_budget_init(bool authoritative) {
+  run("CREATE TABLE IF NOT EXISTS transport2_history_policy(id INTEGER PRIMARY KEY CHECK(id=1),"
+      "value TEXT NOT NULL)");
+  if (authoritative)
+    run("INSERT OR REPLACE INTO transport2_history_policy VALUES(1,?)", {history_policy_.dump()});
+  else
+    run("INSERT OR IGNORE INTO transport2_history_policy VALUES(1,?)", {history_policy_.dump()});
+  // Auxiliary file stores must never replace the running Agent's policy with defaults.
+  history_policy_ = Json::parse(query("SELECT value FROM transport2_history_policy WHERE id=1")
+                                    .at(0)
+                                    .at("value")
+                                    .get<std::string>());
+  const auto limit = [](const std::string &key) {
+    return "(SELECT json_extract(value,'$." + key + "') FROM transport2_history_policy WHERE id=1)";
+  };
   run("CREATE TABLE IF NOT EXISTS transport2_history_budget(scope TEXT PRIMARY KEY,bytes "
       "INTEGER NOT NULL DEFAULT 0,records INTEGER NOT NULL DEFAULT 0)");
   run("CREATE TABLE IF NOT EXISTS transport2_history_entries(key TEXT PRIMARY KEY,session TEXT "
@@ -87,29 +101,61 @@ void Store::history_budget_init() {
   }
   // Install limits after importing existing authoritative data: a large old
   // history remains readable and can shrink, but cannot acquire more capacity.
+  run("DROP TRIGGER IF EXISTS transport2_history_capacity");
+  run("DROP TRIGGER IF EXISTS transport2_history_scopes");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_capacity BEFORE UPDATE ON "
       "transport2_history_budget WHEN NEW.bytes>OLD.bytes OR NEW.records>OLD.records BEGIN "
       "SELECT CASE WHEN NEW.bytes>CASE WHEN NEW.scope='@global' THEN " +
-      std::to_string(credit::history_budget) + " ELSE " + std::to_string(credit::history_session) +
-      " END OR NEW.records>CASE WHEN NEW.scope='@global' THEN " +
-      std::to_string(credit::history_records) + " ELSE " +
-      std::to_string(credit::history_session_records) +
-      " END THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
+      limit("maxBytes") + " ELSE " + limit("maxSessionBytes") +
+      " END OR NEW.records>CASE WHEN NEW.scope='@global' THEN " + limit("maxRecords") + " ELSE " +
+      limit("maxSessionRecords") + " END THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_scopes BEFORE INSERT ON "
       "transport2_history_budget WHEN NEW.scope!='@global' AND NOT EXISTS "
       "(SELECT 1 FROM transport2_history_budget WHERE scope=NEW.scope) BEGIN "
       "SELECT CASE WHEN (SELECT COUNT(*) FROM transport2_history_budget WHERE "
       "scope!='@global')>=" +
-      std::to_string(credit::history_scopes) +
-      " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
+      limit("maxSessions") + " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
   run("INSERT OR IGNORE INTO transport2_history_meta VALUES(1)");
 }
+void Store::history_require_capacity(const std::string &session, int64_t bytes, int64_t records) {
+  if (bytes < 0 || records < 0)
+    throw Error("INVALID_REQUEST", "Invalid history capacity request");
+  const auto usage = history_budget();
+  const auto fits = [&](const Json &used, const char *byte_limit, const char *record_limit) {
+    const auto available_bytes =
+        history_policy_.at(byte_limit).get<int64_t>() - used.at("bytes").get<int64_t>();
+    const auto available_records =
+        history_policy_.at(record_limit).get<int64_t>() - used.at("records").get<int64_t>();
+    return bytes <= available_bytes && records <= available_records;
+  };
+  if (!fits(usage.at("global"), "maxBytes", "maxRecords"))
+    throw Error("BACKPRESSURE", "History capacity unavailable before execution");
+  auto local =
+      query("SELECT bytes,records FROM transport2_history_budget WHERE scope=?", {session});
+  if (local.empty() &&
+      usage.at("sessions").size() >= history_policy_.at("maxSessions").get<size_t>())
+    throw Error("BACKPRESSURE", "History session capacity unavailable before execution");
+  if (!fits(local.empty() ? Json{{"bytes", 0}, {"records", 0}} : local.at(0), "maxSessionBytes",
+            "maxSessionRecords"))
+    throw Error("BACKPRESSURE", "Session history capacity unavailable before execution");
+  std::error_code error;
+  const auto space =
+      std::filesystem::space(std::filesystem::u8path(sqlite3_db_filename(db_, "main")), error);
+  if (error)
+    throw Error("STORAGE_ERROR", "Cannot inspect history filesystem capacity");
+  if (space.available <
+          static_cast<uint64_t>(history_policy_.at("minFreeDiskBytes").get<int64_t>()) ||
+      static_cast<uint64_t>(bytes) >
+          space.available -
+              static_cast<uint64_t>(history_policy_.at("minFreeDiskBytes").get<int64_t>()))
+    throw Error("BACKPRESSURE", "History filesystem reserve unavailable before execution");
+}
 Json Store::history_budget() {
-  return {{"globalLimit", credit::history_budget},
-          {"sessionLimit", credit::history_session},
-          {"recordLimit", credit::history_records},
-          {"sessionRecordLimit", credit::history_session_records},
-          {"scopeLimit", credit::history_scopes},
+  return {{"globalLimit", history_policy_.at("maxBytes")},
+          {"sessionLimit", history_policy_.at("maxSessionBytes")},
+          {"recordLimit", history_policy_.at("maxRecords")},
+          {"sessionRecordLimit", history_policy_.at("maxSessionRecords")},
+          {"scopeLimit", history_policy_.at("maxSessions")},
           {"global", query("SELECT bytes,records FROM transport2_history_budget WHERE "
                            "scope='@global'")
                          .at(0)},

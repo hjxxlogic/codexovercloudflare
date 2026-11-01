@@ -1,0 +1,92 @@
+[
+  {
+    "name": "defaults",
+    "input": {},
+    "valid": true
+  },
+  {
+    "name": "small domain",
+    "input": {
+      "maxBytes": 65536,
+      "maxSessionBytes": 32768,
+      "maxRecords": 10,
+      "maxSessionRecords": 8,
+      "maxSessions": 2,
+      "minFreeDiskBytes": 1
+    },
+    "valid": true
+  },
+  {
+    "name": "null",
+    "input": null,
+    "valid": false
+  },
+  {
+    "name": "array",
+    "input": [],
+    "valid": false
+  },
+  {
+    "name": "unknown",
+    "input": {
+      "maximum": 1
+    },
+    "valid": false
+  },
+  {
+    "name": "zero",
+    "input": {
+      "maxBytes": 0
+    },
+    "valid": false
+  },
+  {
+    "name": "negative",
+    "input": {
+      "maxRecords": -1
+    },
+    "valid": false
+  },
+  {
+    "name": "fraction",
+    "input": {
+      "maxRecords": 1.5
+    },
+    "valid": false
+  },
+  {
+    "name": "unsafe",
+    "input": {
+      "maxBytes": 9007199254740992
+    },
+    "valid": false
+  },
+  {
+    "name": "session bytes",
+    "input": {
+      "maxBytes": 1024
+    },
+    "valid": false
+  },
+  {
+    "name": "session records",
+    "input": {
+      "maxRecords": 2
+    },
+    "valid": false
+  },
+  {
+    "name": "boolean",
+    "input": {
+      "maxSessions": true
+    },
+    "valid": false
+  },
+  {
+    "name": "future cache",
+    "input": {
+      "cacheMaxBytes": 0
+    },
+    "valid": false
+  }
+]

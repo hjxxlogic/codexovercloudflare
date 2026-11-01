@@ -72,6 +72,8 @@ constexpr int64_t cache_records = 100000;
 constexpr int64_t cache_scope_records = 10000;
 constexpr int64_t history_budget = 256 * 1024 * 1024;
 constexpr int64_t history_session = 64 * 1024 * 1024;
+// Immutable descriptor limit is a wire contract, independent of configured storage quotas.
+constexpr int64_t history_reference_bytes = 64 * 1024 * 1024;
 constexpr int64_t history_records = 250000;
 constexpr int64_t history_session_records = 64000;
 constexpr int64_t history_scopes = 1024;
