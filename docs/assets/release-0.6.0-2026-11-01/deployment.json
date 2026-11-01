@@ -1,0 +1,221 @@
+{
+  "commit": "4b164c62fe93581903d5ead53d367c4675a74360",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820",
+  "jobs": [
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173297"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173487"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173497"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173535"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173548"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124872173573"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820/job/124878279964"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13087067863,
+      "digest": "sha256:deb80879546d2ced39a96e9dfaec77fce70cbfcaa147be6c48be8d2d52e2f7c3"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13087766463,
+      "digest": "sha256:1c9a873d84550a2b432757330ab1616ebae2d17d131357bffe2b37cd54789905"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 13086976394,
+      "digest": "sha256:5a5c113bb8c4c0dd375ce4a578e21db0e0dee66ac464f9792b7bde045665d78d"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 13086986346,
+      "digest": "sha256:903413e1d5cee1f347a8cf480f1ffcb3a052deaf3e959f7af30844847eaabd43"
+    },
+    {
+      "name": "linux-musl",
+      "id": 13086920937,
+      "digest": "sha256:73bdab9c2bdf2d41406e77e84a68fbf42e34d3d6c293dc67158c84e4c956b296"
+    },
+    {
+      "name": "windows-x64",
+      "id": 13087421353,
+      "digest": "sha256:74563832e3c6f93e51a0c95a34e48601f4333751e89d839d006621f13f6c6e58"
+    }
+  ],
+  "sourceDigest": "aba6d32edc08bba9c41e5fc6064a3128672294692f10a0be95fdf80eb6a9d761",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.5.20",
+    "commit": "78418e6eccbe69bbb36dc05ffc7077092660f93c",
+    "sourceDigest": "f70e747a366425ec04f49fc4484e7008610c59e47e012ae4449a05e735217b8c",
+    "protocol": 1,
+    "files": [
+      "coc-0.5.20-linux-x86_64-debian12.tar.gz",
+      "coc-0.5.20-linux-x86_64-musl.tar.gz",
+      "coc-0.5.20-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.5.20-windows-x64.zip",
+      "codex-over-cloudflare-0.5.20-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": {
+    "version": "0.6.0",
+    "commit": "4b164c62fe93581903d5ead53d367c4675a74360",
+    "sourceDigest": "aba6d32edc08bba9c41e5fc6064a3128672294692f10a0be95fdf80eb6a9d761",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.0-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.0-linux-x86_64-musl.tar.gz",
+      "coc-0.6.0-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.0-windows-x64.zip",
+      "codex-over-cloudflare-0.6.0-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.0",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "sourceIdentity": {
+      "version": "0.6.0",
+      "commit": "4b164c62fe93581903d5ead53d367c4675a74360",
+      "target": "linux-x86_64",
+      "sourceDigest": "aba6d32edc08bba9c41e5fc6064a3128672294692f10a0be95fdf80eb6a9d761",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals",
+        "delivery-v2",
+        "configuration-v1"
+      ]
+    },
+    "authenticationWithoutCoCCredentials": [
+      {
+        "path": "/api/v1/auth/email",
+        "status": 403
+      },
+      {
+        "path": "/api/v1/admin/hosts",
+        "status": 401
+      },
+      {
+        "path": "/api/v1/hosts",
+        "status": 403
+      },
+      {
+        "path": "/api/v1/admin/hosts/00000000-0000-4000-8000-000000000060/configuration",
+        "status": 401
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000060~verification/snapshot",
+        "status": 401
+      },
+      {
+        "path": "/api/v1/sessions/00000000-0000-4000-8000-000000000060~verification/delivery",
+        "status": 401
+      },
+      {
+        "path": "/guest/api/v1/auth/email",
+        "status": 200
+      },
+      {
+        "path": "/guest/api/v1/hosts",
+        "status": 401
+      },
+      {
+        "path": "/guest/api/v1/admin/hosts",
+        "status": 401
+      }
+    ],
+    "preservedNativeChecksums": {
+      "coc-0.5.20-linux-x86_64-debian12.tar.gz": "246bdff6953068ff7d5be86e8717cc0f70e16d5a8038813e815e908606cf5115",
+      "coc-0.5.20-linux-x86_64-musl.tar.gz": "44e7861c44c8a6141400eb7b917aedd53261c8352f1adf184bf6be57277d5d3a",
+      "coc-0.5.20-linux-x86_64-ubuntu20.04.tar.gz": "dbc48f15c354f66d40bab601c46941b73ca44c196852bdf6d5dac74943b60f0b",
+      "coc-0.5.20-windows-x64.zip": "2a3a13a5c4c94dba76ed7138298bc4ac729e80796d56696a7f62b05c7a77178b",
+      "codex-over-cloudflare-0.5.20-source.tar.gz": "8e6d06f2da0dd2c9e3abc4d6b0b6c1a072d521d1c8f8587926fa18fd76b092ab"
+    }
+  },
+  "nativeChecksums": {
+    "coc-0.6.0-linux-x86_64-debian12.tar.gz": "b4d0d46cfee79c54a3aa0bd4e72797b7b9a36607f70f1c1105c59d6e37f81426",
+    "coc-0.6.0-linux-x86_64-musl.tar.gz": "68c7a6fcc36cc25722ba7b502786c6278fb90c02c923e4aa2a09bc945b8de637",
+    "coc-0.6.0-linux-x86_64-ubuntu20.04.tar.gz": "43f52ca09ad7ffb8f2f7a6c5b396002ef8460f8de08b0b1c9bd85b8d9d33bd41",
+    "coc-0.6.0-windows-x64.zip": "4c6aa78bb62c7d993b44acab5c64c6995a013bddad0fc55063d43340a94d8dae",
+    "codex-over-cloudflare-0.6.0-source.tar.gz": "4ab3451773b2b31474c01eb43f49ee6f968a46468b78d65ce7ec8640dab08d97"
+  },
+  "deployment": {
+    "id": "31237871-11ca-47b6-9943-5b6bb5ab8bc1",
+    "created_on": "2026-11-01T14:39:49.248954Z",
+    "versions": [
+      {
+        "version_id": "24ddbf85-1264-4489-b0c0-fed5590f0ce5",
+        "percentage": 100
+      }
+    ]
+  },
+  "prepublishBackup": {
+    "createdAt": "2026-11-01T14:33:04.660645+00:00",
+    "sha256": "ffe03e1ed9db9d2cb0c00bfd38ea4aad6d65ffa91581f95ea5759135513602ea",
+    "bytes": 115586,
+    "integrity": "ok",
+    "scope": "D1 directory and archived host state only; active DO state is not included"
+  },
+  "localVerification": {
+    "groupsPassed": 27,
+    "cppTests": 8,
+    "vitestTests": 414,
+    "ordinaryE2E": 42,
+    "d1E2E": 42,
+    "completedBeforePush": true
+  },
+  "nativeInstallation": "Not performed; existing Agent/CLI require manual upgrade after idle and backup; no update notification sent",
+  "limitations": [
+    "No production administrator browser session or real model task exercised; authenticated business flows covered by isolated CI.",
+    "D1 export excludes active Durable Object state and is not a complete production rollback checkpoint.",
+    "No live native migration, task drain, backup or restart performed; onsite cutover remains pending.",
+    "Long-term production stability and real platform sleep/upgrade recovery not measured.",
+    "Published manual is the immutable CI source snapshot; post-release status is recorded in repository documentation."
+  ]
+}

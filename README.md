@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前源码为 0.6.0 本地候选，尚未发布部署；阅读入口见 [文档索引](docs/README.md)，已记录的线上及下载版本见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。0.6.0 已通过完整 CI 并发布云端及四平台下载包，现有 Agent / CLI 需手动升级；阅读入口见 [文档索引](docs/README.md)，已记录的线上及下载版本见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
 
 ## 本机快速开始
 

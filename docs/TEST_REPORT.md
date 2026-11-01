@@ -2,9 +2,9 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
-当前源码为 0.6.0 本地候选，以下为协议简化后的最新本机验收。测试通过不代表已发布，也不代表远程 CI 或其它平台通过。
+0.6.0 源码 `4b164c6` 已通过下述本机回归及全部必需 CI，云端与四平台下载包已发布。现场原生服务未自动更新；准确制品与线上验证见 [发布记录](DEPLOYMENT_STATUS.md)。
 
-## 发布门禁复验（进行中）
+## 发布门禁复验（已通过）
 
 用户已授权在 GitHub Actions 全部通过后发布。首次 [Actions 41308571146](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41308571146) 验证 `5ed84e6`，最终失败：Ubuntu 20.04 编译、sanitizer 两项超时、TLS/Access 夹具和 Windows 临时目录清理。不能使用其部分成功制品发布。
 
@@ -16,7 +16,7 @@
 
 27 组本地发布回归全部通过：lint、C++ 格式、类型、协议生成、完整构建、8 项 CTest/414 项 Vitest、TLS/Access、计费、项目、传输、配置、登录、备份、发行来源、Agent/云端发布脚本、Access 工具、CI 摘要、更新器、普通 E2E、UI、缓存、网页计费、网页 Access/游客、项目 E2E、D1 迁移和 D1 E2E。两种后端 E2E 各 42 项通过。结果记录在 `/tmp/coc-release-local2/results.json`，分项日志在同目录；曾失败的夹具修复后从对应检查点重新验证及继续，未缩短真实重连等待或跳过后续检查。
 
-上述仍是本地复验结果；修复提交须重新通过整套 Actions，之后才发布。
+最终 [Actions 41314704820](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820) 验证 `4b164c62fe93581903d5ead53d367c4675a74360`：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功；分支 publish-release 正常跳过。仅该运行的制品用于 0.6.0 发布。线上健康、网页资源及五份新包摘要通过，认证边界与旧归档补验见发布证据。以下“本机，未部署”段落保留此前阶段的验证边界，不代表当前发行状态。
 
 ## 阅读范围
 
