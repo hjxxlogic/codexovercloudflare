@@ -244,7 +244,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE TABLE IF NOT EXISTS transport2_command_digests(stream TEXT NOT NULL,seq INTEGER "
         "NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(stream,seq))");
     run("CREATE TABLE IF NOT EXISTS transport2_namespaces(scope TEXT PRIMARY KEY,allocated INTEGER "
-        "NOT NULL DEFAULT 0,closed_through INTEGER NOT NULL DEFAULT 0)");
+        "NOT NULL DEFAULT 0)");
     run("CREATE TABLE IF NOT EXISTS transport2_credit(stream TEXT PRIMARY KEY,session TEXT NOT "
         "NULL,lane TEXT NOT NULL,scope TEXT NOT NULL,serial INTEGER NOT NULL,generation TEXT NOT "
         "NULL,reserved INTEGER NOT NULL,credit INTEGER NOT NULL DEFAULT 0,byte_credit INTEGER NOT "
@@ -300,6 +300,19 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
           "FROM transport2_command_keys");
       run("DROP TABLE transport2_command_keys");
       run("ALTER TABLE transport2_command_keys_compact RENAME TO transport2_command_keys");
+    }
+    if (has_column("transport2_namespaces", "closed_through")) {
+      if (!query("SELECT 1 FROM transport2_namespaces n WHERE closed_through<>COALESCE("
+                 "(SELECT MIN(serial)-1 FROM transport2_credit c WHERE c.scope=n.scope "
+                 "AND c.closed=0),n.allocated) LIMIT 1")
+               .empty())
+        throw Error("STORAGE_CORRUPT", "Namespace checkpoint disagrees with credit tombstones");
+      run("CREATE TABLE transport2_namespaces_compact(scope TEXT PRIMARY KEY,allocated INTEGER "
+          "NOT NULL DEFAULT 0)");
+      run("INSERT INTO transport2_namespaces_compact SELECT scope,allocated FROM "
+          "transport2_namespaces");
+      run("DROP TABLE transport2_namespaces");
+      run("ALTER TABLE transport2_namespaces_compact RENAME TO transport2_namespaces");
     }
     run("CREATE TABLE IF NOT EXISTS transport2_result_heads(stream TEXT PRIMARY KEY,"
         "sent INTEGER NOT NULL DEFAULT 0,sent_bytes INTEGER NOT NULL DEFAULT 0,"

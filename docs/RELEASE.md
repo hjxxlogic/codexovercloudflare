@@ -253,4 +253,4 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 
 ### 协议简化候选的存储切换
 
-本候选移除 transport2_control.ready 与 transport2_command_keys.digest。升级前停止共用数据目录的旧进程并保存完整一致备份；新程序在同一 SQLite 启动事务内校验副本后转换。转换失败回滚，禁止自动重建冲突身份。转换后不能只换回旧二进制；回退须使用匹配整套组件与一致备份并核对切换后的副作用。本次仅隔离库测试，未实际发布部署。
+本候选移除 transport2_control.ready 、transport2_command_keys.digest 与 transport2_namespaces.closed_through。升级前停止共用数据目录的旧进程并保存完整一致备份；新程序在同一 SQLite 启动事务内校验副本后转换。转换失败回滚，禁止自动重建冲突身份。转换后不能只换回旧二进制；回退须使用匹配整套组件与一致备份并核对切换后的副作用。本次仅隔离库测试，未实际发布部署。

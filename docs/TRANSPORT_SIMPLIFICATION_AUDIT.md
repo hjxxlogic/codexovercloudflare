@@ -76,3 +76,11 @@ C++/TS 共用 recovery-delay-fixtures.json，涵盖快速阈值、10 秒快重�
 网页历史订阅也接入 recoveryDelay，保持首次/ACK 的固定请求身份、跨标签页检查点事务与停止条件。HTTP 原请求意图仍按原 canonical 键顺序序列化，但 SHA-256/十六进制编码复用 deliveryDigest。原生配置文件原文 revision 与操作 fingerprint 复用 delivery_digest，保持逐字节摘要；不将原文摘要替换为规范化对象摘要，不重新编码已发布命令。
 
 文件上传的二进制 SHA-256 与上述字符串摘要的数据类型不同，保留独立适配；连接准入和尽力通知的有限重连保留原策略，不强行套用有持久待办才无限慢速恢复的语义。没有创建新的框架或持久状态。
+
+## 第八批：删除派生关闭游标
+
+transport2_namespaces.closed_through 的唯一消费者是 delivery_budget 诊断；写者仅 delivery_close。每个分配在事务中增加 allocated 并保存唯一 scope/serial 的 credit，关闭只更新墓碑，所有信用身份受 flow_limit 限制且不会删除。因此同一 SQLite 查询快照内，最小未关闭 serial−1（无未关闭流时 allocated）在正常运行、正文回收及重启后均与原值等价。不从正文或内存计数推导，不改变信用右边界或重新开放旧身份。
+
+删除该持久列及每次关闭的更新语句，预算输出字段保持原样。旧库先比较原值与推导值，一致才在已有启动事务中重建；不一致抛 STORAGE_CORRUPT，连同控制/请求键的转换全部回滚。测试覆盖原关闭缺口、关闭最后一流、重启推导、冲突拒绝及三张表转换回滚。查询只扫描有界分配元数据，沿用 scope/serial 唯一索引，不新增缓存或持久统计。
+
+第八批验证：原生完整构建、8 项 CTest、27 文件/414 项 Vitest、真实 Agent delivery 故障回归及 C++ 格式检查通过。

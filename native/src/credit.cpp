@@ -299,7 +299,7 @@ void Store::delivery_close(const std::string &stream) {
   if (transaction)
     run("BEGIN IMMEDIATE");
   try {
-    const auto rows = query("SELECT scope FROM transport2_credit WHERE stream=?", {stream});
+    const auto rows = query("SELECT 1 FROM transport2_credit WHERE stream=?", {stream});
     if (rows.empty())
       throw Error("NOT_FOUND", "Unknown delivery allocation");
     // Fence first. No outstanding unused promise can be accepted after this commit.
@@ -314,11 +314,6 @@ void Store::delivery_close(const std::string &stream) {
                            "The original flow was explicitly retired before execution"));
     }
     run("DELETE FROM transport2_cancel WHERE stream=?", {stream});
-    const auto scope = rows.at(0).at("scope");
-    run("UPDATE transport2_namespaces SET closed_through=COALESCE("
-        "(SELECT MIN(serial)-1 FROM transport2_credit WHERE scope=? AND closed=0),allocated) "
-        "WHERE scope=?",
-        {scope, scope});
     delivery_release(stream);
     if (transaction)
       run("COMMIT");
@@ -376,8 +371,10 @@ Json Store::delivery_budget() {
     usage["unusedReserved"] = usage.at("reserved").get<int64_t>() - occupied;
     value[lane] = usage;
   }
-  value["namespaces"] = query("SELECT scope,allocated,closed_through AS closedThrough FROM "
-                              "transport2_namespaces ORDER BY scope");
+  value["namespaces"] =
+      query("SELECT scope,allocated,COALESCE((SELECT MIN(serial)-1 FROM "
+            "transport2_credit c WHERE c.scope=n.scope AND c.closed=0),"
+            "n.allocated) AS closedThrough FROM transport2_namespaces n ORDER BY scope");
   return value;
 }
 } // namespace coc

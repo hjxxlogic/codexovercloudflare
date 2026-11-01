@@ -220,3 +220,5 @@ Linux 私有配置、凭据及更新状态的原子替换在父目录锁内清�
 ## 简化后的持久布局（2026-11-01）
 
 transport2_control 保留 session/epoch/control_id/owner，ready 由这些权威列及固定 Agent 实例派生；transport2_command_keys 保留 stream/request_id/seq，摘要唯一存于 transport2_command_digests。同流旧主体快照、连续水位、信用承诺、关闭及去重拒绝身份不变。旧 delivery:2 布局在启动事务内校验一致后转换，冲突拒绝且回滚；不支持转换后直接降级旧程序。已删除不再需要的启动正文回填循环。详见简化审计第六批。
+
+transport2_namespaces 只保留 scope/allocated；closedThrough 诊断值从同一查询快照的未关闭 credit 最小 serial−1 推导，无未关闭流则为 allocated。credit 拒绝墓碑不清除，分配及关闭仍事务提交。旧关闭游标不一致拒绝转换并回滚全部表转换；详见简化审计第八批。

@@ -26,6 +26,19 @@ struct Fixture {
         "seq INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY "
         "KEY(stream,request_id),UNIQUE(stream,seq))");
     sql("INSERT INTO transport2_command_keys VALUES('stream','rpc:1',1,'digest')");
+    sql("CREATE TABLE transport2_namespaces(scope TEXT PRIMARY KEY,allocated INTEGER NOT NULL,"
+        "closed_through INTEGER NOT NULL)");
+    sql("INSERT INTO transport2_namespaces VALUES('scope',2,1)");
+    sql("CREATE TABLE transport2_credit(stream TEXT PRIMARY KEY,session TEXT NOT NULL,lane TEXT "
+        "NOT "
+        "NULL,scope TEXT NOT NULL,serial INTEGER NOT NULL,generation TEXT NOT NULL,reserved "
+        "INTEGER "
+        "NOT NULL,credit INTEGER NOT NULL DEFAULT 0,byte_credit INTEGER NOT NULL DEFAULT 0,"
+        "closed INTEGER NOT NULL DEFAULT 0,UNIQUE(scope,serial))");
+    sql("INSERT INTO transport2_credit "
+        "VALUES('closed','session','normal','scope',1,'first',0,0,0,1)");
+    sql("INSERT INTO transport2_credit "
+        "VALUES('open','session','normal','scope',2,'second',0,0,0,0)");
     sql("CREATE TABLE transport2_command_digests(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
         "digest TEXT NOT NULL,PRIMARY KEY(stream,seq))");
     sql(std::string("INSERT INTO transport2_command_digests VALUES('stream',1,'") +
@@ -52,7 +65,9 @@ struct Fixture {
                "SELECT COUNT(*) FROM pragma_table_info('transport2_control') WHERE name='ready'") ==
                1 &&
            count("SELECT COUNT(*) FROM pragma_table_info('transport2_command_keys') WHERE "
-                 "name='digest'") == 1;
+                 "name='digest'") == 1 &&
+           count("SELECT COUNT(*) FROM pragma_table_info('transport2_namespaces') WHERE "
+                 "name='closed_through'") == 1;
   }
 };
 } // namespace
@@ -64,6 +79,11 @@ int main() {
       {
         Store store(fixture.path, false);
         ready = store.control_state("session");
+        check(store.delivery_budget().at("namespaces").at(0).at("closedThrough") == 1,
+              "Namespace telemetry derives the original continuous closure checkpoint");
+        store.delivery_close("open");
+        check(store.delivery_budget().at("namespaces").at(0).at("closedThrough") == 2,
+              "Closing the final flow derives allocated without a checkpoint write");
         check(ready.at("controlEpoch") == 7 && ready.at("instance") == "original-instance",
               "Derived control confirmation preserves original fencing identity");
       }
@@ -74,7 +94,11 @@ int main() {
       check(fixture.count("SELECT COUNT(*) FROM transport2_command_keys WHERE stream='stream' AND "
                           "request_id='rpc:1' AND seq=1") == 1,
             "Original request refusal identity is preserved");
+      check(fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_namespaces')") == 2,
+            "Derived namespace checkpoint column is removed");
       Store reopened(fixture.path, false);
+      check(reopened.delivery_budget().at("namespaces").at(0).at("closedThrough") == 2,
+            "Namespace closure is reconstructed after restart");
       check(reopened.control_state("session") == ready, "Compaction is restart-idempotent");
     }
     for (const bool bad_control : {false, true}) {
@@ -88,6 +112,21 @@ int main() {
       check(rejected && fixture.old_columns(), "Conflict rolls back all schema/data changes");
       check(fixture.count("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%_compact'") == 0,
             "Failed compaction leaves no partial replacement tables");
+    }
+    {
+      Fixture fixture;
+      fixture.sql("UPDATE transport2_namespaces SET closed_through=2");
+      bool rejected = false;
+      try {
+        Store store(fixture.path, false);
+      } catch (const Error &error) {
+        rejected = error.code == "STORAGE_CORRUPT";
+      }
+      check(rejected && fixture.old_columns(), "Checkpoint conflict rolls back all compactions");
+      check(fixture.count("SELECT closed_through FROM transport2_namespaces") == 2,
+            "Conflicting checkpoint is preserved for diagnosis");
+      check(fixture.count("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%_compact'") == 0,
+            "Checkpoint conflict leaves no partial tables");
     }
     std::cout << "PASS: durable identity compaction, restart and transactional failure rollback\n";
     return 0;
