@@ -123,6 +123,20 @@ function internal(
   });
   if (req.headers.has('upgrade')) headers.set('upgrade', 'websocket');
   if (req.headers.get('x-coc-async') === '1') headers.set('x-coc-async', '1');
+  for (const name of [
+    'x-coc-delivery',
+    'idempotency-key',
+    'x-coc-operation-instance',
+    'x-coc-operation-ack',
+  ]) {
+    const value = req.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
+  if (
+    !req.headers.has('x-coc-delivery') &&
+    new URL(req.url).searchParams.get('delivery') === '2'
+  )
+    headers.set('x-coc-delivery', '2');
   if (ticket) headers.set('x-ticket', ticket);
   return new Request('https://internal' + path, {
     method: data === undefined ? 'GET' : 'POST',
@@ -428,13 +442,15 @@ export default {
       );
       if (receipt && ['GET', 'POST'].includes(req.method)) {
         const auth = await authenticate(req, env, receipt[1]);
-        const stored = await d1Receipt(
-          env,
-          receipt[1],
-          receipt[2],
-          auth,
-          req.method === 'POST',
-        );
+        const stored = receipt[2].startsWith('delivery_')
+          ? undefined
+          : await d1Receipt(
+              env,
+              receipt[1],
+              receipt[2],
+              auth,
+              req.method === 'POST',
+            );
         if (stored) return stored;
         return hostStub(env, receipt[1]).fetch(
           internal(
@@ -446,11 +462,25 @@ export default {
           ),
         );
       }
-      const probe = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/probe$/);
+      const adminIdentity = p.match(
+        /^\/api\/v1\/admin\/hosts\/([\w-]+)\/identity$/,
+      );
+      if (adminIdentity && req.method === 'GET') {
+        const auth = await authenticate(req, env, undefined, true);
+        await registryCall(env, 'host', { id: adminIdentity[1] });
+        return json({ identity: auth.hash });
+      }
+      const probe = p.match(/^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/probe$/);
       if (probe && req.method === 'POST') {
-        const auth = await authenticate(req, env, probe[1]);
-        return hostStub(env, probe[1]).fetch(
-          internal(req, '/control', auth, probe[1], {
+        const auth = await authenticate(
+          req,
+          env,
+          probe[1] ? undefined : probe[2],
+          !!probe[1],
+        );
+        if (probe[1]) await registryCall(env, 'host', { id: probe[2] });
+        return hostStub(env, probe[2]).fetch(
+          internal(req, '/control', auth, probe[2], {
             action: 'probe',
             data: {},
           }),
@@ -1050,6 +1080,8 @@ export default {
                 requestId: idSchema.parse(req.headers.get('idempotency-key')),
                 approvalId: z.string().min(1).max(200).parse(input.approvalId),
                 allow: z.boolean().parse(input.allow),
+                runtimeId: idSchema.parse(input.runtimeId),
+                approvalVersion: idSchema.parse(input.approvalVersion),
               }
             : {};
         return hostStub(env, hostId).fetch(
@@ -1101,14 +1133,7 @@ export default {
           }),
         );
       }
-      const progress = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/progress$/);
-      if (progress && req.method === 'GET') {
-        const hostId = idSchema.parse(progress[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        return hostStub(env, hostId).fetch(
-          internal(req, '/progress?sessionId=' + progress[1], auth, hostId),
-        );
-      }
+
       const delivery = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/delivery$/);
       if (delivery && ['GET', 'POST'].includes(req.method)) {
         const hostId = idSchema.parse(delivery[1].split('~')[0]);
@@ -1120,6 +1145,48 @@ export default {
                 controller: req.headers.get('x-coc-controller'),
                 stream: u.searchParams.get('stream'),
                 lane: u.searchParams.get('lane'),
+                ...(u.searchParams.has('contentSeq')
+                  ? {
+                      contentSeq: z.coerce
+                        .number()
+                        .int()
+                        .positive()
+                        .max(Number.MAX_SAFE_INTEGER)
+                        .parse(u.searchParams.get('contentSeq')),
+                      offset: z.coerce
+                        .number()
+                        .int()
+                        .min(0)
+                        .max(2 * 1024 * 1024)
+                        .parse(u.searchParams.get('offset')),
+                    }
+                  : {}),
+                ...(u.searchParams.has('instance')
+                  ? { instance: idSchema.parse(u.searchParams.get('instance')) }
+                  : {}),
+                ...(u.searchParams.has('resultReceived')
+                  ? {
+                      resultReceived: z.coerce
+                        .number()
+                        .int()
+                        .min(0)
+                        .max(Number.MAX_SAFE_INTEGER)
+                        .parse(u.searchParams.get('resultReceived')),
+                      resultBytes: z.coerce
+                        .number()
+                        .int()
+                        .min(0)
+                        .max(Number.MAX_SAFE_INTEGER)
+                        .parse(u.searchParams.get('resultBytes')),
+                    }
+                  : {}),
+                ...(u.searchParams.has('exchangeId')
+                  ? {
+                      exchangeId: idSchema.parse(
+                        u.searchParams.get('exchangeId'),
+                      ),
+                    }
+                  : {}),
                 ...(u.searchParams.has('seq')
                   ? {
                       seq: z.coerce
@@ -1189,7 +1256,11 @@ export default {
               : {
                   sessionId: session[1],
                   takeover: session[2] === 'takeover',
-                  delivery: options.delivery === 1 ? 1 : undefined,
+                  delivery: options.delivery === 2 ? 2 : undefined,
+                  claimId:
+                    options.claimId === undefined
+                      ? undefined
+                      : idSchema.parse(options.claimId),
                   ...(resume ? { resume } : {}),
                 },
           ),

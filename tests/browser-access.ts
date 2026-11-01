@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 // Browser flow checks with synthetic identities; server authorization is tested separately.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -54,6 +55,7 @@ const server = createServer(async (req, res) => {
   let result: unknown = {};
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('X-CoC-Demand', '1');
+  res.setHeader('X-CoC-Delivery', '2');
   if (path === '/auth/email')
     result =
       guest || cookie.includes('access-test=disabled')
@@ -102,7 +104,12 @@ const server = createServer(async (req, res) => {
     ) {
       res.statusCode = 401;
       result = { error: { code: 'UNAUTHORIZED', message: 'Restore first' } };
-    } else result = { identity: email + ':' + url.searchParams.get('hostId') };
+    } else
+      result = {
+        identity: createHash('sha256')
+          .update(email + ':' + url.searchParams.get('hostId'))
+          .digest('hex'),
+      };
   } else if (path === '/admin/devices')
     result = {
       pending: [],

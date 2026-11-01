@@ -15,6 +15,11 @@ export class Agent {
   private peers = new Set<WebSocket>();
   private starting?: Promise<void>;
   private loseAttach = false;
+  private loseControl = false;
+  lostControlReady = 0;
+  loseNextControlReady() {
+    this.loseControl = true;
+  }
   private loseDeliveryResult = false;
   private loseOutput = false;
   private loseCommand = false;
@@ -84,6 +89,15 @@ export class Agent {
       const queue: string[] = [];
       downstream.on('message', (d) => {
         const message = JSON.parse(d.toString());
+        if (
+          this.loseControl &&
+          message.type === 'result' &&
+          message.data?.controlReady
+        ) {
+          this.loseControl = false;
+          this.lostControlReady++;
+          return;
+        }
         if (
           this.loseDeliveryResult &&
           message.type === 'notice' &&

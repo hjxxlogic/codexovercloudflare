@@ -1,4 +1,5 @@
 import { eventBytes } from './events.ts';
+import { CacheBudget, cacheLimits } from './cache-budget.ts';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
 export type HistoryPage = {
@@ -20,6 +21,8 @@ export class HistoryCache {
   private liveCheckpoint?: number;
   private checkpointSafe = true;
   durableRevision: number | undefined;
+  onCommit?: () => void;
+  onClear?: () => void;
   private liveError: (error: unknown) => void = () => {};
   private closed = false;
   private draftTimer?: ReturnType<typeof setTimeout>;
@@ -108,7 +111,7 @@ export class HistoryCache {
   }
   constructor(private scope: string) {
     this.db = new Promise((resolve, reject) => {
-      const request = indexedDB.open('coc-history', 2);
+      const request = indexedDB.open('coc-history-v3', 2);
       let settled = false;
       const fail = (error?: unknown) => {
         if (settled) return;
@@ -200,6 +203,7 @@ export class HistoryCache {
     if (generation !== this.generation) return;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
+      const budget = new CacheBudget(tx);
       let committed: number | undefined;
       for (const event of events) {
         const store = tx.objectStore('events');
@@ -210,7 +214,12 @@ export class HistoryCache {
             !old ||
             (event.revision ?? event.seq) >= (old.revision ?? old.seq)
           )
-            store.put({ scope: this.scope, seq: event.seq, event });
+            budget.put(
+              'events',
+              [this.scope, event.seq],
+              { scope: this.scope, seq: event.seq, event },
+              this.scope,
+            );
         };
       }
       if (checkpoint !== undefined && this.checkpointSafe) {
@@ -218,18 +227,26 @@ export class HistoryCache {
         const previous = store.get([this.scope, 'checkpoint']);
         previous.onsuccess = () => {
           committed = Math.max(checkpoint, previous.result ?? 0);
-          store.put(committed, [this.scope, 'checkpoint']);
+          budget.put(
+            'pages',
+            [this.scope, 'checkpoint'],
+            committed,
+            this.scope,
+          );
         };
       }
       if (before !== undefined && page)
-        tx.objectStore('pages').put(page, [this.scope, before]);
+        budget.put('pages', [this.scope, before], page, this.scope);
       tx.oncomplete = () => {
         if (generation === this.generation && committed !== undefined)
           this.durableRevision = Math.max(this.durableRevision ?? 0, committed);
+        this.onCommit?.();
         resolve();
       };
       tx.onabort = () =>
-        reject(tx.error || new Error('Local history write aborted'));
+        reject(
+          budget.error || tx.error || new Error('Local history write aborted'),
+        );
       tx.onerror = () => reject(tx.error);
     });
   }
@@ -333,11 +350,12 @@ export class HistoryCache {
         value === undefined ? 'readonly' : 'readwrite',
       );
       const key = [this.scope, `content:${seq}:${revision}:${offset}`];
+      const budget = value === undefined ? undefined : new CacheBudget(tx);
       const request =
-        value === undefined
-          ? tx.objectStore('pages').get(key)
-          : tx.objectStore('pages').put(value, key);
-      tx.oncomplete = () => resolve(value ?? request.result);
+        value === undefined ? tx.objectStore('pages').get(key) : undefined;
+      if (value !== undefined) budget!.put('pages', key, value, this.scope);
+      tx.oncomplete = () => resolve(value ?? request?.result);
+      tx.onabort = () => reject(budget?.error || tx.error);
       tx.onerror = () => reject(tx.error);
     });
     return result;
@@ -359,23 +377,67 @@ export class HistoryCache {
       throw error;
     }
   }
+  // One IndexedDB write transaction owns read/modify/write and global credit,
+  // including writers in other tabs. The callback must remain synchronous.
+  async updateRecord<T>(
+    key: string,
+    update: (previous: unknown) => T,
+  ): Promise<T> {
+    const db = await this.db;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('pages', 'readwrite');
+      const budget = new CacheBudget(tx);
+      const request = tx.objectStore('pages').get([this.scope, key]);
+      let result: T;
+      let failure: unknown;
+      request.onsuccess = () => {
+        try {
+          result = update(request.result);
+          if (result instanceof Promise)
+            throw new Error('Local cache update must be synchronous');
+          if (
+            result === undefined ||
+            new TextEncoder().encode(JSON.stringify(result)).length >
+              (key.startsWith('delivery-outbox')
+                ? cacheLimits.commandReservation
+                : 4 * 1024 * 1024)
+          )
+            throw new Error('Local cache record exceeds its storage budget');
+          budget.put('pages', [this.scope, key], result, this.scope);
+        } catch (error) {
+          failure = error;
+          tx.abort();
+        }
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => reject(failure || budget.error || tx.error);
+      tx.onerror = () => reject(failure || tx.error);
+    });
+  }
   private async recordValue(key: string, value?: unknown): Promise<any> {
     if (
       value !== undefined &&
-      new TextEncoder().encode(JSON.stringify(value)).length > 4 * 1024 * 1024
+      new TextEncoder().encode(JSON.stringify(value)).length >
+        (key.startsWith('delivery-outbox')
+          ? cacheLimits.commandReservation
+          : 4 * 1024 * 1024)
     )
-      throw new Error('Local cache record exceeds its 4 MiB budget');
+      throw new Error('Local cache record exceeds its storage budget');
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction(
         'pages',
         value === undefined ? 'readonly' : 'readwrite',
       );
+      const budget = value === undefined ? undefined : new CacheBudget(tx);
       const request =
         value === undefined
           ? tx.objectStore('pages').get([this.scope, key])
-          : tx.objectStore('pages').put(value, [this.scope, key]);
-      tx.oncomplete = () => resolve(value ?? request.result);
+          : undefined;
+      if (value !== undefined)
+        budget!.put('pages', [this.scope, key], value, this.scope);
+      tx.oncomplete = () => resolve(value ?? request?.result);
+      tx.onabort = () => reject(budget?.error || tx.error);
       tx.onerror = () => reject(tx.error);
     });
   }
@@ -392,6 +454,7 @@ export class HistoryCache {
     const db = await this.db;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
+      const budget = new CacheBudget(tx);
       for (const name of ['events', 'pages']) {
         const request = tx.objectStore(name).openCursor(this.range());
         request.onsuccess = () => {
@@ -411,11 +474,15 @@ export class HistoryCache {
                   'delivery-outbox',
                 ))
             )
-              row.delete();
+              budget.remove(name, row.key, this.scope);
           row.continue();
         };
       }
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => {
+        this.onClear?.();
+        resolve();
+      };
+      tx.onabort = () => reject(budget.error || tx.error);
       tx.onerror = () => reject(tx.error);
     });
   }

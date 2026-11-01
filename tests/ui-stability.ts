@@ -1,5 +1,7 @@
 // Synthetic UI stress checks: no production credentials or model tasks.
 import assert from 'node:assert/strict';
+import { SyntheticDelivery } from './helpers/synthetic-delivery.ts';
+const delivery = new SyntheticDelivery();
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
@@ -32,7 +34,7 @@ let availableProjects = [
   { id: 'project', name: '示例项目', path: '/workspace/example' },
   { id: 'other-project', name: '第二项目', path: '/workspace/other' },
 ];
-let identity = 'synthetic-ui-identity';
+let identity = 'a'.repeat(64);
 let online = true,
   logged = true,
   admin = false,
@@ -166,6 +168,7 @@ const server = createServer((req, res) => {
     const path = url.pathname.slice(7);
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('X-CoC-Demand', '1');
+    res.setHeader('X-CoC-Delivery', '2');
     let body: unknown = {};
     if ((path === '/auth/me' && !admin) || (!logged && path === '/hosts')) {
       res.statusCode = 401;
@@ -286,9 +289,71 @@ const server = createServer((req, res) => {
         url.searchParams.get('paged') === 'true'
           ? { data: [session, otherSession], nextCursor: null }
           : [session, otherSession];
-    else if (path === '/hosts/sample/threads')
+    else if (path.endsWith('/snapshot')) {
+      controlSyncCalls++;
+      const selected = path.includes(otherSession.id) ? otherSession : session;
+      const after = Number(url.searchParams.get('after'));
+      const before = Number(url.searchParams.get('before'));
+      const matching = ((pagedHistory ?? events) as typeof events).filter(
+        (event) =>
+          after
+            ? (event.revision ?? event.seq) > after
+            : !before || event.seq < before,
+      );
+      const page = after ? matching.slice(0, 150) : matching.slice(-150);
+      const maximum = pagedHistory
+        ? 600
+        : Math.max(0, ...events.map((event) => event.revision ?? event.seq));
+      body = {
+        session: { ...selected, running: approvals.length > 0 },
+        approvals: approvals.map((approval) => ({
+          ...approval,
+          runtimeId: 'ui-runtime',
+          approvalVersion: 'ui-approval-' + approval.approvalId,
+        })),
+        history: {
+          events: page,
+          more: matching.length > page.length,
+          direction: after ? 'after' : 'before',
+          cursor: after ? (page.at(-1)?.seq ?? after) : (page[0]?.seq ?? 0),
+          snapshotSeq: maximum,
+        },
+      };
+    } else if (path === '/hosts/sample/threads')
       body = { data: [], nextCursor: null };
-    else if (path.startsWith('/hosts/sample/requests/'))
+    else if (path.endsWith('/delivery') && req.method === 'POST') {
+      let data = '';
+      req.on('data', (chunk) => {
+        data += chunk;
+      });
+      req.on('end', () => {
+        const selected = path.split('/')[2];
+        const socket = [...controls].find(
+          (ws) => controlSessions.get(ws)?.id === selected,
+        );
+        if (!socket) {
+          res.writeHead(503).end(
+            JSON.stringify({
+              error: {
+                code: 'HOST_OFFLINE',
+                message: 'Control disconnected',
+              },
+            }),
+          );
+          return;
+        }
+        socket.emit('message', Buffer.from(data));
+        res.end(JSON.stringify({ sent: true }));
+      });
+      return;
+    } else if (path.endsWith('/delivery')) {
+      body = delivery.read(
+        url.searchParams.get('stream')!,
+        url.searchParams.get('lane')!,
+        Number(url.searchParams.get('seq')) || undefined,
+        url.searchParams.get('exchangeId') || undefined,
+      );
+    } else if (path.startsWith('/hosts/sample/requests/'))
       body = { state: 'submitted' };
     else if (/^\/sessions\/sample~[\w-]+\/attach$/.test(path)) {
       attachCalls++;
@@ -367,7 +432,11 @@ const sync = (ws: WebSocket) =>
         ...(controlSessions.get(ws) || session),
         running: approvals.length > 0,
       },
-      approvals,
+      approvals: approvals.map((approval) => ({
+        ...approval,
+        runtimeId: 'ui-runtime',
+        approvalVersion: 'ui-approval-' + approval.approvalId,
+      })),
       events: [],
       more: false,
     }),
@@ -375,7 +444,7 @@ const sync = (ws: WebSocket) =>
 wss.on('connection', (ws, request) => {
   sockets.add(ws);
   if (
-    request.url === '/ws/v1/admin' ||
+    request.url?.split('?')[0] === '/ws/v1/admin' ||
     request.url?.startsWith('/ws/v1/hosts/')
   ) {
     ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
@@ -400,10 +469,40 @@ wss.on('connection', (ws, request) => {
     if (historyHandshakeFailures > 0) historyHandshakeFailures--;
     else ws.send(JSON.stringify({ type: 'history-ready' }));
   } else controls.add(ws);
+  const send = ws.send.bind(ws);
+  ws.send = ((raw: string) =>
+    send(
+      JSON.stringify(delivery.result(JSON.parse(String(raw)))),
+    )) as typeof ws.send;
   ws.on('message', (raw) => {
-    const data = JSON.parse(String(raw));
+    const data = delivery.receive(JSON.parse(String(raw)), (frame) =>
+      send(JSON.stringify(frame)),
+    );
+    if (!data) return;
     if (data.type === 'receipt') return;
     if (history && stallHistory) return;
+    if (history && ['subscribe', 'ack'].includes(data.operation)) {
+      ws.send(
+        JSON.stringify({
+          type: 'history-window',
+          requestId: data.requestId,
+          stream: data.stream,
+          instance: data.instance,
+          exchangeId: data.exchangeId,
+          agentInstance: 'history-agent',
+          streamSerial: 1,
+          creditGeneration: 'history-credit',
+          receivedRevision:
+            data.operation === 'ack'
+              ? data.receivedRevision
+              : data.acknowledgedRevision,
+          maxRevision: pagedHistory
+            ? 600
+            : Math.max(0, ...events.map((e) => e.revision ?? e.seq)),
+        }),
+      );
+      return;
+    }
     if (history && data.operation === 'page') historyPages++;
     if (history && data.operation === 'content') {
       if (data.seq === 90) {
@@ -493,9 +592,18 @@ wss.on('connection', (ws, request) => {
           direction: data.after === undefined ? 'before' : 'after',
         }),
       );
-    else if (data.type === 'auth')
-      ws.send(JSON.stringify({ type: 'attached', epoch: 1 }));
-    else if (data.action === 'sync') {
+    else if (data.type === 'auth') {
+      ws.send(
+        JSON.stringify({
+          type: 'attached',
+          epoch: 1,
+          delivery: 2,
+          controller: 'ui-controller',
+          control: delivery.control,
+        }),
+      );
+      sync(ws);
+    } else if (data.action === 'sync') {
       controlSyncCalls++;
       sync(ws);
     } else if (data.action === 'autoApproval') {
@@ -700,6 +808,7 @@ try {
   await page.waitForFunction(
     () => document.querySelector('textarea')?.value === '',
   );
+  await expect.poll(() => submitted.size).toBeGreaterThan(0);
   const requestId = [...submitted][0];
   assert(requestId, 'prompt reaches the relay');
   assert.equal(
@@ -923,21 +1032,29 @@ try {
     beforeBottomRefresh + 2,
     'a bottom touch gesture refreshes once',
   );
-  // Simulate an OPEN history channel that stops answering while probe succeeds.
+  // A stalled history socket must not prevent the independent HTTP snapshot.
   const beforeHistoryReconnect = historyConnections;
+  const beforeStalledRefresh = controlSyncCalls;
   stallHistory = true;
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
     page.getByRole('button', { name: '刷新状态', exact: true }),
   ).toBeEnabled({ timeout: 20000 });
-  await expect(page.getByRole('alert')).toContainText(
-    '会话同步未确认，已请求重新连接，请稍后刷新核对。',
+  assert(
+    controlSyncCalls > beforeStalledRefresh,
+    'Refresh reads an authoritative snapshot',
+  );
+  assert.equal(
+    historyConnections,
+    beforeHistoryReconnect,
+    'Successful direct refresh preserves the history socket',
+  );
+  assert.equal(
+    attachCalls,
+    languageAttachCalls,
+    'Successful direct refresh preserves control',
   );
   stallHistory = false;
-  await expect
-    .poll(() => historyConnections)
-    .toBeGreaterThan(beforeHistoryReconnect);
-  await expect.poll(() => attachCalls).toBeGreaterThan(languageAttachCalls);
   await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
@@ -1023,14 +1140,14 @@ try {
     fileReads.push(data);
     if (data.path === 'docs/missing.txt')
       return route.fulfill({
-        headers: { 'X-CoC-Demand': '1' },
+        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
         status: 404,
         json: { error: { code: 'NOT_FOUND', message: 'File not found' } },
       });
     const bytes = previewFiles.get(data.path) || downloadBytes;
     const chunk = bytes.subarray(data.offset, data.offset + 65536);
     await route.fulfill({
-      headers: { 'X-CoC-Demand': '1' },
+      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
       json: {
         data: chunk.toString('base64'),
         size: bytes.length,
@@ -1901,7 +2018,7 @@ try {
   await restoredPage.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open('coc-history', 2);
+        const request = indexedDB.open('coc-history-v3', 2);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const db = request.result;
@@ -1944,7 +2061,7 @@ try {
   await restoredPage.getByRole('button', { name: /进行中的对话/ }).click();
   await restoredPage.getByLabel('任务内容').fill('旧凭证下的草稿');
   await restoredPage.waitForTimeout(200);
-  identity = 'replacement-credential-identity';
+  identity = 'b'.repeat(64);
   await restoredPage.reload();
   await openMenu(restoredPage);
   await restoredPage.getByRole('button', { name: /^会话记录/ }).click();
@@ -1972,7 +2089,7 @@ try {
     null,
   );
   await restoredContext.close();
-  identity = 'synthetic-ui-identity';
+  identity = 'a'.repeat(64);
   logged = false;
 
   await page.goto(origin);

@@ -19,6 +19,7 @@ const server = createServer(async (req, res) => {
   if (path.startsWith('/api/v1/')) {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('X-CoC-Demand', '1');
+    res.setHeader('X-CoC-Delivery', '2');
     const host = {
       id: 'host',
       name: '开发服务器',
@@ -59,7 +60,7 @@ const server = createServer(async (req, res) => {
     } else if (path === '/api/v1/hosts/host/probe')
       result = { online, confirmedAt: Date.now() };
     else if (path === '/api/v1/client/identity')
-      result = { identity: 'wake-ui' };
+      result = { identity: 'd'.repeat(64) };
     else if (path === '/api/v1/hosts/host/projects') {
       projectReads++;
       if (online)

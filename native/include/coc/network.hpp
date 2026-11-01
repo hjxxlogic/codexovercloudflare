@@ -1,11 +1,17 @@
 #pragma once
 #include "process.hpp"
 namespace coc {
+struct HttpIntent {
+  std::string instance;
+  bool ack = false;
+  std::function<void(const Json &, const Json &)> commit;
+};
 std::string http_download(const Url &, const std::string &path, size_t limit,
                           std::chrono::milliseconds timeout = std::chrono::seconds(30));
 Json http_json(const Url &, const std::string &path, const Json &body,
                const std::string &token = "", const std::string &request_id = "",
-               std::chrono::milliseconds timeout = std::chrono::seconds(30));
+               std::chrono::milliseconds timeout = std::chrono::seconds(30),
+               const HttpIntent *intent = nullptr);
 struct Socket {
   virtual ~Socket() = default;
   virtual void start() = 0;

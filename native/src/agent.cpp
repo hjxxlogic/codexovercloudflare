@@ -24,8 +24,11 @@ struct Approval {
   Json rpc;
   int64_t time;
   bool submitted = false, unsupported = false;
+  std::string version = uuid();
+  bool auto_attempted = false;
 };
 struct Runtime {
+  std::string runtime_id = uuid();
   std::shared_ptr<CodexProcess> process;
   std::shared_ptr<ExternalThread> reader;
   std::shared_ptr<ExternalApprovals> external_approvals;
@@ -35,11 +38,10 @@ struct Runtime {
   bool submitted = false, busy = false, interrupt_pending = false;
   size_t priority = 0;
   std::map<std::string, Approval> approvals;
-  std::set<std::string> auto_attempted;
   std::map<std::string, std::string> requests;
   std::deque<Json> commands;
-  std::map<std::string, Json> deliveries;
-  Json immediate_delivery;
+  std::map<std::string, Json> deliveries, result_routes;
+  Json immediate_delivery, interrupt_target;
   std::string cli_delivery_stream;
   bool rpc_delivery = false;
   int64_t rpc_sent = 0, rpc_credit = 0, rpc_byte_credit = 0;
@@ -76,8 +78,9 @@ class Agent {
   size_t event_batches_ = 0, event_count_ = 0;
   int64_t event_batch_max_us_ = 0;
   std::map<std::string, std::shared_ptr<Runtime>> runtimes_;
+  std::map<std::string, Json> history_routes_;
   std::shared_ptr<Socket> socket_;
-  asio::steady_timer retry_, maintenance_, event_timer_;
+  asio::steady_timer retry_, maintenance_, event_timer_, history_retry_;
   asio::signal_set signals_;
   std::atomic<bool> stopped_{false};
   bool listing_threads_ = false, negotiated_ = false;
@@ -90,7 +93,8 @@ public:
         config_file_(std::move(config_file)), remote_config_(config_file_, true),
         remote_restart_timer_(io_), updater_(updater), store_(config_["dataDir"]),
         projects_(config_), file_store_(config_["dataDir"], false), files_(&file_store_),
-        retry_(io_), maintenance_(io_), event_timer_(io_), signals_(io_, SIGINT, SIGTERM) {}
+        retry_(io_), maintenance_(io_), event_timer_(io_), history_retry_(io_),
+        signals_(io_, SIGINT, SIGTERM) {}
   bool remote_restart() const { return remote_restart_; }
   bool update_restart() const { return update_restart_; }
   ~Agent() {
@@ -167,6 +171,8 @@ public:
     });
   }
   void disconnected(unsigned code) {
+    history_routes_.clear();
+    history_retry_.cancel();
     for (auto &[id, r] : runtimes_)
       if (!r->detached)
         r->detached = now();
@@ -254,19 +260,26 @@ public:
     const auto stream = context.at("stream").get<std::string>();
     const auto seq = context.at("seq").get<int64_t>();
     store_.delivery_finish(stream, seq, payload);
+    const auto record = store_.delivery_record(stream, seq);
+    if (record.at("resultBody").is_null())
+      return;
     auto rt = runtimes_.find(id);
     if (rt == runtimes_.end())
       return;
     send({{"type", "notice"},
           {"sessionId", id},
           {"epoch", context.at("epoch")},
-          {"heads", store_.delivery_heads(id)},
           {"payload",
            {{"type", "delivery-result"},
             {"stream", stream},
             {"lane", context.at("lane")},
             {"seq", seq},
-            {"payload", store_.delivery_record(stream, seq).at("result")},
+            {"resultStream", record.at("resultStream")},
+            {"resultSeq", record.at("resultSeq")},
+            {"resultEnd", record.at("resultEnd")},
+            {"resultBody", record.at("resultBody")},
+            {"resultDigest", record.at("resultDigest")},
+            {"heads", store_.delivery_heads(id)},
             {"window", store_.delivery_window(stream)}}}});
   }
   void notice(const std::string &id, const Json &p) {
@@ -288,6 +301,54 @@ public:
             {"heads", store_.delivery_heads(id)},
             {"payload", p}});
   }
+  void history_schedule() {
+    history_retry_.cancel();
+    int64_t earliest = 0;
+    for (const auto &[key, route] : history_routes_) {
+      const auto due = route.value("retryAt", int64_t(0));
+      if (due && (!earliest || due < earliest))
+        earliest = due;
+    }
+    if (!earliest || stopped_)
+      return;
+    history_retry_.expires_after(std::chrono::milliseconds(std::max(int64_t(1), earliest - now())));
+    history_retry_.async_wait([this](auto ec) {
+      if (ec || stopped_)
+        return;
+      try {
+        for (auto &[key, route] : history_routes_) {
+          const auto due = route.value("retryAt", int64_t(0));
+          if (due && due <= now())
+            history_notify(route);
+        }
+        history_schedule();
+      } catch (const std::exception &error) {
+        std::cerr << Json{{"event", "history_retry_failure"}, {"error", error_data(error)}}.dump()
+                  << '\n';
+        close();
+      }
+    });
+  }
+  void history_notify(Json &route) {
+    if (route.value("retryAt", int64_t(0)) > now())
+      return;
+    auto state = store_.history_hint(route);
+    if (state.at("maxRevision") <= state.at("receivedRevision")) {
+      route.erase("retryAt");
+      route["attempts"] = 0;
+      return;
+    }
+    state["type"] = "history-dirty";
+    send({{"type", "history-notice"},
+          {"sessionId", route.at("sessionId")},
+          {"route", route.at("route")},
+          {"payload", state}});
+    const auto attempt = route.value("attempts", 0);
+    unsigned char random = 0;
+    RAND_bytes(&random, 1);
+    route["retryAt"] = now() + (attempt < 3 ? (1000 << attempt) : 30000 + 30000 * random / 255);
+    route["attempts"] = std::min(attempt + 1, 3);
+  }
   void publish(const std::string &id, const Json &event) {
     auto r = runtimes_.find(id);
     if (r != runtimes_.end()) {
@@ -303,6 +364,10 @@ public:
               {"previousRevision", previous},
               {"maxRevision", maximum}}}});
     }
+    for (auto &[route, subscription] : history_routes_)
+      if (subscription.at("sessionId") == id)
+        history_notify(subscription);
+    history_schedule();
   }
   void flush_events() {
     if (buffered_events_.empty())
@@ -389,37 +454,11 @@ public:
     if (d.value("v", 1) != 1)
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
-    if (d.contains("heads") && d["heads"].is_object()) {
-      const auto session =
-          d.value("sessionId", d.value("data", Json::object()).value("sessionId", ""));
-      for (const auto &lane : {"normal", "priority"}) {
-        const auto &heads = d.at("heads");
-        if (!heads.contains(lane))
-          continue;
-        const auto stream = heads.at(lane).value("stream", "");
-        const auto sent = heads.at(lane).value("sent", int64_t(0));
-        if (!valid_id(stream) || sent < 0 || sent > 9007199254740991LL)
-          continue;
-        const auto key = "delivery-peer-head:" + stream;
-        const auto saved = store_.cache_get(key);
-        if (saved.is_null() || saved.get<int64_t>() < sent)
-          store_.cache_put(key, sent);
-        if (runtimes_.count(session)) {
-          try {
-            const auto window = store_.delivery_window(stream);
-            if (d.contains("delivery") && d["delivery"].value("stream", "") == stream &&
-                d["delivery"].value("seq", int64_t(0)) == window.at("received").get<int64_t>() + 1)
-              continue;
-            if (sent > window.at("received").get<int64_t>())
-              notice(session, {{"type", "delivery-window"}, {"lane", lane}, {"window", window}});
-          } catch (const Error &error) {
-            if (error.code != "NOT_FOUND")
-              throw;
-          }
-        }
-      }
+    if (type == "history-detached") {
+      history_routes_.erase(d.value("route", ""));
+      history_schedule();
+      return;
     }
-
     if (type == "management-request") {
       Json reply = {{"type", "management-result"}, {"wire", d.value("wire", "")}};
       bool restart = false;
@@ -441,7 +480,8 @@ public:
       return;
     }
     if (type == "hello") {
-      if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1) {
+      if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1 ||
+          d.value("delivery", 0) != 2) {
         std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
         close();
         return;
@@ -449,7 +489,7 @@ public:
       Json capabilities = {{"type", "capabilities"},
                            {"build", Json::parse(COC_BUILD_JSON)},
                            {"protocol", 1},
-                           {"delivery", 1},
+                           {"delivery", 2},
                            {"deliveryInstance", store_.delivery_instance()},
                            {"management", remote_config_.metadata()}};
       if (config_.contains("wakeUrl"))
@@ -487,53 +527,106 @@ public:
       return;
     }
     if (type == "control") {
-      auto request = d.at("requestId");
+      const auto request = d.at("requestId");
+      const auto action = d.value("action", "");
+      const auto args = d.value("data", Json::object());
+      auto respond = [this, request, action, started = now(),
+                      session_id = args.value("sessionId", "")](Json envelope, Json receipt) {
+        const auto error = envelope.value("error", Json());
+        std::cerr << Json{{"event", "control_result"},
+                          {"requestId", request},
+                          {"action", action},
+                          {"durationMs", now() - started},
+                          {"errorCode", error.is_null() ? Json() : error.value("code", Json())}}
+                         .dump()
+                  << '\n';
+        Json result = {{"type", "result"}, {"requestId", request}};
+        result.update(envelope);
+        if (!receipt.is_null())
+          result["intent"] = receipt;
+        if (!session_id.empty() && action != "history")
+          result["heads"] = store_.delivery_heads(session_id);
+        if (result.dump().size() > max_frame)
+          result = {{"type", "result"},
+                    {"requestId", request},
+                    {"error",
+                     {{"code", "MESSAGE_TOO_LARGE"},
+                      {"message", "Control result exceeds frame budget"}}}};
+        send(result);
+      };
+      std::string operation_key;
+      Json intent;
       try {
-        control(d.at("action"), d.value("data", Json::object()),
-                [this, request, started = now(), action = d.value("action", ""),
-                 session_id = d.value("data", Json::object()).value("sessionId", "")](Json data,
-                                                                                      Json error) {
-                  std::cerr << Json{{"event", "control_result"},
-                                    {"requestId", request},
-                                    {"action", action},
-                                    {"durationMs", now() - started},
-                                    {"errorCode",
-                                     error.is_null() ? Json() : error.value("code", Json())}}
-                                   .dump()
-                            << '\n';
-                  Json result = {{"type", "result"}, {"requestId", request}};
-                  if (!session_id.empty())
-                    result["heads"] = store_.delivery_heads(session_id);
-                  if (error.is_null())
-                    result["data"] = data;
-                  else
-                    result["error"] = error;
-                  if (result.dump().size() > max_frame)
-                    result = {{"type", "result"},
-                              {"requestId", request},
-                              {"error",
-                               {{"code", "MESSAGE_TOO_LARGE"},
-                                {"message", "Control result exceeds frame budget"}}}};
-                  send(result);
-                });
-      } catch (const std::exception &e) {
-        auto args = d.value("data", Json::object());
-        if (d.value("action", "") == "create" && args.contains("key")) {
-          auto error = error_data(e);
-          if (error["code"] != "RESULT_UNKNOWN" && error["code"] != "IDEMPOTENCY_CONFLICT")
-            store_.finish("create:" + args["key"].get<std::string>(), {{"requestError", error}});
+        if (d.contains("intent")) {
+          intent = operation_intent(d.at("intent"));
+          const auto operation = args.value("operation", "");
+          if (action != "create" && action != "stop" && action != "queue" && action != "answer" &&
+              !(action == "projectManage" && operation != "list" && operation != "browse") &&
+              !(action == "files" && operation != "list" && operation != "read" &&
+                operation != "status"))
+            throw Error("INVALID_REQUEST", "Original operation identity requires a write command");
+          if (intent.value("ack", false)) {
+            respond({{"data", store_.operation_ack(intent, action, args)}}, intent);
+            return;
+          }
+          const auto original = store_.operation_begin(intent, action, args);
+          if (original.contains("result")) {
+            respond(original.at("result"), intent);
+            return;
+          }
+          if (original.at("state") != "new")
+            throw Error("RESULT_PENDING", "Original operation is still executing");
+          operation_key = original.at("key");
         }
-        send({{"type", "result"}, {"requestId", request}, {"error", error_data(e)}});
+        control(action, args, [this, operation_key, intent, respond](Json data, Json error) {
+          Json envelope = error.is_null() ? Json{{"data", data}} : Json{{"error", error}};
+          if (!operation_key.empty()) {
+            try {
+              envelope = store_.operation_finish(operation_key, envelope);
+            } catch (const std::exception &failure) {
+              // A response without the receipt is not a durable terminal result.
+              respond({{"error", error_data(failure)}}, nullptr);
+              return;
+            }
+          }
+          respond(envelope, intent);
+        });
+      } catch (const std::exception &e) {
+        auto error = error_data(e);
+        if (intent.is_null() && action == "create" && args.contains("key") &&
+            error["code"] != "RESULT_UNKNOWN" && error["code"] != "IDEMPOTENCY_CONFLICT")
+          store_.finish("create:" + args["key"].get<std::string>(), {{"requestError", error}});
+        Json envelope = {{"error", error}};
+        if (!operation_key.empty()) {
+          try {
+            envelope = store_.operation_finish(operation_key, envelope);
+          } catch (const std::exception &failure) {
+            respond({{"error", error_data(failure)}}, nullptr);
+            return;
+          }
+          respond(envelope, intent);
+        } else
+          respond(envelope, nullptr);
       }
       return;
     }
     auto id = d.value("sessionId", "");
+    if (type == "delivery-receipt") {
+      const auto stream = d.at("stream").get<std::string>();
+      store_.delivery_scope(stream, id);
+      if (d.at("instance") != store_.delivery_instance() ||
+          store_.get(id).at("mode") != d.at("mode"))
+        throw Error("FORBIDDEN", "Wrong result receipt scope");
+      store_.delivery_result_ack(stream, d.at("received"), d.at("receivedBytes"));
+      return;
+    }
     auto it = runtimes_.find(id);
     if (it == runtimes_.end())
       return;
     auto rt = it->second;
     const auto incoming_epoch = d.value("epoch", int64_t(-1));
-    if (rt->pending_epoch == incoming_epoch && rt->pending_expires > now() && type != "detach") {
+    if (store_.control_state(id).is_null() && rt->pending_epoch == incoming_epoch &&
+        rt->pending_expires > now() && type != "detach") {
       rt->epoch = incoming_epoch;
       rt->pending_epoch = 0;
       rt->detached = 0;
@@ -592,10 +685,13 @@ public:
         return;
       }
       delivery["epoch"] = incoming_epoch;
+      rt->result_routes[stream] = delivery;
       notice(id, {{"type", "delivery-window"},
                   {"lane", delivery.at("lane")},
                   {"window", accepted.at("window")}});
-      if (accepted.at("accepted") == false) {
+      if (accepted.at("accepted") == false ||
+          (accepted.contains("record") && !accepted.at("record").is_null() &&
+           accepted.at("record").at("phase") == "finished")) {
         const auto record = accepted.at("record");
         if (record.at("phase") == "finished")
           delivery_reply(id, delivery, record.at("result"));
@@ -604,7 +700,7 @@ public:
       const auto payload = d.at("payload");
       const auto key = type == "web" ? payload.at("requestId").get<std::string>()
                                      : (payload.contains("id") && payload.contains("method")
-                                            ? "rpc:" + id_key(payload.at("id"))
+                                            ? "rpc:" + payload.at("id").dump()
                                             : "");
       if (!key.empty()) {
         if (rt->deliveries.count(key)) {
@@ -685,20 +781,99 @@ public:
         throw Error("FORBIDDEN", "Wrong delivery session mode");
       const auto stream = d.at("stream").get<std::string>();
       const bool priority = d.at("lane") == "priority";
+      if (d.contains("instance") && d.at("instance") != store_.delivery_instance())
+        throw Error("DELIVERY_STATE_MISMATCH", "Agent result storage instance changed");
+      Json control_ready;
+      if (d.contains("exchangeId") && d.contains("control")) {
+        const auto &proof = d.at("control");
+        control_ready = store_.control_apply(id, proof.at("controlEpoch"), proof.at("controlId"),
+                                             proof.at("owner"));
+        control_ready["connectionGeneration"] = proof.at("connectionGeneration");
+        control_ready["exchangeId"] = d.at("exchangeId");
+        auto runtime = runtimes_.find(id);
+        if (runtime != runtimes_.end()) {
+          auto rt = runtime->second;
+          const auto generation = proof.at("connectionGeneration").get<int64_t>();
+          if (generation < rt->epoch)
+            throw Error("STALE_CONTROLLER", "Connection generation has already advanced");
+          for (auto queued = rt->commands.begin(); queued != rt->commands.end();) {
+            const auto context = queued->value("delivery", Json());
+            const bool retired =
+                context.is_null()
+                    ? queued->at("epoch") != generation
+                    : store_.delivery_record(context.at("stream"), context.at("seq")).at("phase") ==
+                          "finished";
+            if (retired)
+              queued = rt->commands.erase(queued);
+            else
+              ++queued;
+          }
+          for (auto entry = rt->deliveries.begin(); entry != rt->deliveries.end();) {
+            const auto &context = entry->second;
+            if (store_.delivery_record(context.at("stream"), context.at("seq")).at("phase") ==
+                "finished")
+              entry = rt->deliveries.erase(entry);
+            else
+              ++entry;
+          }
+          if (generation != rt->epoch) {
+            rt->epoch = generation;
+            rt->pending_epoch = 0;
+            rt->detached = 0;
+            rt->rpc_credit = 0;
+            rt->rpc_byte_credit = 0;
+            rt->rpc_sent = store_.output_state("rpc-output:" + id).at("acked");
+          }
+        }
+      }
       auto window = store_.delivery_open(stream, id, priority ? 4 : 16,
-                                         priority ? 512 * 1024 : 2 * 1024 * 1024);
-      Json result = {{"window", window}};
+                                         priority ? 512 * 1024 : 2 * 1024 * 1024,
+                                         priority ? "priority" : "normal");
+      if (!control_ready.is_null()) {
+        store_.delivery_bind(stream, control_ready.at("controlEpoch"),
+                             control_ready.at("controlId"));
+        auto runtime = runtimes_.find(id);
+        if (!priority && session.at("mode") == "cli" && runtime != runtimes_.end() &&
+            runtime->second->cli_delivery_stream.empty())
+          runtime->second->cli_delivery_stream = stream;
+      }
+      if (d.contains("resultReceived")) {
+        store_.delivery_results(stream, d.at("resultReceived"));
+        store_.delivery_result_ack(stream, d.at("resultReceived"), d.at("resultBytes"));
+        window = store_.delivery_window(stream);
+      }
+      Json result = {{"window", window}, {"heads", store_.delivery_heads(id)}};
+      if (!control_ready.is_null())
+        result["controlReady"] = control_ready;
+      if (d.contains("contentSeq")) {
+        result["content"] =
+            store_.delivery_content(stream, d.at("contentSeq"), d.value("offset", int64_t(0)));
+        done(result, nullptr);
+        return;
+      }
+      if (d.contains("resultReceived"))
+        result["results"] = store_.delivery_results(stream, d.at("resultReceived"));
+      if (d.contains("exchangeId"))
+        result["exchangeId"] = d.at("exchangeId");
       if (d.contains("seq")) {
         auto record = store_.delivery_record(stream, d.at("seq"));
-        if (record.is_object())
+        if (record.is_object()) {
           record.erase("body");
+          record.erase("result");
+          // One body per frame; the completion page already carries this terminal record.
+          if (!result.value("results", Json::array()).empty())
+            record = nullptr;
+        }
         result["record"] = record;
       }
       done(result, nullptr);
       return;
     }
     if (action == "probe") {
-      done({{"online", true}, {"confirmedAt", now()}}, nullptr);
+      done({{"online", true},
+            {"confirmedAt", now()},
+            {"deliveryInstance", store_.delivery_instance()}},
+           nullptr);
       return;
     }
     if (action == "snapshot") {
@@ -711,6 +886,8 @@ public:
       if (runtime != runtimes_.end())
         for (const auto &[key, approval] : runtime->second->approvals)
           approvals.push_back({{"approvalId", key},
+                               {"runtimeId", runtime->second->runtime_id},
+                               {"approvalVersion", approval.version},
                                {"method", approval.rpc.at("method")},
                                {"params", redact(approval.rpc.value("params", Json::object()))},
                                {"submitted", approval.submitted},
@@ -726,6 +903,40 @@ public:
     if (action == "history") {
       auto id = d.at("sessionId").get<std::string>();
       auto s = store_.get(id);
+      const auto operation = d.value("operation", "page");
+      if (operation == "subscribe" || operation == "ack" || operation == "retire") {
+        const auto route = d.value("route", "");
+        if (!valid_id(route))
+          throw Error("INVALID_REQUEST", "History route is required");
+        if (operation == "subscribe" && !history_routes_.count(route) &&
+            history_routes_.size() >= 128)
+          throw Error("BACKPRESSURE", "Online history subscription budget exhausted");
+        if (operation != "subscribe") {
+          const auto current = history_routes_.find(route);
+          if (current == history_routes_.end() ||
+              current->second.at("exchangeId") != d.at("exchangeId") ||
+              current->second.at("stream") != d.at("stream") ||
+              current->second.at("owner") != d.at("owner"))
+            throw Error("DELIVERY_STATE_MISMATCH", "History acknowledgement route has retired");
+        }
+        auto state = store_.history_subscription(d);
+        if (operation == "retire") {
+          for (auto current = history_routes_.begin(); current != history_routes_.end();) {
+            const auto &saved = current->second;
+            if (saved.at("sessionId") == d.at("sessionId") && saved.at("owner") == d.at("owner") &&
+                saved.at("stream") == d.at("stream") && saved.at("instance") == d.at("instance"))
+              current = history_routes_.erase(current);
+            else
+              ++current;
+          }
+        } else
+          history_routes_[route] = d;
+        done(state, nullptr);
+        if (operation != "retire")
+          history_notify(history_routes_.at(route));
+        history_schedule();
+        return;
+      }
       if (d.value("operation", "page") == "content") {
         done(store_.content(id, d.at("seq"), d.value("offset", int64_t(0)),
                             d.value("revision", int64_t(-1))),
@@ -755,6 +966,8 @@ public:
       return;
     }
     if (action == "files") {
+      if (d.contains("agentInstance") && d.at("agentInstance") != store_.delivery_instance())
+        throw Error("DELIVERY_STATE_MISMATCH", "Upload belongs to another Agent store");
       auto p = project(d.at("projectId"));
       const auto bytes = d.dump().size();
       if (file_requests_ >= 8 || file_bytes_ + bytes > 512 * 1024)
@@ -890,6 +1103,8 @@ public:
                         web_command({{"action", "approval"},
                                      {"requestId", d.at("requestId")},
                                      {"approvalId", d.at("approvalId")},
+                                     {"runtimeId", d.at("runtimeId")},
+                                     {"approvalVersion", d.at("approvalVersion")},
                                      {"allow", d.at("allow")}}),
                         done);
         return;
@@ -898,6 +1113,8 @@ public:
       if (rt != runtimes_.end())
         for (auto &[key, approval] : rt->second->approvals)
           pending.push_back({{"approvalId", key},
+                             {"runtimeId", rt->second->runtime_id},
+                             {"approvalVersion", approval.version},
                              {"method", approval.rpc.at("method")},
                              {"params", redact(approval.rpc.value("params", Json::object()))},
                              {"submitted", approval.submitted},
@@ -929,13 +1146,12 @@ public:
       auto r = it->second;
       if (d.value("expires", now() + 1) <= now())
         throw Error("ATTACH_EXPIRED", "Attach deadline expired");
-      if (s["mode"] == "cli" &&
-          (r->epoch > 0 || (r->pending_epoch > 0 && r->pending_expires > now())) &&
+      if (s["mode"] == "cli" && r->epoch > 0 &&
           (r->cli_delivery_stream.empty() ||
            d.value("deliveryResume", "") != r->cli_delivery_stream))
         throw Error("CLI_REATTACH_UNSUPPORTED", "End this CLI session and create a new one");
-      // Reservation alone never invalidates the current controller. The first
-      // authenticated frame from the confirmed new lease activates its epoch.
+      // Preparation cannot grant business admission. A proof-bearing OPEN applies
+      // the durable control epoch before this connection may dispatch commands.
       r->pending_epoch = d.at("epoch");
       r->pending_expires = d.value("expires", now() + 15000);
       done({{"ok", true}}, nullptr);
@@ -1189,6 +1405,8 @@ public:
           it->second->approvals[key] = {
               Json{{"method", approval.at("method")}, {"params", approval.at("params")}}, now(),
               false, approval.value("unsupported", false)};
+          approval["runtimeId"] = it->second->runtime_id;
+          approval["approvalVersion"] = it->second->approvals.at(key).version;
           emit(id, "approval", approval);
           auto_approve(id, key);
         },
@@ -1238,6 +1456,13 @@ public:
         });
     rt->external_approvals->start();
   }
+  void validate_approval(const std::shared_ptr<Runtime> &rt, const Json &cmd) {
+    auto found = rt->approvals.find(cmd.at("approvalId"));
+    if (found == rt->approvals.end())
+      throw Error("UNKNOWN_APPROVAL", "Approval expired or already answered");
+    if (cmd.at("runtimeId") != rt->runtime_id || cmd.at("approvalVersion") != found->second.version)
+      throw Error("STALE_APPROVAL", "Approval belongs to another runtime or request version");
+  }
   void external_answer(const std::string &id, const Json &cmd, Completion done) {
     const auto s = store_.get(id);
     auto runtime = runtimes_.find(id);
@@ -1245,25 +1470,31 @@ public:
         !runtime->second->external_approvals || !s.value("approvalForwarding", false) ||
         s["state"] != "ready")
       throw Error("APPROVAL_UNAVAILABLE", "No connection to original approval server");
+    const bool reliable =
+        runtimes_.at(id)->deliveries.count(cmd.at("requestId").get<std::string>()) ||
+        cmd.value("internal", false);
     const auto key = id + ":" + cmd.at("requestId").get<std::string>();
-    auto cached = store_.begin(key, web_fingerprint(cmd));
+    auto cached = (reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd)));
     if (cached["cached"] == true) {
       done(cached["value"], nullptr);
       return;
     }
     try {
-      store_.submitted(key);
+      validate_approval(runtime->second, cmd);
+      if (!reliable)
+        store_.submitted(key);
       auto result =
           runtime->second->external_approvals->answer(cmd.at("approvalId"), cmd.at("allow"));
       auto approval = runtime->second->approvals.find(cmd.at("approvalId"));
       if (approval != runtime->second->approvals.end())
         approval->second.submitted = true;
-      store_.finish(key, result);
+      if (!reliable)
+        store_.finish(key, result);
       emit(id, "approvalSubmitted", {{"approvalId", cmd.at("approvalId")}});
       done(result, nullptr);
     } catch (const std::exception &error) {
       auto value = error_data(error);
-      if (value.value("code", "") != "RESULT_UNKNOWN")
+      if (!reliable && value.value("code", "") != "RESULT_UNKNOWN")
         store_.finish(key, {{"requestError", value}});
       done(nullptr, value);
     }
@@ -1280,11 +1511,14 @@ public:
                   "Enable externalSessions.allowQueue on a workspace-write Agent to queue input; "
                   "the original client controls execution and approvals");
     auto reader = it->second->reader;
+    const bool reliable =
+        runtimes_.at(id)->deliveries.count(cmd.at("requestId").get<std::string>()) ||
+        cmd.value("internal", false);
     const auto key = id + ":" + cmd.at("requestId").get<std::string>();
     const auto marker = "external-submission:" + key;
-    auto complete = [this, key, cmd, id, done](Json result, Json error) {
+    auto complete = [this, key, cmd, id, done, reliable](Json result, Json error) {
       if (!error.is_null()) {
-        if (error.value("code", "") != "RESULT_UNKNOWN")
+        if (!reliable && error.value("code", "") != "RESULT_UNKNOWN")
           store_.finish(key, {{"requestError", error}});
         done(nullptr, error);
         return;
@@ -1293,7 +1527,8 @@ public:
           {"state", "queued"},
           {"queueId", result.at("queuedSubmission").at("id")},
           {"clientUserMessageId", result.at("queuedSubmission").at("clientUserMessageId")}};
-      store_.finish(key, queued);
+      if (!reliable)
+        store_.finish(key, queued);
       emit(id, "queueAccepted",
            {{"requestId", cmd.at("requestId")},
             {"queueId", queued["queueId"]},
@@ -1303,7 +1538,7 @@ public:
     };
     Json cached;
     try {
-      cached = store_.begin(key, web_fingerprint(cmd));
+      cached = (reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd)));
     } catch (const Error &error) {
       if (error.code != "RESULT_UNKNOWN")
         throw;
@@ -1321,7 +1556,10 @@ public:
     }
     const auto client_id = uuid();
     store_.cache_put(marker, {{"clientUserMessageId", client_id}});
-    auto submitted = [this, key] { store_.submitted(key); };
+    auto submitted = [this, key, reliable] {
+      if (!reliable)
+        store_.submitted(key);
+    };
     reader->enqueue(cmd.at("text"), client_id, submitted, complete);
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
@@ -1480,6 +1718,20 @@ public:
   }
   void rpc(const std::string &id, const Json &raw) {
     auto m = redact(raw);
+    auto it = runtimes_.find(id);
+    if (it != runtimes_.end() && !it->second->immediate_delivery.is_null()) {
+      delivery_reply(id, it->second->immediate_delivery, m);
+      return;
+    }
+    if (it != runtimes_.end() && m.contains("id") && !m.contains("method")) {
+      auto found = it->second->deliveries.find("rpc:" + m.at("id").dump());
+      if (found != it->second->deliveries.end()) {
+        auto context = found->second;
+        it->second->deliveries.erase(found);
+        delivery_reply(id, context, m);
+        return;
+      }
+    }
     if (Json(m.dump()).dump().size() > max_frame - 4096) {
       emit(id, "largeRpc", m);
       if (m.contains("id") && !m.contains("method"))
@@ -1490,22 +1742,21 @@ public:
       else
         return; // Full content remains in the Agent journal and read-only history stream.
     }
-    auto it = runtimes_.find(id);
-    if (it != runtimes_.end() && !it->second->immediate_delivery.is_null()) {
-      delivery_reply(id, it->second->immediate_delivery, m);
-      return;
-    }
-    if (it != runtimes_.end() && m.contains("id") && !m.contains("method")) {
-      auto found = it->second->deliveries.find("rpc:" + id_key(m.at("id")));
-      if (found != it->second->deliveries.end()) {
-        auto context = found->second;
-        it->second->deliveries.erase(found);
-        delivery_reply(id, context, m);
-        return;
-      }
-    }
     if (it != runtimes_.end() && it->second->rpc_delivery) {
-      store_.output_append("rpc-output:" + id, m);
+      try {
+        store_.output_append("rpc-output:" + id, m);
+      } catch (const Error &error) {
+        if (error.code == "BACKPRESSURE") {
+          auto session = store_.get(id);
+          session["outputError"] = {
+              {"code", "BACKPRESSURE"},
+              {"message", "Durable output is full; the Codex runtime was stopped"}};
+          store_.save(session);
+          // Stop producing. Previously journaled and acknowledged output stays intact.
+          it->second->process->close();
+        }
+        throw;
+      }
       flush_rpc_output(id, it->second);
       return;
     }
@@ -1524,16 +1775,66 @@ public:
       if (!m.is_object())
         throw Error("INVALID_REQUEST", "Invalid RPC");
       if (!m.contains("method")) {
-        auto key = id_key(m.at("id"));
+        auto key = m.at("id").dump();
         if (!rt->approvals.count(key))
           throw Error("UNKNOWN_APPROVAL", "No matching server request");
+        if (!m.contains("coc") || !m.at("coc").contains("approval"))
+          throw Error("STALE_APPROVAL", "Approval reply requires its original runtime proof");
+        const auto &proof = m.at("coc").at("approval");
+        const auto &pending = rt->approvals.at(key);
+        if (proof.at("instance") != store_.delivery_instance() ||
+            proof.at("runtimeId") != rt->runtime_id ||
+            proof.at("approvalVersion") != pending.version ||
+            proof.at("requestId") != pending.rpc.at("id"))
+          throw Error("STALE_APPROVAL", "Reply does not match the original runtime and approval");
+        auto reply = m;
+        reply.erase("coc");
+        rt->process->send(reply);
         rt->approvals.erase(key);
-        rt->process->send(m);
         return;
       }
-      auto guarded = guard_cli(m, project(s["projectId"])["path"], config_["sandbox"],
+      if (m.at("method") == "coc/cancel") {
+        const auto target = command_target(m.at("params").at("target"));
+        auto original = target;
+        original.erase("turnId");
+        auto active = s.value("activeTask", Json::object());
+        const auto turn = active.value("turnId", "");
+        active.erase("turnId");
+        if (s.value("running", false) && original == active) {
+          if ((turn.empty() && target.contains("turnId")) ||
+              (!turn.empty() && target.value("turnId", "") != turn))
+            throw Error("TARGET_NOT_FOUND", "Cancellation must name the original active turn");
+          store_.delivery_cancel(id, target);
+          if (turn.empty())
+            rt->interrupt_target = original;
+          else
+            rt->process->request("turn/interrupt",
+                                 {{"threadId", s.at("threadId")}, {"turnId", turn}},
+                                 [](Json, Json) {});
+        } else {
+          const auto result = store_.delivery_cancel(id, target);
+          if (result.at("state") == "started")
+            throw Error("TARGET_NOT_ACTIVE", "The original task cannot be matched to this runtime");
+        }
+        return;
+      }
+      auto business = m;
+      business.erase("coc");
+      auto guarded = guard_cli(business, project(s["projectId"])["path"], config_["sandbox"],
                                s.value("threadId", ""));
       auto method = m.at("method").get<std::string>();
+      if (method == "turn/interrupt") {
+        if (!m.contains("coc") || !m.at("coc").contains("target"))
+          throw Error("TARGET_NOT_FOUND", "An interruption requires the original task identity");
+        const auto target = command_target(m.at("coc").at("target"));
+        const auto active = s.value("activeTask", Json::object());
+        if (target != active || !s.value("running", false) || !s.contains("turnId") ||
+            target.value("turnId", "") != s.at("turnId") ||
+            guarded.at("params").at("turnId") != s.at("turnId"))
+          throw Error("TARGET_NOT_FOUND",
+                      "The interruption does not match this runtime's original task and turn");
+        store_.delivery_cancel(id, target);
+      }
       if (method == "thread/start" && rt->submitted)
         throw Error("UNSUPPORTED_ACTION", "One thread per CLI session");
       if (method == "thread/list" || method == "thread/loaded/list") {
@@ -1544,14 +1845,27 @@ public:
         rpc(id, {{"id", m.at("id")}, {"result", result}});
         return;
       }
-      if (method == "turn/start" || method == "turn/steer") {
+      if (method == "turn/steer" &&
+          (!s.value("running", false) || !s.contains("turnId") ||
+           guarded.at("params").value("expectedTurnId", "") != s.at("turnId")))
+        throw Error("TARGET_NOT_FOUND", "Steering must name the original active turn");
+      if (method == "turn/start") {
+        if (s.value("running", false))
+          throw Error("TURN_BUSY", "A turn is already running");
         check_busy(s);
         rt->submitted = true;
         s["running"] = true;
+        s.erase("turnId");
+        const auto context = rt->deliveries.find("rpc:" + m.at("id").dump());
+        if (context != rt->deliveries.end())
+          s["activeTask"] =
+              store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
+        else
+          s.erase("activeTask");
         store_.save(s);
       }
       if (m.contains("id"))
-        rt->requests[id_key(m["id"])] = method;
+        rt->requests[m["id"].dump()] = method;
       if (method == "turn/start" || method == "turn/steer") {
         std::string text;
         for (auto &input : guarded["params"].value("input", Json::array()))
@@ -1560,8 +1874,10 @@ public:
       }
       rt->process->send(guarded);
     } catch (const std::exception &e) {
-      rpc(id, {{"id", m.is_object() ? m.value("id", Json()) : Json()},
-               {"error", {{"code", -32001}, {"message", error_data(e)["message"]}}}});
+      rpc(id,
+          {{"id", m.is_object() ? m.value("id", Json()) : Json()},
+           {"error",
+            {{"code", -32001}, {"message", error_data(e)["message"]}, {"data", error_data(e)}}}});
     }
   }
   void on_codex(const std::string &id, const Json &m) {
@@ -1580,12 +1896,12 @@ public:
       return;
     }
     if (s["mode"] == "cli" && m.contains("id") && method.empty()) {
-      auto key = id_key(m["id"]);
+      auto key = m["id"].dump();
       auto req = rt->requests.find(key);
       if (req != rt->requests.end()) {
         if (req->second == "thread/start" && m.contains("result") && m["result"].contains("thread"))
           s["threadId"] = m["result"]["thread"]["id"];
-        if (m.contains("error") && (req->second == "turn/start" || req->second == "turn/steer"))
+        if (m.contains("error") && req->second == "turn/start")
           s["running"] = false;
         rt->requests.erase(req);
         store_.save(s);
@@ -1594,7 +1910,19 @@ public:
     if (method == "turn/started") {
       s["running"] = true;
       s["turnId"] = m.at("params").at("turn").at("id");
+      if (s.contains("activeTask"))
+        s["activeTask"]["turnId"] = s.at("turnId");
       store_.save(s);
+      if (!rt->interrupt_target.is_null()) {
+        auto target = rt->interrupt_target;
+        rt->interrupt_target = nullptr;
+        auto active = s.value("activeTask", Json::object());
+        active.erase("turnId");
+        if (target == active)
+          rt->process->request("turn/interrupt",
+                               {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
+                               [](Json, Json) {});
+      }
       if (rt->interrupt_pending) {
         rt->interrupt_pending = false;
         rt->process->request("turn/interrupt",
@@ -1615,7 +1943,7 @@ public:
           "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
           "item/permissions/requestApproval", "item/tool/requestUserInput",
           "mcpServer/elicitation/request"};
-      auto key = id_key(m["id"]);
+      auto key = m["id"].dump();
       bool basic = method == "item/commandExecution/requestApproval" ||
                    method == "item/fileChange/requestApproval" ||
                    method == "item/permissions/requestApproval";
@@ -1633,6 +1961,8 @@ public:
       if (s["mode"] == "web") {
         emit(id, "approval",
              {{"approvalId", key},
+              {"runtimeId", rt->runtime_id},
+              {"approvalVersion", rt->approvals.at(key).version},
               {"method", method},
               {"params", m.value("params", Json::object())}});
         auto_approve(id, key);
@@ -1642,16 +1972,29 @@ public:
     if (s["mode"] == "cli") {
       if (!method.empty() && !m.contains("id"))
         emit(id, method, m.value("params", Json::object()));
-      rpc(id, m);
-    } else if (!method.empty())
-      emit(id, method, m.value("params", Json::object()));
+      auto output = m;
+      if (method == "turn/started" && s.contains("activeTask"))
+        output["coc"] = {{"task", s.at("activeTask")}};
+      if (m.contains("id") && m.contains("method") && rt->approvals.count(m.at("id").dump()))
+        output["coc"]["approval"] = {
+            {"instance", store_.delivery_instance()},
+            {"runtimeId", rt->runtime_id},
+            {"approvalVersion", rt->approvals.at(m.at("id").dump()).version},
+            {"requestId", m.at("id")}};
+      rpc(id, output);
+    } else if (!method.empty()) {
+      auto params = m.value("params", Json::object());
+      if (method == "turn/started" && s.contains("activeTask"))
+        params["activeTask"] = s.at("activeTask");
+      emit(id, method, params);
+    }
   }
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {
     if (rt->busy || rt->commands.empty() || !runtimes_.count(id))
       return;
     auto d = rt->commands.front();
     rt->commands.pop_front();
-    if (d["epoch"] != rt->epoch) {
+    if (d.value("delivery", Json()).is_null() && d["epoch"] != rt->epoch) {
       if (!d.value("delivery", Json()).is_null()) {
         auto error = Json{
             {"type", "error"},
@@ -1692,6 +2035,8 @@ public:
     if (s["mode"] != "web")
       throw Error("FORBIDDEN", "Not a web session");
     auto action = cmd.at("action").get<std::string>();
+    const bool reliable =
+        cmd.contains("requestId") && rt->deliveries.count(cmd.at("requestId").get<std::string>());
     if (action == "sync") {
       auto replay = store_.replay(id, cmd["after"]);
       replay["type"] = "sync";
@@ -1699,6 +2044,8 @@ public:
       replay["approvals"] = Json::array();
       for (auto &[key, a] : rt->approvals)
         replay["approvals"].push_back({{"approvalId", key},
+                                       {"runtimeId", rt->runtime_id},
+                                       {"approvalVersion", a.version},
                                        {"method", a.rpc["method"]},
                                        {"params", redact(a.rpc.value("params", Json::object()))},
                                        {"submitted", a.submitted},
@@ -1715,17 +2062,19 @@ public:
            !s.value("approvalForwarding", false)))
         throw Error("APPROVAL_UNAVAILABLE", "Original approval forwarding is unavailable");
       const auto key = id + ":" + cmd.at("requestId").get<std::string>();
-      auto cached = store_.begin(key, web_fingerprint(cmd));
+      auto cached = reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd));
       if (cached["cached"] == true) {
         notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", cached["value"]}});
         done(cached["value"], nullptr);
         return;
       }
-      store_.submitted(key);
+      if (!reliable)
+        store_.submitted(key);
       s["autoApproval"] = cmd.at("enabled");
       store_.save(s);
       Json result = {{"autoApproval", s["autoApproval"]}};
-      store_.finish(key, result);
+      if (!reliable)
+        store_.finish(key, result);
       emit(id, "autoApprovalChanged", result);
       notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
       done(result, nullptr);
@@ -1771,17 +2120,18 @@ public:
       return;
     }
     auto key = id + ":" + cmd["requestId"].get<std::string>();
-    auto cached = store_.begin(key, web_fingerprint(cmd));
+    auto cached = reliable ? Json{{"cached", false}} : store_.begin(key, web_fingerprint(cmd));
     if (cached["cached"] == true) {
       notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", cached["value"]}});
       done(nullptr, nullptr);
       return;
     }
-    auto complete = [this, id, key, cmd, done](Json result, Json error) {
-      if (!error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
+    auto complete = [this, id, key, cmd, done, reliable](Json result, Json error) {
+      if (!reliable && !error.is_null() && error.value("code", "") != "RESULT_UNKNOWN")
         store_.finish(key, {{"requestError", error}});
       if (error.is_null()) {
-        store_.finish(key, result);
+        if (!reliable)
+          store_.finish(key, result);
         notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
       }
       done(result, error);
@@ -1795,8 +2145,15 @@ public:
         complete(nullptr, error_data(error));
         return;
       }
-      store_.submitted(key);
+      if (!reliable)
+        store_.submitted(key);
       s["running"] = true;
+      const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
+      if (context != rt->deliveries.end())
+        s["activeTask"] =
+            store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
+      else
+        s.erase("activeTask");
       s.erase("turnId");
       store_.save(s);
       emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
@@ -1824,6 +2181,42 @@ public:
       });
       return;
     }
+    if (action == "interrupt" && cmd.contains("target")) {
+      try {
+        const auto target = command_target(cmd.at("target"));
+        auto original = target;
+        original.erase("turnId");
+        auto active = s.value("activeTask", Json::object());
+        active.erase("turnId");
+        if (s.value("running", false) && original == active) {
+          if ((s.contains("turnId") && target.value("turnId", "") != s.at("turnId")) ||
+              (!s.contains("turnId") && target.contains("turnId")))
+            throw Error("TARGET_NOT_FOUND", "Interruption must name the original active turn");
+          store_.delivery_cancel(id, target);
+          if (s.contains("turnId"))
+            rt->process->request("turn/interrupt",
+                                 {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
+                                 [complete](Json, Json error) {
+                                   complete({{"state", "interrupt-submitted"}}, error);
+                                 });
+          else {
+            rt->interrupt_target = original;
+            complete({{"state", "interrupt-pending-turn"}}, nullptr);
+          }
+          return;
+        }
+        const auto cancelled = store_.delivery_cancel(id, target);
+        if (cancelled.at("state") == "started")
+          throw Error("TARGET_NOT_ACTIVE", "The original task cannot be matched to this runtime");
+        complete({{"state", cancelled.at("state") == "pending-target" ? "cancel-pending-target"
+                                                                      : "target-finished"},
+                  {"target", target}},
+                 nullptr);
+      } catch (const std::exception &error) {
+        complete(nullptr, error_data(error));
+      }
+      return;
+    }
     if (action == "interrupt" && s.contains("turnId")) {
       rt->process->request("turn/interrupt",
                            {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}}, complete);
@@ -1833,6 +2226,7 @@ public:
       rt->interrupt_pending = true;
     if (action == "approval") {
       try {
+        validate_approval(rt, cmd);
         answer(id, cmd["approvalId"], cmd["allow"]);
       } catch (const std::exception &error) {
         complete(nullptr, error_data(error));
@@ -1874,21 +2268,28 @@ public:
       return;
     if (s.value("external", false) && !s.value("approvalForwarding", false))
       return;
-    if (!rt->auto_attempted.insert(key).second)
+    if (approval->second.auto_attempted)
       return;
+    approval->second.auto_attempted = true;
     try {
       if (s.value("external", false)) {
         unsigned char hash[SHA256_DIGEST_LENGTH];
-        SHA256(reinterpret_cast<const unsigned char *>(key.data()), key.size(), hash);
+        const auto identity = rt->runtime_id + ":" + approval->second.version;
+        SHA256(reinterpret_cast<const unsigned char *>(identity.data()), identity.size(), hash);
         std::string request = "auto-";
         for (auto byte : hash) {
           request += "0123456789abcdef"[byte >> 4];
           request += "0123456789abcdef"[byte & 15];
         }
-        external_answer(
-            id,
-            {{"action", "approval"}, {"requestId", request}, {"approvalId", key}, {"allow", true}},
-            [](Json, Json) {});
+        external_answer(id,
+                        {{"action", "approval"},
+                         {"requestId", request},
+                         {"internal", true},
+                         {"approvalId", key},
+                         {"runtimeId", rt->runtime_id},
+                         {"approvalVersion", approval->second.version},
+                         {"allow", true}},
+                        [](Json, Json) {});
       } else
         answer(id, key, true);
     } catch (const std::exception &error) {
@@ -1929,6 +2330,7 @@ public:
                                               : "Runtime exited before command execution"}}}});
       }
     }
+    store_.delivery_retire_session(id);
     emit(id, "sessionClosed", {{"state", s["state"]}});
     runtimes_.erase(id);
   }
@@ -2063,6 +2465,28 @@ public:
         return;
       try {
         for (auto &[id, r] : runtimes_) {
+          // A lost final RESULT/ACK or output frame must recover without new business.
+          // The maintenance timer already exists; idle streams emit no traffic.
+          for (const auto &[stream, route] : r->result_routes) {
+            if (route.at("epoch") != r->epoch)
+              continue;
+            const auto state = store_.delivery_result_state(stream);
+            if (state.at("sent") > state.at("acked")) {
+              const auto results = store_.delivery_results(stream, state.at("acked"));
+              if (!results.empty()) {
+                auto context = route;
+                context["seq"] = results.at(0).at("seq");
+                delivery_reply(id, context, nullptr);
+              }
+            }
+          }
+          if (r->rpc_delivery && r->epoch > 0) {
+            const auto state = store_.output_state("rpc-output:" + id);
+            if (state.at("sent") > state.at("acked")) {
+              r->rpc_sent = state.at("acked");
+              flush_rpc_output(id, r);
+            }
+          }
           std::vector<std::string> expired;
           for (auto &[key, a] : r->approvals)
             if (!r->external_approvals && now() - a.time > 600000)
@@ -2078,6 +2502,7 @@ public:
           approvals += runtime->approvals.size();
           commands += runtime->commands.size();
         }
+        const auto history_usage = store_.history_budget().at("global");
         std::cerr << Json{{"event", "agent_metrics"},
                           {"time", now()},
                           {"runtimes", runtimes_.size()},
@@ -2087,6 +2512,8 @@ public:
                           {"fileRequests", file_requests_},
                           {"fileQueueBytes", file_bytes_},
                           {"bufferedEvents", buffered_events_.size()},
+                          {"historyBytes", history_usage.at("bytes")},
+                          {"historyRecords", history_usage.at("records")},
                           {"eventBatches", event_batches_},
                           {"batchedEvents", event_count_},
                           {"eventBatchMaxUs", event_batch_max_us_},
@@ -2145,6 +2572,7 @@ public:
     asio::post(file_pool_, [this] { files_.clear(); });
     retry_.cancel();
     maintenance_.cancel();
+    history_retry_.cancel();
     signals_.cancel();
     asio::post(relay_io_, [this] {
       if (socket_)

@@ -1,12 +1,13 @@
 import { t } from './i18n.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryCache } from './history.ts';
-import { api, ApiError } from './api.ts';
+import { api, queryApi } from './api.ts';
 import { downloadFile } from './download.ts';
 import { FileResource } from './file-links.tsx';
+import type { OperationClient } from './operations.ts';
+import { prepareUpload, resumeUpload, uploadRecords } from './uploads.ts';
 
 type Entry = { name: string; directory: boolean; size: number };
-const chunkSize = 64 * 1024;
 function sizeLabel(size: number) {
   return size < 1024
     ? `${size} B`
@@ -20,12 +21,14 @@ export function WorkspaceFiles({
   target,
   onBusy,
   cache,
+  operations,
 }: {
   host: string;
   project: string;
   target?: string;
   onBusy?: (busy: boolean) => void;
   cache?: HistoryCache | null;
+  operations?: OperationClient | null;
 }) {
   const [path, setPath] = useState('');
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -46,7 +49,11 @@ export function WorkspaceFiles({
   const mounted = useRef(true);
   const uploadInput = useRef<HTMLInputElement>(null);
   const call = (data: unknown, signal?: AbortSignal) =>
-    api(
+    (['list', 'read', 'status'].includes(
+      (data as { operation: string }).operation,
+    )
+      ? queryApi
+      : api)(
       `/hosts/${host}/files`,
       { ...(data as object), projectId: project },
       signal,
@@ -84,12 +91,6 @@ export function WorkspaceFiles({
     }
   }
   useEffect(() => {
-    void cache
-      ?.record(`upload:${project}`)
-      .then((id) => {
-        if (mounted.current && id) setUnknownUpload(id);
-      })
-      .catch(() => {});
     setEntries([]);
     setNext(null);
     void load();
@@ -97,6 +98,30 @@ export function WorkspaceFiles({
       listing.current++;
     };
   }, [host, project, path]);
+  useEffect(() => {
+    if (!cache || !operations) return;
+    let disposed = false;
+    void uploadRecords(cache)
+      .then((records) => {
+        const original = records.find(
+          (record) =>
+            record.host === host &&
+            record.project === project &&
+            record.phase !== 'completed' &&
+            record.phase !== 'failed',
+        );
+        if (!disposed && original) {
+          setUnknownUpload(original.id);
+          void recoverUpload(original.id);
+        }
+      })
+      .catch((error) => {
+        if (!disposed) setError(String(error));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [host, project, cache, operations]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -118,7 +143,7 @@ export function WorkspaceFiles({
     if (e) {
       setError(
         controller.signal.aborted
-          ? '传输已取消。'
+          ? '传输已暂停。'
           : e instanceof Error
             ? e.message
             : String(e),
@@ -148,80 +173,71 @@ export function WorkspaceFiles({
     )
       return;
     const controller = start();
-    const uploadId = crypto.randomUUID();
-    let committed = false;
-    let publishing = false;
     try {
-      setProgress('正在准备上传…');
-      const begun = await call(
+      if (!cache || !operations)
+        throw new Error('本机存储尚未就绪，暂不能提交文件');
+      setProgress('正在保存原上传意图…');
+      const id = await prepareUpload(
+        cache,
+        operations,
+        file,
         {
-          operation: 'begin',
-          uploadId,
+          host,
+          project,
           path: path ? `${path}/${name}` : name,
-          size: file.size,
           overwrite,
         },
         controller.signal,
       );
-      const window = begun.window === 4 ? 4 : 1;
-      for (let base = 0; base < file.size; base += chunkSize * window) {
-        const offsets = Array.from(
-          { length: window },
-          (_, i) => base + i * chunkSize,
-        ).filter((offset) => offset < file.size);
-        // The Agent advertises a bounded reorder buffer. Older Agents stay sequential.
-        const results = await Promise.allSettled(
-          offsets.map(async (offset) => {
-            const bytes = new Uint8Array(
-              await file.slice(offset, offset + chunkSize).arrayBuffer(),
-            );
-            controller.signal.throwIfAborted();
-            let binary = '';
-            for (const byte of bytes) binary += String.fromCharCode(byte);
-            return call(
-              { operation: 'chunk', uploadId, offset, data: btoa(binary) },
-              controller.signal,
-            );
-          }),
-        );
-        for (const result of results)
-          if (result.status === 'rejected') throw result.reason;
-        const sent = Math.min(base + chunkSize * window, file.size);
-        if (mounted.current) {
-          setFraction(sent / file.size);
-          setProgress(
-            `${name} · ${sizeLabel(sent)} / ${sizeLabel(file.size)} · 正在上传 ${Math.round((sent / file.size) * 100)}%`,
-          );
-        }
-      }
-      if (!cache) throw new Error('本机存储尚未就绪，暂不能提交文件');
-      await cache.record(`upload:${project}`, uploadId);
-      publishing = true;
-      setProgress('正在确认文件提交…');
-      await call({ operation: 'finish', uploadId }, controller.signal);
-      committed = true;
-      await cache.record(`upload:${project}`, null);
-      if (mounted.current) {
-        setProgress(`已上传 ${name} · ${sizeLabel(file.size)}`);
-        setFile(undefined);
-        setName('');
-        setOverwrite(false);
-        if (uploadInput.current) uploadInput.current.value = '';
-        void load();
-      }
-      finish(controller);
-    } catch (e) {
+      setUnknownUpload(id);
+      await transferUpload(id, controller);
+    } catch (error) {
       if (
-        publishing &&
-        (!(e instanceof ApiError) || e.code === 'RESULT_UNKNOWN')
-      ) {
-        setUnknownUpload(uploadId);
-        setProgress('文件提交结果待确认，请查询状态后核对远程文件。');
-        finish(controller);
-      } else finish(controller, e);
-    } finally {
-      if (!committed && !publishing)
-        void call({ operation: 'cancel', uploadId }).catch(() => {});
+        cache &&
+        !(await uploadRecords(cache).catch(() => [])).some(
+          (record) => record.phase !== 'completed' && record.phase !== 'failed',
+        )
+      )
+        setUnknownUpload(undefined);
+      finish(controller, error);
+    }
+  }
+  async function transferUpload(id: string, controller: AbortController) {
+    if (!cache || !operations) throw new Error('本机存储尚未就绪');
+    const result = await resumeUpload(
+      cache,
+      operations,
+      id,
+      controller.signal,
+      (offset, total) => {
+        if (!mounted.current) return;
+        setFraction(total ? offset / total : 1);
+        setProgress(`${sizeLabel(offset)} / ${sizeLabel(total)} · 正在上传`);
+      },
+    );
+    if (mounted.current) {
+      setUnknownUpload(undefined);
+      const original = (await uploadRecords(cache)).find(
+        (record) => record.id === id,
+      );
+      setProgress(
+        `已上传 ${original?.path.split('/').pop() || '文件'} · SHA-256 ${result?.sha256}`,
+      );
+      setFile(undefined);
+      setName('');
+      setOverwrite(false);
+      if (uploadInput.current) uploadInput.current.value = '';
+      void load();
+    }
+    finish(controller);
+  }
+  async function recoverUpload(id: string) {
+    if (transfer.current || !cache || !operations || !mounted.current) return;
+    const controller = start();
+    try {
+      await transferUpload(id, controller);
+    } catch (error) {
+      finish(controller, error);
     }
   }
   async function download(entry: Entry) {
@@ -395,23 +411,43 @@ export function WorkspaceFiles({
         )}
       </form>
       {unknownUpload && (
-        <button
-          onClick={() =>
-            void call({ operation: 'status', uploadId: unknownUpload })
-              .then((result) => {
-                if (result.state === 'completed') {
-                  setProgress(`文件已提交 · SHA-256 ${result.sha256}`);
-                  setUnknownUpload(undefined);
-                  void cache?.record(`upload:${project}`, null);
-                  void load();
-                } else
-                  setProgress('结果仍待核对；请检查远程文件，勿直接覆盖重传。');
-              })
-              .catch((error: Error) => setError(error.message))
-          }
-        >
-          {t('查询提交结果')}
-        </button>
+        <>
+          <button
+            disabled={busy}
+            onClick={() => void recoverUpload(unknownUpload)}
+          >
+            {t('恢复原上传')}
+          </button>
+          <button
+            onClick={() =>
+              void uploadRecords(cache!)
+                .then((records) => {
+                  const original = records.find(
+                    (record) => record.id === unknownUpload,
+                  );
+                  if (!original?.instance)
+                    throw new Error('尚未取得上传实例，请恢复原上传');
+                  return call({
+                    operation: 'status',
+                    uploadId: unknownUpload,
+                    agentInstance: original.instance,
+                  });
+                })
+                .then((result) => {
+                  if (result.state === 'completed') {
+                    setProgress(`文件已提交 · SHA-256 ${result.sha256}`);
+                    void load();
+                  } else
+                    setProgress(
+                      '结果仍待核对；请检查远程文件，勿直接覆盖重传。',
+                    );
+                })
+                .catch((error: Error) => setError(error.message))
+            }
+          >
+            {t('查询提交结果')}
+          </button>
+        </>
       )}
       {busy && (
         <progress aria-label={t('文件传输进度')} value={fraction} max={1} />
@@ -423,12 +459,12 @@ export function WorkspaceFiles({
       )}
       {busy && (
         <button onClick={() => transfer.current?.abort()}>
-          {t('取消传输')}
+          {t('暂停传输')}
         </button>
       )}
       <p className="file-context">
         {t(
-          '仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会取消正在传输的文件，已完成的上传会保留。',
+          '仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会暂停传输并保留原上传，重新打开后恢复；已完成的上传会保留。',
         )}
       </p>
     </section>

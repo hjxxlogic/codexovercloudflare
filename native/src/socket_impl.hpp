@@ -149,6 +149,7 @@ public:
             r.set("CF-Access-Client-Id", access.first);
             r.set("CF-Access-Client-Secret", access.second);
           }
+          r.set("X-CoC-Delivery", "2");
           r.set(beast::http::field::authorization, "Bearer " + token);
         }));
     ws_.async_handshake(handshake_response_, url_.authority, path_, [self](auto ec) {

@@ -200,6 +200,7 @@ struct WorkspaceFiles::Upload {
   WinHandle file, previous_file;
   std::wstring name;
   std::string root, owner, previous;
+  std::string id;
   int64_t size = 0, offset = 0, touched = now();
   bool published = false;
   std::map<int64_t, std::string> pending;
@@ -215,16 +216,17 @@ WorkspaceFiles::WorkspaceFiles(Store *store) : store_(store) {}
 WorkspaceFiles::~WorkspaceFiles() = default;
 void WorkspaceFiles::clear() { uploads_.clear(); }
 void WorkspaceFiles::cleanup() {
-  for (auto it = completed_.begin(); it != completed_.end();) {
-    if (now() - it->second.value("completedAt", int64_t(0)) > 86400000)
-      it = completed_.erase(it);
-    else
-      ++it;
-  }
   for (auto it = uploads_.begin(); it != uploads_.end();) {
-    if (now() - it->second->touched > 600000)
+    if (now() - it->second->touched > 600000) {
+      const auto &upload = *it->second;
+      finish_receipt(upload.root, upload.owner, upload.id,
+                     {{"state", "unknown"},
+                      {"error",
+                       {{"code", "RESULT_UNKNOWN"},
+                        {"message", "Original upload expired; reconcile its target"}}}},
+                     false);
       it = uploads_.erase(it);
-    else
+    } else
       ++it;
   }
 }
@@ -304,39 +306,41 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
             {"offset", offset + bytes.size()},
             {"version", stamp}};
   }
+  const auto id = d.at("uploadId").get<std::string>();
+  const auto identity = workspace_upload_identity(root, owner, id);
+  const auto receipt = upload_receipt(root, owner, id);
   if (operation == "status" || operation == "finish") {
-    const auto key = "upload:" + owner + ":" + root + ":" + d.at("uploadId").get<std::string>();
-    Json completed;
-    if (store_)
-      completed = store_->cache_get(key);
-    else if (completed_.count(key))
-      completed = completed_.at(key);
-    if (!completed.is_null() && now() - completed.value("completedAt", int64_t(0)) <= 86400000)
-      return completed;
+    if (!receipt.is_null() && receipt.at("phase") != "started") {
+      if (operation == "finish" && receipt.at("phase") == "completed" && d.contains("sha256") &&
+          d.at("sha256") != receipt.at("result").at("sha256"))
+        throw Error("UPLOAD_CONFLICT",
+                    "Completed file checksum differs from the original intention");
+      if (operation == "status" || receipt.at("phase") == "completed")
+        return receipt.at("result");
+      throw Error("RESULT_UNKNOWN", "Original upload was retired; reconcile its target");
+    }
     if (operation == "status") {
-      auto it = uploads_.find(d.at("uploadId"));
-      if (it == uploads_.end() || it->second->root != root || it->second->owner != owner)
-        return {{"state", "not_found"}};
+      auto it = uploads_.find(identity);
+      if (it == uploads_.end())
+        return {{"state", receipt.is_null() ? "not_found" : "unknown"}};
       return {{"state", it->second->published ? "unknown" : "uploading"},
               {"offset", it->second->offset}};
     }
   }
   if (sandbox != "workspace-write")
     throw Error("FORBIDDEN", "Uploads are disabled by the Agent read-only policy");
-  auto id = d.at("uploadId").get<std::string>();
+  if (operation == "cancel" && !receipt.is_null() && receipt.at("phase") != "started")
+    return receipt.at("result");
   if (!valid_id(id))
     throw Error("INVALID_REQUEST", "Invalid upload identifier");
   if (operation == "begin") {
-    const auto completed_key = "upload:" + owner + ":" + root + ":" + id;
-    Json completed;
-    if (store_)
-      completed = store_->cache_get(completed_key);
-    else if (completed_.count(completed_key))
-      completed = completed_.at(completed_key);
-    if (!completed.is_null() && now() - completed.value("completedAt", int64_t(0)) <= 86400000)
-      throw Error("UPLOAD_EXISTS", "Upload identifier already completed; use a new identifier");
-    if (uploads_.count(id))
-      throw Error("UPLOAD_EXISTS", "Upload already exists");
+    if (!receipt.is_null()) {
+      begin_receipt(root, owner, id, d);
+      const auto existing = uploads_.find(identity);
+      if (existing == uploads_.end())
+        throw Error("RESULT_UNKNOWN", "Original upload no longer has a live staging file");
+      return {{"offset", existing->second->offset}, {"window", 4}};
+    }
     if (uploads_.size() >= 4)
       throw Error("CAPACITY", "At most four concurrent file uploads");
     auto parts = components(d.at("path"));
@@ -348,6 +352,7 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     upload->name = wide(parts.back());
     upload->root = root;
     upload->owner = owner;
+    upload->id = id;
     upload->size = size;
     try {
       auto previous = open_file(*upload->parent, upload->name, GENERIC_READ, OPEN_EXISTING,
@@ -360,23 +365,34 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       if (error.code != "FILE_NOT_FOUND")
         throw;
     }
+    begin_receipt(root, owner, id, d);
     upload->file = WinHandle(
         relative_file(upload->parent->ancestors.back().get(), wide(".coc-upload-" + uuid()),
                       GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ | FILE_SHARE_DELETE,
                       CREATE_NEW, false, true));
     if (!upload->file)
       failed();
-    uploads_[id] = std::move(upload);
+    uploads_[identity] = std::move(upload);
     return {{"offset", 0}, {"window", 4}};
   }
-  auto it = uploads_.find(id);
+  auto it = uploads_.find(identity);
   if (it == uploads_.end() || it->second->root != root || it->second->owner != owner)
     throw Error("UPLOAD_NOT_FOUND", "Upload is missing, expired or belongs to another credential");
   auto &upload = *it->second;
   upload.touched = now();
   if (operation == "cancel") {
+    if (!upload.published) {
+      FILE_DISPOSITION_INFO disposition{TRUE};
+      if (!SetFileInformationByHandle(upload.file.get(), FileDispositionInfo, &disposition,
+                                      sizeof(disposition)))
+        throw Error("RESULT_UNKNOWN", "Cannot reclaim original upload staging file");
+      upload.file.reset();
+    }
+    Json result = {{"ok", !upload.published},
+                   {"state", upload.published ? "unknown" : "cancelled"}};
+    finish_receipt(root, owner, id, result, true);
     uploads_.erase(it);
-    return {{"ok", true}};
+    return result;
   }
   if (operation == "chunk") {
     auto bytes = decode(d.at("data"));
@@ -388,6 +404,8 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       if (read_at(upload.file.get(), prior.data(), prior.size(), offset) != int64_t(prior.size()) ||
           prior != bytes)
         throw Error("UPLOAD_CONFLICT", "Upload retry does not match stored bytes");
+      if (!FlushFileBuffers(upload.file.get()))
+        failed();
       return {{"offset", upload.offset}};
     }
     if (offset < upload.offset || (bytes.empty() && upload.size > 0))
@@ -412,6 +430,8 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
       upload.offset += next.size();
       upload.pending.erase(upload.pending.begin());
     }
+    if (!FlushFileBuffers(upload.file.get()))
+      failed();
     return {{"offset", upload.offset}};
   }
   if (operation != "finish")
@@ -420,6 +440,27 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     throw Error("UPLOAD_INCOMPLETE", "All file bytes must arrive before publishing");
   if (!FlushFileBuffers(upload.file.get()))
     failed();
+  EVP_MD_CTX *raw = EVP_MD_CTX_new();
+  if (!raw)
+    throw Error("RESULT_UNKNOWN", "Cannot calculate upload checksum");
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> hash(raw, EVP_MD_CTX_free);
+  EVP_DigestInit_ex(raw, EVP_sha256(), nullptr);
+  char buffer[65536];
+  for (int64_t offset = 0; offset < upload.size;) {
+    auto count = read_at(upload.file.get(), buffer, sizeof(buffer), offset);
+    if (count <= 0)
+      throw Error("RESULT_UNKNOWN", "Cannot verify published file");
+    EVP_DigestUpdate(raw, buffer, count);
+    offset += count;
+  }
+  unsigned char digest[EVP_MAX_MD_SIZE];
+  unsigned length = 0;
+  EVP_DigestFinal_ex(raw, digest, &length);
+  std::ostringstream checksum;
+  for (unsigned i = 0; i < length; ++i)
+    checksum << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(digest[i]);
+  if (d.contains("sha256") && (!d.at("sha256").is_string() || d.at("sha256") != checksum.str()))
+    throw Error("UPLOAD_CONFLICT", "Staging file checksum differs from the original intention");
   if (!upload.published) {
     if (!upload.previous.empty()) {
       auto current = open_file(*upload.parent, upload.name, GENERIC_READ, OPEN_EXISTING,
@@ -459,35 +500,12 @@ Json WorkspaceFiles::request(const std::string &root, const std::string &sandbox
     rename_relative(upload.file.get(), rename, DWORD(storage.size()));
     upload.published = true;
   }
-  EVP_MD_CTX *raw = EVP_MD_CTX_new();
-  if (!raw)
-    throw Error("RESULT_UNKNOWN", "Cannot calculate upload checksum");
-  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> hash(raw, EVP_MD_CTX_free);
-  EVP_DigestInit_ex(raw, EVP_sha256(), nullptr);
-  char buffer[65536];
-  for (int64_t offset = 0; offset < upload.size;) {
-    auto count = read_at(upload.file.get(), buffer, sizeof(buffer), offset);
-    if (count <= 0)
-      throw Error("RESULT_UNKNOWN", "Cannot verify published file");
-    EVP_DigestUpdate(raw, buffer, count);
-    offset += count;
-  }
-  unsigned char digest[EVP_MAX_MD_SIZE];
-  unsigned length = 0;
-  EVP_DigestFinal_ex(raw, digest, &length);
-  std::ostringstream checksum;
-  for (unsigned i = 0; i < length; ++i)
-    checksum << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(digest[i]);
   Json result = {{"ok", true},
                  {"state", "completed"},
                  {"size", upload.size},
                  {"sha256", checksum.str()},
                  {"completedAt", now()}};
-  const auto key = "upload:" + owner + ":" + root + ":" + id;
-  if (store_)
-    store_->cache_put(key, result);
-  else
-    completed_[key] = result;
+  finish_receipt(root, owner, id, result, true);
   uploads_.erase(it);
   return result;
 }

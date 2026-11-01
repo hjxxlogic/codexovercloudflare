@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import fixtures from './protocol-fixtures.json';
 import emailFixtures from './access-email-fixtures.json';
+import operationFixtures from './operation-intent-fixtures.json';
 import {
   agentConfigSchema,
   accessEmailsSchema,
   webCommandSchema,
+  operationIntentSchema,
 } from '../packages/protocol/src/index.ts';
 describe('shared C++/Zod protocol examples', () => {
+  it('validates original operation identities and confirmations consistently with native', () => {
+    for (const fixture of operationFixtures) {
+      const result = operationIntentSchema.safeParse(fixture.input);
+      expect(result.success).toBe(!fixture.error);
+      if (result.success) expect(result.data).toEqual(fixture.output);
+    }
+  });
   for (const [index, fixture] of fixtures.entries())
     it(`normalizes or rejects example ${index}`, () => {
       const result = webCommandSchema.safeParse(fixture.input);

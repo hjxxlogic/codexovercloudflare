@@ -27,6 +27,7 @@ const clientInstances: string[] = [];
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('X-CoC-Demand', '1');
+  res.setHeader('X-CoC-Delivery', '2');
   if (req.url === '/api/v1/agent/requests')
     res.end(JSON.stringify({ pending: [] }));
   else if (req.url === '/api/v1/sessions/host~session/attach') {
@@ -34,6 +35,7 @@ const server = createServer((req, res) => {
     res.end(
       JSON.stringify({
         mode: 'cli',
+        delivery: 2,
         ticket: 'ticket',
         sandbox: 'workspace-write',
       }),
@@ -55,7 +57,7 @@ sockets.on('connection', (ws, req) => {
   ws.send(
     JSON.stringify(
       kind === 'agent'
-        ? { type: 'hello', demand: 1, minProtocol: 1 }
+        ? { type: 'hello', delivery: 2, demand: 1, minProtocol: 1 }
         : kind === 'client'
           ? { type: 'management-ready' }
           : { type: 'history-ready' },

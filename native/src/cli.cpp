@@ -1,6 +1,7 @@
 #include "coc/access.hpp"
 #include "coc/build.hpp"
 #include "coc/diagnostics.hpp"
+#include "coc/history_subscription.hpp"
 #include "coc/login.hpp"
 #include "coc/projects.hpp"
 #include "coc/proxy.hpp"
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <sstream>
 #ifndef _WIN32
@@ -70,15 +72,122 @@ class Cli {
   Json api(const std::string &p, const Json &body = nullptr, const std::string &request_id = "") {
     const auto c = load();
     start_management(c);
-    const auto id = request_id.empty() ? option("request-id", uuid()) : request_id;
-    try {
-      return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
-    } catch (const Error &e) {
-      if (e.code != "HOST_OFFLINE")
+    const auto id = request_id.empty() ? body.is_object() && body.contains("requestId")
+                                             ? body.at("requestId").get<std::string>()
+                                             : option("request-id", uuid())
+                                       : request_id;
+    const bool original_write =
+        !body.is_null() &&
+        (p == "/sessions" ||
+         (p.rfind("/sessions/", 0) == 0 &&
+          ((p.size() >= 5 && p.substr(p.size() - 5) == "/stop") ||
+           (p.size() >= 6 && p.substr(p.size() - 6) == "/queue") ||
+           (p.size() >= 9 && p.substr(p.size() - 9) == "/approval"))) ||
+         (p.find("/project-management") != std::string::npos &&
+          body.value("operation", "list") != "list" && body.value("operation", "") != "browse"));
+    if (original_write)
+      return original_api(c, p, body, id);
+    bool woke = false;
+    for (unsigned attempt = 0;;) {
+      try {
+        return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
+      } catch (const Error &e) {
+        if (e.code == "HOST_OFFLINE" && !woke) {
+          wait_for_host(c);
+          woke = true;
+          continue;
+        }
+        if ((body.is_null() || p.find("/probe") != std::string::npos) &&
+            e.code == "RESULT_UNKNOWN" && attempt < 2) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(500 << attempt++));
+          continue;
+        }
         throw;
-      wait_for_host(c);
-      return http_json(relay_url(c.at("relay")), "/api/v1" + p, body, c.at("token"), id);
+      }
     }
+  }
+  Json original_api(const Json &credential, const std::string &path, const Json &body,
+                    const std::string &request) {
+    auto journal = history_cache(credential);
+    auto record = journal->local_operation(request);
+    if (record.is_null()) {
+      const auto probe =
+          api("/hosts/" + credential.at("hostId").get<std::string>() + "/probe", Json::object());
+      if (!probe.contains("deliveryInstance") || !probe.at("deliveryInstance").is_string())
+        throw Error("UPGRADE_REQUIRED",
+                    "Agent must provide its persistent original-operation instance");
+      record = journal->local_operation_prepare(request, path, body, probe.at("deliveryInstance"));
+    } else
+      record = journal->local_operation_prepare(request, path, body, record.at("instance"));
+    const auto url = relay_url(credential.at("relay"));
+    const auto token = credential.at("token").get<std::string>();
+    const auto instance = record.at("instance").get<std::string>();
+    std::cerr << "Original operation: " << request << "; recover with coc-client request "
+              << request << '\n';
+    for (unsigned attempt = 0; record.at("state") == "pending"; ++attempt) {
+      HttpIntent intent{instance, false, [&](const Json &envelope, const Json &receipt) {
+                          journal->local_operation_finish(request, envelope, receipt);
+                        }};
+      try {
+        http_json(url, "/api/v1" + path, body, token, request, std::chrono::seconds(30), &intent);
+      } catch (const Error &error) {
+        record = journal->local_operation(request);
+        if (record.at("state") != "pending")
+          break;
+        if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK" &&
+            error.code != "RESULT_UNKNOWN" && error.code != "RESULT_PENDING" &&
+            error.code != "HOST_OFFLINE" && error.code != "AGENT_NEGOTIATING" &&
+            error.code != "BACKPRESSURE")
+          throw;
+        const auto delay = attempt < 3
+                               ? (1u << attempt)
+                               : 30u + unsigned(std::stoul(uuid().substr(0, 4), nullptr, 16) % 31);
+        std::cerr << "Waiting to recover original operation " << request << " (" << error.code
+                  << "); retry in " << delay << " seconds\n";
+        std::this_thread::sleep_for(std::chrono::seconds(delay));
+        continue;
+      }
+      record = journal->local_operation(request);
+      if (record.at("state") == "pending")
+        throw Error("RESULT_UNKNOWN", "Original response did not commit a durable result");
+    }
+    if (!record.contains("result"))
+      throw Error("RESULT_UNAVAILABLE", "Confirmed original result was retired locally");
+    const auto terminal = record.at("result");
+    if (record.at("state") == "completed") {
+      HttpIntent confirmation{
+          instance, true, [&](const Json &envelope, const Json &receipt) {
+            if (!envelope.contains("data") || !envelope.at("data").value("confirmed", false) ||
+                receipt.at("owner") != record.at("receipt").at("owner"))
+              throw Error("DELIVERY_STATE_MISMATCH", "Invalid original result confirmation");
+            journal->local_operation_confirm(request);
+          }};
+      for (unsigned attempt = 0;; ++attempt) {
+        try {
+          http_json(url, "/api/v1" + path, body, token, request, std::chrono::seconds(30),
+                    &confirmation);
+          break;
+        } catch (const Error &error) {
+          if (journal->local_operation(request).at("state") == "confirmed")
+            break;
+          if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK" &&
+              error.code != "RESULT_UNKNOWN" && error.code != "RESULT_PENDING" &&
+              error.code != "HOST_OFFLINE" && error.code != "AGENT_NEGOTIATING" &&
+              error.code != "BACKPRESSURE")
+            throw;
+          const auto delay =
+              attempt < 3 ? (1u << attempt)
+                          : 30u + unsigned(std::stoul(uuid().substr(0, 4), nullptr, 16) % 31);
+          std::cerr << "Original result saved locally; waiting to confirm " << request << " ("
+                    << error.code << "); retry in " << delay << " seconds\n";
+          std::this_thread::sleep_for(std::chrono::seconds(delay));
+        }
+      }
+    }
+    if (terminal.contains("error"))
+      throw Error(terminal.at("error").value("code", "RESULT_UNKNOWN"),
+                  terminal.at("error").value("message", "Original operation failed"));
+    return terminal.at("data");
   }
   Json wake(const Json &c) {
     return http_json(relay_url(c.at("relay")),
@@ -116,7 +225,8 @@ class Cli {
       scope << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(byte);
     auto root =
         option("cache-dir", config_path("COC_HISTORY_DIR", "coc-client/history").u8string());
-    return std::make_unique<Store>((std::filesystem::u8path(root) / scope.str()).u8string(), false);
+    return std::make_unique<Store>((std::filesystem::u8path(root) / "transport-v3").u8string(),
+                                   false, scope.str() + ":");
   }
   int64_t cursor_option(const std::string &name) {
     auto text = option(name, "0");
@@ -224,7 +334,7 @@ class Cli {
     auto c = load();
     verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
     auto u = relay_url(c.at("relay"));
-    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), {{"delivery", 1}});
+    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), {{"delivery", 2}});
     if (t["mode"] != "cli")
       throw Error("WRONG_MODE", "Use the browser for a web session");
     std::cout << "Remote session: " << id << '\n' << std::flush;
@@ -245,25 +355,18 @@ class Cli {
       });
     };
     refresh_state();
-    std::unique_ptr<Store> cache;
-    try {
-      cache = history_cache(c);
-    } catch (const std::exception &error) {
-      if (t.value("delivery", 0) == 1)
-        throw;
-      std::cerr << "Local history cache unavailable: " << error.what() << '\n';
-    }
-    auto command_store = t.value("delivery", 0) == 1 ? history_cache(c) : nullptr;
-    std::unique_ptr<TuiBridge> bridge;
-    auto url = remote_address(u, "/ws/v1/cli/" + id);
-    if (proxy_enabled() || access_enabled(u) || t.value("delivery", 0) == 1) {
-      const auto resume_connection = [this, id](Json resume) {
-        return api("/sessions/" + id + "/attach", {{"delivery", 1}, {"resume", resume}});
-      };
-      bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id,
-                                           command_store.get(), resume_connection);
-      url = bridge->url();
-    }
+    if (t.value("delivery", 0) != 2)
+      throw Error("UPGRADE_REQUIRED",
+                  "Business transport delivery:2 required; upgrade Relay and Agent");
+    auto cache = history_cache(c);
+    std::unique_ptr<HistorySubscription> history_subscription;
+    auto command_store = history_cache(c);
+    const auto resume_connection = [this, id](Json resume) {
+      return api("/sessions/" + id + "/attach", {{"delivery", 2}, {"resume", resume}});
+    };
+    auto bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id,
+                                              command_store.get(), resume_connection);
+    auto url = bridge->url();
     std::vector<std::string> args = {"codex",
                                      "--remote",
                                      url,
@@ -294,7 +397,6 @@ class Cli {
     auto tail = cache ? cache->cache_get(pageKey) : Json();
     if (tail.is_null())
       tail = {{"events", Json::array()}, {"more", false}, {"cursor", 0}};
-    int64_t durable_revision = tail.value("receivedRevision", int64_t(-1));
     const auto persist_tail = [&] {
       auto &events = tail["events"];
       std::sort(events.begin(), events.end(),
@@ -309,15 +411,19 @@ class Cli {
       if (cache) {
         try {
           cache->cache_put(pageKey, tail);
-          durable_revision = tail.value("receivedRevision", int64_t(-1));
         } catch (const std::exception &error) {
           std::cerr << "History cache: " << error_data(error).dump() << '\n';
+          history_subscription.reset();
           cache.reset();
         }
       }
     };
     std::shared_ptr<Socket> reader;
     bool finished = false, reconnect_reader = false, history_pending = false, history_ready = false;
+    bool history_frozen = false;
+    int history_generation = 0, reader_attempts = 0;
+    int64_t reader_retry_at = 0, history_connected_at = 0;
+    std::string history_request;
     int64_t history_requested = 0;
     int64_t received_revision = tail.value("receivedRevision", int64_t(-1)), maximum_revision = 0;
     std::function<void()> read_history = [&] {
@@ -325,28 +431,77 @@ class Cli {
         return;
       history_pending = true;
       history_requested = now();
-      Json command = {{"operation", "page"}, {"requestId", uuid()}};
-      if (durable_revision >= 0)
-        command["receivedRevision"] = durable_revision;
+      history_request = uuid();
+      Json command = {{"operation", "page"}, {"requestId", history_request}};
       command[received_revision < 0 ? "before" : "after"] =
           received_revision < 0 ? 0 : received_revision;
       reader->send(command);
     };
+    const auto history_failed = [&](const Json &error) {
+      std::cerr << "History subscription paused: " << error.dump() << '\n';
+      history_frozen = true;
+      history_ready = false;
+      if (history_subscription)
+        history_subscription->stop();
+      if (reader)
+        reader->close();
+    };
+    if (cache) {
+      try {
+        history_subscription = std::make_unique<HistorySubscription>(
+            history_io, *cache, id + ":history-subscription",
+            [&] {
+              const auto saved = cache->cache_get(pageKey);
+              return saved.is_null() ? int64_t(-1) : saved.value("receivedRevision", int64_t(-1));
+            },
+            [&](int64_t maximum) {
+              maximum_revision = std::max(maximum_revision, maximum);
+              if (received_revision < 0 || maximum_revision > received_revision)
+                read_history();
+            },
+            [&] {
+              history_ready = true;
+              reader_attempts = 0;
+              read_history();
+            },
+            history_failed);
+      } catch (const std::exception &error) {
+        std::cerr << "History subscription unavailable; read-only observation: "
+                  << error_data(error).dump() << '\n';
+      }
+    }
     std::function<void()> reconnect = [&] {
+      const auto connection = ++history_generation;
+      history_connected_at = now();
       reader = connect_socket(
           history_io, u, c.at("token"),
-          [&](Json d) {
+          [&, connection](Json d) {
+            if (connection != history_generation || history_frozen || finished)
+              return;
             if (d.contains("receiptId"))
               reader->send({{"type", "receipt"}, {"receiptId", d["receiptId"]}});
-            if (d.contains("heads") && d["heads"].is_object()) {
-              maximum_revision = std::max(maximum_revision, d["heads"].value("agent", int64_t(0)));
-              if (bridge)
-                bridge->observe_output_head(d["heads"].value("rpc", int64_t(0)));
-            }
             if (d.value("type", "") == "history-ready") {
-              history_ready = true;
-              read_history();
+              if (history_subscription)
+                history_subscription->connect([&, connection](Json frame) {
+                  if (!finished && !history_frozen && connection == history_generation)
+                    reader->send(frame);
+                });
+              else {
+                history_ready = true;
+                reader_attempts = 0;
+                read_history();
+              }
+              return;
             }
+            try {
+              if (history_subscription && history_subscription->receive(d))
+                return;
+            } catch (const std::exception &error) {
+              history_failed(error_data(error));
+              return;
+            }
+            if (d.value("type", "") == "history" && d.value("requestId", "") != history_request)
+              return;
             if (d.value("type", "") == "history" || d.value("type", "") == "error")
               history_pending = false;
             if (d.value("type", "") == "history" && d.contains("events")) {
@@ -371,10 +526,14 @@ class Cli {
                                                    : d.value("snapshotSeq", int64_t(0)));
               tail["receivedRevision"] = received_revision;
               persist_tail();
+              if (history_subscription)
+                history_subscription->commit();
               if (more || maximum_revision > received_revision)
                 read_history();
             }
             if (d.value("type", "") == "event") {
+              if (!history_ready)
+                return;
               auto &events = tail["events"];
               auto event = d.at("event");
               bool found = false;
@@ -396,39 +555,54 @@ class Cli {
               }
               tail["receivedRevision"] = received_revision;
               persist_tail();
+              if (history_subscription)
+                history_subscription->commit();
               if (received_revision >= 0 && maximum_revision > received_revision)
                 read_history();
             }
           },
-          [&](unsigned code) {
+          [&, connection](unsigned code) {
+            if (connection != history_generation)
+              return;
+            if (history_subscription)
+              history_subscription->disconnect();
             if (code == 4001) {
               finished = true;
               refresh_enabled = false;
               demand_refresh.cancel();
               return;
             }
-            if (finished)
+            if (finished || history_frozen)
               return;
             history_ready = false;
             history_pending = false;
             reconnect_reader = true;
+            unsigned char random = 0;
+            RAND_bytes(&random, 1);
+            reader_retry_at = now() + (reader_attempts < 3 ? (1000 << reader_attempts++)
+                                                           : 30000 + 30000 * random / 255);
           },
           "/ws/v1/history/" + id);
       reader->start();
     };
     recover_reader = [&] {
-      if (finished)
+      if (finished || history_frozen)
         return;
+      if (!history_ready && !reconnect_reader && now() - history_connected_at >= 15000) {
+        reader->close();
+        return;
+      }
       if (history_pending && now() - history_requested >= 20000) {
         std::cerr
             << "RESULT_UNKNOWN: history refresh unconfirmed; reconnecting read-only transport\n";
         reader->close();
         return;
       }
-      if (reconnect_reader) {
+      if (reconnect_reader && now() >= reader_retry_at) {
         reconnect_reader = false;
         reconnect();
-      } else if (history_ready && !history_pending) {
+      } else if (history_ready && !history_pending &&
+                 (received_revision < 0 || maximum_revision > received_revision)) {
         read_history();
       }
     };
@@ -474,6 +648,8 @@ class Cli {
     finished = true;
     refresh_enabled = false;
     demand_refresh.cancel();
+    if (history_subscription)
+      history_subscription->stop();
     reader->close();
     bridge.reset();
     history_io.restart();
@@ -671,14 +847,19 @@ public:
     } else if (command == "approvals") {
       std::cout << api("/sessions/" + id + "/approvals").dump(2) << '\n';
     } else if (command == "approve" || command == "reject") {
-      if (id.empty() || option("approval-id").empty())
-        throw Error("USAGE", "approve|reject SESSION_ID --approval-id ID [--request-id ID]");
+      if (id.empty() || option("approval-id").empty() || !valid_id(option("runtime-id")) ||
+          !valid_id(option("approval-version")))
+        throw Error("USAGE", "approve|reject SESSION_ID --approval-id ID --runtime-id ID "
+                             "--approval-version ID [--request-id ID]");
       const auto request_id = option("request-id", uuid());
       if (!valid_id(request_id))
         throw Error("USAGE", "Invalid --request-id");
       std::cerr << "Approval request ID: " << request_id << "; query its status before retrying\n";
       std::cout << api("/sessions/" + id + "/approval",
-                       {{"approvalId", option("approval-id")}, {"allow", command == "approve"}},
+                       {{"approvalId", option("approval-id")},
+                        {"runtimeId", option("runtime-id")},
+                        {"approvalVersion", option("approval-version")},
+                        {"allow", command == "approve"}},
                        request_id)
                        .dump(2)
                 << '\n';
@@ -701,10 +882,33 @@ public:
     else if (command == "request") {
       if (!valid_id(id))
         throw Error("USAGE", "request <request-id> [--session SESSION]");
-      std::cout << api("/hosts/" + load().at("hostId").get<std::string>() + "/requests/" + id +
-                       (option("session").empty() ? "" : "?sessionId=" + option("session")))
-                       .dump(2)
-                << '\n';
+      const auto credential = load();
+      auto journal = history_cache(credential);
+      auto original = journal->local_operation(id);
+      if (!original.is_null()) {
+        Json terminal = original.value("result", Json());
+        if (original.contains("body")) {
+          try {
+            terminal = {
+                {"data", original_api(credential, original.at("path"), original.at("body"), id)}};
+          } catch (const Error &) {
+            original = journal->local_operation(id);
+            if (!original.contains("result"))
+              throw;
+            terminal = original.at("result");
+          }
+        }
+        if (terminal.is_null())
+          throw Error("RESULT_UNAVAILABLE", "Confirmed original result was retired locally");
+        Json result = {{"state", "completed"}};
+        if (terminal.contains("error"))
+          result["error"] = terminal.at("error");
+        else
+          result["result"] = terminal.at("data");
+        std::cout << result.dump(2) << '\n';
+        return;
+      }
+      throw Error("NOT_FOUND", "Original intention is absent from this credential's local journal");
     } else if (command == "connect") {
       auto h = host();
       if (option("project").empty())
@@ -712,10 +916,6 @@ public:
       auto request_id = option("request-id", uuid());
       if (!valid_id(request_id))
         throw Error("USAGE", "Invalid --request-id");
-      auto credential = load();
-      auto journal = history_cache(credential);
-      journal->cache_put("create:" + request_id,
-                         {{"projectId", option("project")}, {"requestId", request_id}});
       std::cerr << "Create request ID: " << request_id << "; query with coc-client request "
                 << request_id << " if unconfirmed\n";
       auto s = api("/sessions",
@@ -746,7 +946,8 @@ public:
              "--config PATH "
              "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
-             "--session ID --offline true --cache-dir PATH\n"
+             "--session ID --approval-id ID --runtime-id ID --approval-version ID "
+             "--offline true --cache-dir PATH\n"
              "login: send optional --message TEXT; --host ID explicitly targets that Agent "
              "for approval. Without --host the administrator selects the server. "
              "login --api-key: requires --host ID; read COC_API_KEY or prompt securely. "

@@ -7,6 +7,9 @@ import { join, resolve } from 'node:path';
 import { WebSocketServer } from 'ws';
 const dir = mkdtempSync(join(tmpdir(), 'coc-refresh-'));
 const reads: number[] = [];
+let scenario = 'delayed';
+let scenarioCalls = 0;
+const scenarioIds: string[] = [];
 let started = 0,
   mutations = 0;
 const server = createServer((req, res) => {
@@ -14,12 +17,52 @@ const server = createServer((req, res) => {
     res.writeHead(status, {
       'Content-Type': 'application/json',
       'X-CoC-Demand': '1',
+      'X-CoC-Delivery': '2',
     });
     res.end(JSON.stringify(value));
   };
   if (req.url === '/api/v1/hosts') return send([{ id: 'host', online: true }]);
   if (req.url === '/api/v1/hosts/host/probe')
-    return send({ online: true, confirmedAt: Date.now() });
+    return send({
+      online: true,
+      confirmedAt: Date.now(),
+      deliveryInstance: 'agent-store',
+    });
+  if (
+    scenario !== 'delayed' &&
+    (req.url === '/api/v1/hosts/host/projects' ||
+      req.url === '/api/v1/sessions/host~session/stop')
+  ) {
+    scenarioCalls++;
+    scenarioIds.push(String(req.headers['idempotency-key']));
+    if (scenario === 'recover' && scenarioCalls === 1)
+      return send(
+        { accepted: true, operationId: 'delivery_lost', hostId: 'host' },
+        202,
+      );
+    if (scenario === 'recover') return send([{ id: 'recovered' }]);
+    return send(
+      {
+        error: {
+          code: ['forbidden', 'mutation'].includes(scenario)
+            ? 'FORBIDDEN'
+            : 'RESULT_UNKNOWN',
+          message: 'Synthetic endpoint response',
+        },
+      },
+      ['forbidden', 'mutation'].includes(scenario) ? 403 : 409,
+    );
+  }
+  if (req.url === '/api/v1/hosts/host/operations/delivery_lost')
+    return send(
+      {
+        error: {
+          code: 'RESULT_UNKNOWN',
+          message: 'Forwarding correlation lost',
+        },
+      },
+      409,
+    );
   if (req.url === '/api/v1/hosts/host/projects') {
     mutations++;
     started = Date.now();
@@ -68,7 +111,10 @@ writeFileSync(
 const child = spawn(
   resolve(process.env.COC_CLI_BINARY || 'build/coc-client'),
   ['projects', '--config', file],
-  { stdio: ['ignore', 'pipe', 'pipe'] },
+  {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, COC_HISTORY_DIR: join(dir, 'history') },
+  },
 );
 let output = '',
   errors = '';
@@ -94,6 +140,42 @@ try {
     reads.length,
     finished,
     'client must stop refresh after command completes',
+  );
+  for (const [name, command, expectedCalls, expectedExit] of [
+    ['recover', ['projects'], 2, 0],
+    ['exhaust', ['projects'], 3, 1],
+    ['forbidden', ['projects'], 1, 1],
+    ['mutation', ['stop', 'host~session'], 1, 1],
+  ] as const) {
+    scenario = name;
+    scenarioCalls = 0;
+    scenarioIds.length = 0;
+    const probe = spawn(
+      resolve(process.env.COC_CLI_BINARY || 'build/coc-client'),
+      [...command, '--config', file],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, COC_HISTORY_DIR: join(dir, 'history') },
+      },
+    );
+    let stdout = '',
+      stderr = '';
+    probe.stdout.on('data', (value) => (stdout += value));
+    probe.stderr.on('data', (value) => (stderr += value));
+    const deadline = setTimeout(() => probe.kill('SIGKILL'), 8000);
+    const exit = await new Promise((done) => probe.once('close', done));
+    clearTimeout(deadline);
+    assert.equal(exit, expectedExit, stderr);
+    assert.equal(scenarioCalls, expectedCalls, name);
+    assert.equal(
+      new Set(scenarioIds).size,
+      1,
+      'retry preserves original read identity',
+    );
+    if (name === 'recover') assert.equal(JSON.parse(stdout)[0].id, 'recovered');
+  }
+  console.log(
+    'PASS: native read recovery after relay reconstruction, bounded retries, read and write authorization stop',
   );
   console.log(
     JSON.stringify({

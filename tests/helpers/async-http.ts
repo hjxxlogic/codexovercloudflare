@@ -11,7 +11,9 @@ export async function resolveAsync(
   return new Promise<Response>((resolve, reject) => {
     let ended = false,
       running = false,
-      dirty = false;
+      dirty = false,
+      attempts = 0;
+    let poll: ReturnType<typeof setTimeout> | undefined;
     const options = { headers, closeTimeout: 1000 };
     const socket = new WebSocket(
       origin.replace(/^http/, 'ws') + '/ws/v1/hosts/' + accepted.hostId,
@@ -21,6 +23,7 @@ export async function resolveAsync(
       if (ended) return;
       ended = true;
       clearTimeout(deadline);
+      clearTimeout(poll);
       socket.close();
       if (error) reject(error);
       else resolve(value!);
@@ -38,6 +41,7 @@ export async function resolveAsync(
       }
       running = true;
       dirty = false;
+      clearTimeout(poll);
       try {
         const path =
           origin +
@@ -70,6 +74,11 @@ export async function resolveAsync(
       } finally {
         running = false;
         if (dirty && !ended) void read();
+        else if (!ended)
+          poll = setTimeout(
+            () => void read(),
+            Math.min(2000, 250 * 2 ** Math.min(attempts++, 3)),
+          );
       }
     };
     socket.on('message', (raw) => {

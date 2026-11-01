@@ -4,6 +4,10 @@
 export class HistorySync {
   received: number | undefined;
   maximum = 0;
+  reset() {
+    this.received = undefined;
+    this.maximum = 0;
+  }
   private valid(value: unknown): value is number {
     return (
       typeof value === 'number' && Number.isSafeInteger(value) && value >= 0

@@ -14,11 +14,17 @@ import {
   eventSchema,
   agentBuildSchema,
   controlCommandSchema,
+  controlProofSchema,
+  commandTargetSchema,
   controlResultSchema,
+  operationIntentSchema,
 } from '../packages/protocol/src/index.ts';
 import {
   deliveryFrameSchema,
   deliveryWindowSchema,
+  deliveryResultSchema,
+  transferDescriptorSchema,
+  deliveryResetSchema,
 } from '../packages/protocol/src/delivery.ts';
 const schemas = {
   configurationCommand: configurationCommandSchema,
@@ -26,6 +32,9 @@ const schemas = {
   managementMetadata: managementMetadataSchema,
   deliveryFrame: deliveryFrameSchema,
   deliveryWindow: deliveryWindowSchema,
+  deliveryResult: deliveryResultSchema,
+  transferDescriptor: transferDescriptorSchema,
+  deliveryReset: deliveryResetSchema,
   webCommand: webCommandSchema,
   historyCommand: historyCommandSchema,
   workspaceFileCommand: workspaceFileCommandSchema,
@@ -33,7 +42,10 @@ const schemas = {
   event: eventSchema,
   agentBuild: agentBuildSchema,
   controlCommand: controlCommandSchema,
+  controlProof: controlProofSchema,
+  commandTarget: commandTargetSchema,
   controlResult: controlResultSchema,
+  operationIntent: operationIntentSchema,
 };
 const output =
   JSON.stringify(

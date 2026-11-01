@@ -3,3 +3,7 @@ export function relayPath(path: string) {
   const guest = pathname === '/guest' || pathname.startsWith('/guest/');
   return (guest ? '/guest' : '') + path;
 }
+
+export function relaySocketPath(path: string) {
+  return relayPath(path) + (path.includes('?') ? '&' : '?') + 'delivery=2';
+}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api, ApiError } from './api.ts';
+import { api, readApi, queryApi } from './api.ts';
 import { observe } from './notifications.ts';
+import { HistoryCache } from './history.ts';
+import { OperationClient } from './operations.ts';
 import { t } from './i18n.ts';
 
 type Project = { id: string; name: string; path: string; available?: boolean };
@@ -10,13 +12,18 @@ export function ProjectManager({
   hostName,
   admin = false,
   changed,
+  operations,
 }: {
   hostId: string;
   hostName: string;
   admin?: boolean;
   changed?: () => Promise<void>;
+  operations?: OperationClient | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [activated, setActivated] = useState(false);
+  const [ownOperations, setOwnOperations] = useState<OperationClient>();
+  const client = operations || ownOperations;
   const [catalog, setCatalog] = useState<Catalog>();
   const [path, setPath] = useState('');
   const [name, setName] = useState('');
@@ -30,11 +37,76 @@ export function ProjectManager({
     truncated: boolean;
   }>();
   const endpoint = `${admin ? '/admin' : ''}/hosts/${hostId}/project-management`;
+  useEffect(() => {
+    if (!admin || !activated) return;
+    let disposed = false;
+    const controller = new AbortController();
+    let cache: HistoryCache | undefined, own: OperationClient | undefined;
+    void api(`/admin/hosts/${hostId}/identity`, undefined, controller.signal)
+      .then(async ({ identity }) => {
+        if (disposed) return;
+        cache = new HistoryCache(
+          JSON.stringify([location.origin, identity, hostId]),
+        );
+        own = new OperationClient(cache, {
+          host: hostId,
+          owner: identity,
+          admin: true,
+        });
+        setOwnOperations(own);
+        await own.start();
+      })
+      .catch((error) => {
+        if (!disposed) setError(String(error));
+      });
+    return () => {
+      disposed = true;
+      controller.abort();
+      own?.stop();
+      cache?.close();
+      setOwnOperations(undefined);
+    };
+  }, [hostId, admin, activated]);
+  useEffect(() => {
+    if (!open || !client) return;
+    let disposed = false;
+    const controller = new AbortController();
+    void client
+      .records()
+      .then(async (records) => {
+        const original = records.find(
+          (record) => record.path === endpoint && record.state !== 'confirmed',
+        );
+        if (!original) return;
+        if (!disposed) {
+          setPending(original.body);
+          setBusy(true);
+        }
+        const result = await client.resume(
+          original.requestId,
+          controller.signal,
+        );
+        if (disposed) return;
+        setCatalog(result);
+        setPending(undefined);
+        await changed?.();
+      })
+      .catch((error) => {
+        if (!disposed) setError(String(error));
+      })
+      .finally(() => {
+        if (!disposed) setBusy(false);
+      });
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  }, [open, client, endpoint]);
   async function refresh() {
     setBusy(true);
     setError('');
     try {
-      setCatalog(await api(endpoint));
+      setCatalog(await readApi(endpoint));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -46,7 +118,7 @@ export function ProjectManager({
     const abort = new AbortController();
     const stop = observe(`/ws/v1/hosts/${hostId}`, (event) => {
       if (event.type === 'change' && event.scope === 'projects')
-        void api(endpoint, undefined, abort.signal)
+        void readApi(endpoint, abort.signal)
           .then(setCatalog)
           .catch(() => {});
     });
@@ -67,7 +139,12 @@ export function ProjectManager({
     setError('');
     setPending(request);
     try {
-      setCatalog(await api(endpoint, request));
+      if (!client) throw new Error('本机存储尚未就绪，请稍后重试');
+      setCatalog(
+        await client.submit(endpoint, request, String(request.requestId), {
+          kind: 'project',
+        }),
+      );
       setPending(undefined);
       if (request.operation === 'add') {
         setPath('');
@@ -77,12 +154,10 @@ export function ProjectManager({
       await changed?.();
     } catch (e) {
       setError(String(e));
-      if (
-        e instanceof ApiError &&
-        e.status < 500 &&
-        e.code !== 'RESULT_UNKNOWN'
-      )
-        setPending(undefined);
+      const original = (await client?.records().catch(() => []))?.find(
+        (record) => record.requestId === request.requestId,
+      );
+      if (!original || original.result?.error) setPending(undefined);
     } finally {
       setBusy(false);
     }
@@ -91,7 +166,7 @@ export function ProjectManager({
     setBusy(true);
     setError('');
     try {
-      setDirectories(await api(endpoint, { operation: 'browse', path }));
+      setDirectories(await queryApi(endpoint, { operation: 'browse', path }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -102,6 +177,7 @@ export function ProjectManager({
     <section className="project-management">
       <button
         onClick={() => {
+          setActivated(true);
           setOpen(!open);
           if (!open) void refresh();
         }}
@@ -126,7 +202,6 @@ export function ProjectManager({
               </button>
               <button
                 onClick={() => {
-                  setPending(undefined);
                   void refresh();
                 }}
               >

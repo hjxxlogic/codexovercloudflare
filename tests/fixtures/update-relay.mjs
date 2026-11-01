@@ -36,7 +36,9 @@ const server = createServer(async (request, response) => {
 const sockets = new WebSocketServer({ server, path: '/ws/v1/agent' });
 sockets.on('connection', (socket) => {
   peer = socket;
-  socket.send(JSON.stringify({ type: 'hello', demand: 1, minProtocol: 1 }));
+  socket.send(
+    JSON.stringify({ type: 'hello', delivery: 2, demand: 1, minProtocol: 1 }),
+  );
   socket.send(
     JSON.stringify({
       type: 'control',

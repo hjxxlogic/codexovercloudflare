@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   rmSync,
   readFileSync,
+  readdirSync,
   statSync,
   existsSync,
   mkdirSync,
@@ -117,9 +118,12 @@ async function request(
     ip?: string;
   } = {},
 ) {
+  if (data && /\/(attach|takeover)$/.test(path))
+    data = { ...(data as object), delivery: 2 };
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-CoC-Async': '1',
+    'X-CoC-Delivery': '2',
     Origin: options.origin || origin,
   };
   if (options.admin) headers.Authorization = 'Bearer ' + adminToken;
@@ -150,6 +154,7 @@ function peer(path: string, auth?: string) {
   const options = {
     closeTimeout: 1000,
     headers: {
+      'X-CoC-Delivery': '2',
       Origin: origin,
       ...(auth ? { Authorization: 'Bearer ' + auth } : { Cookie: cookie }),
     },
@@ -178,11 +183,32 @@ function peer(path: string, auth?: string) {
     },
   };
 }
-async function web(id: string, takeover = false) {
-  const t = await api(
-    `/sessions/${id}/${takeover ? 'takeover' : 'attach'}`,
-    {},
+async function readyControl(p: ReturnType<typeof peer>) {
+  const exchangeId = randomUUID();
+  p.ws.send(
+    JSON.stringify({
+      type: 'delivery-open',
+      stream: randomUUID(),
+      exchangeId,
+      received: { normal: 0, priority: 0 },
+      receivedBytes: { normal: 0, priority: 0 },
+    }),
   );
+  await wait(
+    () =>
+      p.messages.filter(
+        (m) =>
+          m.type === 'delivery-window' &&
+          m.exchangeId === exchangeId &&
+          m.controlReady,
+      ).length === 2,
+    'Agent CONTROL_READY',
+  );
+}
+async function web(id: string, takeover = false, claimId = randomUUID()) {
+  const t = await api(`/sessions/${id}/${takeover ? 'takeover' : 'attach'}`, {
+    claimId,
+  });
   const p = peer('/ws/v1/web/' + id);
   await new Promise<void>((r, j) => {
     p.ws.once('open', r);
@@ -199,6 +225,7 @@ async function web(id: string, takeover = false) {
     p.messages.some((m) => m.type === 'attached'),
     JSON.stringify(p.messages),
   );
+  await readyControl(p);
   return p;
 }
 const pass = (message: string) => console.log('PASS: ' + message);
@@ -867,6 +894,82 @@ try {
   pass(
     'local thread listing filters project metadata and rejects cross-host/project resume',
   );
+  {
+    const probe = await api(`/hosts/${enrolled.hostId}/probe`, {});
+    const instance = probe.deliveryInstance;
+    assert.equal(typeof instance, 'string');
+    const original = randomUUID();
+    const body = {
+      hostId: enrolled.hostId,
+      projectId: 'test-project',
+      mode: 'web',
+    };
+    const originalRequest = async (
+      path: string,
+      data: unknown,
+      key: string,
+      ack = false,
+    ) => {
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-CoC-Async': '1',
+        'X-CoC-Delivery': '2',
+        'Idempotency-Key': key,
+        'X-CoC-Operation-Instance': instance,
+        ...(ack ? { 'X-CoC-Operation-Ack': '1' } : {}),
+        ...(token ? { Authorization: 'Bearer ' + token } : { Cookie: cookie }),
+        Origin: origin,
+      };
+      const response = await fetch(origin + '/api/v1' + path, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(data),
+      });
+      assert.equal(response.status, 202);
+      const accepted: any = await response.json();
+      assert.match(accepted.operationId, /^delivery_/);
+      let receipt: any;
+      await wait(async () => {
+        const read = await fetch(
+          `${origin}/api/v1/hosts/${enrolled.hostId}/operations/${accepted.operationId}`,
+          { headers },
+        );
+        assert.equal(read.status, 200);
+        receipt = await read.json();
+        return receipt.state === 'completed';
+      }, 'endpoint original operation receipt');
+      return receipt;
+    };
+    const created = await originalRequest('/sessions', body, original);
+    assert(!created.error, JSON.stringify(created.error));
+    assert.equal(created.intent.instance, instance);
+    assert.equal(created.intent.requestId, original);
+    assert.match(created.intent.owner, /^[a-f0-9]{64}$/);
+    const repeated = await originalRequest('/sessions', body, original);
+    assert.deepEqual(repeated.result, created.result);
+    assert.deepEqual(repeated.intent, created.intent);
+    const conflict = await originalRequest(
+      '/sessions',
+      { ...body, projectId: 'changed-project' },
+      original,
+    );
+    assert.equal(conflict.error.code, 'IDEMPOTENCY_CONFLICT');
+    assert.equal(conflict.intent, undefined);
+    const confirmed = await originalRequest('/sessions', body, original, true);
+    assert.deepEqual(confirmed.result, { confirmed: true });
+    const retired = await originalRequest('/sessions', body, original);
+    assert.equal(retired.error.code, 'RESULT_UNAVAILABLE');
+    const stopId = randomUUID();
+    const stopPath = `/sessions/${created.result.id}/stop`;
+    const stopped = await originalRequest(stopPath, {}, stopId);
+    assert(!stopped.error, JSON.stringify(stopped.error));
+    assert(['closing', 'closed'].includes(stopped.result.state));
+    const stopConfirmed = await originalRequest(stopPath, {}, stopId, true);
+    assert.deepEqual(stopConfirmed.result, { confirmed: true });
+    pass(
+      'HTTP original write identity survives forwarding retries; endpoint receipts, conflicts and result confirmation preserve session authorization',
+    );
+  }
   for (const threadId of ['external-history', 'external-legacy']) {
     const session = await api('/sessions', {
       hostId: enrolled.hostId,
@@ -1107,7 +1210,7 @@ try {
       await cliCommand(['approvals', approvalSession.id]),
     );
     pendingApproval = state.data.find(
-      (a: any) => a.approvalId === 'external:' + sharedRequest,
+      (a: any) => a.approvalId === 'external:' + JSON.stringify(sharedRequest),
     );
     return state.forwarding && !!pendingApproval;
   }, 'original pending approval replay');
@@ -1117,6 +1220,10 @@ try {
       approvalSession.id,
       '--approval-id',
       pendingApproval.approvalId,
+      '--runtime-id',
+      pendingApproval.runtimeId,
+      '--approval-version',
+      pendingApproval.approvalVersion,
       '--request-id',
       'stable-remote-approval',
     ]),
@@ -1136,6 +1243,10 @@ try {
         approvalSession.id,
         '--approval-id',
         pendingApproval.approvalId,
+        '--runtime-id',
+        pendingApproval.runtimeId,
+        '--approval-version',
+        pendingApproval.approvalVersion,
         '--request-id',
         'stable-remote-approval',
       ]),
@@ -1149,15 +1260,26 @@ try {
   await wait(
     async () =>
       JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
-        (a: any) => a.approvalId === 'external:' + permissionsRequest,
+        (a: any) =>
+          a.approvalId === 'external:' + JSON.stringify(permissionsRequest),
       ),
     'permission approval delivery',
+  );
+  const permissionsApproval = JSON.parse(
+    await cliCommand(['approvals', approvalSession.id]),
+  ).data.find(
+    (a: any) =>
+      a.approvalId === 'external:' + JSON.stringify(permissionsRequest),
   );
   await cliCommand([
     'approve',
     approvalSession.id,
     '--approval-id',
-    'external:' + permissionsRequest,
+    permissionsApproval.approvalId,
+    '--runtime-id',
+    permissionsApproval.runtimeId,
+    '--approval-version',
+    permissionsApproval.approvalVersion,
   ]);
   await wait(
     () => sharedApprovals.decisions.has(permissionsRequest),
@@ -1171,7 +1293,7 @@ try {
   await wait(
     async () =>
       JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
-        (a: any) => a.approvalId === 'external:' + stale,
+        (a: any) => a.approvalId === 'external:' + JSON.stringify(stale),
       ),
     'pending local resolution',
   );
@@ -1189,7 +1311,9 @@ try {
   await wait(
     async () =>
       JSON.parse(await cliCommand(['approvals', approvalSession.id])).data.some(
-        (a: any) => a.approvalId === 'external:' + unsupported && a.unsupported,
+        (a: any) =>
+          a.approvalId === 'external:' + JSON.stringify(unsupported) &&
+          a.unsupported,
       ),
     'unsupported interactions reported without automatic denial',
   );
@@ -1327,9 +1451,10 @@ try {
       .length,
     1,
   );
-  const p = competitors.find((p) =>
+  let p = competitors.find((p) =>
     p.messages.some((m) => m.type === 'attached'),
   )!;
+  await readyControl(p);
   pass('real DO concurrent attach permits exactly one controller');
   const modelsRequestId = randomUUID();
   p.ws.send(JSON.stringify({ action: 'models', requestId: modelsRequestId }));
@@ -1403,7 +1528,10 @@ try {
     'web model discovery, turn model forwarding and model-aware duplicate rejection',
   );
   agent.loseNextAttachReply();
-  const lostTicket = await api(`/sessions/${s.id}/takeover`, {});
+  const lostClaim = randomUUID();
+  const lostTicket = await api(`/sessions/${s.id}/takeover`, {
+    claimId: lostClaim,
+  });
   const lostController = peer('/ws/v1/web/' + s.id);
   await new Promise<void>((done) => lostController.ws.once('open', done));
   lostController.ws.send(
@@ -1419,16 +1547,23 @@ try {
   assert.equal(p.ws.readyState, WebSocket.OPEN);
   p.ws.send(JSON.stringify(prompt));
   await wait(
-    () =>
-      p.messages.filter(
-        (m) => m.type === 'ack' && m.requestId === prompt.requestId,
-      ).length === 3,
-    'old controller survives lost takeover acknowledgement',
+    () => p.messages.some((m) => m.error?.code === 'STALE_CONTROLLER'),
+    'lost takeover confirmation keeps old writes fenced',
+  );
+  assert.equal(
+    p.messages.filter(
+      (m) => m.type === 'ack' && m.requestId === prompt.requestId,
+    ).length,
+    2,
+  );
+  p = await web(s.id, true, lostClaim);
+  assert.equal(
+    p.messages.find((m) => m.type === 'attached').control.controlId,
+    lostClaim,
   );
   pass(
-    'lost Agent attach acknowledgement preserves existing native controller',
+    'lost takeover confirmation fences old writes and the same persisted claim resumes through Agent CONTROL_READY',
   );
-  await new Promise((done) => setTimeout(done, 10500));
   p.ws.send(
     JSON.stringify({
       action: 'prompt',
@@ -1442,11 +1577,38 @@ try {
   );
   const approval = p.messages.find((m) => m.event?.type === 'approval').event
     .data;
+  for (const invalid of [
+    { runtimeId: randomUUID(), approvalVersion: approval.approvalVersion },
+    { runtimeId: approval.runtimeId, approvalVersion: randomUUID() },
+  ]) {
+    const staleId = randomUUID();
+    p.ws.send(
+      JSON.stringify({
+        action: 'approval',
+        requestId: staleId,
+        approvalId: approval.approvalId,
+        allow: true,
+        ...invalid,
+      }),
+    );
+    await wait(
+      () =>
+        p.messages.some(
+          (m) =>
+            m.type === 'error' &&
+            m.requestId === staleId &&
+            m.error?.code === 'STALE_APPROVAL',
+        ),
+      'stale approval rejected without resolving the original request',
+    );
+  }
   p.ws.send(
     JSON.stringify({
       action: 'approval',
       requestId: randomUUID(),
       approvalId: approval.approvalId,
+      runtimeId: approval.runtimeId,
+      approvalVersion: approval.approvalVersion,
       allow: false,
     }),
   );
@@ -1470,6 +1632,7 @@ try {
     () => p.ws.readyState === WebSocket.CLOSED,
     'old controller closed',
   );
+  await readyControl(q);
   q.ws.send(JSON.stringify({ action: 'sync', after: 0 }));
   await wait(() => q.messages.some((m) => m.type === 'sync'), 'history replay');
   assert(
@@ -1499,6 +1662,7 @@ try {
     cp.ws.once('open', r);
     cp.ws.once('error', j);
   });
+  await readyControl(cp);
   cp.ws.send(
     JSON.stringify({
       id: 1,
@@ -1582,6 +1746,7 @@ try {
   );
   const recoveryCapture = join(dir, 'tui-recovery.json');
   const recoveryGate = join(dir, 'tui-recovery-gate');
+  agent.loseNextControlReady();
   const recoveringCli = cliCommand(
     ['connect', '--host', 'local-test', '--project', 'test-project'],
     '',
@@ -1599,6 +1764,11 @@ try {
     'reliable TUI attached',
     30000,
   );
+  assert.equal(
+    agent.lostControlReady,
+    1,
+    'real CLI recovered a lost committed CONTROL_READY',
+  );
   agent.socket?.close(1012);
   await wait(
     async () =>
@@ -1612,13 +1782,15 @@ try {
   agent.loseNextDeliveryResult();
   writeFileSync(recoveryGate, 'continue');
   const recoveryOutput = await recoveringCli;
-  assert.equal(JSON.parse(readFileSync(recoveryCapture, 'utf8')).completed, 1);
+  const recoveredTui = JSON.parse(readFileSync(recoveryCapture, 'utf8'));
+  assert.equal(recoveredTui.completed, 4);
+  assert.equal(recoveredTui.largeResultBytes, 300000);
   const recoverySession = recoveryOutput.match(
     /Remote session: ([a-zA-Z0-9_~-]+)/,
   )![1];
   await cliCommand(['stop', recoverySession]);
   pass(
-    'reliable CC keeps its local TUI through reconnect and recovers lost output and mutation result',
+    'reliable CC keeps its local TUI through reconnect, recovers lost output/results, interrupts its exact CLI task and verifies a 300 KB transfer result',
   );
   // Real browser uses the same cookie/Origin path as users; no bearer bypass.
   browser = await chromium.launch({
@@ -2080,7 +2252,7 @@ try {
   );
   const cacheSize = await visitorPage.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('coc-history');
+      const request = indexedDB.open('coc-history-v3');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -2101,7 +2273,7 @@ try {
   });
   await visitorPage.route('**/api/v1/hosts/*/projects', (route) =>
     route.fulfill({
-      headers: { 'X-CoC-Demand': '1' },
+      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
       status: 503,
       contentType: 'application/json',
       body: JSON.stringify({
@@ -2490,6 +2662,56 @@ try {
     readFileSync(join(dir, 'transfer-fixtures', 'binary.bin'), 'utf8'),
     'replacement',
   );
+  // Lose a response after A has durably accepted the first chunk, then close
+  // and reopen the panel. Recovery must use the saved body and A's offset.
+  let chunkLost = false;
+  const uploadRoute = '**/api/v1/hosts/*/files';
+  await visitorPage.route(uploadRoute, async (route) => {
+    const body = route.request().postDataJSON();
+    if (body?.operation !== 'chunk' || chunkLost) {
+      await route.continue();
+      return;
+    }
+    await route.fetch();
+    await wait(
+      () =>
+        readdirSync(join(dir, 'transfer-fixtures')).some(
+          (name) =>
+            name.startsWith('.coc-upload-') &&
+            statSync(join(dir, 'transfer-fixtures', name)).size >= 65536,
+        ),
+      'first upload chunk persisted before response loss',
+    );
+    chunkLost = true;
+    await route.abort('failed');
+  });
+  await visitorPage.getByLabel('选择上传文件').setInputFiles({
+    name: 'resumed.bin',
+    mimeType: 'application/octet-stream',
+    buffer: binary,
+  });
+  visitorPage.once('dialog', (dialog) => void dialog.accept());
+  await visitorPage
+    .getByRole('button', { name: '上传文件', exact: true })
+    .click();
+  await wait(() => chunkLost, 'lost upload chunk response');
+  await visitorPage
+    .getByRole('button', { name: '暂停传输', exact: true })
+    .click();
+  await visitorPage.keyboard.press('Escape');
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await visitorPage.unroute(uploadRoute);
+  await feature(visitorPage, /^工作区文件/);
+  await visitorPage.getByText(/已上传 resumed.bin/).waitFor();
+  assert.deepEqual(
+    readFileSync(join(dir, 'transfer-fixtures', 'resumed.bin')),
+    binary,
+  );
+  assert(
+    !readdirSync(join(dir, 'transfer-fixtures')).some((name) =>
+      name.startsWith('.coc-upload-'),
+    ),
+  );
   await visitorPage.screenshot({
     path: join(artifacts, 'cw-workspace-files.png'),
     fullPage: true,
@@ -2509,7 +2731,7 @@ try {
   await focusedChat(visitorPage);
   await visitorPage.setViewportSize({ width: 1280, height: 900 });
   pass(
-    'workspace file menu: multi-chunk binary upload/download, symlink exclusion, explicit overwrite, and return to focused chat',
+    'workspace file menu: binary upload/download, lost chunk and panel-reopen recovery, symlink exclusion, explicit overwrite, and return to focused chat',
   );
 
   // Revoke the active visitor CW grant while preserving its other A cookie.

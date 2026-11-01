@@ -1,5 +1,183 @@
 # 本机测试记录
 
+## delivery:2 准入与跨端缓存清理检查点（2026-11-01，仅本机，未部署）
+
+范围为本机源码与 Linux 构建，依赖位于用户 `~/.local`。未运行 GitHub Actions，Windows 不在本轮验收范围。以下是阶段性结果，完整 0.6.0 架构、真实旧发行程序升级及最终发行切换尚未完成。
+
+- `npm run build`：原生程序、网页、TypeScript 及 Worker dry-run 通过。
+- `npm test`：5 项 CTest、26 个 Vitest 文件 / 357 项用例通过。覆盖远程配置永久回执上限、历史订阅另一进程清缓存后的停止确认与迟到回包隔离；最后一次异步发送等待调整后，历史订阅 12 项单元测试再次通过。
+- `npm run test:cache`：真实 IndexedDB 两标签页清理同一订阅后，旧连接不发送 ACK，迟到窗口不重建记录；缓存 / 命令总量、独立预留、作用域清理等既有回归通过。
+- `npm run test:ui`：完整 UI 稳定性回归通过。夹具改为新版可靠命令封装和 HTTP 快照；刷新不依赖停滞的历史 WebSocket，也不重新夺取控制权。未删除对应刷新、分页、草稿及审批回归。
+- `npm run test:e2e`：真实 Agent / CLI、Wrangler 和 Chromium 全部通过，包含上传首块已落盘后丢回包、暂停关闭再打开恢复，以及控制、历史和输出恢复。此前一轮外部历史二次刷新超时未在随后两轮完整端到端运行中复现。
+- `npm run test:delivery`、`npm run test:operations`：原生端点故障恢复、传输背压、精确取消、结果正文、历史尾部及 CLI 原操作持久化回归通过。
+- `npm run test:configuration`、`npm run test:projects`：真实 Agent / CLI 的配置替换备份、原命令重启、30 秒管理保活、重复重启拒绝与 TUI 清理，以及双 Agent 的本地 / 远程项目修改、活动会话保护和重启回归通过。配置夹具的旧 ticket 加入 delivery:2 后重跑通过。
+- `npm run typecheck`、`npm run lint`、`npm run lint:cpp`、`npm run protocol:check` 通过。
+
+版本准入用例拒绝 HTTP 缺失 / 旧版 / 未知 delivery 及 Agent 缺失 / 旧版 / 未知能力。业务要求 `delivery:2`，发行更新 manifest / build `protocol:1` 保持独立；这组测试不等同于真实旧二进制升级验收。剩余服务端旧业务分支和云端 Operation 状态清理、强制信用代际绑定与完整资源审计仍列为未完成。
+
+## CW 原请求持久账本（2026-11-01，仅本机）
+
+依赖继续来自 ~/.local，没有 GitHub Actions、真实模型、发布或部署。本机网页构建、TypeScript、4 项 CTest、25 文件 / 341 项 Vitest、ESLint / Prettier 均通过。完整 test:projects:e2e 和 test:e2e 通过，使用真实 Worker、Agent、CLI、Chromium；覆盖网页创建、普通 / 管理员项目 CRUD 及既有控制、输出、审批、文件和撤销行为。
+
+- 网页 HTTP 证明测试验证主体 / 原编号 / 实例 / 确认方向匹配，结果提交前不确认；无证明、错误证明和本机落盘失败均不发送结果确认。
+- OperationClient 验证完整正文不可变、首次意图先提交、丢结果 / 确认按原身份恢复、关闭 / 重建、1 / 2 / 4 秒后持续慢速重试、无待办停止、永久身份拒绝及 16 项结果尾部。
+- tests/browser-operations.ts 使用真实 Web Locks / BroadcastChannel / IndexedDB，双标签页同编号只有一个业务效果，关页后恢复固定实例，丢确认仅重发确认，清缓存保留身份。tests/browser-cache.ts 另验证双标签页 100 次原子更新无丢失，以及回调失败、配额失败整体回滚。
+- 新管理员 identity / probe 入口验证客户端拒绝、owner 绑定、主机不存在拒绝及普通客户端主机隔离。
+- 日志：/tmp/coc-web-operations-final-types2.log、final-unit2.log、final-lint2.log、/tmp/coc-web-operations-project-e2e2.log、e2e2.log、/tmp/coc-web-operations-browser.log、/tmp/coc-web-operations-cache.log。完整 test:ui 已通过（/tmp/coc-web-operations-ui2.log）；后续 npm run build、test:operations:web 和 test:cache 均通过，日志位于 /tmp/coc-web-operations-final-build.log、final-browser.log 和 final-cache.log。
+
+文件上传、其余管理入口、旧云端业务回执移除、唯一 delivery:2 和旧版升级验证仍未完成；P4 / 0.6.0 不提前标记完成。
+
+## P4 原生 CLI 完整意图与结果确认（2026-11-01，仅本机）
+
+本机 npm run build、npm test（4 项 CTest、24 文件 / 325 项 Vitest）、test:operations、test:projects、tests/native-refresh.ts 与完整 test:e2e 均通过。ESLint / Prettier、C++ 格式、协议生成及差异空白检查通过；依赖来自 ~/.local，未运行 GitHub Actions、真实模型或发布 / 部署。
+
+- CLI 的创建 / 观察、停止、排队、审批和项目修改改为执行端原请求回执；结果先提交，再确认。原编号可用 request 恢复原正文 / 实例，明确结果不明不重新执行，权限或实例冲突停止。
+- 原生 CTest 验证两个 Store 连接并发准备同一身份、跨凭据隔离、重启和缓存清理保留、32 个接近帧上限输入与结果同存、结果尾部回收、1024 身份拒绝及新凭据无法放大全局命令预留。实际用量包含独立意图表和元数据；终态写入在预留范围内。
+- 真实 CLI HTTP 故障夹具在首次业务请求到达时查 SQLite 已有完整固定意图，在 A 确认到达时查完整结果已经提交。覆盖丢转发关联、丢确认后结束 C、C 重启查原结果、替换 Agent 实例、不带 / 伪造结果证明、持久 RESULT_UNKNOWN，以及首次意图和结果提交故障；失败时不发首条业务或确认，修复后查询同一次执行。
+- 确认丢失时运行中的命令持续按原身份恢复确认，快速阶段后进入 30–60 秒抖动恢复；结束 CLI 进程暂停，request 原编号继续。确认完成后无待办轮询。
+- 完整 Wrangler / Agent / CLI / Chromium 回归通过，覆盖新 CLI 队列 / 审批 / 会话及原有 TUI 重连、网页、文件和撤销。模拟项目 relay 已适配可信 intent 与异步回执，使用临时客户端缓存；真实两 Agent 项目测试通过。只读恢复测试仍验证三次有限尝试，写操作权限拒绝停止。
+- 首轮格式检查仅发现测试项目夹具需要 Prettier，修正后全部静态检查通过。日志：/tmp/coc-cli-operations-final-build.log、/tmp/coc-cli-operations-final-tests.log、/tmp/coc-cli-operations-final-real.log、/tmp/coc-cli-operations-final-e2e.log、/tmp/coc-cli-operations-projects.log、/tmp/coc-cli-operations-refresh.log，以及 final-lint2 / cpp / protocol 日志。
+
+网页与上传等其余入口、旧云端写回执移除、唯一 delivery:2、完整资源预算和升级 / 发行验证仍待完成；P4 和 0.6.0 不标记完成。
+
+## P4 执行端原请求回执基础（2026-11-01，仅本机）
+
+完整 npm run build、npm test（4 项 CTest、24 文件 / 325 项 Vitest）、真实 Agent 的 test:operations / test:delivery 及完整 Wrangler / Agent / CLI / Chromium test:e2e 均通过。ESLint / Prettier、C++ 格式、协议生成及差异空白检查通过；依赖使用 ~/.local，没有 GitHub Actions、真实模型或发布 / 部署。
+
+- 原生账本验证同主体 / requestId 的内容与作用域冲突、Agent 实例隔离、执行前预留、完成后继续占用、确认回收、1024 项退休拒绝和全局 / 主体预算。共享样例由 C++ / Zod 同时校验。
+- test:operations 启动真实 Agent，重复创建只返回原 sessionId；丢失回包后按原身份恢复。创建等待 Codex 初始化时 SIGKILL，重启查询得到持久 RESULT_UNKNOWN，未再次创建；执行中确认被拒绝，完成确认后正文回收、旧身份永久拒绝。
+- Worker 用例验证原请求 owner 来自鉴权、全部转发关联仅在共享有界内存、重建后重查、旧 wire 结果不串入新请求、缺失 / 伪造持久证明不产生成功回执。停止及结果确认先核验会话模式，跨模式拒绝。
+- 真实 HTTP 全链路覆盖原创建结果、正文冲突、结果确认后拒绝重开，以及停止请求和确认的会话权限边界。停止返回 closing 仅表示请求已接收，不冒充进程已经退出。
+- 首轮完整回归发现测试 HTTP 客户端只查询一次临时关联、早于 Agent 回复后等待云端通知的竞态；补充仅待办期间的有限查询，最后完整回归通过。第二轮修正新增测试误将 closing 断言为 closed；最终 /tmp/coc-operations-final-e2e3.log 退出 0。
+- 日志：/tmp/coc-operations-final-build.log、/tmp/coc-operations-final-tests.log、/tmp/coc-operations-native.log、/tmp/coc-operations-final-delivery.log、/tmp/coc-operations-final-e2e3.log，以及对应 lint / cpp / protocol 日志。
+
+客户端首次发送前保存完整固定意图、客户端结果提交 / 确认、全部入口迁移及旧云端写路径移除仍未完成；P4 / 0.6.0 尚未完成。
+
+## A 权威历史预算（2026-11-01，仅本机）
+
+本机完整 npm run build、npm test（3 项 CTest、24 文件 / 321 项 Vitest）、真实 Agent test:delivery、完整 Wrangler / Agent / CLI / Chromium test:e2e、真实 IndexedDB test:cache 均通过；ESLint / Prettier、C++ 格式、协议生成和差异空白检查通过。依赖来自 ~/.local；没有 GitHub Actions、真实模型、发行或部署。
+
+- 新增 native-history-budget 使用实际正文填满 64 MiB 单会话 / 256 MiB 全局额度，证明新会话不能放大总预算。超额事件回滚原始正文、历史投影、持久账本和 snapshotSeq；触发 Agent 的既有存储故障停止回调。
+- 1024 个历史作用域达到上限后，独立 archive_event 原子拒绝新增作用域，已有作用域仍可使用余量；命令终态的独立预留仍能保存结果，旧历史不被淘汰。
+- 验证同一外部条目重复轮询不计费、正文替换退费、普通缓存清理保留权威数据、重启恢复账本，以及明确模拟离线删除时按原作用域退费。首次计量保留并核算旧事件、分块和索引；旧历史已超限仍能读取，新增长拒绝。
+- 首次原生回归发现 SQLite 外层冲突策略影响触发器内 INSERT OR IGNORE，造成外部条目替换时作用域键冲突。改为仅在键不存在时 INSERT，并以重启 / 替换 / 退费及完整原生回归验证；最终三个 CTest 均通过。
+- 用量计入现有 historyBytes / historyRecords 指标；未增加云端轮询。逻辑预算不等于 SQLite 文件 / WAL 物理配额。
+- 本机日志：/tmp/coc-history-budget-final-build.log、/tmp/coc-history-budget-final-tests.log、/tmp/coc-history-budget-final-delivery.log、/tmp/coc-history-budget-final-e2e.log、/tmp/coc-history-budget-final-cache.log，以及对应 lint / cpp / protocol 日志。
+
+其它写业务回执迁移、控制及管理资源统一预算、唯一 delivery:2、真实旧更新器及四平台本地制品仍未完成，不标记完整 R4 或 0.6.0 完成。
+
+## P4 只读转发与取消拒绝账本（2026-11-01，仅本机）
+
+依赖继续使用 ~/.local；不运行 GitHub Actions，不发布或部署，不调用真实模型。本地完整构建、24 文件 / 321 项 Vitest、2 项 CTest、真实 Agent 的 test:delivery、完整 test:e2e 均通过；ESLint / Prettier、C++ 格式及协议生成检查通过。
+
+- Worker 的普通只读入口改为共享 128 条 / 8 MiB 内存关联，不生成持久 Operation / part / wire / due；重建丢失关联后重查 A，跨主体查询拒绝，旧 Agent 代际结果拒绝。新增并发大结果测试确认预算耗尽返回 BACKPRESSURE，拒绝正文不随错误记录继续保留；审批多阶段模式核验仍有效。
+- 此前的 318 项 Vitest、完整 D1 后端 test:e2e:d1 与项目管理 test:projects:e2e 也通过；D1 生命周期用例现验证重建后重新读取而不恢复云端读结果。
+- 真实 CLI 的 tests/native-refresh.ts 通过：19 秒慢读按需查询后停止；关联丢失后两次原编号读取得结果；持续失败三次停止；权限拒绝一次停止；写操作一次失败后不重发。网页测试覆盖只读 POST 重查、有限失败与认证终止。
+- CW / CC 取消测试验证：超过 64 项诊断尾部后旧取消身份仍拒绝、重新构造 sender 仍拒绝、数字 / 字符串 ID 隔离、1024 项上限时保留原排队项、提交失败回滚。审批自动尝试标记仅保留于当前审批对象，完整端到端自动审批回归通过。
+- 本地日志：/tmp/coc-read-cancel-build.log、/tmp/coc-read-cancel-tests.log、/tmp/coc-read-cancel-ctest.log、/tmp/coc-read-cancel-delivery.log、/tmp/coc-read-cancel-e2e.log，以及 /tmp/coc-read-e2e-d1.log、/tmp/coc-read-projects-e2e.log、/tmp/coc-read-native-refresh.log。
+
+P4 全部写业务的原请求对账、A 权威历史总预算、唯一 delivery:2、真实旧更新器及四平台制品仍未完成，版本尚未统一为 0.6.0。
+
+## P3 Worker 传输进度去除（2026-11-01，仅本机）
+
+本轮按用户要求不运行 GitHub Actions，不发布或部署。依赖使用 ~/.local 工具链。
+
+- npm run build 通过：原生 Release、网页、TypeScript、Worker dry-run。
+- npm test 通过：2 项 CTest、24 个文件 / 309 项 Vitest；新增无云端发送头的输出 ACK、Agent fencing、归档 / 恢复过滤旧进度的验证。
+- npm run test:delivery 与 npm run test:e2e 均退出 0：端点故障恢复及真实 Wrangler / Agent / CLI / Chromium 全链路通过。
+- 本地日志：/tmp/coc-no-heads-build.log、/tmp/coc-no-heads-tests.log、/tmp/coc-no-heads-delivery.log、/tmp/coc-no-heads-e2e.log。P4 其它业务回执迁移未完成，不代表整个 0.6.0 已验收。
+
+## 历史订阅确认与尾部恢复 · 2026-11-01（仅本地）
+
+依赖与工具链继续使用 `~/.local`，未运行 GitHub Actions、真实模型或发布 / 部署。本阶段本地原生 / 网页构建、Worker dry-run、2 项 CTest、24 文件 / 307 项 Vitest、真实 IndexedDB、真实 Agent 丢包回归及完整 Wrangler / Agent / CLI / Chromium 端到端回归通过；TypeScript、ESLint / Prettier、C++ 格式、协议生成检查通过。
+
+- A 的历史订阅持久保存主体、会话、C 实例、serial / generation、连续确认及已公布上界。重复 OPEN、重启恢复、在线旧 ACK、超发布上界、实例冲突、客户端 / Agent 水位回退、退休永久拒绝及 1024 分配上限均有原生测试。
+- CW / CC 保存原订阅身份，当前 exchange 回显通过后才恢复实时缓存；本地缓存事务提交后才确认同步 revision。真实 Chromium 在 HTTPS 测试来源下验证事件 / checkpoint 提交驱动 ACK，并保存 Agent 的确认下界。持续重试、过期连接 / exchange、在线旧 ACK、存储失败及变更代际的冻结由端点测试覆盖。
+- 真实 Agent 的已结束会话仍提供订阅恢复；测试丢弃尾部事件与连续 dirty 提示，无新业务时 A 仍补发。原 ACK 重试不重复计费；确认追平后无通知，关闭路由停止重试，原订阅重新连接仍返回相同分配和确认。
+- Worker 覆盖连接绑定的 owner / route，定向推送时重新鉴权。历史准入 / 订阅 / 直读不写 Operation / part / wire、历史发送头或历史接收水位，重建丢失临时关联后按原身份重查。综合 snapshot、其它业务 Operation 和旧归档仍待迁移，不能视为整个 Worker 已无业务存储。
+- CC 附着观察器接入同样的订阅状态机，移除原先每 10 秒空闲读页；单次 history 是有限只读。原生状态机验证落盘后确认、丢 ACK 重试、旧交换丢弃、持久下界恢复和无待办停止。完整端到端回归同时覆盖 CLI 重连、输出、网页 HTTP 恢复、多个标签页及授权撤销。
+
+界面压力夹具已适配当前订阅握手；其首轮因旧控制模拟只回复 attached 而未提供同步状态失败，第二轮发现夹具宣告了不存在的历史尾部，修正为真实快照上界。最终完整 test:ui 已通过，覆盖手动刷新、停滞 OPEN、历史分页 / 缓存、多语言、审批布局、文件及管理界面。早期真实缓存测试使用非安全 HTTP 虚拟域名，无法调用 randomUUID；改用 HTTPS 测试来源后通过。原生丢包脚本补充检查已被信号结束的子进程后，独立复跑退出码为 0。
+
+完整 0.6.0 仍未完成：权威历史 / 其它业务总预算、命令与 RPC 的其余云端进度、所有业务回执迁移、唯一 delivery:2、真实旧更新器和本地四平台制品仍待收敛。
+
+## 持久信用预留、客户端总量与输出背压 · 2026-11-01（仅本地）
+
+所有依赖继续使用 `~/.local`，没有 GitHub Actions、真实模型调用、发行或部署；生产 Agent / 数据库未改动。本阶段最终源码的本地 `npm run build`、2 项 CTest、23 文件 / 296 项 Vitest、`test:cache`、`test:delivery`、完整 `test:e2e`、TypeScript、ESLint / Prettier、C++ 格式、协议生成及差异空白检查通过。
+
+- Agent 在 OPEN 事务内预留命令正文、最大结果和 1024 条身份 / 索引空间，分配单调 streamSerial 与稳定 creditGeneration；重复 OPEN、重启及普通重连不重复计费。原生测试验证多个会话共用 normal 总预算、单会话不能独占、normal 耗尽时 priority 仍可分配，以及最大结果仍落在原预留内。
+- 未确认结果占用命令信用；RESULT ACK 原子压缩命令 / 结果正文，保留摘要、原请求身份和连续水位，重复帧不重新执行。关闭先拒绝旧写入，再在未确认结果 / started 项 / 实际运行任务均已解除后释放；1024 命令 / 流与 1024 分配 / 关闭记录上限均有测试，不能通过新流无限累积去重元数据。
+- 关闭或 exhausted 不再冻结已接收请求的结果查询。网页与原生 sender 均覆盖重连后的原结果落盘 / ACK、停止新命令及无待办后停止恢复。真实 Agent 验证 runtime 退出后同身份 OPEN 保持关闭，原取消终态仍可查询。
+- CC 的命令及输出预留跨凭据共享 transport-v3 SQLite，通过哈希前缀隔离正文；普通缓存与预留各有独立总量。原生测试验证其它身份不能再次放大上限、相同缓存键互不可见、清理保留所有可靠待办并不影响其它身份，以及普通缓存耗尽后可靠预留仍可写。
+- CW 的 coc-history-v3 在同一 IndexedDB 事务内写数据和全站账本。真实 Chromium 双标签页并发分配只获得剩余的 15 份预留（另 1 份已有 outbox），新标签页 / 作用域不能绕过上限；关闭、重新打开及清理历史不撤销承诺。另验单作用域 / 全站普通缓存配额，以及超限写入同时回滚事件与 checkpoint。
+- CC 输出信用仅随 TUI 连续消费推进；乱序消费不越过缺口，未消费 32 条后停止增加窗口。Agent 输出日志有全局 / 单流条数和字节上限，ACK 才释放；真实 Agent 在零信用接收端面对超过 8 MiB 输出时停止对应 runtime、保存 BACKPRESSURE 原因，先前未确认输出仍在。
+- 完整 Wrangler / Chromium / 原生 Agent / CLI 回归通过。期间一次失败来自测试仍打开旧 IndexedDB 名称，修正 e2e 与 UI 夹具后完整重跑；进一步改为原生跨身份公共账本后再次完整通过。包含大结果、CLI 重连与精确取消、网页 HTTP 恢复、刷新、多标签页、文件操作和撤销。
+
+本阶段仍不是完整 R4 或 0.6.0：A 权威历史及订阅信用、其它业务 / 管理资源、取消身份永久拒绝边界、强制新版 receiver allocation 线协议、云端其余业务去状态及真实旧更新器 / 四平台验收待完成；P0–P7 未提前勾选。
+
+## 原生 CLI 精确中断与审批版本 · 2026-11-01（仅本地）
+
+继续使用 `~/.local` 依赖，未运行 Actions、真实模型或发布 / 部署。审批绑定阶段的完整本地构建、2 项 CTest、23 文件 / 293 项 Vitest、真实 Agent 传输测试与完整 Wrangler / Chromium 端到端回归通过。
+
+- 原生 CLI 在输出确认前持久保存 Agent 提供的任务 / turn 身份；中断仅针对该目标，元数据在转交 TUI 前移除。实际 TUI 验证精确中断、重连和完整 300 KB transfer。
+- 每个 runtime 与每个待处理审批分别分配身份。网页、HTTP 显式审批及 CLI TUI 答复必须携带原 runtime / version；完整端到端测试先提交错误 runtime 和错误版本，确认均被拒绝，再使用原证明成功完成审批。数字 / 字符串 RPC ID 分离；同 server request ID 的不同版本对应不同去重键。
+- 显式 `approve` / `reject` 同时要求 `--runtime-id` / `--approval-version`；首次端到端运行发现参数白名单漏登，补齐后完整回归通过，原请求重试仍返回原回执。
+- 后续 CLI `$/cancelRequest` 的本地未发布取消、priority 取消先到的真实 Agent 测试及 CTest 已通过；包含运行中取消通知的完整端到端回归通过。继续补测了并发启动被拒与 turn/steer 后原任务仍可精确中断，完整回归再次通过。网页进一步保留同一 pending 原任务已知的 turnId，不借用不同主体、实例、代际、流或请求的 turnId；最终 `npm run build`、`npm test`（2 项 CTest、23 文件 / 294 项 Vitest）、TypeScript、ESLint / Prettier、C++ 格式及协议生成检查通过。固定源码的完整端到端复核通过。随后原生夹具增加“取消请求与审批回复复用相同数字 ID”的检查，取消身份只匹配请求方向，最后的原生构建、2 项 CTest 与 C++ 格式检查通过。
+
+完整 0.6.0 尚待全局信用 / 流退役、历史及其余业务的云端去状态、唯一 delivery:2 与真实旧更新器演练。
+
+## 网页精确取消与持久标记基础 · 2026-11-01（仅本地）
+
+本阶段使用 `~/.local` 依赖和临时测试状态，没有 Actions、真实模型、发布或部署。原生构建 / 2 项 CTest、23 文件 / 293 项 Vitest、网页构建、TypeScript 和格式检查通过；真实 Agent `test:delivery` 与完整 `test:e2e` 通过。
+
+- A 按原请求保存身份索引，数字 RPC id 与字符串 id 区分，审批回复与请求区分。取消绑定 Agent 存储实例、主体、控制代际、原流及原请求身份；错误作用域拒绝。
+- 取消先到时保存持久标记；迟到原命令仍补齐 seq / end，但在同事务生成带原请求身份的 CANCELLED_BEFORE_START 结果，不进入 started。收到未开始项可直接终结；started 项不伪造停止或最终结果。标记经重启保留，每流最多 4 条，全局至多 128 条 / 64 KiB（含每条 512 字节开销计量），满时拒绝；关闭流后先拒绝迟到写入再释放标记。
+- CW / CC sender 提供与发布串行的本地未发布取消，落盘后删除待发项且不分配 seq；已发布项保留原身份。网页测试覆盖落盘失败保留待办。取消诊断尾部限定 64 条 / 512 KiB。
+- 网页停止操作已携带 A 提供的 activeTask / turnId；真实 Agent 验证“取消先到启动后到”没有 user / 执行事件，错误 turnId 不停止运行任务，正确目标产生实际 turn/completed。UI 在没有任务身份时要求刷新，不解释为停止任意当前任务。
+- 固定源码的完整端到端回归继续通过：原生 CLI 重连、大正文、网页停止、审批、刷新、多标签页、文件操作及撤销。
+
+该历史阶段 R3 尚未全部完成：CLI 的执行目标包装、审批 runtime / version 及唯一新版协议切换仍待接入；上述本地诊断 / 标记上限也不能替代 R4 全部资源的事务预留与退役预算。
+
+## 持久控制代际与接管确认 · 2026-11-01（仅本地）
+
+依赖继续安装于 `~/.local`；没有运行 GitHub Actions、调用真实模型、部署或改动正在运行的生产 Agent。本阶段通过本机 `npm run build`（Release、网页、TypeScript、Worker dry-run）、`npm test`（2 项 CTest、23 文件 / 289 项 Vitest）及真实 Agent 的 `npm run test:delivery`。
+
+- Worker 分配 pending 代际即阻止旧写入；过期、丢确认及 DO 重建不恢复旧控制权。重复 claimId 保持原 controlEpoch，普通恢复只增加连接 generation；较新的 pending 不能被旧恢复证明覆盖。
+- Agent 在一个事务内保存控制证明、关闭旧流并终结 received 项；started 项仍可提交实际结果。相同确认可重查，旧流不能重绑定新代际。重启终态保留原网页 requestId / RPC id，避免接收端无法关联结果。
+- CW / CC 在当前 exchange 的两 lane CONTROL_READY 全部匹配后才发布。网页首发前保存 claimId，保留旧流待办并建立新流；CLI 拒绝把旧命令流绑定给不同控制身份。
+- 完整 `npm run test:e2e` 通过：真实 Wrangler、原生 Agent / CLI、Chromium 和确定性 Codex。真实 CLI 遇到一次已提交但转发前丢弃的 CONTROL_READY，按原身份恢复；确认丢失后旧端写入被拒，原接管身份可重试。原有 300 KB transfer、TUI 重连、HTTP 恢复、网页刷新、多标签页、上传下载和撤销通过。
+- `typecheck`、`lint`、`lint:cpp`、`protocol:check` 通过。调试期间更新了要求旧控制端在接管失败后继续写入的旧断言，并使原始协议测试先完成 OPEN；最终固定源码的完整运行通过。
+
+此阶段不代表完整 0.6.0：精确取消、全局预算 / 流退役、历史与其它业务的云端去状态、唯一 delivery:2、真实旧更新器演练及最终版本仍待完成。
+
+## 独立结果流、正文交付与临时转发 · 2026-11-01（仅本地）
+
+延续下节命令发布基础，依赖继续位于 `~/.local`，没有调用 GitHub Actions、真实模型或发布 / 部署。此节记录独立结果日志这一阶段，不代表完整 0.6.0 已完成。
+
+- Agent 的终态事务按完成顺序分配 resultSeq；CW / CC 保存结果、原请求终态和连续结果字节位置后才确认。测试覆盖命令 2 先完成、结果逆序到达后跨重启补齐、错误摘要 / 身份 / 字节边界拒绝、写盘失败不确认，以及重复结果只重发 ACK。
+- transfer 描述符不能完成请求。测试要求分块取齐、SHA-256 与 UTF-8 字节长度校验、全文落盘后才确认；真实 Agent 验证多字节内容分块及结果 ACK 后才删除正文。原生 sender 夹具还验证大结果完整落盘、转交及重复 ACK 不重复应用。
+- CC 输出的正文和连续游标一起保存后才确认或交给 TUI；单元测试验证未交付正文经接收端重启及普通缓存清理后仍保留，重复输出不重复转交，冲突拒绝。
+- 真实 Agent 的静默丢 ACK 测试等待现有 30 秒维护调度自主补发最后结果，其间不发送新业务；确认后可查到传输正文已回收。
+- Relay 的 OPEN / 结果查询 / 分块读取与回执不写持久 Operation、wire、part 或结果进度；单元测试验证 DO 重建只丢临时关联、过期 wire 忽略、重查原流从 Agent 恢复，以及 128 条 / 8 MiB 转发预算。Agent 自身进度直接透传，不由 Worker 合并。
+
+- 最终本地验证：`npm run build`（C++ Release、Vite、TypeScript、Worker dry-run）、`npm test`（2 项 CTest、23 文件 / 283 项 Vitest）、`npm run test:delivery`、`typecheck`、`lint`、`lint:cpp`、`protocol:check` 通过。
+- 完整 `npm run test:e2e` 通过，使用真实 Wrangler、Agent / CLI、Chromium 与确定性 Codex；新增实际 TUI 收到完整 300 KB transfer 结果的验证，原有静默双 WebSocket 停滞时 HTTP 取回命令结果 / 历史、刷新、多标签页、上传下载、重连及撤销也通过。调试期间一次运行受开发服务器热重载打断，最终使用固定源码重新构建后的完整运行通过。
+- 当前 exchangeId 的 Agent `delivery-reset` 冻结恢复，退休交换的 reset 丢弃；HTTP 相同状态错误也停止自动补发。网页、Relay 与原生 sender 夹具验证该拒绝边界。另验证 socket 在回复前关闭时丢弃转发。
+
+完整验收仍缺持久 controlEpoch / CONTROL_READY、精确取消、全局信用与流退役、其它业务 / 历史 / 输出的云端去状态、唯一 delivery:2 和真实旧发行二进制更新。历史结果及各阶段通过记录不能替代这些项目；见 [剩余清单](TRANSPORT_STATE_INVENTORY.md)。
+
+## 传输发布与恢复交换基础 · 2026-11-01（仅本地）
+
+本轮使用 `~/.local/env/coc-build.sh` 的 Node 22.23.4、CMake 3.28.3、Boost 1.83、SQLite 3.45.1、nlohmann/json 3.11.3 和 clang-format 18，未运行 GitHub Actions，未发布 / 部署，也未调用真实模型。完整 0.6.0 尚未实现，见 [字段盘点与剩余入口](TRANSPORT_STATE_INVENTORY.md)。
+
+- `npm run build` 通过：C++ Release 的 Agent / Client / 原生测试、Vite 网页、TypeScript 和 Wrangler Worker dry-run。Vite 保留已有的大 chunk 提示。
+- `npm test` 通过：2 项 CTest，21 个文件、267 项 Vitest；`typecheck`、`lint`、`lint:cpp`、`protocol:check` 与差异空白检查通过。
+- 新增 / 扩展测试覆盖：信用为零时持久排队且不分配 seq；两个恢复快照齐备才发送；分配提交失败不发送；在线 ACK 乱序不回退或收回信用；同序号字节冲突 / 非发布边界拒绝；退休连接与过期 exchangeId 丢弃、跨重连流身份核验；当前快照真实回退及实例变化停止恢复；冻结后重连不能重新发送；快重试后无新业务仍持续慢恢复；无待办时停止调度。
+- `npm run test:delivery` 通过：真实本机 Agent 与确定性 Codex 对端验证命令 / 结果查询去重、输出信用、同 runtime CLI 重放，并新增 Agent 回显原恢复 exchangeId 的检查。Relay 测试另验 HTTP 和 WebSocket 都透传该交换身份。
+- `npm run test:e2e` 通过：真实 Wrangler、Agent / CLI 与 Chromium，包含双会话 WebSocket 保持 OPEN 但停滞时通过 HTTP 找回命令结果 / 历史、刷新恢复、多标签页、上传 / 下载、Agent 重连及授权撤销。
+
+以上仅验证本次已落地的基础变更；该阶段尚未验证全局信用预留、独立 resultSeq、精确取消目标、持久 controlEpoch / CONTROL_READY、Worker 不写可靠进度、真实旧发行二进制 update 及四平台 0.6.0 切换，不以现有回归代替这些验收。
+
 ## D1 查询与写入优化 · 2026-10-31
 
 本地 Vitest 21 文件、260 项及 TypeScript、ESLint / Prettier 检查通过；新增事务读取复用、对象隔离、授权撤销、CAS 冲突失效和同值写入计数测试。线上只读指标与执行计划、效果边界见 [D1 使用分析](d1-usage-2026-10-31.md)。源码 `79caa1e` 的 [Actions 41199314010](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41199314010) 六项必需作业全部成功，包含普通 / D1 原生与 Chromium 端到端。已通过仓库脚本发布 0.5.21 Worker / 网站；线上 7 项资源与 15 项认证边界核验通过，保留 D1 绑定、Cron 和 0.5.20 原生下载，未重启 Agent。[发布证据](assets/d1-usage-2026-10-31/deployment.json)。
@@ -837,3 +1015,10 @@ Ubuntu 20.04、Debian 12 二进制包与源码包的线上 SHA256 均与清单�
 - 类型检查、ESLint / Prettier、C++ 格式、协议生成文档一致性通过。Vite 生产构建在 `/tmp/coc-quota-web-build` 通过；标准 `npm run build:web` 受现有 `dist/web` 文件所有权导致的 EACCES 阻碍，未调整其权限或替换原生下载产物。打包仍有既有的大于 500 KiB 提示。
 - `npm run build:native`、CTest 两项原生测试和 `npm run test:projects` 通过：两个真实 Agent 进程配合模拟 Codex，验证 7 个活跃 runtime 不阻止临时线程目录读取，22 个项目在在线 / 离线登记及重启后保留，原有隔离、活动会话保护与幂等检查通过。
 - 未调用模型，未提交、推送或部署；未验证 Cloudflare 实际连接容量或极限压力，移除业务配额不代表无限平台资源。Windows / musl / 发行包验证须后续 CI 完成。
+
+## CW 上传持久意图与恢复 · 2026-11-01（本机源码，未部署）
+
+- `tests/web-uploads.test.ts` 8 项通过：完整首次意图先落盘、终态校验后确认、丢失分块回包后暂停恢复、首次存储失败不发包、正文损坏冻结、最终本地提交失败恢复、Agent 未知 / 换库冻结，以及 begin / finish 已确认结果尾部退休后沿原上传回执恢复。
+- `tests/browser-uploads.ts` 通过：真实 Chromium / IndexedDB 完整保存 20 MiB 文件，重新加载后原编号和 SHA-256 不变，清普通历史保留完整正文，未解决上传拒绝第二个文件。测试仅使用隔离浏览器与合成文件，无业务请求。
+- `npm run build` 通过，`npm run test:e2e` 全通过。新增实际 Agent / Wrangler / Chromium 故障：首个 64 KiB 分块已在 Agent 暂存文件落盘后丢弃回包，用户暂停并关闭面板，重新打开自动沿原偏移恢复，最终 150003 字节文件逐字节一致，暂存文件释放；原有二进制下载、禁止符号链接和显式覆盖检查继续通过。
+- 本轮依赖安装于用户 `.local`，未运行 GitHub Actions、未发布或部署。Windows 构建已按用户最新指令排除；本节不代表整个 0.6.0 架构已完成。

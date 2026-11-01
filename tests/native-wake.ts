@@ -17,6 +17,7 @@ let agentUrl = '';
 const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('X-CoC-Demand', '1');
+  res.setHeader('X-CoC-Delivery', '2');
   const reply = (value: unknown, status = 200) => {
     res.statusCode = status;
     res.end(JSON.stringify(value));
@@ -171,7 +172,14 @@ try {
       10000,
     );
     wss.on('connection', (ws) => {
-      ws.send(JSON.stringify({ type: 'hello', demand: 1, minProtocol: 1 }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          delivery: 2,
+          demand: 1,
+          minProtocol: 1,
+        }),
+      );
       ws.on('message', (raw) => {
         const frame = JSON.parse(raw.toString());
         if (frame.type === 'capabilities') {

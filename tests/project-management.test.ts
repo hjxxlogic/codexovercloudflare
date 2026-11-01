@@ -101,6 +101,37 @@ beforeEach(async () => {
   });
 });
 describe('project management identities', () => {
+  it('binds administrator operation discovery to owner authentication and an existing host', async () => {
+    expect(
+      (await request('/admin/hosts/alice/identity', 'client')).status,
+    ).toBe(403);
+    expect(
+      (await request('/admin/hosts/alice/probe', 'client', {})).status,
+    ).toBe(403);
+    expect(sent).toHaveLength(0);
+    expect(
+      (await request('/admin/hosts/alice/identity', 'owner')).data,
+    ).toEqual({ identity: await digest('owner') });
+    expect(
+      (await request('/admin/hosts/absent/identity', 'owner')).status,
+    ).toBe(404);
+    expect(
+      (await request('/admin/hosts/absent/probe', 'owner', {})).status,
+    ).toBe(404);
+    expect(
+      (await request('/admin/hosts/alice/probe', 'owner', {})).status,
+    ).toBe(202);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      id: 'alice',
+      data: { action: 'probe', data: {} },
+      auth: { role: 'owner', hash: await digest('owner') },
+    });
+    expect((await request('/hosts/alice/probe', 'client', {})).status).toBe(
+      202,
+    );
+    expect((await request('/hosts/bob/probe', 'client', {})).status).toBe(403);
+  });
   it('exposes running Agent builds only to administrators and preserves unknown status on failure', async () => {
     const status = vi.fn((id: string) => ({
       fetch: async () =>

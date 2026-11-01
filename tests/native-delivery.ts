@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer, type WebSocket } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-delivery-'));
@@ -16,19 +16,29 @@ let database: DatabaseSync | undefined;
 let log = '';
 const server = createServer((_request, response) =>
   response
-    .writeHead(200, { 'Content-Type': 'application/json', 'X-CoC-Demand': '1' })
+    .writeHead(200, {
+      'Content-Type': 'application/json',
+      'X-CoC-Demand': '1',
+      'X-CoC-Delivery': '2',
+    })
     .end(JSON.stringify({ pending: [] })),
 );
 const sockets = new WebSocketServer({ server });
 sockets.on('connection', (ws) => {
   ws.send(
-    JSON.stringify({ type: 'hello', minProtocol: 1, demand: 1, epoch: 1 }),
+    JSON.stringify({
+      type: 'hello',
+      delivery: 2,
+      minProtocol: 1,
+      demand: 1,
+      epoch: 1,
+    }),
   );
   ws.on('message', (raw) => {
     const frame = JSON.parse(String(raw));
     frames.push(frame);
     if (frame.type === 'capabilities') {
-      assert.equal(frame.delivery, 1);
+      assert.equal(frame.delivery, 2);
       peer = ws;
     }
   });
@@ -53,8 +63,8 @@ writeFileSync(
   }),
   { mode: 0o600 },
 );
-async function until(predicate: () => any) {
-  const deadline = Date.now() + 15000;
+async function until(predicate: () => any, timeout = 15000) {
+  const deadline = Date.now() + timeout;
   while (!predicate()) {
     assert(Date.now() < deadline, 'Timed out: ' + log.slice(-1500));
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -103,8 +113,24 @@ async function open(
   mode: string,
   stream: string,
   lane = 'normal',
+  generation = 1,
 ) {
-  return control('delivery', { sessionId, mode, stream, lane });
+  const exchangeId = randomUUID();
+  const result = await control('delivery', {
+    sessionId,
+    mode,
+    stream,
+    lane,
+    exchangeId,
+    control: {
+      controlEpoch: 1,
+      connectionGeneration: generation,
+      controlId: 'claim-' + mode,
+      owner: 'client',
+    },
+  });
+  assert.equal(result.exchangeId, exchangeId);
+  return result;
 }
 try {
   child = spawn(
@@ -126,7 +152,16 @@ try {
     epoch: 1,
     expires: Date.now() + 15000,
   });
-  await open(web.id, 'web', 'web-normal');
+  const allocation = (await open(web.id, 'web', 'web-normal')).window;
+  assert.equal(allocation.streamSerial, 1);
+  assert.equal(typeof allocation.creditGeneration, 'string');
+  assert(allocation.creditGeneration.length > 0);
+  const repeatedAllocation = (await open(web.id, 'web', 'web-normal')).window;
+  assert.equal(repeatedAllocation.streamSerial, allocation.streamSerial);
+  assert.equal(
+    repeatedAllocation.creditGeneration,
+    allocation.creditGeneration,
+  );
   const prompt = {
     action: 'prompt',
     requestId: 'exact-task',
@@ -148,7 +183,14 @@ try {
     seq: 1,
   });
   assert.equal(result.record.phase, 'finished');
-  assert.equal(result.record.result.requestId, 'exact-task');
+  assert.equal(JSON.parse(result.record.resultBody).requestId, 'exact-task');
+  assert.equal(
+    database
+      .prepare('SELECT COUNT(*) AS count FROM requests WHERE key=?')
+      .get(web.id + ':exact-task')?.count,
+    0,
+    'Reliable commands use their bounded journal, without a duplicate generic receipt',
+  );
   mutation(web.id, 'web-normal', 'normal', 1, 0, prompt);
   await control('probe');
   const snapshot = await control('snapshot', {
@@ -166,6 +208,208 @@ try {
     (await open(web.id, 'web', 'web-normal')).window.receivedBytes,
     bytes,
   );
+  // Lose the final result ACK, then send no business. The Agent must retry on its own.
+  const tailStart = frames.length;
+  await until(
+    () =>
+      frames
+        .slice(tailStart)
+        .some(
+          (frame) =>
+            frame.sessionId === web.id &&
+            frame.payload?.type === 'delivery-result' &&
+            frame.payload?.resultSeq === result.record.resultSeq,
+        ),
+    45000,
+  );
+  const instance = (await open(web.id, 'web', 'web-normal')).window.instance;
+  send({
+    type: 'delivery-receipt',
+    sessionId: web.id,
+    mode: 'web',
+    stream: 'web-normal',
+    instance,
+    received: result.record.resultSeq,
+    receivedBytes: result.record.resultEnd,
+  });
+  await control('probe');
+  assert.equal(
+    database
+      .prepare('SELECT body FROM transport2_results WHERE stream=? AND seq=?')
+      .get('web-normal', result.record.resultSeq)?.body,
+    null,
+  );
+  const resumed = await control('delivery', {
+    sessionId: web.id,
+    mode: 'web',
+    stream: 'web-normal',
+    lane: 'normal',
+    instance,
+    resultReceived: result.record.resultSeq,
+    resultBytes: result.record.resultEnd,
+  });
+  assert.deepEqual(resumed.results, []);
+  assert.equal(resumed.window.streamSerial, allocation.streamSerial);
+  assert.equal(resumed.window.creditGeneration, allocation.creditGeneration);
+  assert.equal(
+    database
+      .prepare('SELECT body FROM transport2_commands WHERE stream=? AND seq=1')
+      .get('web-normal')?.body,
+    '',
+    'Result ACK compacts the command body while retaining its identity and digest',
+  );
+  mutation(web.id, 'web-normal', 'normal', 1, 0, prompt);
+  await control('probe');
+  assert.equal(
+    database
+      .prepare(
+        'SELECT COUNT(*) AS count FROM transport2_commands WHERE stream=?',
+      )
+      .get('web-normal')?.count,
+    1,
+  );
+  const cancellable = await control('create', {
+    key: 'create-cancel-web',
+    projectId: 'project',
+    mode: 'web',
+  });
+  await control('attach', {
+    sessionId: cancellable.id,
+    epoch: 1,
+    expires: Date.now() + 15000,
+  });
+  const cancelWindow = await open(cancellable.id, 'web', 'cancel-normal');
+  await open(cancellable.id, 'web', 'cancel-priority', 'priority');
+  const target = {
+    controlEpoch: 1,
+    instance: cancelWindow.window.instance,
+    owner: 'client',
+    requestId: 'web:never-start',
+    stream: 'cancel-normal',
+  };
+  let priorityEnd = mutation(
+    cancellable.id,
+    'cancel-priority',
+    'priority',
+    1,
+    0,
+    { action: 'interrupt', requestId: 'cancel-first', target },
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get('cancel-priority')?.phase === 'finished',
+  );
+  let normalEnd = mutation(cancellable.id, 'cancel-normal', 'normal', 1, 0, {
+    action: 'prompt',
+    requestId: 'never-start',
+    text: 'must never execute',
+  });
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get('cancel-normal')?.phase === 'finished',
+  );
+  const cancelled = await control('delivery', {
+    sessionId: cancellable.id,
+    mode: 'web',
+    stream: 'cancel-normal',
+    lane: 'normal',
+    seq: 1,
+  });
+  assert.equal(
+    JSON.parse(cancelled.record.resultBody).error.code,
+    'CANCELLED_BEFORE_START',
+  );
+  const cancelledSnapshot = await control('snapshot', {
+    sessionId: cancellable.id,
+    mode: 'web',
+  });
+  assert(
+    !cancelledSnapshot.history.events.some(
+      (event: any) => event.type === 'user',
+    ),
+  );
+  normalEnd = mutation(
+    cancellable.id,
+    'cancel-normal',
+    'normal',
+    2,
+    normalEnd,
+    {
+      action: 'prompt',
+      requestId: 'exact-running',
+      text: 'hold exact cancellation',
+    },
+  );
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === cancellable.id &&
+        frame.payload?.event?.type === 'turn/started',
+    ),
+  );
+  const runningSnapshot = await control('snapshot', {
+    sessionId: cancellable.id,
+    mode: 'web',
+  });
+  assert.equal(
+    runningSnapshot.session.activeTask.requestId,
+    'web:exact-running',
+  );
+  assert.equal(
+    runningSnapshot.session.activeTask.turnId,
+    runningSnapshot.session.turnId,
+  );
+  priorityEnd = mutation(
+    cancellable.id,
+    'cancel-priority',
+    'priority',
+    2,
+    priorityEnd,
+    {
+      action: 'interrupt',
+      requestId: 'wrong-turn',
+      target: { ...runningSnapshot.session.activeTask, turnId: 'wrong-turn' },
+    },
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=2',
+        )
+        .get('cancel-priority')?.phase === 'finished',
+  );
+  assert.equal(
+    (await control('snapshot', { sessionId: cancellable.id, mode: 'web' }))
+      .session.running,
+    true,
+  );
+  mutation(cancellable.id, 'cancel-priority', 'priority', 3, priorityEnd, {
+    action: 'interrupt',
+    requestId: 'exact-stop',
+    target: runningSnapshot.session.activeTask,
+  });
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === cancellable.id &&
+        frame.payload?.event?.type === 'turn/completed',
+    ),
+  );
+  assert.equal(
+    (await control('snapshot', { sessionId: cancellable.id, mode: 'web' }))
+      .session.running,
+    false,
+  );
+  assert(normalEnd > 0);
   const cli = await control('create', {
     key: 'create-cli',
     projectId: 'project',
@@ -215,14 +459,14 @@ try {
     () =>
       Number(
         database!
-          .prepare('SELECT sent FROM delivery_output_heads WHERE stream=?')
+          .prepare('SELECT sent FROM transport2_output_heads WHERE stream=?')
           .get('rpc-output:' + cli.id)?.sent,
       ) === 1,
   );
   const firstEnd = Number(
     database!
       .prepare(
-        'SELECT end_bytes FROM delivery_outputs WHERE stream=? AND seq=1',
+        'SELECT end_bytes FROM transport2_outputs WHERE stream=? AND seq=1',
       )
       .get('rpc-output:' + cli.id)?.end_bytes,
   );
@@ -256,7 +500,7 @@ try {
     () =>
       Number(
         database!
-          .prepare('SELECT sent FROM delivery_output_heads WHERE stream=?')
+          .prepare('SELECT sent FROM transport2_output_heads WHERE stream=?')
           .get('rpc-output:' + cli.id)?.sent,
       ) === 2,
   );
@@ -310,6 +554,7 @@ try {
     expires: Date.now() + 15000,
     deliveryResume: 'cli-normal',
   });
+  await open(cli.id, 'cli', 'cli-normal', 'normal', 2);
   send({
     type: 'delivery-output',
     sessionId: cli.id,
@@ -336,12 +581,314 @@ try {
   );
   assert.equal(copies[0].payload.body, copies[1].payload.body);
   assert.equal(JSON.parse(copies[1].payload.body).id, 3);
+  const cliState = await open(cli.id, 'cli', 'cli-normal', 'normal', 2);
+  mutation(
+    cli.id,
+    'cli-normal',
+    'normal',
+    2,
+    cliState.window.receivedBytes,
+    {
+      id: 4,
+      method: 'initialize',
+      params: { clientInfo: { name: 'delivery-large-result', version: '1' } },
+    },
+    'cli',
+    2,
+  );
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === cli.id &&
+        frame.payload?.type === 'delivery-result' &&
+        frame.payload?.seq === 2,
+    ),
+  );
+  const large = frames.find(
+    (frame) =>
+      frame.sessionId === cli.id &&
+      frame.payload?.type === 'delivery-result' &&
+      frame.payload?.seq === 2,
+  ).payload;
+  const descriptor = JSON.parse(large.resultBody);
+  assert.equal(descriptor.retention, 'transfer');
+  let content = '';
+  while (Buffer.byteLength(content) < descriptor.length) {
+    const response = await control('delivery', {
+      sessionId: cli.id,
+      mode: 'cli',
+      stream: 'cli-normal',
+      lane: 'normal',
+      instance: cliState.window.instance,
+      contentSeq: large.resultSeq,
+      offset: Buffer.byteLength(content),
+    });
+    assert.equal(response.content.offset, Buffer.byteLength(content));
+    content += response.content.body;
+    assert.equal(response.content.next, Buffer.byteLength(content));
+  }
+  assert.equal(
+    createHash('sha256').update(content).digest('hex'),
+    descriptor.digest,
+  );
+  assert.equal(JSON.parse(content).result.userAgent, '你好'.repeat(50000));
+  send({
+    type: 'delivery-receipt',
+    sessionId: cli.id,
+    mode: 'cli',
+    stream: 'cli-normal',
+    instance: cliState.window.instance,
+    received: large.resultSeq,
+    receivedBytes: large.resultEnd,
+  });
+  await control('probe');
+  assert.equal(
+    database
+      .prepare(
+        'SELECT COUNT(*) AS count FROM transport2_result_content WHERE stream=?',
+      )
+      .get('cli-normal')?.count,
+    0,
+  );
+  await open(cli.id, 'cli', 'cli-priority', 'priority', 2);
+  mutation(
+    cli.id,
+    'cli-priority',
+    'priority',
+    1,
+    0,
+    {
+      method: 'coc/cancel',
+      params: {
+        target: {
+          stream: 'cli-normal',
+          instance: cliState.window.instance,
+          controlEpoch: 1,
+          owner: 'client',
+          requestId: 'rpc:999',
+        },
+      },
+    },
+    'cli',
+    2,
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get('cli-priority')?.phase === 'finished',
+  );
+  const afterLarge = await open(cli.id, 'cli', 'cli-normal', 'normal', 2);
+  mutation(
+    cli.id,
+    'cli-normal',
+    'normal',
+    3,
+    afterLarge.window.receivedBytes,
+    {
+      id: 999,
+      method: 'turn/start',
+      params: {},
+    },
+    'cli',
+    2,
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=3',
+        )
+        .get('cli-normal')?.phase === 'finished',
+  );
+  const cancelledCli = await control('delivery', {
+    sessionId: cli.id,
+    mode: 'cli',
+    stream: 'cli-normal',
+    lane: 'normal',
+    seq: 3,
+  });
+  assert.equal(
+    JSON.parse(cancelledCli.record.resultBody).error.data.code,
+    'CANCELLED_BEFORE_START',
+  );
+  const cliHistory = await control('snapshot', {
+    sessionId: cli.id,
+    mode: 'cli',
+  });
+  assert(
+    !cliHistory.history.events.some((event: any) => event.type === 'user'),
+  );
+  await control('stop', { sessionId: cli.id });
+  await until(() => {
+    const row = database!
+      .prepare('SELECT value FROM sessions WHERE id=?')
+      .get(cli.id);
+    return row && JSON.parse(String(row.value)).state === 'closed';
+  });
+  const closed = await open(cli.id, 'cli', 'cli-normal', 'normal', 2);
+  assert.equal(closed.window.closed, true);
+  assert.equal(
+    (
+      await control('delivery', {
+        sessionId: cli.id,
+        mode: 'cli',
+        stream: 'cli-normal',
+        lane: 'normal',
+        seq: 3,
+      })
+    ).record.resultBody,
+    cancelledCli.record.resultBody,
+    'Session exit retires admission while preserving its unacknowledged original result',
+  );
+  const slow = await control('create', {
+    key: 'slow-output-client',
+    projectId: 'project',
+    mode: 'cli',
+  });
+  await control('attach', {
+    sessionId: slow.id,
+    epoch: 1,
+    expires: Date.now() + 15000,
+  });
+  await open(slow.id, 'cli', 'slow-normal');
+  send({
+    type: 'delivery-output',
+    sessionId: slow.id,
+    epoch: 1,
+    received: 0,
+    credit: 0,
+    byteCredit: 0,
+    replay: true,
+  });
+  mutation(
+    slow.id,
+    'slow-normal',
+    'normal',
+    1,
+    0,
+    {
+      id: 1,
+      method: 'initialize',
+      params: { clientInfo: { name: 'delivery-output-flood', version: '1' } },
+    },
+    'cli',
+  );
+  await until(() => {
+    const row = database!
+      .prepare('SELECT value FROM sessions WHERE id=?')
+      .get(slow.id);
+    return row && JSON.parse(String(row.value)).state === 'failed';
+  });
+  const exhausted = await control('snapshot', {
+    sessionId: slow.id,
+    mode: 'cli',
+  });
+  assert.equal(exhausted.session.outputError.code, 'BACKPRESSURE');
+  const usage = database
+    .prepare(
+      'SELECT bytes,records FROM transport2_output_budget WHERE stream=?',
+    )
+    .get('rpc-output:' + slow.id)!;
+  assert(Number(usage.bytes) <= 8 * 1024 * 1024 && Number(usage.records) > 0);
+  assert(
+    database
+      .prepare('SELECT body FROM transport2_outputs WHERE stream=? AND seq=1')
+      .get('rpc-output:' + slow.id),
+    'A slow receiver cannot evict earlier unacknowledged output',
+  );
+  assert.equal((await open(slow.id, 'cli', 'slow-normal')).window.closed, true);
+  // Closed sessions still have authoritative history, independent of a live runtime.
+  const subscription = {
+    operation: 'subscribe',
+    sessionId: cli.id,
+    owner: 'history-reader',
+    stream: 'history-stream',
+    instance: 'history-storage',
+    exchangeId: randomUUID(),
+    route: 'history-route',
+    receivedRevision: 0,
+    acknowledgedRevision: 0,
+  };
+  const historyWindow = await control('history', subscription);
+  const notices = () =>
+    frames.filter(
+      (frame) =>
+        frame.type === 'history-notice' && frame.route === subscription.route,
+    );
+  await until(() => notices().length >= 3, 6000);
+  assert(
+    notices().every(
+      (frame) => frame.payload.maxRevision === historyWindow.maxRevision,
+    ),
+    'Losing the last event and dirty hints recovers without another business message',
+  );
+  const historyPage = await control('history', {
+    sessionId: cli.id,
+    operation: 'page',
+    after: 0,
+  });
+  assert.equal(historyPage.snapshotSeq, historyWindow.maxRevision);
+  const historyAck = {
+    ...subscription,
+    operation: 'ack',
+    receivedRevision: historyPage.snapshotSeq,
+    agentInstance: historyWindow.agentInstance,
+    streamSerial: historyWindow.streamSerial,
+    creditGeneration: historyWindow.creditGeneration,
+  };
+  const confirmed = await control('history', historyAck);
+  assert.equal(confirmed.receivedRevision, historyPage.snapshotSeq);
+  assert.equal(
+    (await control('history', historyAck)).receivedRevision,
+    confirmed.receivedRevision,
+    'A lost history ACK response can retry the same endpoint identity',
+  );
+  const count = notices().length;
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(
+    notices().length,
+    count,
+    'A fully acknowledged history subscriber emits no retry traffic',
+  );
+  send({ type: 'history-detached', route: subscription.route });
+  const historyResumed = await control('history', {
+    ...historyAck,
+    operation: 'subscribe',
+    route: 'resumed-history-route',
+    exchangeId: randomUUID(),
+    acknowledgedRevision: confirmed.receivedRevision,
+  });
+  assert.equal(historyResumed.streamSerial, historyWindow.streamSerial);
+  assert.equal(historyResumed.receivedRevision, confirmed.receivedRevision);
+  const abandoned = {
+    ...subscription,
+    stream: 'abandoned-reader',
+    route: 'abandoned-history-route',
+  };
+  await control('history', abandoned);
+  const abandonedCount = () =>
+    frames.filter(
+      (frame) =>
+        frame.type === 'history-notice' && frame.route === abandoned.route,
+    ).length;
+  await until(() => abandonedCount() > 0);
+  const beforeDetach = abandonedCount();
+  send({ type: 'history-detached', route: abandoned.route });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(
+    abandonedCount(),
+    beforeDetach,
+    'Disconnected readers pause retries without deleting durable history',
+  );
   console.log(
-    'PASS: native durable command/result recovery, exactly one task, output slot/byte credit and same-runtime CLI replay',
+    'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery and end-to-end history tail recovery',
   );
 } finally {
   database?.close();
-  if (child && child.exitCode === null) {
+  if (child && child.exitCode === null && child.signalCode === null) {
     const closed = new Promise((resolve) => child!.once('close', resolve));
     child.kill('SIGTERM');
     const timer = setTimeout(() => child!.kill('SIGKILL'), 10000);

@@ -1,14 +1,212 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as notifications from '../apps/web/src/notifications.ts';
-import { api, ApiError, retryable } from '../apps/web/src/api.ts';
+import { api, queryApi, ApiError, retryable } from '../apps/web/src/api.ts';
 const response = (value: unknown, init: ResponseInit = {}) =>
-  Response.json(value, { ...init, headers: { 'X-CoC-Demand': '1' } });
+  Response.json(value, {
+    ...init,
+    headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+  });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
 describe('browser request recovery', () => {
+  it('commits a proved original result before acknowledging its forwarding correlation', async () => {
+    vi.spyOn(notifications, 'observe').mockReturnValue(() => {});
+    let release!: () => void;
+    const committed = new Promise<void>((done) => {
+      release = done;
+    });
+    const proof = {
+      requestId: 'original',
+      instance: 'agent-store',
+      owner: 'a'.repeat(64),
+    };
+    const commit = vi.fn().mockReturnValue(committed);
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          { accepted: true, hostId: 'host', operationId: 'delivery_write' },
+          { status: 202 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        response({
+          state: 'completed',
+          result: { id: 'host~original' },
+          intent: proof,
+        }),
+      )
+      .mockResolvedValueOnce(response({ ok: true }));
+    vi.stubGlobal('fetch', fetcher);
+    const result = api(
+      '/sessions',
+      { mode: 'web' },
+      undefined,
+      'original',
+      undefined,
+      { instance: 'agent-store', owner: proof.owner, commit },
+    );
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
+    expect(commit).toHaveBeenCalledWith(
+      { data: { id: 'host~original' } },
+      proof,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0][1].headers).toMatchObject({
+      'Idempotency-Key': 'original',
+      'X-CoC-Operation-Instance': 'agent-store',
+    });
+    release();
+    await expect(result).resolves.toEqual({ id: 'host~original' });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it.each([
+    undefined,
+    { requestId: 'original', instance: 'other-store', owner: 'a'.repeat(64) },
+    { requestId: 'original', instance: 'agent-store', owner: 'b'.repeat(64) },
+  ])(
+    'does not commit or acknowledge an unproved original result %j',
+    async (intent) => {
+      vi.spyOn(notifications, 'observe').mockReturnValue(() => {});
+      const commit = vi.fn();
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(
+          response(
+            { accepted: true, hostId: 'host', operationId: 'delivery_write' },
+            { status: 202 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          response({
+            state: 'completed',
+            result: { id: 'host~original' },
+            ...(intent ? { intent } : {}),
+          }),
+        );
+      vi.stubGlobal('fetch', fetcher);
+      await expect(
+        api('/sessions', {}, undefined, 'original', undefined, {
+          instance: 'agent-store',
+          owner: 'a'.repeat(64),
+          commit,
+        }),
+      ).rejects.toMatchObject({
+        code: intent ? 'DELIVERY_STATE_MISMATCH' : 'RESULT_UNKNOWN',
+      });
+      expect(commit).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    },
+  );
+  it('commits a durable business error but preserves a failed local commit without acknowledgment', async () => {
+    vi.spyOn(notifications, 'observe').mockReturnValue(() => {});
+    const proof = {
+      requestId: 'original',
+      instance: 'agent-store',
+      owner: 'a'.repeat(64),
+    };
+    const terminal = {
+      code: 'RESULT_UNKNOWN',
+      message: 'Execution outcome is unknown',
+    };
+    const fetcher = vi.fn().mockImplementation(async (_path, init) => {
+      if (_path.includes('/operations/') && init.method === 'POST')
+        return response({ ok: true });
+      if (init.method === 'POST')
+        return response(
+          { accepted: true, hostId: 'host', operationId: 'delivery_write' },
+          { status: 202 },
+        );
+      return response({ state: 'completed', error: terminal, intent: proof });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const commit = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      api('/sessions', {}, undefined, 'original', undefined, {
+        instance: proof.instance,
+        owner: proof.owner,
+        commit,
+      }),
+    ).rejects.toMatchObject({ code: terminal.code });
+    expect(commit).toHaveBeenCalledWith({ error: terminal }, proof);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    fetcher.mockClear();
+    commit.mockRejectedValue(new Error('Local disk failed'));
+    await expect(
+      api('/sessions', {}, undefined, 'original', undefined, {
+        instance: proof.instance,
+        owner: proof.owner,
+        commit,
+      }),
+    ).rejects.toThrow('Local disk failed');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('repeats a read-only POST after a lost relay correlation and stops after success', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(notifications, 'observe').mockReturnValue(() => {});
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          { accepted: true, hostId: 'host', operationId: 'delivery_lost' },
+          { status: 202 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { error: { code: 'RESULT_UNKNOWN', message: 'Reconstructed relay' } },
+          { status: 409 },
+        ),
+      )
+      .mockResolvedValueOnce(response({ entries: ['proof.txt'] }));
+    vi.stubGlobal('fetch', fetcher);
+    const body = { operation: 'list', projectId: 'demo' };
+    const reading = queryApi('/hosts/host/files', body);
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(reading).resolves.toEqual({ entries: ['proof.txt'] });
+    expect(
+      fetcher.mock.calls
+        .filter(([, init]) => init.method === 'POST')
+        .map(([, init]) => JSON.parse(init.body)),
+    ).toEqual([body, body]);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it('bounds repeated read failures and never retries authorization failures', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockImplementation(async () =>
+        response(
+          { error: { code: 'RESULT_UNKNOWN', message: 'Read unavailable' } },
+          { status: 409 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetcher);
+    const failed = queryApi('/hosts/host/files', { operation: 'read' }).catch(
+      (error) => error,
+    );
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(await failed).toMatchObject({ code: 'RESULT_UNKNOWN' });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    fetcher
+      .mockClear()
+      .mockImplementation(async () =>
+        response(
+          { error: { code: 'FORBIDDEN', message: 'Denied' } },
+          { status: 403 },
+        ),
+      );
+    await expect(
+      queryApi('/hosts/host/files', { operation: 'read' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(fetcher).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it.each([
     ['/', '/api/v1/auth/email'],
     ['/guest/', '/guest/api/v1/auth/email'],

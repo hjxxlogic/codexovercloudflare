@@ -1,4 +1,5 @@
 #include "coc/store.hpp"
+#include "coc/delivery.hpp"
 #include <algorithm>
 #include <fcntl.h>
 #include <memory>
@@ -12,8 +13,12 @@
 #endif
 namespace coc {
 void Store::fail(int code) {
+  const bool history_capacity =
+      std::string(sqlite3_errmsg(db_)).find("COC_HISTORY_CAPACITY") != std::string::npos;
   if (storage_failure_)
     storage_failure_();
+  if (history_capacity)
+    throw Error("BACKPRESSURE", "Authoritative history budget exhausted; new writes stopped");
   const auto primary = code & 0xff;
   const char *category = "STORAGE_ERROR";
   if (primary == SQLITE_FULL)
@@ -120,7 +125,10 @@ void Store::clear_statements() {
   statements_.clear();
 }
 void Store::run(const std::string &s, const Json &a) { query(s, a); }
-Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritative) {
+Store::Store(const std::string &dir, bool authoritative, const std::string &cache_namespace)
+    : lock_(dir, authoritative), cache_namespace_(cache_namespace) {
+  if (cache_namespace_.size() > 128)
+    throw Error("INVALID_REQUEST", "Invalid local cache namespace");
   std::filesystem::create_directories(std::filesystem::u8path(dir));
 #ifndef _WIN32
   chmod(dir.c_str(), 0700);
@@ -167,42 +175,145 @@ Store::Store(const std::string &dir, bool authoritative) : lock_(dir, authoritat
     run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
         "TEXT NOT NULL,"
         "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");
-    run("CREATE TABLE IF NOT EXISTS delivery_identity(id INTEGER PRIMARY KEY CHECK(id=1),instance "
+    run("CREATE TABLE IF NOT EXISTS transport2_identity(id INTEGER PRIMARY KEY "
+        "CHECK(id=1),instance "
         "TEXT NOT NULL)");
-    run("INSERT OR IGNORE INTO delivery_identity VALUES(1,?)", {uuid()});
-    delivery_instance_ = query("SELECT instance FROM delivery_identity WHERE id=1")[0]["instance"]
+    run("INSERT OR IGNORE INTO transport2_identity VALUES(1,?)", {uuid()});
+    delivery_instance_ = query("SELECT instance FROM transport2_identity WHERE id=1")[0]["instance"]
                              .get<std::string>();
-    run("CREATE TABLE IF NOT EXISTS delivery_outputs(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
+    run("CREATE TABLE IF NOT EXISTS transport2_operations(key TEXT PRIMARY KEY,owner TEXT NOT "
+        "NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,"
+        "reserved INTEGER NOT NULL,UNIQUE(owner,request_id))");
+    run("CREATE TABLE IF NOT EXISTS transport2_uploads(key TEXT PRIMARY KEY,owner TEXT NOT NULL,"
+        "digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,reserved INTEGER NOT NULL,"
+        "active INTEGER NOT NULL)");
+    run("CREATE INDEX IF NOT EXISTS transport2_upload_owner ON transport2_uploads(owner)");
+    if (authoritative)
+      run("UPDATE transport2_uploads SET phase='unknown',result=? WHERE phase='started'",
+          {Json{{"state", "unknown"},
+                {"error",
+                 {{"code", "RESULT_UNKNOWN"},
+                  {"message", "Agent restarted during the original upload; reconcile its file "
+                              "before a new intent"}}}}
+               .dump()});
+    run("CREATE TABLE IF NOT EXISTS transport2_local_operations(key TEXT PRIMARY KEY,allocation "
+        "TEXT NOT NULL,value TEXT NOT NULL)");
+    run("CREATE INDEX IF NOT EXISTS transport2_local_operations_allocation ON "
+        "transport2_local_operations(allocation,key)");
+    if (authoritative)
+      run("UPDATE transport2_operations SET phase='unknown',result=? WHERE phase='started'",
+          {Json{{"error",
+                 {{"code", "RESULT_UNKNOWN"},
+                  {"message", "Agent restarted after the original operation began; "
+                              "reconcile its side effects before creating a new intent"}}}}
+               .dump()});
+    run("CREATE TABLE IF NOT EXISTS transport2_outputs(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
         "end_bytes INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(stream,seq))");
-    run("CREATE TABLE IF NOT EXISTS delivery_output_heads(stream TEXT PRIMARY KEY,sent INTEGER NOT "
+    run("CREATE TABLE IF NOT EXISTS transport2_output_heads(stream TEXT PRIMARY KEY,sent INTEGER "
+        "NOT "
         "NULL DEFAULT 0,"
         "sent_bytes INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
         "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0)");
-    run("CREATE TABLE IF NOT EXISTS delivery_streams(stream TEXT PRIMARY KEY,session TEXT NOT NULL,"
+    run("CREATE TABLE IF NOT EXISTS transport2_output_budget(stream TEXT PRIMARY KEY,bytes "
+        "INTEGER NOT NULL,records INTEGER NOT NULL)");
+    run("INSERT OR IGNORE INTO transport2_output_budget SELECT stream,"
+        "SUM(length(CAST(body AS BLOB))+512),COUNT(*) FROM transport2_outputs GROUP BY stream");
+    run("CREATE TABLE IF NOT EXISTS transport2_streams(stream TEXT PRIMARY KEY,session TEXT NOT "
+        "NULL,"
         "received INTEGER NOT NULL DEFAULT 0,received_bytes INTEGER NOT NULL DEFAULT 0,"
         "slots INTEGER NOT NULL,bytes INTEGER NOT NULL)");
-    run("CREATE TABLE IF NOT EXISTS delivery_commands(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
+    run("CREATE TABLE IF NOT EXISTS transport2_commands(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
         "end_bytes INTEGER NOT NULL,body TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,"
         "PRIMARY KEY(stream,seq))");
-    run("CREATE INDEX IF NOT EXISTS delivery_pending ON delivery_commands(stream,phase) WHERE "
+    run("CREATE INDEX IF NOT EXISTS transport2_pending ON transport2_commands(stream,phase) WHERE "
         "phase!='finished'");
-    if (authoritative) {
-      run("UPDATE delivery_commands SET phase='finished',result=? WHERE phase='started'",
-          {Json{
-              {"error",
-               {{"code", "RESULT_UNKNOWN"},
-                {"message", "Agent restarted after execution began; query the original request"}}}}
-               .dump()});
-      run("UPDATE delivery_commands SET phase='finished',result=? WHERE phase='received'",
-          {Json{{"error",
-                 {{"code", "SESSION_CLOSED"},
-                  {"message", "Agent restarted before the queued command executed"}}}}
-               .dump()});
-    }
+    run("CREATE TABLE IF NOT EXISTS transport2_control(session TEXT PRIMARY KEY,epoch INTEGER NOT "
+        "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL,ready TEXT NOT NULL)");
+    run("CREATE TABLE IF NOT EXISTS transport2_flow_control(stream TEXT PRIMARY KEY,session TEXT "
+        "NOT NULL,epoch INTEGER NOT NULL,control_id TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT "
+        "0)");
+    run("CREATE INDEX IF NOT EXISTS transport2_control_flows ON "
+        "transport2_flow_control(session,epoch)");
+    run("CREATE TABLE IF NOT EXISTS transport2_flow_owner(stream TEXT PRIMARY KEY,owner TEXT NOT "
+        "NULL)");
+    run("CREATE TABLE IF NOT EXISTS transport2_command_keys(stream TEXT NOT NULL,request_id TEXT "
+        "NOT NULL,"
+        "seq INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY "
+        "KEY(stream,request_id),UNIQUE(stream,seq))");
+    run("CREATE TABLE IF NOT EXISTS transport2_cancel(stream TEXT NOT NULL,request_id TEXT NOT "
+        "NULL,"
+        "PRIMARY KEY(stream,request_id))");
+    run("CREATE TABLE IF NOT EXISTS transport2_command_digests(stream TEXT NOT NULL,seq INTEGER "
+        "NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(stream,seq))");
+    run("CREATE TABLE IF NOT EXISTS transport2_namespaces(scope TEXT PRIMARY KEY,allocated INTEGER "
+        "NOT NULL DEFAULT 0,closed_through INTEGER NOT NULL DEFAULT 0)");
+    run("CREATE TABLE IF NOT EXISTS transport2_credit(stream TEXT PRIMARY KEY,session TEXT NOT "
+        "NULL,lane TEXT NOT NULL,scope TEXT NOT NULL,serial INTEGER NOT NULL,generation TEXT NOT "
+        "NULL,reserved INTEGER NOT NULL,credit INTEGER NOT NULL DEFAULT 0,byte_credit INTEGER NOT "
+        "NULL DEFAULT 0,closed INTEGER NOT NULL DEFAULT 0,UNIQUE(scope,serial))");
+    run("CREATE TABLE IF NOT EXISTS transport2_local_credit(key TEXT PRIMARY KEY,kind TEXT NOT "
+        "NULL,reserved INTEGER NOT NULL)");
     run("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
+    run("CREATE TABLE IF NOT EXISTS transport2_history_subscriptions("
+        "key TEXT PRIMARY KEY,session TEXT NOT NULL,owner TEXT NOT NULL,stream TEXT NOT NULL,"
+        "instance TEXT NOT NULL,serial INTEGER NOT NULL UNIQUE,generation TEXT NOT NULL,"
+        "received INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
+        "closed INTEGER NOT NULL DEFAULT 0)");
+    run("CREATE TABLE IF NOT EXISTS transport2_cache_entries(key TEXT PRIMARY KEY,scope TEXT "
+        "NOT NULL,bytes INTEGER NOT NULL)");
+    run("CREATE INDEX IF NOT EXISTS transport2_cache_scope ON transport2_cache_entries(scope)");
+    run("CREATE TABLE IF NOT EXISTS transport2_cache_budget(scope TEXT PRIMARY KEY,bytes "
+        "INTEGER NOT NULL,records INTEGER NOT NULL)");
+    run("INSERT OR IGNORE INTO transport2_cache_entries SELECT c.key,'',"
+        "length(CAST(c.value AS BLOB))+length(CAST(c.key AS BLOB))*4+2048 FROM cache c WHERE "
+        "NOT EXISTS(SELECT 1 FROM transport2_local_credit b WHERE b.key=c.key) AND "
+        "NOT EXISTS(SELECT 1 FROM transport2_cache_entries e WHERE e.key=c.key)");
+    run("INSERT INTO transport2_cache_budget SELECT scope,SUM(bytes),COUNT(*) FROM "
+        "transport2_cache_entries GROUP BY scope ON CONFLICT(scope) DO UPDATE SET "
+        "bytes=excluded.bytes,records=excluded.records");
+    for (const auto &command : query("SELECT stream,seq,body FROM transport2_commands WHERE "
+                                     "body!='' ORDER BY stream,seq")) {
+      const auto original = Json::parse(command.at("body").get<std::string>());
+      run("INSERT OR IGNORE INTO transport2_command_digests VALUES(?,?,?)",
+          {command.at("stream"), command.at("seq"), delivery_digest(command.at("body"))});
+      const auto key = delivery_request_key(original);
+      if (!key.empty())
+        run("INSERT OR IGNORE INTO transport2_command_keys VALUES(?,?,?,?)",
+            {command.at("stream"), key, command.at("seq"), delivery_digest(command.at("body"))});
+    }
+    run("CREATE TABLE IF NOT EXISTS transport2_result_heads(stream TEXT PRIMARY KEY,"
+        "sent INTEGER NOT NULL DEFAULT 0,sent_bytes INTEGER NOT NULL DEFAULT 0,"
+        "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0)");
+    run("CREATE TABLE IF NOT EXISTS transport2_results(stream TEXT NOT NULL,seq INTEGER NOT NULL,"
+        "command_seq INTEGER NOT NULL,end_bytes INTEGER NOT NULL,body TEXT,digest TEXT NOT NULL,"
+        "PRIMARY KEY(stream,seq),UNIQUE(stream,command_seq))");
+    run("CREATE TABLE IF NOT EXISTS transport2_result_content(stream TEXT NOT NULL,seq INTEGER NOT "
+        "NULL,body TEXT NOT NULL,PRIMARY KEY(stream,seq))");
+    if (authoritative) {
+      for (const auto &command : query("SELECT stream,seq,body,phase FROM transport2_commands "
+                                       "WHERE phase IN ('started','received')")) {
+        const bool started = command.at("phase") == "started";
+        const auto result = delivery_failure(
+            Json::parse(command.at("body").get<std::string>()),
+            started ? "RESULT_UNKNOWN" : "SESSION_CLOSED",
+            started ? "Agent restarted after execution began; query the original request"
+                    : "Agent restarted before the queued command executed");
+        run("UPDATE transport2_commands SET phase='finished',result=? WHERE stream=? AND seq=?",
+            {result.dump(), command.at("stream"), command.at("seq")});
+      }
+    }
     run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
+    history_budget_init();
     run("COMMIT");
+    // Restart terminal records enter the same durable completion log as live results.
+    for (const auto &record :
+         query("SELECT c.stream,c.seq,c.result FROM transport2_commands c "
+               "LEFT JOIN transport2_results r ON c.stream=r.stream AND "
+               "c.seq=r.command_seq WHERE c.phase='finished' AND r.seq IS NULL "
+               "ORDER BY c.stream,c.seq"))
+      delivery_finish(record.at("stream"), record.at("seq"),
+                      Json::parse(record.at("result").get<std::string>()));
     for (auto &s : authoritative ? sessions(true) : Json::array())
       if (s["state"] == "ready" || s["state"] == "starting" || s["state"] == "closing") {
         s["state"] = s["state"] == "closing" ? "closed" : "failed";
@@ -225,6 +336,23 @@ void Store::save(const Json &s) {
   auto value = s;
   value["updatedAt"] = now();
   run("INSERT OR REPLACE INTO sessions VALUES(?,?)", {s.at("id"), value.dump()});
+  if (!value.value("running", false)) {
+    const bool transaction = sqlite3_get_autocommit(db_) != 0;
+    if (transaction)
+      run("BEGIN IMMEDIATE");
+    try {
+      for (const auto &flow :
+           query("SELECT stream FROM transport2_credit WHERE session=? AND closed=1 AND reserved>0",
+                 {s.at("id")}))
+        delivery_release(flow.at("stream"));
+      if (transaction)
+        run("COMMIT");
+    } catch (...) {
+      if (transaction)
+        run("ROLLBACK");
+      throw;
+    }
+  }
 }
 Json Store::sessions(bool active_only) {
   Json result = Json::array();
@@ -438,12 +566,24 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
   }
 }
 Json Store::archive_event(const std::string &id, const std::string &type, const Json &data) {
-  Json e = {{"type", type}, {"data", data}, {"time", now()}};
-  run("INSERT INTO events(seq,session,value,time) SELECT MIN(0,COALESCE(MIN(seq),0))-1,?,?,? "
-      "FROM events",
-      {id, e.dump(), e["time"]});
-  e["seq"] = sqlite3_last_insert_rowid(db_);
-  return project(id, e);
+  const bool transaction = sqlite3_get_autocommit(db_) != 0;
+  if (transaction)
+    run("BEGIN IMMEDIATE");
+  try {
+    Json e = {{"type", type}, {"data", data}, {"time", now()}};
+    run("INSERT INTO events(seq,session,value,time) SELECT MIN(0,COALESCE(MIN(seq),0))-1,?,?,? "
+        "FROM events",
+        {id, e.dump(), e["time"]});
+    e["seq"] = sqlite3_last_insert_rowid(db_);
+    auto result = project(id, e);
+    if (transaction)
+      run("COMMIT");
+    return result;
+  } catch (...) {
+    if (transaction)
+      run("ROLLBACK");
+    throw;
+  }
 }
 Json Store::project(const std::string &id, Json e) {
   const auto type = e.at("type").get<std::string>();
@@ -666,22 +806,54 @@ void Store::finish(const std::string &key, const Json &v) {
   run("INSERT OR REPLACE INTO request_states VALUES(?,?)",
       {key, v.contains("requestError") ? "failed" : "completed"});
 }
-void Store::cache_put(const std::string &key, const Json &value) {
-  run("INSERT OR REPLACE INTO cache VALUES(?,?)", {key, value.dump()});
-}
 Json Store::cache_get(const std::string &key) {
-  auto rows = query("SELECT value FROM cache WHERE key=?", {key});
+  auto rows = query("SELECT value FROM cache WHERE key=?", {cache_namespace_ + key});
   return rows.empty() ? Json() : Json::parse(rows[0]["value"].get<std::string>());
 }
+bool Store::cache_replace(const std::string &key, const Json &previous, const Json &value) {
+  run("BEGIN IMMEDIATE");
+  try {
+    const bool matches = cache_get(key) == previous;
+    if (matches)
+      cache_put(key, value);
+    run("COMMIT");
+    return matches;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 void Store::cache_clear() {
-  run("DELETE FROM cache WHERE key NOT LIKE '/ws/v1/cli/%:delivery' AND key NOT LIKE "
-      "'/ws/v1/cli/%:output'");
+  run("BEGIN IMMEDIATE");
+  try {
+    for (const auto &record :
+         query("SELECT c.key FROM cache c JOIN transport2_cache_entries e ON "
+               "e.key=c.key WHERE e.scope=? AND "
+               "NOT EXISTS(SELECT 1 FROM transport2_local_credit b WHERE "
+               "b.key=c.key) AND substr(c.key,?+1) NOT LIKE "
+               "'/ws/v1/cli/%:delivery' AND substr(c.key,?+1) NOT LIKE "
+               "'/ws/v1/cli/%:output'",
+               {cache_namespace_, cache_namespace_.size(), cache_namespace_.size()}))
+      cache_forget(record.at("key"));
+    run("COMMIT");
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
 }
 void Store::cleanup() {
-  run("DELETE FROM cache WHERE key IN (SELECT key FROM cache WHERE key GLOB 'upload:*' AND "
-      "json_extract(value,'$.completedAt')<=? ORDER BY json_extract(value,'$.completedAt') LIMIT "
-      "100)",
-      {now() - 86400000});
+  run("BEGIN IMMEDIATE");
+  try {
+    for (const auto &record : query("SELECT key FROM cache WHERE key GLOB 'upload:*' AND "
+                                    "json_extract(value,'$.completedAt')<=? ORDER BY "
+                                    "json_extract(value,'$.completedAt') LIMIT 100",
+                                    {now() - 86400000}))
+      cache_forget(record.at("key"));
+    run("COMMIT");
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
   // Retain request identities, including unconfirmed side effects. Expiry could
   // turn a delayed retry into a second execution. Cleanup is explicit/offline.
 }

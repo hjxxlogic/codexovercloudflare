@@ -176,7 +176,8 @@ public:
 template <class Stream>
 std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const std::string &path,
                      const Json &body, const std::string &token, const std::string &request_id,
-                     std::chrono::milliseconds timeout, size_t limit = max_queue) {
+                     std::chrono::milliseconds timeout, size_t limit = max_queue,
+                     const HttpIntent *intent = nullptr) {
   DeadlineResolver resolver(io);
   asio::steady_timer deadline(io);
   http::request<http::string_body> req{body.is_null() ? http::verb::get : http::verb::post, path,
@@ -191,6 +192,14 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
   req.set(http::field::origin, u.origin);
   req.set(http::field::user_agent, "coc/demand-v1");
   req.set("X-CoC-Async", "1");
+  req.set("X-CoC-Delivery", "2");
+  if (intent) {
+    if (!valid_id(intent->instance) || !valid_id(request_id) || body.is_null())
+      throw Error("INVALID_REQUEST", "Invalid original HTTP operation scope");
+    req.set("X-CoC-Operation-Instance", intent->instance);
+    if (intent->ack)
+      req.set("X-CoC-Operation-Ack", "1");
+  }
   if (!token.empty())
     req.set(http::field::authorization, "Bearer " + token);
   if (!body.is_null()) {
@@ -300,14 +309,14 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
     throw Error(error.value("code", "HTTP_ERROR"), error.value("message", "Relay request failed"));
   }
   if ((path.rfind("/api/v1/hosts", 0) == 0 || path.rfind("/api/v1/sessions", 0) == 0) &&
-      response["X-CoC-Demand"] != "1")
-    throw Error("UPGRADE_REQUIRED", "Upgrade Relay for demand-v1 asynchronous requests");
+      (response["X-CoC-Demand"] != "1" || response["X-CoC-Delivery"] != "2"))
+    throw Error("UPGRADE_REQUIRED", "Upgrade Relay for delivery:2 asynchronous requests");
   return response.body();
 }
 } // namespace
 static Json http_json_once(const Url &u, const std::string &path, const Json &body,
                            const std::string &token, const std::string &request_id,
-                           std::chrono::milliseconds timeout) {
+                           std::chrono::milliseconds timeout, const HttpIntent *intent = nullptr) {
   asio::io_context io;
   if (u.tls) {
     ssl::context ctx(ssl::context::tls_client);
@@ -315,17 +324,23 @@ static Json http_json_once(const Url &u, const std::string &path, const Json &bo
     beast::ssl_stream<beast::tcp_stream> stream(io, ctx);
     verify_tls_hostname(stream.native_handle(), u.host);
     stream.set_verify_mode(ssl::verify_peer);
-    return Json::parse(exchange(io, stream, u, path, body, token, request_id, timeout));
+    return Json::parse(
+        exchange(io, stream, u, path, body, token, request_id, timeout, max_queue, intent));
   }
   beast::tcp_stream stream(io);
-  return Json::parse(exchange(io, stream, u, path, body, token, request_id, timeout));
+  return Json::parse(
+      exchange(io, stream, u, path, body, token, request_id, timeout, max_queue, intent));
 }
 Json http_json(const Url &u, const std::string &path, const Json &body, const std::string &token,
-               const std::string &request_id, std::chrono::milliseconds timeout) {
+               const std::string &request_id, std::chrono::milliseconds timeout,
+               const HttpIntent *intent) {
   const auto end = std::chrono::steady_clock::now() + timeout;
-  auto accepted = http_json_once(u, path, body, token, request_id, timeout);
-  if (!accepted.is_object() || !accepted.value("accepted", false))
+  auto accepted = http_json_once(u, path, body, token, request_id, timeout, intent);
+  if (!accepted.is_object() || !accepted.value("accepted", false)) {
+    if (intent)
+      throw Error("UPGRADE_REQUIRED", "Original operation requires endpoint receipt forwarding");
     return accepted;
+  }
   const auto host = accepted.at("hostId").get<std::string>();
   const auto operation = accepted.at("operationId").get<std::string>();
   if (!valid_id(host) || !valid_id(operation))
@@ -357,6 +372,20 @@ Json http_json(const Url &u, const std::string &path, const Json &body, const st
                          "", std::min(remaining, std::chrono::milliseconds(5000)));
       if (receipt.at("state") != "completed")
         return;
+      if (intent) {
+        if (receipt.contains("intent")) {
+          const auto proof = operation_intent(receipt.at("intent"));
+          if (proof.at("instance") != intent->instance || proof.at("requestId") != request_id ||
+              proof.value("ack", false) != intent->ack)
+            throw Error("DELIVERY_STATE_MISMATCH",
+                        "Endpoint receipt belongs to another original operation");
+          if (intent->commit)
+            intent->commit(receipt.contains("error") ? Json{{"error", receipt.at("error")}}
+                                                     : Json{{"data", receipt.at("result")}},
+                           proof);
+        } else if (!receipt.contains("error"))
+          throw Error("RESULT_UNKNOWN", "Endpoint did not confirm a durable original result");
+      }
       try {
         http_json_once(u, "/api/v1/hosts/" + host + "/operations/" + operation, Json::object(),
                        token, "", std::chrono::seconds(2));

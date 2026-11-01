@@ -1,5 +1,27 @@
 # 开发与本机测试
 
+`native-operations` CTest 验证执行端原请求回执的实例 / 内容冲突、结果保留、崩溃不重放、确认回收及全局 / 主体 / 退休记录限额。`npm run test:operations` 启动真实 Agent，以临时 SQLite 和确定性 Codex 验证线响应丢失与进程强制退出后的原结果恢复；不触及生产进程。共享 operation-intent-fixtures 同时由 C++ 与 Zod 校验。该基础尚不代表 CW / CC 全部写业务已迁移。
+
+CLI 原请求账本同样由 native-operations 验证：共享数据库的并发准备、缓存清理与重启、32 项满额输入 / 终态预留、16 项结果尾部、1024 项退休边界和跨凭据全局上限。test:operations 还运行真实 CLI 的 tests/native-cli-operations.ts，HTTP 服务在首次写入到达时核对 SQLite 已有完整意图，在确认到达时核对完整结果已提交；覆盖进程中断、丢关联 / 确认、实例替换、无证明 / 错证明，以及意图和结果写入故障。仅使用临时目录；未迁移的网页和云端写业务路径仍待完成。
+
+`npm run test:operations:web` 验证网页原请求账本与 HTTP 证明：首次意图 / 终态提交失败、丢结果 / 确认、关闭页面后恢复、退休身份、实例冲突、容量与原内容冲突。真实 Chromium 在独立 HTTPS 测试来源下使用 Web Locks、BroadcastChannel 和 IndexedDB，验证双标签页同编号只执行一次、先落盘再发送 / 确认、页面关闭、空闲停止和清缓存保留身份。test:cache 另验证双标签页 100 次 read-modify-write 无丢更新、回调失败 / 超额更新整事务回滚。项目管理端到端测试覆盖普通和管理员入口，管理员身份 / 实例查询仍须 owner 权限及有效目标。
+
+`native-uploads` 验证相同 uploadId 的原路径 / 大小摘要、主体和根目录隔离、完成 / 取消后拒绝重开、普通缓存清理与超过原 TTL 后保留、重启 unknown、不重复分配、4 个全局 / 2 个主体暂存承诺、1024 / 256 身份上限，以及首发账本写入失败时不存在暂存副作用。Windows 和 Linux 共用持久账本，平台文件同步 / 回收仍走各自实现。
+
+Worker 进度去除回归覆盖业务帧不产生 send-head / receive-head / head-instance / agentInstance 写入、无云端发送头仍转发输出 ACK、替换 Agent 继续拒绝旧连接，以及 DO / D1 归档恢复过滤旧进度并保留权限元数据。
+
+P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重查、审批模式检查、128 并发 / 8 MiB 结果背压及不写云端业务回执；D1 用例验证重建不从数据库恢复读结果。`tests/native-refresh.ts` 通过真实 CLI 验证有限重查、同编号、权限终止与写操作不重试；网页 API 测试覆盖只读 POST。取消测试另验诊断超过 64 项后仍拒绝旧身份、重建、JSON ID 类型、1024 项上限和容量不足保留待办。
+
+新增 `native-history-budget` CTest 对实际全局 / 单会话字节配额写入至背压，验证事件 / 投影 / revision / 账本同事务回滚、存储故障回调、独立终态预留、1024 作用域上限、替换退费、重复轮询、重启和旧大历史首次计量。测试使用临时 SQLite，并明确模拟离线清理验证退费，不接触生产库；原有 native-core 与 native-projects 继续运行。
+
+## 0.6.0 开发中的本地资源回归
+
+本轮按用户要求不使用 GitHub Actions，依赖在 `~/.local` 安装，使用本地工具链构建。`npm run build` 只进行原生 / 网页构建、TypeScript 和 Worker dry-run，不发布。`test:cpp` 覆盖 Agent / CC 的持久预留、全局与单作用域容量、未确认结果、关闭 / 重启及输出消费窗口；`test:cache` 在真实 Chromium IndexedDB 中覆盖双标签页并发额度、事务回滚、缓存限额和清理。`test:delivery` 使用真实 Agent 与确定性 Codex，包含零信用慢客户端的输出耗尽 / runtime 停止；`test:e2e` 覆盖完整 Wrangler / Agent / CLI / 浏览器链路，不调用模型。
+
+开发缓存使用网页 `coc-history-v3` 与 CC 缓存根目录内的 `transport-v3`，旧缓存原样隔离，不导入旧待办。CC 同一根目录按身份前缀隔离正文，但共享总预算；测试须继续使用临时 `COC_HISTORY_DIR`，不要指向生产缓存。配额及其它未完成验收见 TRANSPORT_STATE_INVENTORY，当前版本尚未统一切至 0.6.0。
+
+历史订阅的本地回归：Vitest 覆盖 OPEN / ACK 丢失、持续慢速重试、实例与代际冲突、当前恢复回退、旧 ACK 及空闲停止；test:cache 还使用真实 IndexedDB 验证事件 / checkpoint 提交后才产生 ACK。test:cpp 验证重启、退休拒绝、1024 分配上限；test:delivery 对已结束会话丢弃事件 / 通知，验证 Agent 无新业务仍补发、原确认恢复和关闭路由停止。Worker 回归断言订阅身份由连接绑定，重建丢失的临时关联不生成业务回执。
+
 ## 远程配置验证
 
 `npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端管理连接持续超过 30 秒并完成协议 Ping / Pong 后仍能操作、关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。

@@ -5,12 +5,19 @@
 #include <vector>
 namespace coc {
 class Store;
+std::string workspace_upload_identity(const std::string &root, const std::string &owner,
+                                      const std::string &id);
 class WorkspaceFiles {
   Store *store_;
   std::map<std::string, Json> completed_;
   std::string directory_key_, directory_version_;
   std::vector<std::string> directory_names_;
   int64_t directory_cached_ = 0;
+  Json upload_receipt(const std::string &root, const std::string &owner, const std::string &id);
+  void begin_receipt(const std::string &root, const std::string &owner, const std::string &id,
+                     const Json &body);
+  void finish_receipt(const std::string &root, const std::string &owner, const std::string &id,
+                      const Json &result, bool reclaimed);
   struct Upload;
   std::map<std::string, std::unique_ptr<Upload>> uploads_;
 

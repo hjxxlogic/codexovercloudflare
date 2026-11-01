@@ -98,6 +98,7 @@ function harness() {
         method: command ? 'POST' : 'GET',
         headers: {
           'x-host': 'host',
+          'x-coc-delivery': '2',
           'x-auth': encodeURIComponent(JSON.stringify(auth)),
         },
         ...(command ? { body: JSON.stringify(command) } : {}),

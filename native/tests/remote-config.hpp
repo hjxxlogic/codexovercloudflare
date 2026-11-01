@@ -1,4 +1,5 @@
 #pragma once
+#include "coc/credit.hpp"
 #include "coc/proxy.hpp"
 #include "coc/remote_config.hpp"
 #include <fstream>
@@ -89,6 +90,17 @@ inline void remote_configuration_fixture(const std::filesystem::path &root) {
   require(stat(path.c_str(), &mode) == 0 && (mode.st_mode & 0777) == 0600);
 #endif
   require(read_json(path) == replacement);
+  // Exhausted refusal metadata must not evict an old restart or change config.
+  const auto receipts = std::filesystem::u8path(path.u8string() + ".remote");
+  for (int64_t i = 2; i < credit::management_records; ++i)
+    save_private(receipts / ("retired-" + std::to_string(i) + ".json"),
+                 {{"fingerprint", std::string(64, 'a')}, {"phase", "restart"}});
+  auto refused = reboot;
+  refused["requestId"] = "full-budget";
+  expect(refused, "BACKPRESSURE");
+  require(!restart && read_json(path) == replacement &&
+          !std::filesystem::exists(receipts / "full-budget.json"));
+  require(reopened.request(reboot, true, restart) == restarted && !restart);
   // Pure proxy validation does not alter a running process's network policy.
   configure_proxy("");
   validate_proxy("http://127.0.0.1:8080");

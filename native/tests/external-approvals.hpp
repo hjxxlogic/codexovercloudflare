@@ -33,7 +33,7 @@ inline void shared_approval_fixture(const std::string &cwd) {
   tcp::acceptor acceptor(server_io, {asio::ip::make_address("127.0.0.1"), 0});
   const auto port = acceptor.local_endpoint().port();
   std::string server_error;
-  bool answered = false;
+  int answered = 0;
   std::thread server([&] {
     try {
       beast::websocket::stream<tcp::socket> socket(server_io);
@@ -48,12 +48,15 @@ inline void shared_approval_fixture(const std::string &cwd) {
           socket.write(asio::buffer(value.dump()));
         };
         if (!message.contains("method")) {
-          if (message.at("id") != 0 || message.at("result") != Json{{"decision", "accept"}})
+          if ((message.at("id") != 0 && message.at("id") != "0") ||
+              message.at("result") != Json{{"decision", "accept"}})
             throw std::runtime_error("Incorrect approval response");
-          answered = true;
+          ++answered;
           send({{"method", "serverRequest/resolved"},
-                {"params", {{"threadId", "shared-thread"}, {"requestId", 0}}}});
-          break;
+                {"params", {{"threadId", "shared-thread"}, {"requestId", message.at("id")}}}});
+          if (answered == 2)
+            break;
+          continue;
         }
         const auto method = message.at("method").get<std::string>();
         if (method == "initialized")
@@ -69,14 +72,15 @@ inline void shared_approval_fixture(const std::string &cwd) {
           throw std::runtime_error("Unexpected original server RPC");
         send({{"id", message.at("id")}, {"result", result}});
         if (method == "thread/resume")
-          send({{"id", 0},
-                {"method", "item/commandExecution/requestApproval"},
-                {"params",
-                 {{"threadId", "shared-thread"},
-                  {"turnId", "turn"},
-                  {"itemId", "item"},
-                  {"command", "echo shared-fixture"},
-                  {"availableDecisions", Json::array({"accept", "decline"})}}}});
+          for (const auto &approval_id : Json::array({0, "0"}))
+            send({{"id", approval_id},
+                  {"method", "item/commandExecution/requestApproval"},
+                  {"params",
+                   {{"threadId", "shared-thread"},
+                    {"turnId", "turn"},
+                    {"itemId", "item"},
+                    {"command", "echo shared-fixture"},
+                    {"availableDecisions", Json::array({"accept", "decline"})}}}});
       }
       boost::system::error_code ignored;
       socket.next_layer().shutdown(tcp::socket::shutdown_both, ignored);
@@ -89,7 +93,8 @@ inline void shared_approval_fixture(const std::string &cwd) {
   asio::steady_timer deadline(io, std::chrono::seconds(10));
   std::shared_ptr<ExternalApprovals> bridge;
   std::string failure;
-  bool resolved = false;
+  int resolved = 0;
+  std::set<std::string> identities;
   auto end = [&] {
     bridge->close();
     deadline.cancel();
@@ -97,10 +102,19 @@ inline void shared_approval_fixture(const std::string &cwd) {
   };
   bridge = std::make_shared<ExternalApprovals>(
       io, Json{{"approvalEndpoint", "ws://127.0.0.1:" + std::to_string(port)}}, "shared-thread",
-      cwd, [&](Json approval) { bridge->answer(approval.at("approvalId"), true); },
-      [&](Json) {
-        resolved = true;
-        end();
+      cwd,
+      [&](Json approval) {
+        const auto key = approval.at("approvalId").get<std::string>();
+        identities.insert(key);
+        bridge->answer(key, true);
+      },
+      [&](Json resolution) {
+        const auto key = resolution.at("approvalId").get<std::string>();
+        if (!identities.erase(key))
+          failure = "Resolution changed the typed approval identity";
+        ++resolved;
+        if (resolved == 2)
+          end();
       },
       [&](bool connected, std::string error) {
         if (!connected) {
@@ -118,6 +132,7 @@ inline void shared_approval_fixture(const std::string &cwd) {
   io.run();
   bridge->close();
   server.join();
-  if (!failure.empty() || !server_error.empty() || !answered || !resolved)
+  if (!failure.empty() || !server_error.empty() || answered != 2 || resolved != 2 ||
+      !identities.empty())
     throw std::runtime_error("Shared approval fixture: " + failure + " " + server_error);
 }

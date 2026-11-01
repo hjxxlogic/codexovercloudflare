@@ -1,0 +1,143 @@
+# 0.6.0 传输状态盘点与切换边界
+
+2026-11-01。本文对应 TRANSPORT_ARCHITECTURE 的 P0；它是迁移清单，不代表新版协议、全局预算或切换已完成。当前版本仍为 0.5.21，不部署本地构建制品。
+
+## 云端字段去向
+
+| 当前字段 / 路径 | 当前依赖 | 目标去向 / 切换规则 |
+| --- | --- | --- |
+| Host `send-head:*`、`head-instance:*` | `heads`、`advanceHead`、`advanceAgentHead`，命令、结果、RPC 输出及历史发送上界 | 已删除写入与读取；A/C 自身发布头及当前恢复快照提供上界，Worker 不验证 ACK 是否已落盘 |
+| Host `receive-head:*`、`send-head:rpc-received:*` | 历史接收确认及 CC 输出确认 | 已删除云端读写；C 本地连续游标，A 的订阅 / 输出接收确认；不能以一个 C 的确认代表其它订阅者 |
+| Host `send-head:result:*`、`send-head:result-received:*` | 结果发送 / 接收水位；目前基于命令序号 | 已迁移：A 完成日志独立 resultSeq；C 持久结果缓存及连续结果水位，ACK 向 A 转发；Worker 不再读写这两类头 |
+| `operation:*`、`part:*`、`wire:*` 及对应 `due:*` | `start / command / complete / result` 的业务正文、异步结果与关联 | delivery 的 OPEN / 查询 / transfer 分块、历史直读 / 历史 socket 准入与订阅，以及 probe / 项目与会话列表 / 线程 / snapshot / 原请求结果 / 审批列表 / 文件读取与状态等只读控制查询已改为 128 条 / 8 MiB 的纯内存关联（pending 与完成结果各保留最多 20 秒），无 Operation / part / wire / 到期索引写入；其它业务仍须迁出，权限事务回执另行保留 |
+| `agentInstance` | 将云端发送头绑定到 Agent 数据库 | 已删除云端 agentInstance 记录；存储实例由端点对账；Agent 认证与连接代际仍由 Worker 核验；不以缺失实例默认为 `legacy` 后接受业务 |
+| `lease:*` 的 epoch、nextEpoch、owner、controllerId、previousControllerId、pending、active、expires | 接管、原控制端恢复、会话控制准入 | 保留为权限状态；区分 controlEpoch 与连接绑定；pending 不能因通知丢失回退到旧控制端 |
+| `lease:*` / socket attachment 的 delivery.id、normal、priority | 已认证主体、会话、lane 到内部流的绑定 | 保留必要的授权路由绑定，移除发送头依赖；不能从客户端自报 owner 或 epoch 建立权限 |
+| `agentEpoch`、ticket、handshake、授权缓存、session-mode | Agent fencing、一次性准入与读取模式检查 | 保留权限核验及失效边界；不得把移除可靠进度扩大为删除这些状态 |
+| Registry 的授权、撤销、目录及管理元数据 | 凭据权限、主机可见性、控制入口 | 保留；缓存失效、断连及 HTTP 入口必须一致执行 |
+| `host-lifecycle.ts` DO / D1 复制、`host-state.ts` 的 `d1Receipt` | 目前归档 / 离线读取也携带业务回执与进度 | 在业务入口迁出后取消相应归档和 D1 回执；只删除 `host.ts` 中的写入还不够 |
+| `management.ts` 的 ManagementRequests | 管理通道临时 wire 关联 | 继续有界临时转发；配置执行回执在执行端，不混入业务 ACK |
+
+## 业务入口责任
+
+| 入口 | 已有执行端机制 | 仍需改造 / 验证 |
+| --- | --- | --- |
+| 会话创建 | Agent `create:<key>` 的 begin / finish 持久记录可返回原 sessionId | C 首发前持久原 key；与主体 / 作用域绑定；去除云端正文与结果回执依赖，验证创建响应丢失后重查 |
+| 停止会话 | Agent 会话状态与 stop 执行 | 引入原请求身份、持久终态和查询；不从传输超时推断已停止 |
+| 项目修改 | Agent 项目注册表与管理授权 | 为修改保存原请求及固定内容、结果；重试不能变成新的修改；查询保留原授权检查 |
+| 文件上传 | Agent uploadId、版本、偏移、分块重复校验和完成 cache；临时文件 fsync | C 首发身份落盘，故障后查原 uploadId；已发布但回执不明返回未知，不覆盖新版本；Windows 路径同验 |
+| 会话任务 / 写 RPC | A 命令日志、CW/CC 持久 outbox，received / started / finished | 独立结果、控制代际、精确取消、命令 / 结果预留及有界流退役已接入；仍需完整授权生命周期和唯一新版协议 |
+| 审批 / 中断 | 独立 priority lane 与业务允许列表 | 已绑定审批 runtime / ID / 版本、取消原主体 / 代际 / 流 / 请求 / turnId，先到取消标记已持久化；本地取消身份已有独立于诊断尾部的 1024 项持久拒绝账本；仍需完整资源与协议验收 |
+| 历史 / 大正文 | A SQLite 的 revision / content 与 C 历史缓存 | 已实现 A 订阅确认及尾部重试；transfer 全文落盘前不确认；权威历史预算已加入；history 引用保留仍待完成 |
+| CC RPC 输出 | A 输出日志及 C 输出进度 cache | 已接入持久接收、按消费推进信用、输出全局 / 单流预算及尾部重试；Worker rpc 发送头已删除；仍需完成唯一新版线协议 |
+| 远程配置 / 重启 | 执行端 RemoteConfiguration 原 requestId 与版本校验；管理通道临时关联 | 保持独立管理员权限；执行回执及重启前提交边界另验，不并入会话信用 |
+| 更新器 | 旧 manifest、来源、SHA256、候选身份校验、安装锁和替换 | 真实旧二进制手动 update 演练；release protocol 保持 1，业务 delivery 独立升为 2；不把测试替身等同真实旧发行二进制 |
+
+## 本轮已实现的基础边界
+
+CW 与 CC 的本地排队项使用 seq=0 / end=0 表示尚未发布；该值不会发到网络。取得接收信用后，序号、UTF-8 累计字节位置及 outbox 在同一提交中固定，再允许发送。写入失败回滚本地分配，原排队项保留；已发布项重试继续使用原身份。
+
+OPEN 具有唯一 exchangeId，HTTP / WebSocket 读取将该值转给 Agent 并回显。双方 lane 快照齐备前暂停发布，退休连接、过期交换和恢复完成前无交换身份的在线响应不能建立窗口。权威回退仅与该交换开始时保存的确认水位比较；快照重复响应及在线旧 ACK 不能覆盖更高水位。相同 ACK 序号必须具有相同字节位置，向前推进必须匹配实际已发布项边界。
+
+有待办时，CW 与 CC 在有限快速重试后持续以 30–60 秒抖动恢复；提交进度使快速重试预算复位。待办清空且窗口已建立时不再调度恢复。暂停 / 退出 / 存储冲突仍停止自动发送。Worker 已删除传输头读写，租约核验独立保留；Operation 业务回执迁移仍未完成。
+
+独立结果完成日志已接入 A / CW / CC：完成事务分配 resultSeq，结果 ACK 只清理该完成前缀，保留序号 / 摘要身份；结果逆序完成与乱序到达均有测试。大结果的 transfer 描述符包含不可变长度 / revision / SHA-256；16 KiB UTF-8 边界分块在客户端取齐、校验、保存全文后才确认，Agent 确认后才回收内容。当前单个 transfer 上限 2 MiB，单端结果缓冲 100 条 / 2 MiB，结果缓存尾部 64 条 / 2 MiB；这些仍非全局预算。Worker 不再写结果进度；OPEN、结果查询与分块读取仅用有界内存关联，重建丢失时返回 RESULT_UNKNOWN，由 C 重查原端点身份。Agent 自报的历史 / 输出头随结果透传，Worker 不合并或登记这些结果帧的头。Worker 全部发送头已移除，其它业务 Operation 仍须迁出。
+
+CC 输出先提交完整正文、连续序号和字节位置，再发送接收确认及交给 TUI。未交付正文不得淘汰，消费后仅保留有界诊断尾部；清理普通历史缓存保留这些记录。Agent 在既有 30 秒维护调度中仅为未确认结果 / RPC 输出补发，静默丢 ACK 测试覆盖无新业务的恢复。新 SQLite 表使用 transport2_*、CW 使用 delivery-outbox-v2、CC 使用 :delivery:v2 / :output:v2，不读取旧传输待办。
+
+网页创建 / 停止会话和项目修改已接入同样的原请求账本。首次意图先以 IndexedDB 原子 read-modify-write 占用既有 32 MiB 预留，再查询并持久绑定 Agent 实例；Web Locks 在同一主体 / 主机范围串行网络交换，并以四个全站槽限制在途交换，BroadcastChannel 唤醒其它标签页。最多 32 项未确认 / 1024 项身份，终态提交后才确认，确认后回收输入并保留 16 项 / 4 MiB 结果尾部及永久拒绝摘要；无待办停止恢复。管理员项目管理使用实际 owner 哈希及同一主机范围，云端 identity / probe 仍验证 owner 和主机有效性。上传及其余写入口、旧业务路径去除仍待完成。
+
+上传执行端已将回执从普通 cache 移入 transport2_uploads；开始创建暂存文件前持久绑定主体 / 项目根 / uploadId 与原路径、大小、覆盖意图摘要，并预留完整暂存大小和 16 KiB 元数据。全局最多 4 个未解除资源承诺 / 80 MiB 暂存，每主体最多 2 个；拒绝身份全局 1024 / 每主体 256，总预算 96 MiB。分块推进连续偏移前同步文件；完成和取消先回收暂存资源再释放对应预留，永久保留旧身份，清普通缓存和旧一天期限不重新放行。重启中的上传固定为 unknown；无法证明资源已回收时保守保留预留，不能通过重启扩大磁盘承诺。网页完整正文首发持久化、上传恢复及云端写路径收敛仍待完成，本段仅描述执行端基础。
+
+## 控制代际实施进展
+
+Worker 在权限事务中分配 controlEpoch 和独立的连接 generation，分配 pending 时立即关闭旧写入资格；失败 / 过期保持隔离，不回退 active。CW 在首次 attach 前持久保存 claimId；同一 claim 重试沿用原控制代际，授权恢复原流时只增加连接 generation。OPEN 由 Worker 绑定主体和控制证明，A 在 transport2_control / transport2_flow_control 中持久提交代际，事务终结旧代际 received 项为 STALE_CONTROLLER，已 started 项继续记录实际结果。旧流拒绝重绑定和迟到写入。
+
+Worker 只接受仍匹配当前权限记录、Agent 连接及实例的 CONTROL_READY；CW / CC 在两 lane 的当前 exchange 确认后才发布业务。CW 将旧控制流待办保留在有界 retired 集合中，新流不继承其序号或信用；CC 拒绝将旧流直接绑定新控制身份。retired 待办的交互式对账及整个唯一 delivery:2 切换仍需完成，不能把保留记录解释为已经取消旧副作用。
+
+## 精确取消实施进展
+
+A 增加 transport2_flow_owner、transport2_command_keys 和 transport2_cancel，取消验证原存储实例 / 主体 / controlEpoch / 流 / 原请求；web:<requestId>、rpc:<JSON id> 与 reply:<JSON id> 分开记录。未知目标的取消先持久保留；迟到原命令依旧推进连续接收位置，同事务生成 CANCELLED_BEFORE_START 结果，禁止派发。已开始命令只返回 started，不能由取消回执声称停止。标记每流 4 条、全局 128 条 / 64 KiB（含开销），满时明确背压；退役控制流先隔离，再释放不再可能到达的标记。
+
+网页使用 Agent 发布的 activeTask / turnId 发停止命令。CW / CC sender 的未发布取消与序号发布串行提交，已发布项不删除；诊断尾部 64 条 / 512 KiB。原生 CLI 已保存并附加中断目标，传输元数据在转交 TUI 前移除。TUI $/cancelRequest 已接入本地原子取消；已发布目标以 priority coc/cancel 提交，先到的标记阻止迟到启动。取消接收回执不伪造 turn/completed。审批现在绑定 runtime / version；CW 使用原事件证明，CLI 在输出确认前保存原证明、答复时附加，显式 HTTP / CLI 命令要求提供原证明。重复使用的 server request ID 以版本区分。R4 全局资源预留仍未完成，本段不表示完整架构已验收。
+
+## 资源与切换待办
+
+现有单流预算 normal 16 条 / 2 MiB、priority 4 条 / 512 KiB，发送缓冲 normal 96 条 / 1.5 MiB、priority 4 条 / 512 KiB，单帧 256 KiB。它们仍不是全局承诺预算，不能据此勾选 P0 / P2 完成。需在实现配置中确定并测试全局、会话、流、结果、取消标记及控制保留预算，事务预留的总占用必须满足设计 5.1 节公式。
+
+切换须独立备份授权、凭据、配置、项目和历史，等待旧任务结束、核对未知结果，再建立新传输命名空间。旧 outbox / 游标不导入新流；旧业务传输字段只在明确切换脚本中清理，不删除整库。完成唯一 delivery:2、全部业务入口和旧更新器验证后才统一标记 0.6.0。本轮按用户要求只本地构建和测试，不触发 GitHub Actions，也不发布或部署。
+
+
+## R4 Agent 命令 / 结果预算阶段（2026-11-01）
+
+已实现持久预留账本 transport2_credit / transport2_namespaces；预算及单流记录上限见 native/include/coc/credit.hpp。OPEN、发放信用和分配 serial / generation 同事务；重复 OPEN 不重复预留。normal / priority 分开计量，全局与单会话同时限制。未确认终态继续占槽，确认后清理命令 / 结果正文，摘要及原请求索引仍参与重复验证；可靠网页命令不另写无界 requests 回执副本。
+
+关闭先建立持久拒绝边界，再处理 received 终态和释放。未确认结果、started 命令及实际运行任务仍占预留，重启恢复原承诺。最多 1024 条命令 / 流、1024 个分配及关闭记录；不能压缩时拒绝新分配，旧 ID 不重新开放。客户端重连校验保存的 serial / generation。
+
+本阶段没有完成 R4 整体：客户端跨标签页 / 跨会话资源、输出与历史日志预算、全局控制队列、所有正文 / 索引的统一计量及唯一新版线协议绑定仍需落地。不得将命令账本覆盖范围误写为全应用物理磁盘配额。
+
+
+## R4 客户端预留与输出阶段（2026-11-01）
+
+已增加 CC 持久本地预留、CW 跨标签页 IndexedDB 事务账本和普通缓存计量，参数见 ARCHITECTURE 的客户端全局计量段及 cache-budget.ts / credit.hpp。已确认的输出先落盘，信用只随连续 TUI 消费前进；未消费正文不被诊断尾部清理挤掉。Agent 输出按全局 / 单流容量及记录数计量，ACK 事务回收，慢客户端耗尽时停止其 runtime 并记录原因。
+
+会话 runtime 退出会退役命令流；closed / exhausted 的客户端仍恢复已接收请求的原结果，不能冻结结果查询。普通历史清理不释放命令预留；当前关闭记录无法证明可压缩时采取有界停止分配。
+
+剩余 R4 项：A 权威历史及订阅信用、其它业务及管理队列的统一计量、可靠流退休的完整授权生命周期、取消身份尾部的永久拒绝边界，以及 receiver serial / generation 的唯一新版线协议强制绑定。不能把这些局部账本标记为 R4 或 P2 全部完成。
+
+原生普通缓存已补充跨身份的共享事务账本及按凭据前缀隔离；同一 cache-dir 使用 transport-v3 公共数据库，不再按每个凭据分库乘出预算。仍需完成 A 权威历史和其它业务持久记录的统一预算，不能据此勾选完整 R4。
+
+
+## 历史订阅阶段（2026-11-01）
+
+已实现 transport2_history_subscriptions：端点持久 ACK、分配代际、Agent / C 实例与恢复 exchange 校验，1024 项上限及退休永久拒绝；128 在线路由、合并 dirty 提示与持续慢速恢复。CW 的实际缓存提交驱动确认；实时链丢尾部由 Agent 未确认水位发现，不依赖 Worker 新业务进度。关闭页面 / 路由暂停重试，新的恢复沿用原订阅；显式清理缓存使用新身份。
+
+Worker 已停止历史 send-head / receive-head / head-instance 的读取与写入，删除 /progress；历史直读、history-open、订阅 ACK 为纯内存转发。后续 P3 已移除命令 / RPC 等全部 Worker heads 读写，控制端和 Agent fencing 独立校验；旧进度字段不再归档或恢复。后续 P4 已迁移综合 snapshot 等只读查询；写操作的业务 Operation 及其归档字段仍待收敛。A 权威历史 / 正文总预算、其它业务与控制元数据预算，仍需完成；CC 附着观察器已接入相同的持久确认与恢复检查，取消空闲周期读页，单次 history 命令仍为有限只读。
+
+## P3 Worker 传输进度去除（2026-11-01）
+
+heads / advanceHead / advanceAgentHead 已删除；controllerHeads 拆为纯权限 assertController。HTTP 与 WebSocket 保留控制租约、主体及 Agent 连接代际核验；输出 ACK 只校验结构和转发，实际发布上界由 A 校验。Worker 不合并端点 heads，HostLifecycle 归档与恢复过滤旧进度键及 agentInstance，保留租约 / epoch / 目录。旧线上数据未修改，P4 的业务 Operation 迁移仍待完成。
+
+## P4 只读入口与本地取消拒绝边界（2026-11-01）
+
+纯读取不再生成 Operation / part / wire / due 持久记录，关联丢失由 C 重新读取 A。CW 的 GET 与明确只读 POST 最多尝试三次；CC 的 GET 遇 RESULT_UNKNOWN 最多尝试三次，保留同一请求编号；撤销与权限拒绝停止，写操作不进入此重读策略。项目管理的 list / browse 仍在发送及返回前核验管理授权；审批列表仍先核验会话模式。旧云端写业务回执仍未迁完，P4 不勾选。
+
+CW / CC 本地取消保存独立的 SHA-256 原请求拒绝集合，每份 outbox 最多 1024 项，在该 outbox 生命周期内不因诊断尾部清理而删除。取消正文仍仅留 64 项 / 512 KiB；永久集合满时拒绝新取消并保留原排队项，不假报成功。集合计入既有 outbox 预留；缓存清理不删除可靠 outbox。审批自动尝试状态改为只随当前 Approval 对象保留，已解决审批不再留在不断增长的 runtime 集合。
+
+## A 权威历史 / 正文预算（2026-11-01）
+
+新增 transport2_history_entries / history_budget：events、history、chunks、bodies、streams、external_items 的行及索引 / 账本开销分别计量，同一 SQLite 事务更新正文、投影及全局 / 会话账本。上限全局 256 MiB / 250000 条、单会话 64 MiB / 64000 条、1024 个非空历史作用域；具体参数见 credit.hpp。替换释放旧正文的实际计量，重复外部轮询不增加占用；普通清理不删除权威正文。
+
+容量不足返回 BACKPRESSURE 并触发 Agent 既有停止副作用的存储故障回调；没有落盘的事件不发布 revision，不返回伪造确认。命令终态使用独立预留，历史耗尽不挤占结果容量。既有历史首次建立账本时完整计入，已超限内容仍可读，后续增长被拒绝；不迁移或删除生产数据。独立 archive_event 现也包在事务内，正文或投影失败一并回滚。现有周期指标加入 historyBytes / historyRecords，无新增云端业务轮询。
+
+这是权威历史存储的逻辑计量，并非 SQLite 文件、空闲页和 WAL 的物理磁盘配额；真实 I/O / 磁盘故障继续停止确认。其它写业务、管理 / 控制元数据的统一预算及唯一新版线协议仍待完成，P0 / P2 / P4 不因此全部勾选。
+
+## P4 执行端原请求回执基础（2026-11-01）
+
+A 的 transport2_operations 按可信主体 / 原 requestId 建立唯一键，并绑定持久 Agent instance 及 action / data 摘要。开始执行前提交 started；重复 started 返回 RESULT_PENDING，completed 返回原数据或错误，Agent 进程重启将 started 固定为 RESULT_UNKNOWN，不再次派发。完成回执先提交再回复，带原身份的结果确认匹配原 action / data 后才清正文；acked 身份永久拒绝重开。
+
+每项执行前预留 256 KiB 正文加 8192 字节记录开销，全局 128 MiB / 主体 32 MiB，全部存活及退休身份合计最多 1024 项。终态未确认仍占原预留；确认后保留 8192 字节身份 / 摘要。退休边界不能压缩时停止分配，不通过 TTL 重新放行旧请求；当前是独立的有界业务账本，尚未代表管理 / 控制资源全部统一计量。
+
+Worker 根据 x-coc-operation-instance、Idempotency-Key 和可选 x-coc-operation-ack: 1 构造 intent，owner 覆盖为当前鉴权主体。携带 intent 的关联共用 128 条 / 8 MiB 内存转发，重建后只能重查原请求；执行阶段只接受匹配 intent 的成功回执，停止及确认仍先读取会话模式并验证权限。A probe 返回 deliveryInstance，实例改变拒绝原操作，不能把原意图重绑新库。
+
+CC 的 connect / observe、stop、queue、approve / reject 和项目修改已接入完整原请求意图与终态提交 / 确认，恢复重查原身份；CW 及其它业务尚未全部接入，旧客户端路径及云端写业务回执仍在，因此 P4 未完成，也未启用唯一 delivery:2。
+
+CC 的 transport2_local_operations 与普通缓存分表，按凭据前缀隔离并使用既有共享全局命令额度中的 32 MiB 预留。最多 32 项未确认 / 1024 项身份，确认后清原正文并保留 16 项 / 4 MiB 终态尾部；结果尾部淘汰不重开身份。prepare / finish / confirm 各自为 SQLite IMMEDIATE 事务，多进程不会覆盖原意图；用量指标包含该分表正文和元数据。cache-clear 保留待办及拒绝边界。命令运行时有限快速重试后转 30–60 秒慢速原结果 / 确认恢复，退出进程暂停；request 原编号按已存正文和实例继续，实例替换不重绑，已持久 RESULT_UNKNOWN 只确认结果，不再执行。
+
+
+## CW 上传原意图与恢复（2026-11-01，本机验收）
+
+网页上传已接入独立持久账本 delivery-outbox-upload:v2，完整文件、原编号、目标 / 覆盖选择及 SHA-256 在首次网络发送前原子保存，占用既有全局命令额度中的 32 MiB 预留；单文件 20 MiB、每个主机作用域一个未解决文件、128 项永久拒绝身份。begin / finish 使用原请求账本并提交终态后确认；分块 / 状态查询沿用原上传编号和 Agent 实例，先读连续偏移，再串行发送 64 KiB 原块，丢包按原块重传。Agent 校验完整 SHA-256 后才发布；C 保存匹配大小 / 校验和的终态后释放文件正文。已确认 HTTP 结果正文从有限尾部回收时，保留身份与实例仍可查原上传回执，不再次创建或发布。
+
+关闭面板或显式暂停保留完整正文，重新打开自动沿原意图恢复；实例变化、原暂存未知或本地正文冲突冻结，不能以新编号重试未知副作用。普通缓存清理保留可靠账本。Worker 所有文件操作使用有界内存关联，不保存上传正文或结果。已通过上传单元故障测试、真实 IndexedDB 20 MiB 落盘 / 页面重开 / 清缓存保留，以及实际 Agent + Wrangler + Chromium 的首块已落盘后回包丢失、暂停关闭面板再打开恢复与逐字节校验。其它旧写路径清理、唯一 delivery:2 及完整资源验收仍待完成，P4 尚未全部完成；Windows 构建按用户要求不在本轮验收范围。
+
+
+## delivery:2 准入与历史清理隔离（2026-11-01，本机阶段）
+
+Agent 能力协商、CW 控制连接、CC ticket / attached / delivery-ready 及主机业务 HTTP 入口均要求 delivery:2；HTTP 使用 X-CoC-Delivery: 2，浏览器 WebSocket 使用 delivery=2。缺失、旧版及未知版本在处理业务前拒绝；客户端也核验中继响应版本。发行 manifest / 原生 build 的 protocol 仍为 1，保留旧更新器通路，不代表兼容旧业务协议。
+
+CW 已移除裸 WebSocket 写入和旧 requests 查询回退，CC 附着要求持久账本及新版 ticket；CLI request 只恢复本地保存的完整原意图，本地找不到时返回 NOT_FOUND。服务端旧业务处理分支、云端旧 Operation 存储及接收端信用代际的强制帧绑定尚未全部删除，因此 P1 / P4 仍未完成，版本未升为 0.6.0。
+
+历史订阅在每次发送 OPEN / ACK 前核验原持久记录；保存窗口使用原记录比较与替换事务。另一进程 / 标签页清空或更改记录时，旧订阅停止，迟到窗口不能重建旧身份，也不能继续以旧内存游标确认。CC 的耐久游标从实际缓存读取，不以进程内副本代替；清理后新的订阅使用新身份。
+
+远程配置 / 重启的执行回执最多保留 256 项永久身份，每项上限 8192 字节；新身份在文件变更或重启前预留，容量满时返回 BACKPRESSURE，原身份仍可重查。该边界不以 TTL 或清理诊断尾部重新开放旧请求；全应用控制资源的统一验收仍待完成。

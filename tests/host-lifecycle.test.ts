@@ -43,6 +43,37 @@ afterEach(() => {
 });
 
 describe('active DO / inactive D1 authority', () => {
+  it('never archives or restores obsolete transport progress while retaining permission fences', async () => {
+    const h = harness();
+    const progress = {
+      'send-head:normal': 50,
+      'send-head:rpc:session': 10,
+      'receive-head:session:owner': 9,
+      'head-instance:session': 'old-db',
+      agentInstance: 'old-db',
+    };
+    const permission = {
+      agentEpoch: 7,
+      'lease:session': {
+        epoch: 9,
+        controlEpoch: 12,
+        owner: 'owner',
+        active: false,
+      },
+    };
+    await h.local.put({ ...progress, ...permission });
+    await h.lifecycle.activate();
+    await idle(h);
+    await finish(h.create());
+    for (const key of Object.keys(progress))
+      expect(await h.archive.get(key)).toBeUndefined();
+    await h.archive.put(progress); // Existing old D1 archives also cannot resurrect a head.
+    await h.create().activate();
+    for (const key of Object.keys(progress))
+      expect(await h.local.get(key)).toBeUndefined();
+    for (const [key, value] of Object.entries(permission))
+      expect(await h.local.get(key)).toEqual(value);
+  });
   it('keeps active state local, survives reconstruction and archives only after sustained idle', async () => {
     const h = harness();
     await h.local.put({

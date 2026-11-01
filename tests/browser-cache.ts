@@ -5,7 +5,7 @@ import { chromium } from '@playwright/test';
 import ts from 'typescript';
 import type { HistoryCache } from '../apps/web/src/history.ts';
 const source =
-  ['events.ts', 'history.ts']
+  ['events.ts', 'cache-budget.ts', 'history.ts', 'history-subscription.ts']
     .map((file) =>
       ts
         .transpileModule(readFileSync(`apps/web/src/${file}`, 'utf8'), {
@@ -15,27 +15,29 @@ const source =
           },
         })
         .outputText.replace(/^import .* from ['"]\.\/events\.ts['"];?$/m, '')
+        .replace(/^import .* from ['"]\.\/cache-budget\.ts['"];?$/m, '')
         .replaceAll('export ', ''),
     )
-    .join('\n') + '\nglobalThis.HistoryCache = HistoryCache;';
+    .join('\n') +
+  '\nglobalThis.HistoryCache = HistoryCache; globalThis.HistorySubscription = HistorySubscription;';
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await context.route('http://cache.invalid/**', (route) =>
+  await context.route('https://cache.invalid/**', (route) =>
     route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
   );
-  await page.goto('http://cache.invalid/');
+  await page.goto('https://cache.invalid/');
   await page.addScriptTag({
     content: source + '\nglobalThis.__name = (value) => value;',
   });
   // Another tab holding the previous schema must not strand network startup.
   const blocker = await context.newPage();
-  await blocker.goto('http://cache.invalid/');
+  await blocker.goto('https://cache.invalid/');
   await blocker.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open('coc-history', 1);
+        const request = indexedDB.open('coc-history-v3', 1);
         request.onsuccess = () => {
           (globalThis as any).blockingDatabase = request.result;
           resolve();
@@ -63,6 +65,136 @@ try {
   );
   await blocker.evaluate(() => (globalThis as any).blockingDatabase.close());
   await blocker.close();
+  const committedReceipt = await page.evaluate(async () => {
+    const cache = new (globalThis as any).HistoryCache('subscription-commit');
+    await cache.latest();
+    const frames: any[] = [],
+      failures: string[] = [];
+    const subscriber = await (globalThis as any).HistorySubscription.create(
+      cache,
+      'history-subscription',
+      () => {},
+      () => {},
+      (error: Error) => failures.push(error.message),
+    );
+    cache.onCommit = () => subscriber.commit();
+    await subscriber.connect((frame: unknown) => frames.push(frame));
+    const opening = frames.at(-1);
+    const response = {
+      type: 'history-window',
+      requestId: opening.requestId,
+      stream: opening.stream,
+      instance: opening.instance,
+      exchangeId: opening.exchangeId,
+      agentInstance: 'agent',
+      streamSerial: 1,
+      creditGeneration: 'credit',
+      receivedRevision: 0,
+      maxRevision: 7,
+    };
+    await subscriber.handle(response);
+    const before = frames.length;
+    await cache.writeSnapshot(
+      [
+        {
+          seq: 7,
+          revision: 7,
+          time: 0,
+          type: 'user',
+          data: { text: 'committed' },
+        },
+      ],
+      7,
+    );
+    await subscriber.commit();
+    const receipt = frames.at(-1);
+    const stored = await cache.latest();
+    await subscriber.handle({
+      ...response,
+      requestId: receipt.requestId,
+      receivedRevision: 7,
+    });
+    const saved = await cache.record('history-subscription');
+    subscriber.stop();
+    cache.close();
+    return { before, receipt, checkpoint: stored.checkpoint, saved, failures };
+  });
+  assert.equal(
+    committedReceipt.before,
+    1,
+    'Rendering a hint alone sends no history ACK',
+  );
+  assert.equal(committedReceipt.receipt.operation, 'ack');
+  assert.equal(
+    committedReceipt.receipt.receivedRevision,
+    committedReceipt.checkpoint,
+  );
+  assert.equal(committedReceipt.saved.acknowledgedRevision, 7);
+  assert.deepEqual(committedReceipt.failures, []);
+  await page.evaluate(async () => {
+    const cache = new (globalThis as any).HistoryCache('subscription-clear');
+    await cache.latest();
+    const frames: any[] = [],
+      failures: string[] = [];
+    const subscriber = await (globalThis as any).HistorySubscription.create(
+      cache,
+      'history-subscription',
+      () => {},
+      () => {},
+      (error: Error) => failures.push(error.message),
+    );
+    await subscriber.connect((frame: unknown) => frames.push(frame));
+    const opening = frames[0];
+    const response = {
+      ...opening,
+      type: 'history-window',
+      agentInstance: 'agent',
+      streamSerial: 1,
+      creditGeneration: 'credit',
+      receivedRevision: 0,
+      maxRevision: 7,
+    };
+    await subscriber.handle(response);
+    (globalThis as any).clearRace = {
+      cache,
+      frames,
+      failures,
+      subscriber,
+      response,
+    };
+  });
+  const clearingTab = await context.newPage();
+  await clearingTab.goto('https://cache.invalid/');
+  await clearingTab.addScriptTag({ content: source });
+  await clearingTab.evaluate(async () => {
+    const cache = new (globalThis as any).HistoryCache('subscription-clear');
+    await cache.clear();
+    cache.close();
+  });
+  await clearingTab.close();
+  const clearedReceipt = await page.evaluate(async () => {
+    const { cache, frames, failures, subscriber, response } = (
+      globalThis as any
+    ).clearRace;
+    await cache.writeSnapshot([], 7);
+    await subscriber.commit();
+    await subscriber.handle(response);
+    const saved = await cache.record('history-subscription');
+    subscriber.stop();
+    cache.close();
+    return { frames: frames.length, failures, saved };
+  });
+  assert.equal(
+    clearedReceipt.frames,
+    1,
+    'A cleared reader must not send a stale ACK',
+  );
+  assert.equal(clearedReceipt.failures.length, 1);
+  assert.equal(
+    clearedReceipt.saved,
+    undefined,
+    'A delayed response cannot recreate a cleared reader',
+  );
   const result = await page.evaluate(async () => {
     const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
     const transport = new Cache('transport');
@@ -229,8 +361,187 @@ try {
   assert.equal(result.pending.requestId, 'keep');
   assert.equal(result.remaining, undefined);
   assert.deepEqual(result.errors, []);
+  const secondTab = await context.newPage();
+  await secondTab.goto('https://cache.invalid/');
+  await secondTab.addScriptTag({ content: source });
+  const updateShared = (tab: typeof page, start: number) =>
+    tab.evaluate(async (start) => {
+      const cache = new (globalThis as any).HistoryCache('own');
+      await Promise.all(
+        Array.from({ length: 50 }, (_, index) =>
+          cache.updateRecord('delivery-outbox:tab', (previous: any) => ({
+            ...previous,
+            counter: (previous.counter ?? 0) + 1,
+            originals: {
+              ...previous.originals,
+              [start + index]: 'saved-before-wire',
+            },
+          })),
+        ),
+      );
+      cache.close();
+    }, start);
+  await Promise.all([updateShared(page, 0), updateShared(secondTab, 50)]);
+  const atomic = await page.evaluate(async () => {
+    const cache = new (globalThis as any).HistoryCache('own');
+    const before = await cache.record('delivery-outbox:tab');
+    let refused = false;
+    try {
+      await cache.updateRecord('delivery-outbox:tab', (previous: any) => {
+        previous.counter = 999;
+        throw new Error('Intent commit rejected');
+      });
+    } catch (error) {
+      refused = String(error).includes('Intent commit rejected');
+    }
+    let oversized = false;
+    try {
+      await cache.updateRecord('delivery-outbox:tab', (previous: any) => ({
+        ...previous,
+        counter: 888,
+        text: 'x'.repeat(32 * 1024 * 1024),
+      }));
+    } catch {
+      oversized = true;
+    }
+    const after = await cache.record('delivery-outbox:tab');
+    await cache.clear();
+    const preserved = await cache.record('delivery-outbox:tab');
+    cache.close();
+    return { before, after, preserved, refused, oversized };
+  });
+  assert.equal(
+    atomic.before.counter,
+    100,
+    'Two real tabs atomically update one original-intention journal',
+  );
+  assert.equal(
+    Object.keys(atomic.before.originals).length,
+    100,
+    'No concurrent original is overwritten',
+  );
+  assert(atomic.refused && atomic.oversized);
+  assert.deepEqual(
+    atomic.after,
+    atomic.before,
+    'Failed intention updates roll back all changes',
+  );
+  assert.deepEqual(
+    atomic.preserved,
+    atomic.before,
+    'Clearing history retains the original-intention journal',
+  );
+  const allocate = async (tab: typeof page, offset: number) =>
+    tab.evaluate(async (offset) => {
+      const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
+      return Promise.all(
+        Array.from({ length: 10 }, async (_, i) => {
+          const cache = new Cache(`quota:${offset + i}`);
+          try {
+            await cache.record('delivery-outbox-v2:tab', {
+              pending: offset + i,
+            });
+            return true;
+          } catch (error) {
+            if (!String(error).includes('BACKPRESSURE')) throw error;
+            return false;
+          } finally {
+            cache.close();
+          }
+        }),
+      );
+    }, offset);
+  const allocations = (
+    await Promise.all([allocate(page, 0), allocate(secondTab, 10)])
+  ).flat();
+  assert.equal(
+    allocations.filter(Boolean).length,
+    15,
+    'Two tabs share 16 total command reservations, including the preserved original outbox',
+  );
+  const quota = await page.evaluate(async () => {
+    const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
+    const cache = new Cache('cache-quota');
+    const text = 'x'.repeat(3 * 1024 * 1024);
+    for (let i = 0; i < 5; i++) await cache.record(`large:${i}`, text);
+    let refused = false;
+    try {
+      await cache.record('large:5', text);
+    } catch (error) {
+      refused = String(error).includes('BACKPRESSURE');
+    }
+    if (!refused || (await cache.record('large:5')) !== undefined)
+      throw new Error('A rejected cache write escaped its scope quota');
+    let checkpointRefused = false;
+    try {
+      await cache.writeSnapshot(
+        [
+          {
+            seq: 1,
+            revision: 90,
+            time: 0,
+            type: 'user',
+            data: { text: text.slice(0, 2 * 1024 * 1024) },
+          },
+        ],
+        90,
+      );
+    } catch (error) {
+      checkpointRefused = String(error).includes('BACKPRESSURE');
+    }
+    const missing = await cache.latest();
+    if (
+      !checkpointRefused ||
+      missing.events.length ||
+      missing.checkpoint !== undefined
+    )
+      throw new Error(
+        'A failed global cache transaction advanced its cursor or committed a partial event',
+      );
+    await cache.clear();
+    // Reliable reservations survive ordinary history clearing and reconnect.
+    const original = new Cache('own');
+    if (
+      (await original.record('delivery-outbox:tab'))?.pending !== 'keep-command'
+    )
+      throw new Error('Command exhaustion discarded the old pending request');
+    await original.record('draft', 'ordinary cache remains independent');
+    const extra = new Cache('quota:extra');
+    let commandRefused = false;
+    try {
+      await extra.record('delivery-outbox-v2:tab', {});
+    } catch (error) {
+      commandRefused = String(error).includes('BACKPRESSURE');
+    }
+    let globalRefused = false;
+    const created: InstanceType<typeof Cache>[] = [];
+    for (let scope = 0; scope < 8 && !globalRefused; scope++) {
+      const more = new Cache(`global-cache:${scope}`);
+      created.push(more);
+      for (let i = 0; i < 5; i++) {
+        try {
+          await more.record(`large:${i}`, text);
+        } catch (error) {
+          if (!String(error).includes('BACKPRESSURE')) throw error;
+          globalRefused = true;
+          break;
+        }
+      }
+    }
+    for (const item of [cache, original, extra, ...created]) item.close();
+    return { commandRefused, globalRefused };
+  });
+  assert(
+    quota.commandRefused,
+    'Closing tabs and clearing history does not revoke an outstanding reservation',
+  );
+  assert(
+    quota.globalRefused,
+    'Many cache scopes cannot multiply the global cache quota',
+  );
+  await secondTab.close();
   console.log(
-    'PASS: persistent full history, local content, scope isolation, batched revision writes, draft flush and clear',
+    'PASS: persistent history/content, atomic cursors, independent cache/command quotas across real tabs, preserved reservations, batching and scoped clear',
   );
   await context.close();
 } finally {

@@ -49,6 +49,8 @@ function harness() {
     auth: { ...auth, role: 'agent', hash: 'agent' },
     epoch: 1,
     protocol: 1,
+    deliveryVersion: 2,
+    deliveryInstance: 'test-agent-store',
     deadline: Number.MAX_SAFE_INTEGER,
   });
   const sockets = [agent];
@@ -72,12 +74,17 @@ function harness() {
     'x-auth': encodeURIComponent(JSON.stringify(auth)),
     'x-host': 'host',
     'x-coc-async': '1',
+    'x-coc-delivery': '2',
   };
-  const start = async (action = 'projects', data: any = {}) => {
+  const start = async (
+    action = 'projects',
+    data: any = {},
+    extraHeaders: Record<string, string> = {},
+  ) => {
     const response = await relay.fetch(
       new Request('https://internal/control', {
         method: 'POST',
-        headers,
+        headers: { ...headers, ...extraHeaders },
         body: JSON.stringify({ action, data }),
       }),
     );
@@ -94,7 +101,7 @@ function harness() {
     );
     return { response, data: (await response.json()) as any };
   };
-  const reply = async (frame: any, data: any, error?: any) =>
+  const reply = async (frame: any, data: any, error?: any, intent?: any) =>
     relay.webSocketMessage(
       agent as unknown as WebSocket,
       JSON.stringify({
@@ -102,6 +109,7 @@ function harness() {
         type: 'result',
         requestId: frame.requestId,
         ...(error ? { error } : { data }),
+        ...(intent ? { intent } : {}),
       }),
     );
   const frames = () => agent.send.mock.calls.map(([raw]) => JSON.parse(raw));
@@ -130,6 +138,231 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('recoverable asynchronous controls', () => {
+  it('keeps original write forwarding in memory and binds receipts to authenticated intent across reconstruction', async () => {
+    const h = harness();
+    const client = { ...auth, hash: 'a'.repeat(64) };
+    const instance = 'persistent-agent-store';
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      deliveryInstance: instance,
+    });
+    const headers = {
+      'x-auth': encodeURIComponent(JSON.stringify(client)),
+      'idempotency-key': 'original-create',
+      'x-coc-operation-instance': instance,
+    };
+    const writes = vi.spyOn(h.storage, 'put');
+    const input = { key: 'create', projectId: 'project', mode: 'web' };
+    const first = await h.start('create', input, headers);
+    expect(first.data.operationId).toMatch(/^delivery_/);
+    const original = h.frames()[0];
+    expect(original.intent).toEqual({
+      owner: client.hash,
+      requestId: 'original-create',
+      instance,
+    });
+    h.recreate();
+    expect((await h.read(first.data.operationId, client)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
+    );
+    const retry = await h.start('create', input, headers);
+    const repeated = h.frames()[1];
+    expect(repeated.intent).toEqual(original.intent);
+    expect(repeated.requestId).not.toBe(original.requestId);
+    await h.reply(original, { id: 'host~late' }, undefined, original.intent);
+    expect((await h.read(retry.data.operationId, client)).data.state).toBe(
+      'pending',
+    );
+    await h.reply(
+      repeated,
+      { id: 'host~original' },
+      undefined,
+      repeated.intent,
+    );
+    expect((await h.read(retry.data.operationId, client)).data).toEqual({
+      state: 'completed',
+      result: { id: 'host~original' },
+      intent: original.intent,
+    });
+    expect(writes).not.toHaveBeenCalled();
+    const ack = await h.start('create', input, {
+      ...headers,
+      'x-coc-operation-ack': '1',
+    });
+    const confirmation = h.frames().at(-1);
+    expect(confirmation.intent).toEqual({ ...original.intent, ack: true });
+    await h.reply(
+      confirmation,
+      { confirmed: true },
+      undefined,
+      confirmation.intent,
+    );
+    expect((await h.read(ack.data.operationId, client)).data.intent.ack).toBe(
+      true,
+    );
+    expect(writes).not.toHaveBeenCalled();
+  });
+  it('never grants a durable write receipt without a matching endpoint identity', async () => {
+    const h = harness();
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      deliveryInstance: 'agent-store',
+    });
+    const client = { ...auth, hash: 'a'.repeat(64) };
+    const headers = {
+      'x-auth': encodeURIComponent(JSON.stringify(client)),
+      'idempotency-key': 'original',
+      'x-coc-operation-instance': 'agent-store',
+    };
+    const input = { key: 'create', projectId: 'project', mode: 'web' };
+    for (const receipt of [
+      undefined,
+      { owner: 'b'.repeat(64), requestId: 'original', instance: 'agent-store' },
+    ]) {
+      const started = await h.start('create', input, headers);
+      await h.reply(
+        h.frames().at(-1),
+        { id: 'host~session' },
+        undefined,
+        receipt,
+      );
+      const result = (await h.read(started.data.operationId, client)).data;
+      expect(result.error.code).toBe('RESULT_UNKNOWN');
+      expect(result.intent).toBeUndefined();
+      expect(result.result).toBeUndefined();
+    }
+    const before = h.frames().length;
+    const wrong = await h.start('create', input, {
+      ...headers,
+      'x-coc-operation-instance': 'replacement-store',
+    });
+    expect((await h.read(wrong.data.operationId, client)).data.error.code).toBe(
+      'DELIVERY_STATE_MISMATCH',
+    );
+    expect(h.frames()).toHaveLength(before);
+  });
+  it('checks session mode before forwarding an original stop or its confirmation', async () => {
+    const h = harness();
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      deliveryInstance: 'agent-store',
+    });
+    h.storage.values.set('session-mode:host~session', 'web');
+    const client = { ...auth, hash: 'a'.repeat(64) };
+    const headers = {
+      'x-auth': encodeURIComponent(JSON.stringify(client)),
+      'idempotency-key': 'original-stop',
+      'x-coc-operation-instance': 'agent-store',
+      'x-coc-operation-ack': '1',
+    };
+    const started = await h.start(
+      'stop',
+      { sessionId: 'host~session' },
+      headers,
+    );
+    expect(h.frames()[0].action).toBe('get');
+    expect(h.frames()[0].intent).toBeUndefined();
+    await h.reply(h.frames()[0], { mode: 'cli', state: 'closed' });
+    expect(h.frames()).toHaveLength(1);
+    expect(
+      (await h.read(started.data.operationId, client)).data.error.code,
+    ).toBe('FORBIDDEN');
+  });
+  it('forwards history subscriptions and reads without durable business receipts or cloud revision writes', async () => {
+    const h = harness();
+    const reader = socket({
+      id: 'reader',
+      history: true,
+      authenticated: true,
+      role: 'web',
+      auth,
+      hostId: 'host',
+      sessionId: 'host~session',
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    const other = socket({
+      ...reader.deserializeAttachment(),
+      id: 'other-reader',
+    });
+    h.sockets.push(reader, other);
+    const request = {
+      operation: 'subscribe',
+      requestId: 'open-reader',
+      stream: 'reader-stream',
+      instance: 'reader-storage',
+      exchangeId: 'exchange',
+      receivedRevision: 0,
+      acknowledgedRevision: 0,
+      owner: 'forged-owner',
+      route: 'other-reader',
+    };
+    await h.relay.webSocketMessage(
+      reader as unknown as WebSocket,
+      JSON.stringify(request),
+    );
+    const opening = h.frames().at(-1)!;
+    expect(opening.action).toBe('history');
+    expect(opening.data.owner).toBe(auth.hash);
+    expect(opening.data.route).toBe('reader');
+    expect(opening.heads).toBeUndefined();
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire|send-head|receive-head|head-instance):/.test(
+          key,
+        ),
+      ),
+    ).toBe(false);
+    h.recreate();
+    await h.reply(opening, { maxRevision: 9 });
+    expect(reader.send).not.toHaveBeenCalled();
+    await h.relay.webSocketMessage(
+      reader as unknown as WebSocket,
+      JSON.stringify(request),
+    );
+    await h.reply(h.frames().at(-1)!, {
+      stream: 'reader-stream',
+      receivedRevision: 0,
+      maxRevision: 9,
+      exchangeId: 'exchange',
+    });
+    const window = JSON.parse(reader.send.mock.calls.at(-1)![0]);
+    expect(window.type).toBe('history-window');
+    expect(window.requestId).toBe('open-reader');
+    expect(window.heads).toBeUndefined();
+    reader.send.mockClear();
+    await h.relay.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'history-notice',
+        route: 'reader',
+        sessionId: 'host~session',
+        payload: { type: 'history-dirty', maxRevision: 9 },
+      }),
+    );
+    await Promise.all(h.waiting);
+    expect(JSON.parse(reader.send.mock.calls.at(-1)![0]).maxRevision).toBe(9);
+    expect(other.send).not.toHaveBeenCalled();
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire|send-head|receive-head|head-instance):/.test(
+          key,
+        ),
+      ),
+    ).toBe(false);
+    await h.relay.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'history-notice',
+        route: 'missing-reader',
+        sessionId: 'host~session',
+        payload: { type: 'history-dirty', maxRevision: 9 },
+      }),
+    );
+    expect(h.frames().at(-1)).toMatchObject({
+      type: 'history-detached',
+      route: 'missing-reader',
+    });
+  });
   it('registers Agent email capabilities and disconnects only revoked derived CW credentials', async () => {
     const h = harness();
     const revoked = socket({ role: 'web', auth: { ...auth, hash: 'removed' } });
@@ -146,6 +379,8 @@ describe('recoverable asynchronous controls', () => {
       h.agent as unknown as WebSocket,
       JSON.stringify({
         type: 'capabilities',
+        delivery: 2,
+        deliveryInstance: 'test-agent-store',
         protocol: 1,
         accessEmails: ['user@example.com'],
         build: {
@@ -294,24 +529,133 @@ describe('recoverable asynchronous controls', () => {
       code: 'SESSION_BUSY',
     });
   });
-  it('ends the handler before Agent responds and restores a scoped result after hibernation', async () => {
+  it('keeps reads only in bounded memory and queries the Agent again after reconstruction', async () => {
     vi.useFakeTimers();
     const h = harness();
     const { response, data } = await h.start();
     expect(response.status).toBe(202);
     expect(vi.getTimerCount()).toBe(0);
     expect((await h.read(data.operationId)).data.state).toBe('pending');
-    h.recreate();
-    await h.reply(h.frames()[0], [{ id: 'project' }]);
-    h.recreate();
-    expect((await h.read(data.operationId)).data).toEqual({
-      state: 'completed',
-      result: [{ id: 'project' }],
-    });
     expect(
       (await h.read(data.operationId, { ...auth, hash: 'foreign' })).response
         .status,
     ).toBe(404);
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire|due:.*operation):/.test(key),
+      ),
+    ).toBe(false);
+    const lost = h.frames()[0];
+    h.recreate();
+    await h.reply(lost, [{ id: 'stale' }]);
+    expect((await h.read(data.operationId)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
+    );
+    const retried = await h.start();
+    await h.reply(h.frames().at(-1), [{ id: 'project' }]);
+    expect((await h.read(retried.data.operationId)).data).toEqual({
+      state: 'completed',
+      result: [{ id: 'project' }],
+    });
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire):/.test(key),
+      ),
+    ).toBe(false);
+    vi.advanceTimersByTime(20001);
+    expect((await h.read(retried.data.operationId)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
+    );
+  });
+  it('bounds concurrent read results and replaces rejected bodies with backpressure errors', async () => {
+    const h = harness();
+    const accepted = await Promise.all(
+      Array.from({ length: 128 }, () => h.start()),
+    );
+    expect((await h.start()).response.status).toBe(429);
+    for (const frame of h.frames())
+      await h.reply(frame, { body: 'x'.repeat(70000) });
+    const results = await Promise.all(
+      accepted.map((o) => h.read(o.data.operationId)),
+    );
+    expect(results.every((r) => r.data.state === 'completed')).toBe(true);
+    expect(results.some((r) => r.data.result?.body.length === 70000)).toBe(
+      true,
+    );
+    expect(results.some((r) => r.data.error?.code === 'BACKPRESSURE')).toBe(
+      true,
+    );
+    expect(
+      results
+        .filter((r) => r.data.error)
+        .every((r) => r.data.result === undefined),
+    ).toBe(true);
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire):/.test(key),
+      ),
+    ).toBe(false);
+  });
+  it('preserves session-mode authorization across transient multi-stage approval reads', async () => {
+    const h = harness();
+    h.storage.values.set('session-mode:host~session', 'web');
+    const writes = vi.spyOn(h.storage, 'put');
+    const started = await h.start('approvals', {
+      sessionId: 'host~session',
+      mode: 'web',
+    });
+    expect(h.frames()[0].action).toBe('get');
+    await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
+    expect(h.frames()[1].action).toBe('approvals');
+    await h.reply(h.frames()[1], { data: [] });
+    expect((await h.read(started.data.operationId)).data.result).toEqual({
+      data: [],
+    });
+    expect(writes).not.toHaveBeenCalled();
+    const denied = await h.start('approvals', {
+      sessionId: 'host~session',
+      mode: 'web',
+    });
+    const count = h.frames().length;
+    await h.reply(h.frames().at(-1), { mode: 'cli' });
+    expect(h.frames()).toHaveLength(count);
+    expect((await h.read(denied.data.operationId)).data.error.code).toBe(
+      'FORBIDDEN',
+    );
+  });
+  it.each([
+    ['snapshot', { sessionId: 'host~session', mode: 'web' }],
+    ['list', {}],
+    ['threads', { projectId: 'demo' }],
+    ['request', { requestId: 'original', mode: 'web' }],
+    [
+      'files',
+      {
+        projectId: 'demo',
+        owner: 'a'.repeat(64),
+        operation: 'read',
+        path: 'proof.txt',
+      },
+    ],
+    [
+      'files',
+      {
+        projectId: 'demo',
+        owner: 'a'.repeat(64),
+        operation: 'status',
+        uploadId: 'upload',
+      },
+    ],
+  ])('does not persist %s read bodies or results', async (action, input) => {
+    const h = harness();
+    const writes = vi.spyOn(h.storage, 'put');
+    const started = await h.start(action, input);
+    expect(started.response.status).toBe(202);
+    await h.reply(h.frames()[0], { original: input });
+    expect((await h.read(started.data.operationId)).data.result).toEqual({
+      original: input,
+    });
+    expect(writes).not.toHaveBeenCalled();
   });
   it('does not deliver an old Agent epoch result to a replacement request', async () => {
     const h = harness();
@@ -383,12 +727,16 @@ describe('recoverable asynchronous controls', () => {
   it('keeps the host capacity bound across recreation', async () => {
     const h = harness();
     for (let i = 0; i < 64; i++)
-      expect((await h.start()).response.status).toBe(202);
+      expect(
+        (await h.start('stop', { sessionId: 'host~session' })).response.status,
+      ).toBe(202);
     h.recreate();
-    expect((await h.start()).response.status).toBe(429);
+    expect(
+      (await h.start('stop', { sessionId: 'host~session' })).response.status,
+    ).toBe(429);
     expect(h.frames()).toHaveLength(64);
   });
-  it('fences concurrent takeovers without replacing the old active controller', async () => {
+  it('fences the old controller as soon as a takeover is reserved', async () => {
     const h = harness();
     h.storage.values.set('lease:host~session', { epoch: 4, active: true });
     const first = await h.relay.reserve('host~session', true);
@@ -398,7 +746,7 @@ describe('recoverable asynchronous controls', () => {
     });
     expect(h.storage.values.get('lease:host~session')).toMatchObject({
       epoch: 4,
-      active: true,
+      active: false,
       pending: { epoch: 5 },
     });
     const old = socket({
@@ -410,7 +758,77 @@ describe('recoverable asynchronous controls', () => {
       authenticated: true,
     });
     await h.relay.webSocketClose(old as unknown as WebSocket);
-    expect(h.storage.values.get('lease:host~session').active).toBe(true);
+    expect(h.storage.values.get('lease:host~session').active).toBe(false);
+  });
+  it('retains a pending claim across expiry and reconstruction without restoring old writes', async () => {
+    const h = harness();
+    await h.storage.put('lease:host~session', {
+      epoch: 8,
+      controlEpoch: 3,
+      controlId: 'old-claim',
+      owner: auth.hash,
+      active: true,
+    });
+    const first = await h.relay.reserve(
+      'host~session',
+      true,
+      undefined,
+      'pending-claim',
+      auth.hash,
+    );
+    expect(first.controlEpoch).toBe(4);
+    h.storage.values.get('lease:host~session').pending.expires = 0;
+    h.recreate();
+    h.storage.values.get('lease:host~session').controllerId = 'old-controller';
+    await expect(
+      h.relay.reserve(
+        'host~session',
+        true,
+        'old-controller',
+        'old-claim',
+        auth.hash,
+      ),
+    ).rejects.toMatchObject({ code: 'STALE_CONTROLLER' });
+    const retry = await h.relay.reserve(
+      'host~session',
+      true,
+      undefined,
+      'pending-claim',
+      auth.hash,
+    );
+    expect(retry.controlEpoch).toBe(4);
+    expect(retry.epoch).toBeGreaterThan(first.epoch);
+    expect(h.storage.values.get('lease:host~session').active).toBe(false);
+    h.storage.values.get('lease:host~session').pending.expires = 0;
+    const replacement = await h.relay.reserve(
+      'host~session',
+      true,
+      undefined,
+      'next-claim',
+      auth.hash,
+    );
+    expect(replacement.controlEpoch).toBe(5);
+  });
+  it('keeps ordinary reconnection in the same control epoch with a new connection generation', async () => {
+    const h = harness();
+    await h.storage.put('lease:host~session', {
+      epoch: 8,
+      controlEpoch: 3,
+      controlId: 'claim',
+      controllerId: 'controller',
+      owner: auth.hash,
+      active: false,
+    });
+    const resumed = await h.relay.reserve(
+      'host~session',
+      true,
+      'controller',
+      'claim',
+      auth.hash,
+    );
+    expect(resumed.controlEpoch).toBe(3);
+    expect(resumed.controlId).toBe('claim');
+    expect(resumed.epoch).toBe(9);
   });
   it('requires negotiation and gives old clients an explicit upgrade error', async () => {
     const h = harness();
@@ -515,6 +933,13 @@ describe('flow control and authorization on activity', () => {
       },
     });
     expect(failure(new SyntaxError('invalid JSON')).status).toBe(400);
+  });
+  it('drops a forward to a socket that closed before the reply', () => {
+    const h = harness();
+    const closed = socket({ id: 'closed', role: 'web', authenticated: true });
+    closed.readyState = 3;
+    h.relay.send(closed as unknown as WebSocket, { type: 'delivery-window' });
+    expect(closed.send).not.toHaveBeenCalled();
   });
   it('retains acknowledgement budgets across object reconstruction', async () => {
     const h = harness(),
@@ -654,7 +1079,7 @@ describe('reliable session streams', () => {
     const a = h.agent.deserializeAttachment();
     h.agent.serializeAttachment({
       ...a,
-      deliveryVersion: 1,
+      deliveryVersion: 2,
       deliveryInstance: 'journal',
     });
     await h.storage.put('agentInstance', 'journal');
@@ -674,15 +1099,30 @@ describe('reliable session streams', () => {
       active: true,
       owner: auth.hash,
       controllerId: 'controller',
+      controlEpoch: 2,
+      controlId: 'claim',
     });
     await h.relay.webSocketMessage(
       client as unknown as WebSocket,
-      JSON.stringify({ type: 'delivery-open', stream: 'browser' }),
+      JSON.stringify({
+        type: 'delivery-open',
+        stream: 'browser',
+        exchangeId: 'exchange',
+        received: { normal: 0, priority: 0 },
+        receivedBytes: { normal: 0, priority: 0 },
+      }),
     );
     const opening = h.frames().filter((frame) => frame.action === 'delivery');
     expect(opening).toHaveLength(2);
-    for (const frame of opening)
+    for (const frame of opening) {
+      expect(frame.data.exchangeId).toBe('exchange');
       await h.reply(frame, {
+        exchangeId: frame.data.exchangeId,
+        controlReady: {
+          ...frame.data.control,
+          exchangeId: frame.data.exchangeId,
+          instance: 'journal',
+        },
         window: {
           stream: frame.data.stream,
           instance: 'journal',
@@ -693,6 +1133,7 @@ describe('reliable session streams', () => {
           byteCredit: 524288,
         },
       });
+    }
     const request = async (data: unknown, as = auth) => {
       const response = await h.relay.fetch(
         new Request('https://internal/delivery', {
@@ -701,6 +1142,7 @@ describe('reliable session streams', () => {
             'x-auth': encodeURIComponent(JSON.stringify(as)),
             'x-host': 'host',
             'x-coc-async': '1',
+            'x-coc-delivery': '2',
           },
           body: JSON.stringify({
             sessionId: 'host~reliable',
@@ -719,7 +1161,368 @@ describe('reliable session streams', () => {
       },
     };
   }
-  it('persists sender heads across reconstruction and attaches both heads to later read traffic', async () => {
+  it('rejects late CONTROL_READY after another takeover reserved and after DO reconstruction', async () => {
+    const h = await connected();
+    const accepted = await h.request({
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      controller: 'controller',
+      exchangeId: 'late-exchange',
+    });
+    const frame = h.frames().at(-1)!;
+    await h.current.reserve(
+      'host~reliable',
+      true,
+      undefined,
+      'new-claim',
+      auth.hash,
+    );
+    await h.reply(frame, {
+      exchangeId: 'late-exchange',
+      controlReady: {
+        ...frame.data.control,
+        exchangeId: 'late-exchange',
+        instance: 'journal',
+      },
+      window: { instance: 'journal' },
+    });
+    const result = await h.read(accepted.body.operationId);
+    expect(result.data.error.code).toBe('STALE_CONTROLLER');
+    h.recreate();
+    expect(h.storage.values.get('lease:host~reliable').active).toBe(false);
+    const before = h.frames().length;
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify({
+        type: 'delivery-open',
+        stream: 'browser',
+        exchangeId: 'old-retry',
+        received: { normal: 0, priority: 0 },
+        receivedBytes: { normal: 0, priority: 0 },
+      }),
+    );
+    expect(h.frames()).toHaveLength(before);
+  });
+  it('refuses a forged readiness identity and only activates the current Agent proof', async () => {
+    const h = await connected();
+    h.storage.values.get('lease:host~reliable').active = false;
+    const accepted = await h.request({
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      controller: 'controller',
+      exchangeId: 'check-proof',
+    });
+    const frame = h.frames().at(-1)!;
+    await h.reply(frame, {
+      exchangeId: 'check-proof',
+      controlReady: {
+        ...frame.data.control,
+        controlEpoch: 1,
+        exchangeId: 'check-proof',
+        instance: 'journal',
+      },
+      window: { instance: 'journal' },
+    });
+    expect((await h.read(accepted.body.operationId)).data.error.code).toBe(
+      'STALE_CONTROLLER',
+    );
+    expect(h.storage.values.get('lease:host~reliable').active).toBe(false);
+  });
+  it('preserves the Agent recovery identity through WebSocket and HTTP reads', async () => {
+    const h = await connected();
+    const windows = h.client.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .filter((frame) => frame.type === 'delivery-window');
+    expect(windows).toHaveLength(2);
+    expect(windows.every((frame) => frame.exchangeId === 'exchange')).toBe(
+      true,
+    );
+    const accepted = await h.request({
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      controller: 'controller',
+      exchangeId: 'http-exchange',
+    });
+    expect(accepted.status).toBe(202);
+    const frame = h.frames().at(-1)!;
+    expect(frame.data.exchangeId).toBe('http-exchange');
+    await h.reply(frame, {
+      exchangeId: 'http-exchange',
+      controlReady: {
+        ...frame.data.control,
+        exchangeId: 'http-exchange',
+        instance: 'journal',
+      },
+      window: {
+        stream: frame.data.stream,
+        instance: 'journal',
+        received: 0,
+        receivedBytes: 0,
+        credit: 4,
+        byteCredit: 524288,
+      },
+    });
+    const receipt = await h.read(accepted.body.operationId);
+    expect(receipt.data.result.exchangeId).toBe('http-exchange');
+  });
+  it('forwards result receipts after reconstruction without saving cloud result progress', async () => {
+    const h = await connected();
+    await Promise.all(h.waiting);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) h.recreate();
+      const writes = vi.spyOn(h.storage, 'put');
+      const result = await h.request({
+        type: 'delivery-receipt',
+        stream: 'browser',
+        lane: 'normal',
+        instance: 'journal',
+        received: 100,
+        receivedBytes: 2048,
+      });
+      expect(result.status).toBe(200);
+      expect(h.frames().at(-1)).toMatchObject({
+        type: 'delivery-receipt',
+        sessionId: 'host~reliable',
+        instance: 'journal',
+        mode: 'web',
+        received: 100,
+        receivedBytes: 2048,
+      });
+      expect(writes).not.toHaveBeenCalled();
+      writes.mockRestore();
+    }
+    expect(
+      [...h.storage.values.keys()].some(
+        (key) =>
+          key.includes('result-received:') || key.includes('send-head:result:'),
+      ),
+    ).toBe(false);
+  });
+  it('binds content reads to the authenticated stream and preserves byte offsets', async () => {
+    const h = await connected();
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify({
+        type: 'delivery-content',
+        stream: 'browser',
+        lane: 'normal',
+        instance: 'journal',
+        resultSeq: 2,
+        offset: 16384,
+      }),
+    );
+    const frame = h.frames().at(-1)!;
+    expect(frame.action).toBe('delivery');
+    expect(frame.data).toMatchObject({
+      mode: 'web',
+      sessionId: 'host~reliable',
+      instance: 'journal',
+      contentSeq: 2,
+      offset: 16384,
+    });
+    expect(frame.data.stream).not.toBe('browser');
+    const read = await h.request({
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      instance: 'journal',
+      contentSeq: 2,
+      offset: 16384,
+    });
+    expect(read.status).toBe(202);
+    expect(h.frames().at(-1)!.data.stream).toBe(frame.data.stream);
+    expect(h.frames().at(-1)!.data.contentSeq).toBe(2);
+    expect(h.frames().at(-1)!.data.offset).toBe(16384);
+    expect(
+      (
+        await h.request({
+          operation: 'read',
+          stream: 'browser',
+          lane: 'normal',
+          instance: 'journal',
+          contentSeq: 2,
+          offset: -1,
+        })
+      ).status,
+    ).toBe(400);
+  });
+  it('loses only transient delivery queries on reconstruction and recovers from the Agent without cloud business writes', async () => {
+    const h = await connected();
+    const writes = vi.spyOn(h.storage, 'put');
+    const query = {
+      operation: 'read',
+      stream: 'browser',
+      lane: 'normal',
+      instance: 'journal',
+      resultReceived: 0,
+      resultBytes: 0,
+    };
+    const first = await h.request(query);
+    const lost = h.frames().at(-1)!;
+    expect(lost.heads).toBeUndefined();
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|part|wire):/.test(key),
+      ),
+    ).toBe(false);
+    h.recreate();
+    expect((await h.read(first.body.operationId)).data.error.code).toBe(
+      'RESULT_UNKNOWN',
+    );
+    await h.reply(lost, { results: ['retired callback must be ignored'] });
+    const retry = await h.request(query);
+    const frame = h.frames().at(-1)!;
+    expect(frame.data.stream).toBe(lost.data.stream);
+    await h.current.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'result',
+        requestId: frame.requestId,
+        heads: { agent: 999, rpc: 999 },
+        data: {
+          window: {
+            stream: frame.data.stream,
+            instance: 'journal',
+            received: 0,
+            receivedBytes: 0,
+            sent: 0,
+            resultBytes: 0,
+            credit: 4,
+            byteCredit: 524288,
+          },
+          results: [],
+        },
+      }),
+    );
+    const receipt = await h.read(retry.body.operationId);
+    expect(receipt.data.state).toBe('completed');
+    expect(receipt.data.result.results).toEqual([]);
+    expect(writes).not.toHaveBeenCalled();
+  });
+  it('forwards live result windows without merging or recording cloud progress', async () => {
+    const h = await connected();
+    const writes = vi.spyOn(h.storage, 'put');
+    const window = {
+      stream: 'agent-stream',
+      instance: 'journal',
+      received: 0,
+      receivedBytes: 0,
+      sent: 1,
+      resultBytes: 2,
+      credit: 16,
+      byteCredit: 2 * 1024 * 1024,
+    };
+    for (const type of ['delivery-window', 'delivery-result']) {
+      await h.current.webSocketMessage(
+        h.agent as unknown as WebSocket,
+        JSON.stringify({
+          type: 'notice',
+          epoch: 5,
+          sessionId: 'host~reliable',
+          heads: { agent: 999, rpc: 999 },
+          payload: {
+            type,
+            lane: 'normal',
+            window,
+            heads: { agent: 3, rpc: 2 },
+          },
+        }),
+      );
+    }
+    await Promise.all(h.waiting);
+    const forwarded = h.client.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .filter((frame) => frame.window?.stream === 'agent-stream');
+    expect(forwarded).toHaveLength(2);
+    expect(
+      forwarded.every(
+        (frame) =>
+          frame.heads.agent === 3 &&
+          frame.heads.rpc === 2 &&
+          frame.window.sent === 1,
+      ),
+    ).toBe(true);
+    expect(writes).not.toHaveBeenCalled();
+  });
+  it('binds endpoint recovery refusal to the original exchange without saving a cloud receipt', async () => {
+    const h = await connected();
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify({
+        type: 'delivery-open',
+        stream: 'browser',
+        exchangeId: 'current-reset',
+        received: { normal: 0, priority: 0 },
+        receivedBytes: { normal: 0, priority: 0 },
+      }),
+    );
+    const frames = h.frames().slice(-2);
+    for (const frame of frames)
+      await h.reply(frame, undefined, {
+        code: 'DELIVERY_STATE_MISMATCH',
+        message: 'Receiver lost acknowledged results',
+      });
+    const resets = h.client.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .filter((frame) => frame.type === 'delivery-reset');
+    expect(resets).toHaveLength(2);
+    expect(resets.every((frame) => frame.exchangeId === 'current-reset')).toBe(
+      true,
+    );
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(operation|wire|part):/.test(key),
+      ),
+    ).toBe(false);
+  });
+  it('forwards output confirmations without cloud publication state and still fences a replaced Agent', async () => {
+    const h = await connected();
+    h.client.serializeAttachment({
+      ...h.client.deserializeAttachment(),
+      role: 'cli',
+      auth: { ...auth, role: 'cli' },
+      deliveryVersion: 2,
+    });
+    const writes = vi.spyOn(h.storage, 'put');
+    const receipt = {
+      type: 'delivery-output',
+      received: 9,
+      credit: 12,
+      byteCredit: 2048,
+      replay: true,
+    };
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify(receipt),
+    );
+    expect(h.frames().at(-1)).toMatchObject({
+      ...receipt,
+      sessionId: 'host~reliable',
+      epoch: 5,
+    });
+    expect(h.frames().at(-1).heads).toBeUndefined();
+    expect(writes).not.toHaveBeenCalled();
+    writes.mockRestore();
+    h.storage.values.set('agentEpoch', 2);
+    const count = h.frames().length;
+    await h.current.webSocketMessage(
+      h.client as unknown as WebSocket,
+      JSON.stringify(receipt),
+    );
+    expect(h.frames()).toHaveLength(count);
+    expect(JSON.parse(h.client.send.mock.calls.at(-1)![0]).error.code).toBe(
+      'STALE_AGENT',
+    );
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(send-head|receive-head|head-instance):/.test(key),
+      ),
+    ).toBe(false);
+  });
+  it('forwards commands and reads across reconstruction without any cloud transport progress', async () => {
     const h = await connected();
     const body = JSON.stringify({ action: 'interrupt', requestId: 'cancel' });
     await h.current.webSocketMessage(
@@ -736,7 +1539,7 @@ describe('reliable session streams', () => {
     const command = h.frames().at(-1)!;
     expect(command.type).toBe('web');
     expect(command.delivery.stream).not.toBe('browser');
-    expect(command.heads.priority.sent).toBe(1);
+    expect(command.heads).toBeUndefined();
     await h.current.webSocketMessage(
       h.agent as unknown as WebSocket,
       JSON.stringify({
@@ -763,14 +1566,16 @@ describe('reliable session streams', () => {
       h.client as unknown as WebSocket,
       JSON.stringify({ action: 'sync', after: 0 }),
     );
-    expect(h.frames().at(-1)!.heads).toMatchObject({
-      agent: 9,
-      priority: { sent: 1 },
-    });
+    expect(h.frames().at(-1)!.heads).toBeUndefined();
     const forwarded = h.client.send.mock.calls
       .map(([raw]) => JSON.parse(raw))
       .find((frame) => frame.type === 'event');
-    expect(forwarded.heads).toMatchObject({ agent: 9, priority: { sent: 1 } });
+    expect(forwarded.heads).toBeUndefined();
+    expect(
+      [...h.storage.values.keys()].some((key) =>
+        /^(send-head|receive-head|head-instance):/.test(key),
+      ),
+    ).toBe(false);
   });
   it('requires the current controller proof for HTTP mutations but not for scoped receipt reads', async () => {
     const h = await connected();
@@ -815,7 +1620,7 @@ describe('reliable session streams', () => {
     expect(h.frames().at(-1)!.action).toBe('delivery');
     expect(h.frames().at(-1)!.data.mode).toBe('web');
   });
-  it('does not accept reads in the execution window or acknowledgements beyond the peer head', async () => {
+  it('rejects reads in the execution window and malformed result receipts', async () => {
     const h = await connected();
     const body = JSON.stringify({ action: 'models', requestId: 'read' });
     expect(
@@ -849,7 +1654,7 @@ describe('reliable session streams', () => {
       const h = harness();
       h.agent.serializeAttachment({
         ...h.agent.deserializeAttachment(),
-        deliveryVersion: 1,
+        deliveryVersion: 2,
         deliveryInstance: 'journal',
       });
       const cli = { ...auth, role: 'cli' };
@@ -872,7 +1677,7 @@ describe('reliable session streams', () => {
         action: 'get',
         data: {
           sessionId: 'host~cli',
-          delivery: 1,
+          delivery: 2,
           resume: {
             stream: 'terminal',
             controller: valid ? 'proof' : 'forged',
@@ -895,3 +1700,51 @@ describe('reliable session streams', () => {
     },
   );
 });
+
+it.each([undefined, '1', '3'])(
+  'rejects business delivery version %s before forwarding or storing an operation',
+  async (version) => {
+    const h = harness();
+    const headers = new Headers();
+    headers.set('x-auth', encodeURIComponent(JSON.stringify(auth)));
+    headers.set('x-host', 'host');
+    headers.set('x-coc-async', '1');
+    if (version !== undefined) headers.set('x-coc-delivery', version);
+    const response = await h.relay.fetch(
+      new Request('https://internal/control', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'projects', data: {} }),
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'UPGRADE_REQUIRED' },
+    });
+    expect(h.agent.send).not.toHaveBeenCalled();
+    expect(
+      [...h.storage.values.keys()].some((key) => key.startsWith('operation:')),
+    ).toBe(false);
+  },
+);
+it.each([undefined, 1, 3])(
+  'rejects Agent business delivery version %s before capability admission',
+  async (delivery) => {
+    const h = harness();
+    await h.relay.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'capabilities',
+        protocol: 1,
+        ...(delivery === undefined ? {} : { delivery }),
+      }),
+    );
+    expect(h.agent.close).toHaveBeenCalled();
+    expect(h.frames()).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.objectContaining({ code: 'PROTOCOL_MISMATCH' }),
+      }),
+    );
+  },
+);

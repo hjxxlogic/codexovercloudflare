@@ -1,8 +1,9 @@
 import { deliveryIdentity } from './delivery-identity.ts';
 import { CommandDelivery } from './delivery.ts';
+import { OperationClient } from './operations.ts';
 import { setEmailAccount, ensureEmailHost, forgetEmailHost } from './api.ts';
 import { observe, recoverNotifications } from './notifications.ts';
-import { relayPath } from './routes.ts';
+import { relaySocketPath } from './routes.ts';
 import {
   t,
   localeTag,
@@ -45,6 +46,7 @@ import {
 } from './workspace-state.ts';
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { HistorySync } from './history-sync.ts';
+import { HistorySubscription } from './history-subscription.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
@@ -138,6 +140,7 @@ function App() {
   const historySocket = useRef<WebSocket | null>(null);
   const localHistory = useRef<HistoryCache | null>(null);
   const catalog = useRef<HistoryCache | null>(null);
+  const operations = useRef<OperationClient | null>(null);
   const [catalogHost, setCatalogHost] = useState('');
   const catalogScope = useRef('');
   const savedWorkspace = useRef<WorkspaceState | undefined>(undefined);
@@ -342,7 +345,6 @@ function App() {
     `${host}:${selected?.id ?? ''}`,
   );
   const [revision, setRevision] = useState(0);
-  const [resultRevision, setResultRevision] = useState(0);
   const snapshotPending = useRef<Promise<void> | undefined>(undefined);
   const snapshotDirty = useRef(false);
   async function refresh() {
@@ -542,8 +544,6 @@ function App() {
                 if (event.scope === 'sessions' || event.type === 'subscribed')
                   setRevision((value) => value + 1);
               }
-              if (event.type === 'change' && event.scope === 'request-results')
-                setResultRevision((value) => value + 1);
             }),
           );
         })
@@ -584,7 +584,6 @@ function App() {
           await refreshSession.current?.();
         }
         setRevision((value) => value + 1);
-        setResultRevision((value) => value + 1);
         setRefreshed(new Date().toLocaleTimeString());
       } catch (error) {
         report(error);
@@ -727,11 +726,14 @@ function App() {
     setSessions([]);
     setSelected(undefined);
     setTakeover(false);
+    operations.current?.stop();
+    operations.current = null;
     catalog.current?.close();
     catalog.current = null;
     if (!host) return;
     rememberHost(host);
     let cache: HistoryCache | undefined;
+    let operationClient: OperationClient | undefined;
     let loading: Promise<void> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
@@ -768,6 +770,12 @@ function App() {
           setSessions(stored?.sessions || []);
           setSelected(restored.session);
           catalog.current = cache;
+          operationClient = new OperationClient(cache, {
+            host,
+            owner: identity,
+          });
+          operations.current = operationClient;
+          void operationClient.start().catch(report);
           catalogScope.current = host;
           setCatalogHost(host);
         } catch (e) {
@@ -797,6 +805,7 @@ function App() {
       recoverCatalog.current = undefined;
       clearTimeout(retryTimer);
       controller.abort();
+      operationClient?.stop();
       cache?.close();
     };
   }, [host, emailIdentity.accountId]);
@@ -821,10 +830,22 @@ function App() {
   useEffect(() => {
     let disposed = false;
     setCreateOperation(undefined);
-    void catalog.current
-      ?.record(`create:${project}`)
-      .then((operation) => {
-        if (!disposed) setCreateOperation(operation || undefined);
+    void operations.current
+      ?.records()
+      .then((records) => {
+        const original = records.find(
+          (record) =>
+            record.path === '/sessions' &&
+            record.meta?.projectId === project &&
+            record.state !== 'confirmed',
+        );
+        if (!disposed && original)
+          setCreateOperation({
+            requestId: original.requestId,
+            ...(typeof original.meta?.threadId === 'string'
+              ? { threadId: original.meta.threadId }
+              : {}),
+          });
       })
       .catch(report);
     return () => {
@@ -832,43 +853,42 @@ function App() {
     };
   }, [host, project, catalogHost]);
   useEffect(() => {
-    if (!createOperation || !host || !project) return;
+    if (!createOperation || !host || !project || !operations.current) return;
     let disposed = false;
     const controller = new AbortController();
-    const query = async () => {
-      try {
-        const result = await api(
-          `/hosts/${host}/requests/${createOperation.requestId}`,
-          undefined,
-          controller.signal,
+    const client = operations.current;
+    void client
+      .resume(createOperation.requestId, controller.signal)
+      .then((session: Session) => {
+        if (disposed) return;
+        setSessions((sessions) => [
+          session,
+          ...sessions.filter((s) => s.id !== session.id),
+        ]);
+        setSelected(session);
+        setTakeover(false);
+        setPanel(null);
+        setCreateOperation(undefined);
+      })
+      .catch(async (error) => {
+        if (
+          disposed ||
+          error?.name === 'AbortError' ||
+          error?.code === 'NOT_FOUND'
+        )
+          return;
+        const original = (await client.records().catch(() => [])).find(
+          (record) => record.requestId === createOperation.requestId,
         );
         if (disposed) return;
-        if (result.state === 'completed') {
-          const session = result.result as Session;
-          setSessions((sessions) => [
-            session,
-            ...sessions.filter((s) => s.id !== session.id),
-          ]);
-          setSelected(session);
-          setTakeover(false);
-          setPanel(null);
-          setCreateOperation(undefined);
-          void catalog.current?.record(`create:${project}`, null);
-        } else if (result.state === 'failed') {
-          setError(result.result.requestError.message);
-          setCreateOperation(undefined);
-          void catalog.current?.record(`create:${project}`, null);
-        }
-      } catch {
-        /* Read-only status polling can wait for reconnection. */
-      }
-    };
-    void query();
+        if (original?.result?.error) setCreateOperation(undefined);
+        report(error);
+      });
     return () => {
       disposed = true;
       controller.abort();
     };
-  }, [host, project, createOperation?.requestId, resultRevision]);
+  }, [host, project, catalogHost, createOperation?.requestId]);
   async function loadThreads(append = false) {
     if (!host || !project || !online) return;
     const request = ++historyRequest.current;
@@ -976,13 +996,17 @@ function App() {
       timer: ReturnType<typeof setTimeout>,
       handshake: ReturnType<typeof setTimeout>,
       attempt = 0;
-    let confirmControl: (() => void) | undefined;
-    let confirmHistory: (() => void) | undefined;
-    let cancelRefresh: (() => void) | undefined;
-    let syncHistory: (() => void) | undefined;
+    let historySubscriberSync: (() => void) | undefined;
     let commandDelivery: CommandDelivery | undefined;
     let reliableCommands = false;
+    let activeTask = selected.activeTask;
     let commandController = '';
+    let controlBinding: { control: unknown; controller: string } | undefined;
+    let controlSynced = false;
+    let deliveryLoadReady: () => void;
+    const deliveryLoaded = new Promise<void>((resolve) => {
+      deliveryLoadReady = resolve;
+    });
     const openDelivery = () => {
       const ws = socket.current;
       if (
@@ -994,17 +1018,36 @@ function App() {
           .connect((frame) => {
             if (!disposed && socket.current === ws)
               ws.send(JSON.stringify(frame));
-          })
+          }, controlBinding)
           .catch(report);
     };
     deliverCommand.current = async (command) => {
-      const ws = socket.current;
-      if (reliableCommands) {
+      {
         if (!commandDelivery) throw new Error('本机存储尚未就绪');
+        if (command.action === 'interrupt') {
+          const pending = pendingCommand.current;
+          if (
+            pending &&
+            (await commandDelivery.cancelUnpublished(pending.requestId))
+          ) {
+            pendingCommand.current = undefined;
+            setUnconfirmed(undefined);
+            setPending(false);
+            setPromptProgress(undefined);
+            setText((current) => current || pending.text || '');
+            await cache?.record('pending', null);
+            setNotice('已在本机取消，任务尚未发送。');
+            return;
+          }
+          const target =
+            (pending
+              ? await commandDelivery.target(pending.requestId, activeTask)
+              : undefined) || activeTask;
+          if (!target)
+            throw new Error('尚未取得任务身份，请刷新状态后再停止。');
+          command = { ...command, target };
+        }
         await commandDelivery.submit(command);
-      } else {
-        if (ws?.readyState !== WebSocket.OPEN) throw new Error('连接已断开');
-        ws.send(JSON.stringify(command));
       }
     };
     after.current = 0;
@@ -1124,6 +1167,7 @@ function App() {
       ) {
         stateSeq = e.seq;
         running = e.type === 'turn/started';
+        if (e.type === 'turn/started') activeTask = d.activeTask;
         setBusy(running);
         setPromptProgress(e.type === 'turn/started' ? 'waiting' : undefined);
       }
@@ -1140,41 +1184,8 @@ function App() {
       );
     };
     const checkPending = async () => {
-      const command = pendingCommand.current;
-      if (!command) return;
-      try {
-        const result = await api(
-          `/hosts/${host}/requests/${command.requestId}?sessionId=${encodeURIComponent(selected.id)}`,
-          undefined,
-          controller.signal,
-        );
-        if (disposed) return;
-        if (result.state === 'completed' || result.state === 'failed') {
-          setPromptProgress((progress) =>
-            progress === 'sending' ? undefined : progress,
-          );
-          pendingCommand.current = undefined;
-          setUnconfirmed(undefined);
-          setPending(false);
-          void cache?.record('pending', null);
-          if (result.result?.state === 'queued')
-            setNotice('已确认加入原客户端队列，等待原客户端执行。');
-          if (result.state === 'failed') {
-            setPromptProgress(undefined);
-            setText((text) => text || command.text || '');
-            setError(result.result.requestError.message);
-          }
-        } else {
-          setPromptProgress((progress) =>
-            progress === 'sending' ? undefined : progress,
-          );
-          setPending(false);
-          setUnconfirmed(command);
-          setNotice('提交结果尚未确认，请核对远程历史；不要重复提交同一任务。');
-        }
-      } catch (e) {
-        if (!disposed) report(e);
-      }
+      // Recovery belongs to the durable command journal, including saved results.
+      await commandDelivery?.refresh().catch(report);
     };
     const observeHeads = (heads: any) => {
       if (typeof heads?.agent !== 'number') return;
@@ -1197,15 +1208,18 @@ function App() {
       setStatus(attempt ? '正在重连' : '正在连接');
       setReady(false);
       try {
+        await deliveryLoaded;
+        if (disposed) return;
+        const claim = await commandDelivery?.claim();
         const ticket = await api(
           `/sessions/${selected.id}/${takeover ? 'takeover' : 'attach'}`,
-          {},
+          claim || {},
           controller.signal,
         );
         if (disposed) return;
         const ws = new WebSocket(
           location.origin.replace(/^http/, 'ws') +
-            relayPath('/ws/v1/web/' + selected.id),
+            relaySocketPath('/ws/v1/web/' + selected.id),
         );
         socket.current = ws;
         handshake = setTimeout(() => disconnect(4000), 15000);
@@ -1281,20 +1295,53 @@ function App() {
               setError(d.error.code + ': ' + d.error.message);
               return;
             }
-            if (d.type === 'delivery-window' || d.type === 'delivery-result') {
-              void commandDelivery?.receive(d).catch(report);
+            if (
+              d.type === 'delivery-window' ||
+              d.type === 'delivery-result' ||
+              d.type === 'delivery-reset'
+            ) {
+              void commandDelivery
+                ?.receive(d)
+                .then(() => {
+                  if (
+                    !disposed &&
+                    socket.current === ws &&
+                    commandDelivery?.ready &&
+                    !controlSynced
+                  ) {
+                    controlSynced = true;
+                    ws.send(
+                      JSON.stringify({
+                        action: 'sync',
+                        after: Number.MAX_SAFE_INTEGER,
+                      }),
+                    );
+                  }
+                })
+                .catch(report);
               return;
             }
             if (d.type === 'attached') {
-              reliableCommands = d.delivery === 1;
+              if (d.delivery !== 2) {
+                terminal = true;
+                ws.close();
+                report(
+                  new ApiError(
+                    'UPGRADE_REQUIRED',
+                    'Business transport delivery:2 required',
+                    409,
+                  ),
+                );
+                return;
+              }
+              reliableCommands = true;
               commandController = d.controller || '';
+              controlBinding = {
+                control: d.control,
+                controller: commandController,
+              };
+              controlSynced = false;
               openDelivery();
-              ws.send(
-                JSON.stringify({
-                  action: 'sync',
-                  after: Number.MAX_SAFE_INTEGER,
-                }),
-              );
               return;
             }
             if (d.type === 'sync') {
@@ -1306,6 +1353,7 @@ function App() {
               );
               setApprovals(d.approvals);
               running = d.session.running;
+              activeTask = d.session.activeTask;
               setBusy(d.session.running);
               if (!d.session.running && !pendingCommand.current)
                 setPromptProgress(undefined);
@@ -1322,7 +1370,6 @@ function App() {
                 terminal = false;
                 setPending(false);
                 void checkPending();
-                confirmControl?.();
               }
               return;
             }
@@ -1432,7 +1479,9 @@ function App() {
     };
     let historyTimer: ReturnType<typeof setTimeout>;
     let historyAttempts = 0;
+    let historyFrozen = false;
     let cache: HistoryCache | undefined;
+    let historySubscription: HistorySubscription | undefined;
     const historySync = new HistorySync();
     let syncRequest: string | undefined;
     let historyReplyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1588,6 +1637,7 @@ function App() {
       })();
     };
     const connectHistory = async () => {
+      if (disposed || historyFrozen) return;
       try {
         const { identity } = await api(
           `/client/identity?hostId=${encodeURIComponent(host)}`,
@@ -1617,9 +1667,14 @@ function App() {
             },
             {
               heads: observeHeads,
-              read: async (stream, lane, seq) =>
+              content: async (stream, lane, instance, resultSeq, offset) =>
                 readApi(
-                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}${seq === undefined ? '' : `&seq=${seq}`}`,
+                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}&instance=${instance}&contentSeq=${resultSeq}&offset=${offset}`,
+                  controller.signal,
+                ),
+              read: async (stream, lane, seq, exchangeId, receipt) =>
+                readApi(
+                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}${exchangeId ? `&exchangeId=${exchangeId}` : ''}${seq === undefined ? '' : `&seq=${seq}`}${receipt ? `&resultReceived=${receipt.received}&resultBytes=${receipt.bytes}${receipt.instance ? `&instance=${receipt.instance}` : ''}` : ''}`,
                   controller.signal,
                   commandController
                     ? { 'X-CoC-Controller': commandController }
@@ -1648,6 +1703,7 @@ function App() {
               },
             },
           );
+          deliveryLoadReady!();
           openDelivery();
           const savedDraft = await cache.record('draft').catch(() => undefined);
           const savedModel = await cache.record('model').catch(() => undefined);
@@ -1675,9 +1731,46 @@ function App() {
             setHasOlder(stored.events.length > 0);
           }
         }
+        deliveryLoadReady!();
+        if (cache && !historySubscription) {
+          historySubscription = await HistorySubscription.create(
+            cache,
+            'history-subscription:' + (await deliveryIdentity()),
+            (maximum) => {
+              historySync.observe(maximum, undefined);
+              if (historySync.received === undefined || historySync.missing)
+                historySubscriberSync?.();
+            },
+            () => {
+              clearTimeout(historyReplyTimer);
+              historyReady = true;
+              historySubscriberSync?.();
+            },
+            (error) => {
+              historyFrozen = true;
+              clearTimeout(historyReplyTimer);
+              report(error);
+              historySocket.current?.close();
+            },
+          ).catch((error: unknown) => {
+            cacheError();
+            report(error);
+            return undefined; // Read-only pagination still works without a durable subscription.
+          });
+          cache.onCommit = () => historySubscription?.commit();
+          cache.onClear = () => {
+            historySubscription?.stop();
+            historySubscription = undefined;
+            historySync.reset();
+            historyFrozen = false;
+            if (historySocket.current) historySocket.current.close();
+            else void connectHistory();
+          };
+        }
+        if (disposed) return;
         const hs = new WebSocket(
           location.origin.replace(/^http/, 'ws') +
-            relayPath('/ws/v1/history/' + selected.id),
+            relaySocketPath('/ws/v1/history/' + selected.id),
         );
         historySocket.current = hs;
         historyReady = false;
@@ -1708,14 +1801,13 @@ function App() {
             JSON.stringify({
               operation: 'page',
               requestId,
-              receivedRevision: cache?.durableRevision,
               ...(historySync.received === undefined
                 ? {}
                 : { after: historySync.received }),
             }),
           );
         };
-        syncHistory = () => sync(true);
+        historySubscriberSync = () => sync();
         hs.onmessage = (message) => {
           if (disposed || historySocket.current !== hs) return;
           try {
@@ -1725,12 +1817,28 @@ function App() {
                 JSON.stringify({ type: 'receipt', receiptId: d.receiptId }),
               );
             if (d.type === 'history-ready') {
-              clearTimeout(historyReplyTimer);
-              historyReady = true;
-              sync();
+              if (historySubscription)
+                historySubscription.connect((frame) => {
+                  if (
+                    !disposed &&
+                    historySocket.current === hs &&
+                    hs.readyState === WebSocket.OPEN
+                  )
+                    hs.send(JSON.stringify(frame));
+                });
+              else {
+                clearTimeout(historyReplyTimer);
+                historyReady = true;
+                sync();
+              }
+              return;
+            }
+            if (['history-window', 'history-dirty'].includes(d.type)) {
+              void historySubscription?.handle(d);
               return;
             }
             if (d.type === 'event') {
+              if (!historyReady) return;
               add(d.event);
               historySync.observe(d.maxRevision, d.previousRevision);
               cache?.writeLive(d.event, cacheError, historySync.received);
@@ -1742,6 +1850,7 @@ function App() {
               return;
             }
             if (d.type === 'error') {
+              void historySubscription?.handle(d);
               if (d.requestId === syncRequest) {
                 syncRequest = undefined;
                 disconnect();
@@ -1799,23 +1908,29 @@ function App() {
               syncRequest = undefined;
               historySync.snapshot(d);
               for (const e of d.events) add(e, false);
-              void cache
-                ?.writeSnapshot(
-                  d.events,
-                  historySync.received,
-                  d.direction === 'before' ? 0 : undefined,
-                  d.direction === 'before' ? d : undefined,
-                )
-                .catch(cacheError);
+              const committed = cache?.writeSnapshot(
+                d.events,
+                historySync.received,
+                d.direction === 'before' ? 0 : undefined,
+                d.direction === 'before' ? d : undefined,
+              );
               if (d.direction === 'before') {
                 if (!olderView.current) {
                   setOlderCursor(d.events[0]?.seq ?? 0);
                   setHasOlder(d.more);
                 }
               }
-              if ((d.direction === 'after' && d.more) || historySync.missing)
-                sync();
-              else confirmHistory?.();
+              void Promise.resolve(committed)
+                .then(() => {
+                  if (disposed || historySocket.current !== hs) return;
+                  historySubscription?.commit();
+                  if (
+                    (d.direction === 'after' && d.more) ||
+                    historySync.missing
+                  )
+                    sync();
+                })
+                .catch(cacheError);
             } else if (typeof request === 'number') {
               showPage(d);
               void cache
@@ -1826,9 +1941,11 @@ function App() {
             report(e);
           }
         };
-        const disconnect = () => {
+        const disconnect = (revoked = false) => {
           if (disposed || historySocket.current !== hs) return;
+          if (revoked) historyFrozen = true;
           historySocket.current = null;
+          historySubscription?.disconnect();
           hs.close();
           clearTimeout(historyReplyTimer);
           historyReady = false;
@@ -1839,15 +1956,22 @@ function App() {
           requests.clear();
           pageGeneration++;
           finishPage();
-          if (!disposed && historyAttempts++ < 3)
-            historyTimer = setTimeout(() => void connectHistory(), 3000);
+          if (!disposed && !historyFrozen)
+            historyTimer = setTimeout(
+              () => void connectHistory(),
+              historyAttempts++ < 3 ? 3000 : 30000 + Math.random() * 30000,
+            );
         };
-        hs.onclose = disconnect;
+        hs.onclose = (event) =>
+          disconnect(event.code === 4001 || event.code === 4000);
       } catch (e) {
         if (!disposed) {
           report(e);
-          if (retryable(e) && historyAttempts++ < 3)
-            historyTimer = setTimeout(() => void connectHistory(), 5000);
+          if (retryable(e))
+            historyTimer = setTimeout(
+              () => void connectHistory(),
+              historyAttempts++ < 3 ? 5000 : 30000 + Math.random() * 30000,
+            );
         }
       }
     };
@@ -1855,7 +1979,7 @@ function App() {
     const confirmSession = async () => {
       try {
         await commandDelivery?.refresh();
-        if (reliableCommands) {
+        {
           // A direct read does not depend on either session socket, and never
           // acquires control or resends a mutation.
           for (;;) {
@@ -1874,6 +1998,7 @@ function App() {
               );
               setApprovals(snapshot.approvals);
               running = snapshot.session.running;
+              activeTask = snapshot.session.activeTask;
               stateSeq = Math.max(stateSeq, page.snapshotSeq);
               setBusy(running);
               setPromptProgress((progress) =>
@@ -1909,61 +2034,8 @@ function App() {
           await checkPending();
           return;
         }
-        await new Promise<void>((resolve, reject) => {
-          let controlConfirmed = selected.state !== 'ready';
-          let historyConfirmed = false;
-          const timer = setTimeout(() => reject(new Error()), 15000);
-          const finish = () => {
-            if (controlConfirmed && historyConfirmed) {
-              clearTimeout(timer);
-              resolve();
-            }
-          };
-          cancelRefresh = () => {
-            clearTimeout(timer);
-            reject(new Error());
-          };
-          confirmControl = () => {
-            controlConfirmed = true;
-            finish();
-          };
-          confirmHistory = () => {
-            historyConfirmed = true;
-            finish();
-          };
-          // OPEN alone cannot detect a stalled browser connection. Confirm both
-          // data channels with real responses, including missed history revisions.
-          if (
-            historySocket.current?.readyState !== WebSocket.OPEN ||
-            !syncHistory ||
-            (!controlConfirmed && socket.current?.readyState !== WebSocket.OPEN)
-          ) {
-            cancelRefresh();
-            return;
-          }
-          if (!controlConfirmed)
-            socket.current!.send(
-              JSON.stringify({
-                action: 'sync',
-                after: Number.MAX_SAFE_INTEGER,
-              }),
-            );
-          syncHistory();
-        });
       } catch (error) {
-        if (!disposed) {
-          if (reliableCommands) throw error;
-          setReconnect((value) => value + 1);
-          throw new Error(
-            t('会话同步未确认，已请求重新连接，请稍后刷新核对。'),
-            { cause: error },
-          );
-        }
-      } finally {
-        cancelRefresh?.();
-        cancelRefresh = undefined;
-        confirmControl = undefined;
-        confirmHistory = undefined;
+        if (!disposed) throw error;
       }
     };
     refreshSession.current = () => {
@@ -1982,7 +2054,7 @@ function App() {
       observeSessionHeads.current = undefined;
       deliverCommand.current = undefined;
       commandDelivery?.disconnect();
-      cancelRefresh?.();
+      historySubscription?.stop();
       for (const request of modelRequests.current.values()) {
         clearTimeout(request.timer);
         request.reject(new Error(t('连接或会话已切换，请重新加载模型。')));
@@ -2243,18 +2315,22 @@ function App() {
     setCreating(true);
     try {
       setError('');
-      const cache = catalog.current;
-      if (!cache) throw new Error('本机存储尚未就绪，请稍后重试');
-      const previous = await cache.record(`create:${project}`);
-      if (previous && previous.threadId !== threadId)
+      const client = operations.current;
+      if (!client) throw new Error('本机存储尚未就绪，请稍后重试');
+      const previous = (await client.records()).find(
+        (record) =>
+          record.path === '/sessions' &&
+          record.meta?.projectId === project &&
+          record.state !== 'confirmed',
+      );
+      if (previous && previous.meta?.threadId !== threadId)
         throw new Error('当前项目有待确认的会话创建请求，请先查询结果。');
-      const operation = previous || {
-        requestId: crypto.randomUUID(),
+      const operation = {
+        requestId: previous?.requestId || crypto.randomUUID(),
         ...(threadId ? { threadId } : {}),
       };
-      await cache.record(`create:${project}`, operation);
       setCreateOperation(operation);
-      const s = await api(
+      const s = await client.submit(
         '/sessions',
         {
           hostId: host,
@@ -2262,35 +2338,55 @@ function App() {
           mode: 'web',
           ...(threadId ? { threadId } : {}),
         },
-        undefined,
         operation.requestId,
+        {
+          kind: 'create',
+          projectId: project,
+          ...(threadId ? { threadId } : {}),
+        },
       );
-      await cache.record(`create:${project}`, null);
       setCreateOperation(undefined);
       if (
         projectContext.current.host !== host ||
         projectContext.current.project !== project
       )
         return;
-      setSessions((v) => [s, ...v]);
+      setSessions((v) => [s, ...v.filter((session) => session.id !== s.id)]);
       setTakeover(false);
       setSelected(s);
       setPanel(null);
       void loadThreads();
     } catch (e) {
       if (
-        e instanceof ApiError &&
-        e.status < 500 &&
-        e.code !== 'RESULT_UNKNOWN' &&
-        e.code !== 'IDEMPOTENCY_CONFLICT'
-      ) {
-        void catalog.current?.record(`create:${project}`, null);
-        setCreateOperation(undefined);
-      }
+        projectContext.current.host !== host ||
+        projectContext.current.project !== project
+      )
+        return;
+      const pending = (
+        await operations.current?.records().catch(() => undefined)
+      )?.find(
+        (record) =>
+          record.path === '/sessions' &&
+          record.meta?.projectId === project &&
+          record.state !== 'confirmed',
+      );
+      if (!pending || pending.result?.error) setCreateOperation(undefined);
       report(e);
     } finally {
       setCreating(false);
     }
+  }
+  async function endSession(session: Session) {
+    const client = operations.current;
+    if (!client) throw new Error('本机存储尚未就绪，请稍后重试');
+    const path = `/sessions/${session.id}/stop`;
+    const previous = (await client.records()).find(
+      (record) => record.path === path && record.state !== 'confirmed',
+    );
+    return client.submit(path, {}, previous?.requestId || crypto.randomUUID(), {
+      kind: 'stop',
+      sessionId: session.id,
+    });
   }
   const openSessions = () => {
     setView('chat');
@@ -2541,6 +2637,7 @@ function App() {
       {host && (
         <ProjectManager
           key={host}
+          operations={operations.current}
           hostId={host}
           hostName={hosts.find((h) => h.id === host)?.name || host}
           changed={refreshView}
@@ -3430,6 +3527,7 @@ function App() {
                 )}
                 {panel === 'files' && (
                   <WorkspaceFiles
+                    operations={operations.current}
                     host={host}
                     project={project}
                     target={remoteTarget}
@@ -3612,7 +3710,7 @@ function App() {
                                 : t('结束会话？已修改文件不会回滚。'),
                             )
                           )
-                            void api(`/sessions/${selected.id}/stop`, {})
+                            void endSession(selected)
                               .then((closed: Session) => {
                                 setSessions((v) =>
                                   v.map((s) =>
@@ -3621,7 +3719,11 @@ function App() {
                                 );
                                 setSelected(undefined);
                                 setPanel(null);
-                                setStatus('会话已结束');
+                                setStatus(
+                                  closed.state === 'closed'
+                                    ? '会话已结束'
+                                    : '正在结束会话',
+                                );
                               })
                               .catch(report);
                         }}
@@ -3776,9 +3878,19 @@ function App() {
                         (!selected.external || !!selected.approvalForwarding)
                       }
                       pending={pending}
-                      onAnswer={(approvalId, allow) =>
-                        send({ action: 'approval', approvalId, allow })
-                      }
+                      onAnswer={(approvalId, allow) => {
+                        const approval = approvals.find(
+                          (item) => item.approvalId === approvalId,
+                        );
+                        if (!approval) return;
+                        send({
+                          action: 'approval',
+                          approvalId,
+                          allow,
+                          runtimeId: approval.runtimeId,
+                          approvalVersion: approval.approvalVersion,
+                        });
+                      }}
                     />
                     {unconfirmed && (
                       <div className="submission-state" role="status">

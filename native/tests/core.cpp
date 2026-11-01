@@ -1,9 +1,11 @@
 #include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/common.hpp"
+#include "coc/credit.hpp"
 #include "coc/delivery.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
+#include "coc/history_subscription.hpp"
 #include "coc/network.hpp"
 #include "coc/process.hpp"
 #include "coc/store.hpp"
@@ -77,7 +79,19 @@ void core() {
     sender.connect([&](Json frame) { sent.push_back(frame); });
     sender.submit({{"id", 1}, {"method", "turn/start"}, {"params", Json::object()}});
     check(sent.size() == 1, "No mutation is sent before receiver credit");
+    const auto exchange = sent.back().at("exchangeId");
     sender.receive({{"type", "delivery-window"},
+                    {"exchangeId", exchange},
+                    {"lane", "priority"},
+                    {"window",
+                     {{"stream", "priority"},
+                      {"instance", "journal"},
+                      {"received", 0},
+                      {"receivedBytes", 0},
+                      {"credit", 4},
+                      {"byteCredit", 262144}}}});
+    sender.receive({{"type", "delivery-window"},
+                    {"exchangeId", exchange},
                     {"lane", "normal"},
                     {"window",
                      {{"stream", "receiver"},
@@ -88,18 +102,165 @@ void core() {
                       {"byteCredit", 262144}}}});
     check(sent.back()["type"] == "delivery-command", "Native sender sends within credit");
     const auto frame = sent.back();
+    const auto result_body = Json{{"id", 1}, {"result", {{"ok", true}}}}.dump();
     sender.receive({{"type", "delivery-result"},
                     {"lane", "normal"},
                     {"seq", 1},
-                    {"payload", {{"id", 1}, {"result", {{"ok", true}}}}},
+                    {"resultStream", "receiver_r"},
+                    {"resultSeq", 1},
+                    {"resultEnd", result_body.size()},
+                    {"resultBody", result_body},
+                    {"resultDigest", delivery_digest(result_body)},
                     {"window",
                      {{"stream", "receiver"},
                       {"instance", "journal"},
                       {"received", 1},
                       {"receivedBytes", frame["end"]},
+                      {"sent", 1},
+                      {"resultBytes", result_body.size()},
                       {"credit", 2},
                       {"byteCredit", 262144}}}});
     check(replies.size() == 1 && !sender.pending(), "Native command completes durably");
+    {
+      sender.submit({{"id", 2}, {"method", "turn/start"}});
+      const auto command_frame = sent.back();
+      const auto content = Json{{"id", 2}, {"result", std::string(300000, 'x')}}.dump();
+      const auto digest = delivery_digest(content);
+      const auto descriptor =
+          Json{{"type", "delivery-content"}, {"retention", "transfer"}, {"revision", 1},
+               {"contentId", digest},        {"digest", digest},        {"length", content.size()}}
+              .dump();
+      Json result_window = {{"stream", "receiver"},
+                            {"instance", "journal"},
+                            {"received", 2},
+                            {"receivedBytes", command_frame.at("end")},
+                            {"sent", 2},
+                            {"resultBytes", result_body.size() + descriptor.size()},
+                            {"credit", 3},
+                            {"byteCredit", 2 * 1024 * 1024}};
+      Json result_frame = {{"type", "delivery-result"},
+                           {"lane", "normal"},
+                           {"seq", 2},
+                           {"resultStream", "receiver_r"},
+                           {"resultSeq", 2},
+                           {"resultEnd", result_body.size() + descriptor.size()},
+                           {"resultBody", descriptor},
+                           {"resultDigest", delivery_digest(descriptor)},
+                           {"window", result_window}};
+      sender.receive(result_frame);
+      const auto receipt = std::find_if(sent.rbegin(), sent.rend(), [](const Json &frame) {
+        return frame.value("type", "") == "delivery-receipt";
+      });
+      check(sender.pending() && replies.size() == 1 && receipt != sent.rend() &&
+                receipt->at("received") == 1,
+            "A transfer descriptor alone cannot retire a command or acknowledge its result");
+      for (size_t offset = 0; offset < content.size();) {
+        const auto part = content.substr(offset, 16384);
+        sender.receive({{"type", "delivery-window"},
+                        {"lane", "normal"},
+                        {"window", result_window},
+                        {"content",
+                         {{"resultSeq", 2},
+                          {"offset", offset},
+                          {"next", offset + part.size()},
+                          {"length", content.size()},
+                          {"body", part}}}});
+        offset += part.size();
+      }
+      check(!sender.pending() && replies.size() == 2,
+            "Native receiver applies a large result after the entire content is verified");
+      const auto durable = journal.cache_get("sender:v2")["normal"]["results"];
+      check(durable["received"] == 2 && durable["cache"][1]["content"] == content,
+            "Full transfer content is durable before result acknowledgment");
+      sender.receive(result_frame);
+      check(replies.size() == 2 && sent.back()["received"] == 2,
+            "Duplicate transfer result repeats its ACK without fetching or applying again");
+    }
+    {
+      std::vector<Json> frames;
+      CommandDelivery recovering(journal, "recovery-sender", [](Json) {});
+      auto transport = [&](Json frame) { frames.push_back(frame); };
+      auto snapshot = [&](const std::string &lane, const Json &exchange_id, int64_t received,
+                          int64_t bytes, int64_t credit) {
+        return recovering.receive({{"type", "delivery-window"},
+                                   {"exchangeId", exchange_id},
+                                   {"lane", lane},
+                                   {"window",
+                                    {{"stream", lane},
+                                     {"instance", "journal"},
+                                     {"received", received},
+                                     {"receivedBytes", bytes},
+                                     {"credit", credit},
+                                     {"byteCredit", 262144}}}});
+      };
+      recovering.connect(transport);
+      const auto old_exchange = frames.back().at("exchangeId");
+      recovering.submit({{"id", 7}, {"method", "turn/start"}});
+      check(journal.cache_get("recovery-sender:v2")["normal"]["next"] == 0,
+            "Uncredited commands are durable without consuming a sequence");
+      snapshot("normal", old_exchange, 0, 0, 1);
+      check(frames.size() == 1, "Recovery freezes publication until both lanes respond");
+      snapshot("priority", old_exchange, 0, 0, 4);
+      const auto published = frames.back();
+      check(published["type"] == "delivery-command" && published["seq"] == 1,
+            "Publication uses the first sequence after credit commits");
+      auto ack = Json{{"type", "delivery-window"},
+                      {"lane", "normal"},
+                      {"window",
+                       {{"stream", "normal"},
+                        {"instance", "journal"},
+                        {"received", 1},
+                        {"receivedBytes", published["end"]},
+                        {"credit", 3},
+                        {"byteCredit", 262144}}}};
+      recovering.receive(ack);
+      auto stale = ack;
+      stale["window"]["received"] = 0;
+      stale["window"]["receivedBytes"] = 0;
+      recovering.receive(stale);
+      check(journal.cache_get("recovery-sender:v2")["normal"]["received"] == 1,
+            "Online old ACKs cannot roll back durable progress");
+      auto corrupt = ack;
+      corrupt["window"]["receivedBytes"] = published["end"].get<int64_t>() - 1;
+      rejects([&] { recovering.receive(corrupt); }, "INVALID_REQUEST");
+      recovering.disconnect();
+      recovering.connect(transport);
+      const auto current_exchange = frames.back().at("exchangeId");
+      check(current_exchange != old_exchange, "Reconnect gets a fresh recovery identity");
+      rejects(
+          [&] {
+            recovering.receive({{"type", "delivery-window"},
+                                {"exchangeId", current_exchange},
+                                {"lane", "normal"},
+                                {"window",
+                                 {{"stream", "foreign"},
+                                  {"instance", "journal"},
+                                  {"received", 1},
+                                  {"receivedBytes", published["end"]},
+                                  {"credit", 3},
+                                  {"byteCredit", 262144}}}});
+          },
+          "INVALID_REQUEST");
+      snapshot("normal", old_exchange, 0, 0, 1);
+      recovering.receive(stale);
+      check(!recovering.ready(), "Old snapshots and online ACKs cannot open a new connection");
+      rejects([&] { snapshot("normal", current_exchange, 0, 0, 1); }, "DELIVERY_STATE_MISMATCH");
+      rejects([&] { recovering.submit({{"id", 8}, {"method", "turn/start"}}); },
+              "DELIVERY_STATE_MISMATCH");
+    }
+    {
+      std::vector<Json> frames;
+      CommandDelivery resetting(journal, "reset-sender", [](Json) {});
+      resetting.connect([&](Json frame) { frames.push_back(frame); });
+      auto reset = Json{{"type", "delivery-reset"},
+                        {"exchangeId", "retired"},
+                        {"lane", "normal"},
+                        {"error", {{"code", "RESULT_UNAVAILABLE"}}}};
+      resetting.receive(reset);
+      reset["exchangeId"] = frames.back().at("exchangeId");
+      rejects([&] { resetting.receive(reset); }, "DELIVERY_STATE_MISMATCH");
+      rejects([&] { resetting.connect([](Json) {}); }, "DELIVERY_STATE_MISMATCH");
+    }
     auto first =
         journal.output_append("output", {{"method", "event"}, {"params", {{"text", "one"}}}});
     journal.output_append("output", {{"method", "event"}, {"params", {{"text", "two"}}}});
@@ -119,6 +280,8 @@ void core() {
   {
     Temp dir;
     const std::string body = "{\"action\":\"interrupt\",\"requestId\":\"one\"}";
+    const auto body2 = Json{{"action", "interrupt"}, {"requestId", "two"}}.dump();
+    const auto body3 = Json{{"action", "interrupt"}, {"requestId", "six"}}.dump();
     {
       Store journal(dir.path);
       check(journal.delivery_open("stream", "session", 2, max_frame)["credit"] == 2,
@@ -130,8 +293,8 @@ void core() {
             "Duplicate sequence does not execute again");
       rejects([&] { journal.delivery_receive("stream", 1, body.size() + 1, body + " "); },
               "IDEMPOTENCY_CONFLICT");
-      journal.delivery_receive("stream", 2, body.size() * 2, body);
-      rejects([&] { journal.delivery_receive("stream", 3, body.size() * 3, body); },
+      journal.delivery_receive("stream", 2, body.size() * 2, body2);
+      rejects([&] { journal.delivery_receive("stream", 3, body.size() * 3, body3); },
               "BACKPRESSURE");
       check(journal.delivery_start("stream", 1), "Received command starts once");
       check(!journal.delivery_start("stream", 1), "Started command never starts twice");
@@ -142,14 +305,795 @@ void core() {
             "Restart does not replay uncertain side effects");
       check(journal.delivery_record("stream", 2)["result"]["error"]["code"] == "SESSION_CLOSED",
             "Unstarted commands fail explicitly after runtime loss");
-      check(journal.delivery_window("stream")["credit"] == 4, "Terminal commands release credit");
-      journal.delivery_receive("stream", 3, body.size() * 3, body);
+      check(journal.delivery_record("stream", 1)["result"]["requestId"] == "one" &&
+                journal.delivery_record("stream", 2)["result"]["requestId"] == "two",
+            "Restart terminal results preserve the original web request identity");
+      check(journal.delivery_window("stream")["credit"] == 2,
+            "Unacknowledged terminal results still consume their reserved slots");
+      const auto completed = journal.delivery_result_state("stream");
+      journal.delivery_result_ack("stream", completed.at("sent"), completed.at("sent_bytes"));
+      check(journal.delivery_window("stream")["credit"] == 4,
+            "Result acknowledgment releases command and result capacity");
+      journal.delivery_receive("stream", 3, body.size() * 3, body3);
       journal.delivery_start("stream", 3);
       journal.delivery_finish("stream", 3, {{"ok", true}});
       check(journal.delivery_receive("stream", 3, body.size() * 3,
-                                     body)["record"]["result"]["ok"] == true,
+                                     body3)["record"]["result"]["ok"] == true,
             "Completed command result replays after lost acknowledgement");
     }
+  }
+
+  {
+    Temp dir;
+    Store journal(dir.path);
+    const auto body = Json{{"id", 1}, {"method", "turn/start"}}.dump();
+    journal.delivery_open("results", "session", 2, max_frame);
+    journal.delivery_receive("results", 1, body.size(), body);
+    journal.delivery_receive("results", 2, body.size() * 2,
+                             Json{{"id", 2}, {"method", "turn/start"}}.dump());
+    journal.delivery_finish("results", 2, {{"id", 2}, {"result", "second completed first"}});
+    journal.delivery_finish("results", 1, {{"id", 1}, {"result", "first completed second"}});
+    auto first = journal.delivery_record("results", 2);
+    auto second = journal.delivery_record("results", 1);
+    check(first["resultSeq"] == 1 && second["resultSeq"] == 2,
+          "Results allocate sequence by completion order, not command sequence");
+    rejects(
+        [&] { journal.delivery_result_ack("results", 1, first["resultEnd"].get<int64_t>() - 1); },
+        "INVALID_REQUEST");
+    rejects([&] { journal.delivery_result_ack("results", 3, second["resultEnd"]); },
+            "INVALID_REQUEST");
+    journal.delivery_result_ack("results", 1, first["resultEnd"]);
+    check(journal.delivery_record("results", 2)["resultBody"].is_null(),
+          "Acknowledged result body is retired");
+    check(!journal.delivery_record("results", 1)["resultBody"].is_null(),
+          "Acknowledging command two does not discard command one's later completion");
+    journal.delivery_finish("results", 2, {{"result", "cannot replace committed identity"}});
+    check(journal.delivery_result_state("results")["sent"] == 2,
+          "A duplicate completion cannot allocate another result sequence");
+    check(journal.delivery_results("results", 1)[0]["seq"] == 1,
+          "Result page recovers the remaining completion");
+    rejects([&] { journal.delivery_results("results", 0); }, "DELIVERY_STATE_MISMATCH");
+    rejects([&] { journal.delivery_scope("results", "another-session"); }, "FORBIDDEN");
+  }
+
+  {
+    Temp dir;
+    const auto body = Json{{"method", "event"}, {"params", "durable before TUI"}}.dump();
+    const std::string key = "/ws/v1/cli/session:output:v2";
+    {
+      Store journal(dir.path, false);
+      auto accepted = journal.output_receive(key, 1, body.size(), body, "instance");
+      check(accepted["accepted"] == true && accepted["state"]["cache"][0]["body"] == body,
+            "Complete output and receive prefix commit together before TUI delivery");
+      rejects([&] { journal.output_receive(key, 3, body.size() * 2, body, "instance"); },
+              "DELIVERY_GAP");
+      rejects([&] { journal.output_receive(key, 1, body.size(), body, "replaced"); },
+              "DELIVERY_STATE_MISMATCH");
+      journal.cache_clear();
+    }
+    {
+      Store journal(dir.path, false);
+      check(journal.cache_get(key)["cache"][0]["body"] == body,
+            "An output lost before TUI delivery survives receiver restart and cache clearing");
+      check(journal.output_receive(key, 1, body.size(), body, "instance")["accepted"] == false,
+            "Lost output receipt repeats ACK without delivering the output twice");
+      rejects([&] { journal.output_receive(key, 1, body.size(), body + " ", "instance"); },
+              "IDEMPOTENCY_CONFLICT");
+      journal.output_consumed(key, 1);
+      check(journal.cache_get(key)["cache"][0]["consumed"] == true,
+            "TUI consumption is separate from durable receive confirmation");
+    }
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.delivery_open("large-result", "session", 1, max_frame);
+    journal.delivery_receive("large-result", 1, 2, "{}");
+    const auto content = Json{{"id", 1}, {"result", std::string(300000, 'x')}};
+    const auto full_body = content.dump();
+    journal.delivery_finish("large-result", 1, content);
+    auto record = journal.delivery_record("large-result", 1);
+    const auto descriptor = Json::parse(record["resultBody"].get<std::string>());
+    check(descriptor["retention"] == "transfer" &&
+              descriptor["digest"] == delivery_digest(full_body),
+          "Large results use immutable, verified content descriptors");
+    std::string received;
+    while (received.size() < full_body.size()) {
+      const auto chunk = journal.delivery_content("large-result", 1, received.size());
+      check(chunk.dump().size() < max_frame && chunk["offset"] == received.size(),
+            "Content chunks stay within frame and byte boundaries");
+      received += chunk["body"].get<std::string>();
+    }
+    check(received == full_body, "Content remains complete before result acknowledgment");
+    journal.delivery_result_ack("large-result", 1, record["resultEnd"]);
+    rejects([&] { journal.delivery_content("large-result", 1, 0); }, "CONTENT_UNAVAILABLE");
+  }
+
+  {
+    Temp dir;
+    {
+      Store local(dir.path, false);
+      const auto count = credit::local_command_budget / credit::local_command_reservation;
+      for (int64_t i = 0; i < count; ++i) {
+        local.local_reserve("command-" + std::to_string(i), "command");
+        local.cache_put("command-" + std::to_string(i), {{"kept", i}});
+      }
+      local.local_reserve("command-0", "command");
+      check(local.local_budget().at("command").at("reserved") == credit::local_command_budget,
+            "Local command reservations are global and a duplicate does not charge twice");
+      rejects([&] { local.local_reserve("another-command", "command"); }, "BACKPRESSURE");
+      local.local_reserve("output", "output");
+      check(local.local_budget().at("output").at("reserved") == credit::local_output_reservation,
+            "Command exhaustion cannot consume the output receive reservation");
+      rejects(
+          [&] { local.cache_put("output", std::string(credit::local_output_reservation, 'x')); },
+          "BACKPRESSURE");
+      check(local.cache_get("output").is_null(), "An oversized local write never commits");
+      local.cache_clear();
+    }
+    Store recovered(dir.path, false);
+    check(recovered.local_budget().at("command").at("reserved") == credit::local_command_budget,
+          "Restart and cache clearing cannot silently revoke an issued local reservation");
+    rejects([&] { recovered.local_reserve("another-command", "command"); }, "BACKPRESSURE");
+    Store other_identity(dir.path, false, "another-identity:");
+    rejects([&] { other_identity.local_reserve("command-0", "command"); }, "BACKPRESSURE");
+    check(other_identity.cache_get("command-0").is_null(),
+          "Credentials share reservation accounting without sharing their outbox contents");
+  }
+  {
+    Temp dir;
+    Store first(dir.path, false, "first:"), second(dir.path, false, "second:");
+    first.cache_put("page", {{"from", "first"}});
+    second.cache_put("page", {{"from", "second"}});
+    first.local_reserve("commands", "command");
+    second.local_reserve("commands", "command");
+    first.cache_put("commands", {{"pending", 1}});
+    second.cache_put("commands", {{"pending", 2}});
+    first.cache_clear();
+    check(first.cache_get("page").is_null() && second.cache_get("page").at("from") == "second" &&
+              first.cache_get("commands").at("pending") == 1 &&
+              second.cache_get("commands").at("pending") == 2,
+          "Clearing a credential's history preserves all promised outboxes and other identities");
+    const auto text = std::string(3 * 1024 * 1024, 'x');
+    for (int i = 0; i < 5; ++i)
+      first.cache_put("large-" + std::to_string(i), text);
+    rejects([&] { first.cache_put("large-5", text); }, "BACKPRESSURE");
+    check(first.cache_get("large-5").is_null(), "A rejected scoped cache write never commits");
+    first.cache_clear();
+    for (int i = 0; i < 5; ++i)
+      second.cache_put("large-" + std::to_string(i), text);
+    bool full = false;
+    for (int scope = 0; scope < 8 && !full; ++scope) {
+      Store more(dir.path, false, "identity-" + std::to_string(scope) + ":");
+      for (int i = 0; i < 5; ++i) {
+        try {
+          more.cache_put("large-" + std::to_string(i), text);
+        } catch (const Error &error) {
+          check(error.code == "BACKPRESSURE", "Ordinary caches share the real global quota");
+          full = true;
+          break;
+        }
+      }
+    }
+    check(full && second.local_budget().at("cache").at("bytes") <= credit::cache_budget,
+          "Extra credentials cannot multiply ordinary cache storage");
+    first.cache_put("commands", {{"pending", "still reserved"}});
+    check(first.cache_get("commands").at("pending") == "still reserved",
+          "Ordinary cache exhaustion cannot borrow a previously promised command reservation");
+  }
+  {
+    Temp dir;
+    Store local(dir.path, false);
+    const auto body = Json{{"method", "notification"}}.dump();
+    for (int64_t seq = 1; seq <= 32; ++seq)
+      local.output_receive("slow-tui", seq, seq * body.size(), body, "instance");
+    rejects([&] { local.output_receive("slow-tui", 33, 33 * body.size(), body, "instance"); },
+            "BACKPRESSURE");
+    local.output_consumed("slow-tui", 2);
+    check(local.cache_get("slow-tui").value("consumed", 0) == 0,
+          "Out-of-order consumption cannot grant credit beyond an undelivered prefix");
+    local.output_consumed("slow-tui", 1);
+    check(local.cache_get("slow-tui").at("consumed") == 2,
+          "Only the continuous consumed prefix releases receive credit");
+    local.output_receive("slow-tui", 33, 33 * body.size(), body, "instance");
+    local.output_receive("slow-tui", 34, 34 * body.size(), body, "instance");
+    rejects([&] { local.output_receive("slow-tui", 35, 35 * body.size(), body, "instance"); },
+            "BACKPRESSURE");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    const Json payload = {{"method", "notification"}, {"params", std::string(240 * 1024, 'x')}};
+    int count = 0;
+    for (;;) {
+      try {
+        journal.output_append("bounded-output", payload);
+        ++count;
+      } catch (const Error &error) {
+        check(error.code == "BACKPRESSURE", "A slow output stream ends at its durable quota");
+        break;
+      }
+    }
+    check(count > 0 && count < 40 && journal.output_state("bounded-output").at("sent") == count,
+          "Rejected output does not advance its durable sequence");
+    journal.output_publish("bounded-output", count);
+    journal.output_ack("bounded-output", 1);
+    check(journal.output_append("bounded-output", payload).at("seq") == count + 1,
+          "Only the acknowledged continuous prefix releases output storage");
+    for (int i = 0; i < 12; ++i) {
+      try {
+        for (int j = 0; j < count; ++j)
+          journal.output_append("output-" + std::to_string(i), payload);
+      } catch (const Error &error) {
+        check(error.code == "BACKPRESSURE" && i < 12,
+              "Many streams share the output budget instead of multiplying it");
+        break;
+      }
+      check(i < 11, "The global output budget must stop new output");
+    }
+  }
+
+  {
+    Temp dir;
+    Store journal(dir.path);
+    std::vector<Json> frames;
+    CommandDelivery sender(journal, "controlled-sender", [](Json) {});
+    const auto proof = Json{{"controlEpoch", 2},
+                            {"connectionGeneration", 9},
+                            {"controlId", "claim"},
+                            {"owner", "owner"}};
+    sender.connect([&](Json frame) { frames.push_back(frame); }, proof);
+    sender.submit({{"id", 1}, {"method", "turn/start"}, {"params", Json::object()}});
+    sender.submit({{"id", 71}, {"method", "turn/start"}});
+    check(sender.cancel_unpublished(71),
+          "Cancel a request before an approval reuses its numeric ID");
+    const auto exchange = frames.back().at("exchangeId");
+    auto snapshot = Json{{"type", "delivery-window"},
+                         {"exchangeId", exchange},
+                         {"lane", "normal"},
+                         {"window",
+                          {{"stream", "normal"},
+                           {"instance", "journal"},
+                           {"received", 0},
+                           {"receivedBytes", 0},
+                           {"credit", 2},
+                           {"byteCredit", 262144}}}};
+    rejects([&] { sender.receive(snapshot); }, "STALE_CONTROLLER");
+    auto ready = proof;
+    ready["instance"] = "journal";
+    ready["exchangeId"] = exchange;
+    snapshot["controlReady"] = ready;
+    snapshot["controlReady"]["connectionGeneration"] = 8;
+    rejects([&] { sender.receive(snapshot); }, "STALE_CONTROLLER");
+    snapshot["controlReady"] = ready;
+    snapshot["window"]["streamSerial"] = 1;
+    snapshot["window"]["creditGeneration"] = "normal-generation";
+    sender.receive(snapshot);
+    check(frames.size() == 1 && !sender.ready(), "One ready lane cannot publish a command");
+    snapshot["lane"] = "priority";
+    snapshot["window"]["stream"] = "priority";
+    snapshot["window"]["streamSerial"] = 2;
+    snapshot["window"]["creditGeneration"] = "priority-generation";
+    sender.receive(snapshot);
+    check(sender.ready() && frames.back()["type"] == "delivery-command",
+          "Both matching Agent confirmations admit business publication");
+    const auto task = Json{{"controlEpoch", 2},    {"instance", "journal"}, {"owner", "owner"},
+                           {"requestId", "rpc:1"}, {"stream", "normal"},    {"turnId", "turn-one"}};
+    auto wrong_task = task;
+    wrong_task["instance"] = "other-journal";
+    rejects([&] { sender.observe({{"coc", {{"task", wrong_task}}}}); }, "DELIVERY_STATE_MISMATCH");
+    sender.observe({{"method", "turn/started"}, {"coc", {{"task", task}}}});
+    rejects(
+        [&] {
+          sender.submit(
+              {{"id", 2}, {"method", "turn/interrupt"}, {"params", {{"turnId", "another-turn"}}}});
+        },
+        "TARGET_NOT_FOUND");
+    sender.submit({{"id", 2}, {"method", "turn/interrupt"}, {"params", {{"turnId", "turn-one"}}}});
+    check(frames.back().at("lane") == "priority" &&
+              Json::parse(frames.back().at("body").get<std::string>()).at("coc").at("target") ==
+                  task,
+          "Native interruptions carry the exact persisted original task and turn binding");
+    const auto approval = Json{{"instance", "journal"},
+                               {"runtimeId", "runtime"},
+                               {"approvalVersion", "first"},
+                               {"requestId", 71}};
+    auto stale = approval;
+    stale["instance"] = "another-journal";
+    rejects([&] { sender.observe({{"id", 71}, {"coc", {{"approval", stale}}}}); },
+            "DELIVERY_STATE_MISMATCH");
+    rejects([&] { sender.submit({{"id", 71}, {"result", {{"decision", "accept"}}}}); },
+            "TARGET_NOT_FOUND");
+    sender.observe({{"id", 71}, {"coc", {{"approval", approval}}}});
+    sender.submit({{"id", 71}, {"result", {{"decision", "accept"}}}});
+    check(Json::parse(frames.back().at("body").get<std::string>()).at("coc").at("approval") ==
+              approval,
+          "CLI replies persist their exact original approval proof");
+    auto next = approval;
+    next["approvalVersion"] = "second";
+    check(delivery_request_key({{"id", 71}, {"coc", {{"approval", approval}}}}) !=
+              delivery_request_key({{"id", 71}, {"coc", {{"approval", next}}}}),
+          "Reused server request IDs are separated by original approval version");
+    sender.disconnect();
+    CommandDelivery changed(journal, "controlled-sender", [](Json) {});
+    changed.connect([&](Json frame) { frames.push_back(frame); }, proof);
+    snapshot["exchangeId"] = frames.back().at("exchangeId");
+    snapshot["controlReady"]["exchangeId"] = frames.back().at("exchangeId");
+    snapshot["lane"] = "normal";
+    snapshot["window"]["stream"] = "normal";
+    snapshot["window"]["streamSerial"] = 1;
+    snapshot["window"]["creditGeneration"] = "changed-generation";
+    rejects([&] { changed.receive(snapshot); }, "DELIVERY_STATE_MISMATCH");
+    auto takeover = proof;
+    takeover["controlEpoch"] = 3;
+    takeover["controlId"] = "next-claim";
+    rejects([&] { sender.connect([](Json) {}, takeover); }, "STREAM_CLOSED");
+  }
+
+  for (const auto &retired : {"closed", "exhausted"}) {
+    Temp dir;
+    Store journal(dir.path, false);
+    std::vector<Json> frames, results;
+    CommandDelivery sender(journal, "retired-sender",
+                           [&](Json result) { results.push_back(result); });
+    auto connect = [&] {
+      sender.connect([&](Json frame) { frames.push_back(frame); });
+      const auto exchange = frames.back().at("exchangeId");
+      for (const auto &lane : {"priority", "normal"}) {
+        const auto state = journal.cache_get("retired-sender:v2").at(lane);
+        sender.receive({{"type", "delivery-window"},
+                        {"exchangeId", exchange},
+                        {"lane", lane},
+                        {"window",
+                         {{"stream", lane},
+                          {"instance", "journal"},
+                          {"received", state.at("received")},
+                          {"receivedBytes", state.value("receivedBytes", int64_t(0))},
+                          {"credit", 1},
+                          {"byteCredit", 262144},
+                          {retired, state.value(retired, false)}}}});
+      }
+    };
+    connect();
+    sender.submit({{"id", 1}, {"method", "turn/start"}});
+    const auto published = frames.back();
+    auto window = Json{{"stream", "normal"}, {"instance", "journal"},
+                       {"received", 1},      {"receivedBytes", published.at("end")},
+                       {"credit", 1},        {"byteCredit", 262144},
+                       {"sent", 1},          {"resultBytes", 4096},
+                       {retired, true}};
+    sender.receive({{"type", "delivery-window"}, {"lane", "normal"}, {"window", window}});
+    rejects([&] { sender.submit({{"id", 2}, {"method", "turn/start"}}); }, "STREAM_CLOSED");
+    check(sender.pending(), "Retiring admission does not discard an admitted pending result");
+    connect();
+    check(frames.back().at("type") == "delivery-query",
+          "Closed or exhausted flow recovery queries the original admitted command");
+    const auto body = Json{{"id", 1}, {"result", true}}.dump();
+    sender.receive({{"type", "delivery-result"},
+                    {"lane", "normal"},
+                    {"seq", 1},
+                    {"resultSeq", 1},
+                    {"resultStream", "normal_r"},
+                    {"resultEnd", body.size()},
+                    {"resultBody", body},
+                    {"resultDigest", delivery_digest(body)},
+                    {"window", window}});
+    check(results.size() == 1 && !sender.pending(), "Final results of a retired allocation commit "
+                                                    "and acknowledge before recovery becomes idle");
+  }
+
+  {
+    Temp dir;
+    const auto body = Json{{"id", 71}, {"method", "turn/start"}}.dump();
+    {
+      Store journal(dir.path);
+      journal.delivery_open("restart-rpc", "session", 2, max_frame);
+      journal.delivery_receive("restart-rpc", 1, body.size(), body);
+      journal.delivery_start("restart-rpc", 1);
+    }
+    Store journal(dir.path);
+    const auto result = journal.delivery_record("restart-rpc", 1).at("result");
+    check(result.at("id") == 71 && result.at("error").at("data").at("code") == "RESULT_UNKNOWN",
+          "Restart terminal results preserve the original RPC identity and uncertainty");
+  }
+
+  {
+    Temp dir;
+    Store journal(dir.path);
+    std::vector<Json> frames;
+    std::vector<Json> local_results;
+    CommandDelivery sender(journal, "local-cancel",
+                           [&](Json result) { local_results.push_back(result); });
+    sender.connect([&](Json frame) { frames.push_back(frame); });
+    const auto command = Json{{"id", 5}, {"method", "turn/start"}};
+    sender.submit(command);
+    check(sender.cancel_unpublished(5),
+          "Native local cancellation retires unpublished work without transport seq");
+    check(!sender.pending() && frames.size() == 1,
+          "Local cancellation emits no remote command or cancellation");
+    rejects([&] { sender.submit(command); }, "CANCELLED_BEFORE_START");
+    sender.submit({{"id", 6}, {"method", "turn/start"}});
+    sender.submit({{"method", "$/cancelRequest"}, {"params", {{"requestId", 6}}}});
+    check(local_results.size() == 1 && local_results.at(0).at("id") == 6 &&
+              local_results.at(0).at("error").at("data").at("code") == "CANCELLED_BEFORE_START" &&
+              journal.cache_get("local-cancel:v2")["normal"]["next"] == 0 && !sender.pending(),
+          "TUI cancellation atomically retires unpublished work and resolves only that request");
+    CommandDelivery restored(journal, "local-cancel", [](Json) {});
+    check(!restored.pending(), "Native unpublished cancellation survives sender reconstruction");
+    rejects([&] { restored.submit(command); }, "CANCELLED_BEFORE_START");
+    check(delivery_request_key({{"id", 1}, {"method", "turn/start"}}) !=
+                  delivery_request_key({{"id", "1"}, {"method", "turn/start"}}) &&
+              delivery_request_key({{"id", 1}}) !=
+                  delivery_request_key({{"id", 1}, {"method", "turn/start"}}),
+          "Target identity preserves JSON id type and separates approval replies from requests");
+    for (int id = 7; id < 77; ++id) {
+      sender.submit({{"id", id}, {"method", "turn/start"}});
+      check(sender.cancel_unpublished(id), "Cancel the original unpublished request");
+    }
+    const auto trimmed = journal.cache_get("local-cancel:v2");
+    check(trimmed.at("cancelled").size() == 64 && trimmed.at("cancelledKeys").size() == 72,
+          "Diagnostic trimming does not discard permanent cancellation identities");
+    CommandDelivery after_trim(journal, "local-cancel", [](Json) {});
+    rejects([&] { after_trim.submit(command); }, "CANCELLED_BEFORE_START");
+    after_trim.submit({{"id", "5"}, {"method", "turn/start"}});
+    check(after_trim.cancel_unpublished("5"), "Cancellation identities preserve JSON ID types");
+    auto full = journal.cache_get("local-cancel:v2");
+    full["cancelledKeys"] = Json::array();
+    for (int i = 0; i < 1024; ++i)
+      full["cancelledKeys"].push_back(delivery_digest("retired-" + std::to_string(i)));
+    journal.cache_put("local-cancel:v2", full);
+    CommandDelivery limited(journal, "local-cancel", [](Json) {});
+    limited.submit({{"id", 9999}, {"method", "turn/start"}});
+    rejects([&] { limited.cancel_unpublished(9999); }, "BACKPRESSURE");
+    check(limited.pending() &&
+              journal.cache_get("local-cancel:v2").at("cancelledKeys").size() == 1024,
+          "Exhausted cancellation capacity refuses the change without losing queued work");
+  }
+
+  {
+    Temp dir;
+    Json target;
+    const auto command =
+        Json{{"action", "prompt"}, {"requestId", "cancelled"}, {"text", "never run"}}.dump();
+    {
+      Store journal(dir.path);
+      journal.control_apply("session", 1, "claim", "owner");
+      journal.delivery_open("normal-cancel", "session", 16, 2 * 1024 * 1024);
+      journal.delivery_bind("normal-cancel", 1, "claim");
+      target = {{"instance", journal.delivery_instance()},
+                {"stream", "normal-cancel"},
+                {"controlEpoch", 1},
+                {"owner", "owner"},
+                {"requestId", "web:cancelled"}};
+      auto wrong = target;
+      wrong["owner"] = "someone-else";
+      rejects([&] { journal.delivery_cancel("session", wrong); }, "TARGET_NOT_FOUND");
+      wrong = target;
+      wrong["controlEpoch"] = 2;
+      rejects([&] { journal.delivery_cancel("session", wrong); }, "TARGET_NOT_FOUND");
+      rejects([&] { journal.delivery_cancel("other-session", target); }, "TARGET_NOT_FOUND");
+      check(journal.delivery_cancel("session", target).at("state") == "pending-target",
+            "Cancellation may arrive before its target command");
+      check(journal.delivery_cancel("session", target).at("state") == "pending-target",
+            "Duplicate cancellation consumes no additional marker");
+    }
+    Store journal(dir.path);
+    const auto received = journal.delivery_receive("normal-cancel", 1, command.size(), command);
+    check(received.at("accepted") == true && received.at("window").at("received") == 1,
+          "A late cancelled command still fills its original transport prefix");
+    const auto record = received.at("record");
+    check(record.at("phase") == "finished" && record.at("result").at("requestId") == "cancelled" &&
+              record.at("result").at("error").at("code") == "CANCELLED_BEFORE_START" &&
+              !record.at("resultSeq").is_null(),
+          "Restart preserves cancel-before-arrival and journals its identified terminal result "
+          "atomically");
+    check(!journal.delivery_start("normal-cancel", 1),
+          "The late cancelled command never crosses the start boundary");
+    check(journal.delivery_receive("normal-cancel", 1, command.size(), command).at("accepted") ==
+              false,
+          "Duplicate late commands return the immutable terminal record");
+    rejects([&] { journal.delivery_receive("normal-cancel", 2, command.size() * 2, command); },
+            "IDEMPOTENCY_CONFLICT");
+    const auto queued = Json{{"action", "prompt"}, {"requestId", "queued"}}.dump();
+    journal.delivery_receive("normal-cancel", 2, command.size() + queued.size(), queued);
+    const auto queued_target = journal.delivery_target("normal-cancel", 2);
+    check(journal.delivery_cancel("session", queued_target)
+                  .at("record")
+                  .at("result")
+                  .at("error")
+                  .at("code") == "CANCELLED_BEFORE_START",
+          "A received command can be durably cancelled before dispatch");
+    const auto started = Json{{"id", 7}, {"method", "turn/start"}}.dump();
+    journal.delivery_receive("normal-cancel", 3, command.size() + queued.size() + started.size(),
+                             started);
+    journal.delivery_start("normal-cancel", 3);
+    const auto started_target = journal.delivery_target("normal-cancel", 3);
+    check(started_target.at("requestId") == "rpc:7" &&
+              journal.delivery_cancel("session", started_target).at("state") == "started",
+          "Cancelling started work requests exact execution-side interruption without declaring it "
+          "stopped");
+    check(journal.delivery_record("normal-cancel", 3).at("phase") == "started",
+          "Cancellation cannot manufacture a started task's terminal result");
+    journal.delivery_finish("normal-cancel", 3, {{"id", 7}, {"result", {{"actual", true}}}});
+    check(journal.delivery_cancel("session", started_target)
+                  .at("record")
+                  .at("result")
+                  .at("result")
+                  .at("actual") == true,
+          "Completed targets retain their actual result");
+    for (int i = 0; i < 4; ++i) {
+      target["requestId"] = "web:unknown-" + std::to_string(i);
+      journal.delivery_cancel("session", target);
+    }
+    target["requestId"] = "web:overflow";
+    rejects([&] { journal.delivery_cancel("session", target); }, "BACKPRESSURE");
+    journal.control_apply("session", 2, "next-claim", "owner");
+    rejects([&] { journal.delivery_cancel("session", target); }, "STREAM_CLOSED");
+    journal.delivery_open("next-normal", "session", 2, max_frame);
+    journal.delivery_bind("next-normal", 2, "next-claim");
+    target["stream"] = "next-normal";
+    target["controlEpoch"] = 2;
+    check(journal.delivery_cancel("session", target).at("state") == "pending-target",
+          "Retired flow markers release capacity only after late writes are fenced");
+  }
+
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.control_apply("session", 1, "claim", "owner");
+    Json last;
+    size_t markers = 0;
+    bool bounded = false;
+    std::string last_session;
+    for (int flow = 0; flow < 40 && !bounded; ++flow) {
+      const auto stream = "cancel-budget-" + std::to_string(flow);
+      const auto session = "marker-session-" + std::to_string(flow);
+      journal.control_apply(session, 1, "claim", "owner");
+      journal.delivery_open(stream, session, 4, max_frame);
+      journal.delivery_bind(stream, 1, "claim");
+      for (int request = 0; request < 4; ++request) {
+        const auto target =
+            Json{{"instance", journal.delivery_instance()},
+                 {"stream", stream},
+                 {"controlEpoch", 1},
+                 {"owner", "owner"},
+                 {"requestId", "web:" + std::string(480, 'x') + std::to_string(request)}};
+        try {
+          journal.delivery_cancel(session, target);
+          ++markers;
+          last = target;
+          last_session = session;
+        } catch (const Error &error) {
+          check(error.code == "BACKPRESSURE", "Only bounded marker exhaustion ends allocation");
+          bounded = true;
+          break;
+        }
+      }
+    }
+    check(bounded && markers > 4 && markers <= 128,
+          "Many flows share a bounded cancellation marker count and byte pool");
+    check(journal.delivery_cancel(last_session, last).at("state") == "pending-target",
+          "Duplicate cancellation remains idempotent at the global budget limit");
+  }
+
+  {
+    Temp dir;
+    const std::string body = "{}";
+    Json ready;
+    {
+      Store journal(dir.path);
+      const auto first = journal.control_apply("controlled", 1, "claim-one", "owner-one");
+      journal.delivery_open("controlled-normal", "controlled", 4, max_frame);
+      journal.delivery_open("controlled-priority", "controlled", 4, max_frame);
+      journal.delivery_bind("controlled-normal", 1, "claim-one");
+      journal.delivery_bind("controlled-priority", 1, "claim-one");
+      journal.delivery_receive("controlled-normal", 1, 2, body);
+      journal.delivery_receive("controlled-normal", 2, 4, body);
+      journal.delivery_receive("controlled-priority", 1, 2, body);
+      check(journal.delivery_start("controlled-normal", 1),
+            "Old command crossed the start boundary");
+      ready = journal.control_apply("controlled", 2, "claim-two", "owner-two");
+      check(ready["instance"] == first["instance"] && ready["controlEpoch"] == 2,
+            "Control readiness is tied to the durable Agent instance");
+      check(journal.delivery_record("controlled-normal", 1)["phase"] == "started",
+            "Takeover does not claim that already started side effects were cancelled");
+      for (const auto &target :
+           {std::make_pair("controlled-normal", 2), std::make_pair("controlled-priority", 1)}) {
+        const auto record = journal.delivery_record(target.first, target.second);
+        check(record["phase"] == "finished" &&
+                  record["result"]["error"]["code"] == "STALE_CONTROLLER" &&
+                  !record["resultSeq"].is_null(),
+              "Both lanes' received commands become durable stale-controller results");
+        check(!journal.delivery_start(target.first, target.second),
+              "Fenced received work cannot start later");
+      }
+      rejects([&] { journal.delivery_receive("controlled-normal", 3, 6, body); },
+              "STALE_CONTROLLER");
+      rejects([&] { journal.delivery_bind("controlled-normal", 2, "claim-two"); }, "STREAM_CLOSED");
+      rejects([&] { journal.control_apply("controlled", 1, "claim-one", "owner-one"); },
+              "STALE_CONTROLLER");
+      rejects([&] { journal.control_apply("controlled", 2, "another-claim", "owner-two"); },
+              "IDEMPOTENCY_CONFLICT");
+      rejects([&] { journal.control_apply("controlled", 2, "claim-two", "other-owner"); },
+              "IDEMPOTENCY_CONFLICT");
+      check(journal.control_apply("controlled", 2, "claim-two", "owner-two") == ready,
+            "Lost CONTROL_READY can be retried without allocating or fencing again");
+      journal.delivery_finish("controlled-normal", 1, {{"ok", true}});
+      check(journal.delivery_record("controlled-normal", 1)["result"]["ok"] == true,
+            "Started old work can still commit its actual result after takeover");
+    }
+    {
+      Store journal(dir.path);
+      check(journal.control_state("controlled") == ready, "Control epoch survives Agent restart");
+      rejects([&] { journal.control_apply("controlled", 1, "claim-one", "owner-one"); },
+              "STALE_CONTROLLER");
+      check(!journal.delivery_start("controlled-normal", 2),
+            "Restart cannot reopen a fenced start boundary");
+    }
+  }
+
+  {
+    Temp dir;
+    Json saved_budget;
+    std::vector<std::string> streams;
+    {
+      Store journal(dir.path);
+      bool bounded = false;
+      for (int i = 0; i < 100; ++i) {
+        const auto stream = "global-credit-" + std::to_string(i);
+        try {
+          journal.delivery_open(stream, "scope-" + std::to_string(i), 16, 2 * 1024 * 1024);
+          streams.push_back(stream);
+        } catch (const Error &error) {
+          check(error.code == "BACKPRESSURE", "Global allocation stops with explicit backpressure");
+          bounded = true;
+          break;
+        }
+      }
+      check(bounded && streams.size() > 1, "Many scopes share one reserved normal budget");
+      saved_budget = journal.delivery_budget();
+      check(saved_budget.at("normal").at("reserved") <= saved_budget.at("normalLimit") &&
+                saved_budget.at("normal").at("occupied") <=
+                    saved_budget.at("normal").at("reserved"),
+            "Empty issued windows consume real global reservations");
+      auto first = journal.delivery_open(streams.front(), "scope-0", 16, 2 * 1024 * 1024);
+      check(journal.delivery_budget() == saved_budget, "Duplicate OPEN never charges twice");
+      const auto priority =
+          journal.delivery_open("emergency", "scope-0", 4, 512 * 1024, "priority");
+      check(priority.at("credit") == 4, "Normal exhaustion cannot borrow priority capacity");
+      journal.delivery_close(streams.front());
+      rejects([&] { journal.delivery_receive(streams.front(), 1, 2, "{}"); }, "STREAM_CLOSED");
+      auto closed = journal.delivery_open(streams.front(), "scope-0", 16, 2 * 1024 * 1024);
+      check(closed.at("closed") == true && closed.at("streamSerial") == first.at("streamSerial") &&
+                closed.at("creditGeneration") == first.at("creditGeneration"),
+            "Closed OPEN keeps its serial and never creates fresh credit");
+      auto next = journal.delivery_open("new-emergency-scope", "scope-0", 16, 2 * 1024 * 1024);
+      check(next.at("streamSerial").get<int64_t>() > first.at("streamSerial").get<int64_t>() &&
+                next.at("creditGeneration") != first.at("creditGeneration"),
+            "The receiver allocates a monotonic scoped serial and fresh credit identity");
+      saved_budget = journal.delivery_budget();
+    }
+    Store restored(dir.path, false);
+    check(restored.delivery_budget() == saved_budget,
+          "Restart preserves issued promises and closure boundaries");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    int count = 0;
+    for (; count < 10; ++count) {
+      try {
+        journal.delivery_open("session-credit-" + std::to_string(count), "one-session", 16,
+                              2 * 1024 * 1024);
+      } catch (const Error &error) {
+        check(error.code == "BACKPRESSURE", "Session budget is bounded");
+        break;
+      }
+    }
+    check(count > 0 && count < 10 &&
+              journal.delivery_budget().at("normal").at("reserved") < credit::normal_budget,
+          "A single session cannot monopolize the global reservation");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.control_apply("results-capacity", 1, "claim", "owner");
+    const auto initial = journal.delivery_open("bounded-results", "results-capacity", 2, max_frame);
+    journal.delivery_bind("bounded-results", 1, "claim");
+    int64_t end = 0;
+    for (int i = 1; i <= 2; ++i) {
+      const auto body = Json{{"id", i}, {"method", "turn/start"}}.dump();
+      end += body.size();
+      journal.delivery_receive("bounded-results", i, end, body);
+      journal.delivery_start("bounded-results", i);
+      journal.delivery_finish("bounded-results", i,
+                              {{"id", i}, {"result", std::string(2 * 1024 * 1024 - 1024, 'x')}});
+    }
+    const auto full = journal.delivery_budget();
+    check(journal.delivery_window("bounded-results").at("credit") == 2 &&
+              full.at("normal").at("reserved") >= full.at("normal").at("occupied"),
+          "Every unacknowledged maximum result still fits its previously committed reservation");
+    const auto first = journal.delivery_record("bounded-results", 1);
+    journal.delivery_result_ack("bounded-results", 1, first.at("resultEnd"));
+    check(journal.delivery_window("bounded-results").at("credit") == 3 &&
+              journal.delivery_record("bounded-results", 1).at("body") == "",
+          "Only a durable result receipt releases its slot and original payload");
+    const auto body = Json{{"id", 1}, {"method", "turn/start"}}.dump();
+    check(journal.delivery_receive("bounded-results", 1, body.size(), body).at("accepted") == false,
+          "Compacted command digests still reject duplicate execution");
+    rejects([&] { journal.delivery_receive("bounded-results", 1, body.size(), body + " "); },
+            "IDEMPOTENCY_CONFLICT");
+    check(journal.delivery_target("bounded-results", 1).at("requestId") == "rpc:1",
+          "Task identities survive payload compaction");
+    const auto reserved = journal.delivery_budget().at("normal").at("reserved");
+    journal.delivery_close("bounded-results");
+    journal.delivery_bind("bounded-results", 1, "claim");
+    check(journal.delivery_open("bounded-results", "results-capacity", 2, max_frame).at("closed") ==
+                  true &&
+              journal.delivery_results("bounded-results", 1).size() == 1,
+          "A same-identity OPEN of a closed flow retains read access to the last result");
+    check(journal.delivery_budget().at("normal").at("reserved") == reserved,
+          "Closing cannot discard a result that the receiver has not acknowledged");
+    auto last = journal.delivery_result_state("bounded-results");
+    journal.delivery_result_ack("bounded-results", last.at("sent"), last.at("sent_bytes"));
+    check(journal.delivery_budget().at("normal").at("reserved") == 0 &&
+              journal.delivery_record("bounded-results", 1).is_null(),
+          "Closed acknowledged payloads release their reservation while the tombstone remains");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.delivery_open("running-anchor", "anchored", 1, max_frame);
+    journal.delivery_receive("running-anchor", 1, 2, "{}");
+    journal.delivery_start("running-anchor", 1);
+    journal.delivery_finish("running-anchor", 1, {{"ok", true}});
+    auto head = journal.delivery_result_state("running-anchor");
+    journal.delivery_result_ack("running-anchor", head.at("sent"), head.at("sent_bytes"));
+    journal.save(
+        {{"id", "anchored"}, {"running", true}, {"activeTask", {{"stream", "running-anchor"}}}});
+    journal.delivery_close("running-anchor");
+    check(journal.delivery_budget().at("normal").at("reserved") > 0 &&
+              !journal.delivery_record("running-anchor", 1).is_null(),
+          "An acknowledged start result does not erase a still-running task's target anchor");
+    journal.save(
+        {{"id", "anchored"}, {"running", false}, {"activeTask", {{"stream", "running-anchor"}}}});
+    check(journal.delivery_budget().at("normal").at("reserved") == 0,
+          "The real task termination releases its retired anchor and budget");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.delivery_open("finite-records", "finite", 1, max_frame);
+    int64_t end = 0;
+    for (int64_t i = 1; i <= credit::record_limit; ++i) {
+      const auto body = Json{{"id", i}, {"method", "noop"}}.dump();
+      end += body.size();
+      journal.delivery_receive("finite-records", i, end, body);
+      journal.delivery_finish("finite-records", i, {{"id", i}, {"result", true}});
+      auto head = journal.delivery_result_state("finite-records");
+      journal.delivery_result_ack("finite-records", head.at("sent"), head.at("sent_bytes"));
+    }
+    const auto closed = journal.delivery_window("finite-records");
+    check(closed.at("closed") == true && closed.at("exhausted") == true &&
+              journal.delivery_budget().at("normal").at("reserved") == 0,
+          "Bounded identity history retires its generation after the last result receipt");
+    rejects([&] { journal.delivery_receive("finite-records", 1, 2, "{}"); }, "STREAM_CLOSED");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    for (int64_t i = 0; i < credit::flow_limit; ++i) {
+      const auto stream = "retired-" + std::to_string(i);
+      journal.delivery_open(stream, "finite-names", 1, max_frame);
+      journal.delivery_close(stream);
+    }
+    const auto before = journal.delivery_budget();
+    rejects([&] { journal.delivery_open("one-too-many", "finite-names", 1, max_frame); },
+            "BACKPRESSURE");
+    check(journal.delivery_budget() == before &&
+              before.at("namespaces").at(0).at("closedThrough") == credit::flow_limit,
+          "Uncompressible tombstones stop allocation without growing or losing the final refusal "
+          "boundary");
   }
 
   {
@@ -323,10 +1267,15 @@ void core() {
                  {{"api_key", "secret"}, {"env", {{"TOKEN", "secret"}}}, {"model", "x"}}}}) ==
             Json{{"nested", {{"api_key", "[redacted]"}, {"env", Json::object()}, {"model", "x"}}}},
         "Nested credential redaction");
-  check(web_fingerprint(
-            {{"action", "approval"}, {"requestId", "r"}, {"approvalId", "1"}, {"allow", false}}) ==
-            "{\"action\":\"approval\",\"requestId\":\"r\",\"approvalId\":\"1\",\"allow\":false}",
-        "Legacy request fingerprint compatibility");
+  check(web_fingerprint({{"action", "approval"},
+                         {"requestId", "r"},
+                         {"approvalId", "1"},
+                         {"runtimeId", "rt"},
+                         {"approvalVersion", "v"},
+                         {"allow", false}}) ==
+            "{\"action\":\"approval\",\"requestId\":\"r\",\"approvalId\":\"1\",\"runtimeId\":"
+            "\"rt\",\"approvalVersion\":\"v\",\"allow\":false}",
+        "Approval fingerprint binds runtime and version");
   check(
       web_fingerprint(
           {{"action", "prompt"}, {"requestId", "r"}, {"text", "hello"}, {"model", "model-a"}}) !=
@@ -577,6 +1526,173 @@ void external_refresh_test() {
   io.run();
   check(success, failure.c_str());
   std::cout << "PASS: external output finalization survives more than 16 newer items\n";
+}
+void history_subscriber_test() {
+  Temp temp;
+  Store cache(temp.path, false);
+  asio::io_context io;
+  int64_t durable = 0;
+  int ready = 0, dirty = 0;
+  Json sent = Json::array();
+  auto send = [&](Json frame) { sent.push_back(frame); };
+  const auto window = [&](const Json &request, int64_t received, int64_t maximum = 10) {
+    auto result = request;
+    result["type"] = "history-window";
+    result["agentInstance"] = "agent-storage";
+    result["streamSerial"] = 1;
+    result["creditGeneration"] = "history-credit";
+    result["receivedRevision"] = received;
+    result["maxRevision"] = maximum;
+    return result;
+  };
+  const auto failed = [&](const Json &) { throw std::runtime_error("Unexpected history failure"); };
+  {
+    HistorySubscription subscriber(
+        io, cache, "reader", [&] { return durable; }, [&](int64_t) { ++dirty; }, [&] { ++ready; },
+        failed);
+    subscriber.connect(send);
+    const auto retired = sent.back();
+    subscriber.disconnect();
+    subscriber.connect(send);
+    subscriber.receive(window(retired, 0));
+    check(ready == 0, "Native history ignores a retired recovery exchange");
+    subscriber.receive(window(sent.back(), 0));
+    check(ready == 1 && dirty == 1 && sent.size() == 2,
+          "A history head is not a durable client acknowledgement");
+    durable = 10;
+    subscriber.commit();
+    const auto ack = sent.back();
+    check(ack.at("operation") == "ack" && ack.at("receivedRevision") == durable,
+          "Native history confirms only the committed cache checkpoint");
+    io.run_for(std::chrono::milliseconds(1100));
+    check(sent.back() == ack && sent.size() == 4,
+          "Native history retries a lost ACK without changing identity");
+    subscriber.receive(window(ack, 10));
+    subscriber.receive(window(ack, 5));
+    check(cache.cache_get("reader").at("acknowledgedRevision") == 10,
+          "Native history ignores an online old ACK without rewinding its floor");
+    const auto count = sent.size();
+    io.restart();
+    io.run_for(std::chrono::milliseconds(20));
+    check(sent.size() == count, "A fully confirmed native history subscriber is idle");
+    subscriber.disconnect();
+    subscriber.connect(send);
+    rejects([&] { subscriber.receive(window(sent.back(), 9)); }, "DELIVERY_STATE_MISMATCH");
+  }
+  {
+    HistorySubscription restored(
+        io, cache, "reader", [&] { return durable; }, [&](int64_t) {}, [&] {}, failed);
+    restored.connect(send);
+    check(sent.back().at("acknowledgedRevision") == 10 &&
+              sent.back().at("agentInstance") == "agent-storage",
+          "Native history restores its persistent confirmation and Agent identity");
+    auto changed = window(sent.back(), 10);
+    changed["creditGeneration"] = "replaced";
+    rejects([&] { restored.receive(changed); }, "DELIVERY_STATE_MISMATCH");
+  }
+  {
+    HistorySubscription active(
+        io, cache, "reader", [&] { return durable; }, [&](int64_t) {}, [&] {}, failed);
+    active.connect(send);
+    active.receive(window(sent.back(), 10));
+    const auto original = sent.back();
+    Store other(temp.path, false);
+    other.cache_clear();
+    durable = 11; // Old in-memory cursors cannot acknowledge after another process clears.
+    const auto count = sent.size();
+    rejects([&] { active.commit(); }, "DELIVERY_STATE_MISMATCH");
+    active.receive(window(original, 10));
+    check(sent.size() == count && cache.cache_get("reader").is_null(),
+          "Cross-process cache clear fences active history ACKs without resurrecting metadata");
+    // Restore only to exercise the independent checkpoint rollback check below.
+    cache.cache_put("reader",
+                    {{"stream", "retired"}, {"instance", "client"}, {"acknowledgedRevision", 10}});
+  }
+  durable = 0;
+  rejects(
+      [&] {
+        HistorySubscription lost(
+            io, cache, "reader", [&] { return durable; }, [&](int64_t) {}, [&] {}, failed);
+      },
+      "DELIVERY_STATE_MISMATCH");
+}
+void history_subscription_test() {
+  Temp temp;
+  Json request = {{"sessionId", "history"},   {"owner", "reader"},
+                  {"stream", "subscription"}, {"instance", "client-storage"},
+                  {"exchangeId", "exchange"}, {"operation", "subscribe"},
+                  {"receivedRevision", 0},    {"acknowledgedRevision", 0}};
+  Json identity;
+  int64_t revision = 0;
+  {
+    Store store(temp.path);
+    store.save({{"id", "history"}, {"state", "closed"}, {"createdAt", 1}});
+    revision = store.event("history", "user", {{"text", "tail"}}).at("revision");
+    identity = store.history_subscription(request);
+    check(identity.at("maxRevision") == revision && identity.at("receivedRevision") == 0,
+          "History OPEN announces its own durable head without confirming receipt");
+    check(store.history_subscription(request) == identity,
+          "A lost history OPEN returns the same persistent allocation");
+    for (const auto &field : {"agentInstance", "streamSerial", "creditGeneration"})
+      request[field] = identity.at(field);
+    request["operation"] = "ack";
+    request["receivedRevision"] = revision;
+    check(store.history_subscription(request).at("receivedRevision") == revision,
+          "History confirmation advances only the addressed subscriber");
+    auto stranger = request;
+    stranger["owner"] = "other-reader";
+    rejects([&] { store.history_subscription(stranger); }, "DELIVERY_STATE_MISMATCH");
+    request["receivedRevision"] = 0;
+    check(store.history_subscription(request).at("receivedRevision") == revision,
+          "An online old history ACK cannot rewind receipt");
+    auto next = store.event("history", "user", {{"text", "later"}}).at("revision");
+    request["receivedRevision"] = next;
+    rejects([&] { store.history_subscription(request); }, "INVALID_ACK");
+    check(store.history_hint(request).at("maxRevision") == next,
+          "A dirty hint exposes the last tail without another business message");
+    revision = next;
+    check(store.history_subscription(request).at("receivedRevision") == revision,
+          "Announced history boundaries can be acknowledged");
+  }
+  {
+    Store store(temp.path);
+    request["operation"] = "subscribe";
+    request["acknowledgedRevision"] = revision;
+    request["exchangeId"] = "after-restart";
+    auto recovered = store.history_subscription(request);
+    check(recovered.at("receivedRevision") == revision &&
+              recovered.at("streamSerial") == identity.at("streamSerial") &&
+              recovered.at("creditGeneration") == identity.at("creditGeneration"),
+          "History subscription ACK and allocation survive Agent restart");
+    auto rollback = request;
+    rollback["receivedRevision"] = 0;
+    rollback["acknowledgedRevision"] = 0;
+    rejects([&] { store.history_subscription(rollback); }, "DELIVERY_STATE_MISMATCH");
+    rollback = request;
+    rollback["agentInstance"] = "different-database";
+    rejects([&] { store.history_subscription(rollback); }, "DELIVERY_STATE_MISMATCH");
+    rollback = request;
+    rollback["receivedRevision"] = revision + 1;
+    rollback["acknowledgedRevision"] = revision + 1;
+    rejects([&] { store.history_subscription(rollback); }, "DELIVERY_STATE_MISMATCH");
+    request["operation"] = "retire";
+    check(store.history_subscription(request).at("closed") == true,
+          "Retirement fences history allocation before releasing an online route");
+    request["operation"] = "subscribe";
+    rejects([&] { store.history_subscription(request); }, "STREAM_CLOSED");
+    request.erase("streamSerial");
+    request.erase("creditGeneration");
+    request["acknowledgedRevision"] = 0;
+    request["receivedRevision"] = 0;
+    for (int i = 1; i < credit::flow_limit; ++i) {
+      request["stream"] = "reader-" + std::to_string(i);
+      auto allocated = store.history_subscription(request);
+      check(allocated.at("streamSerial") == i + 1,
+            "History subscriber serials never reuse retired allocations");
+    }
+    request["stream"] = "beyond-budget";
+    rejects([&] { store.history_subscription(request); }, "BACKPRESSURE");
+  }
 }
 void history_test() {
   Temp temp;
@@ -1175,6 +2291,8 @@ int main(int argc, char **argv) {
       external_test();
       external_refresh_test();
       std::cout << "RUN: history\n";
+      history_subscriber_test();
+      history_subscription_test();
       history_test();
       std::cout << "RUN: performance invariants\n";
       performance_test();

@@ -19,7 +19,7 @@ const server = createServer((req, res) => {
     if (url.pathname === '/api/v1/hosts')
       value = [{ id: 'host', name: 'Test host', online: true }];
     else if (url.pathname === '/api/v1/client/identity')
-      value = { identity: 'billing-test' };
+      value = { identity: 'c'.repeat(64) };
     else if (url.pathname === '/api/v1/hosts/host/projects')
       value = [{ id: 'project', name: 'test', path: '/workspace' }];
     else if (
@@ -74,6 +74,7 @@ const server = createServer((req, res) => {
     }
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('X-CoC-Demand', '1');
+    res.setHeader('X-CoC-Delivery', '2');
     res.end(JSON.stringify(value));
     return;
   }

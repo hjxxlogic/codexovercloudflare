@@ -71,6 +71,7 @@ async function api(path: string, data?: unknown) {
   const headers = {
     'Content-Type': 'application/json',
     'X-CoC-Async': '1',
+    'X-CoC-Delivery': '2',
     Origin: origin,
     Authorization: 'Bearer ' + owner,
   };

@@ -171,13 +171,13 @@ void ExternalApprovals::receive(Json value) {
     return;
   }
   if (method == "serverRequest/resolved") {
-    const auto key = "external:" + id_key(params.at("requestId"));
+    const auto key = "external:" + params.at("requestId").dump();
     if (approvals_.erase(key)) {
       submitted_.erase(key);
       resolved_({{"approvalId", key}, {"message", "Original server resolved the approval"}});
     }
   } else if (value.contains("id")) {
-    const auto key = "external:" + id_key(value["id"]);
+    const auto key = "external:" + value["id"].dump();
     if (approvals_.count(key))
       return;
     approvals_[key] = value;

@@ -1,5 +1,6 @@
 #include "coc/remote_config.hpp"
 #include "coc/build.hpp"
+#include "coc/credit.hpp"
 #include "coc/proxy.hpp"
 #include "coc/update.hpp"
 #include <cstdlib>
@@ -121,6 +122,9 @@ Json RemoteConfiguration::request(const Json &d, bool busy, bool &restart) {
   const auto fingerprint = hash(d.dump());
   const auto receipt_path = receipts_ / (id + ".json");
   if (std::filesystem::exists(receipt_path)) {
+    if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(receipt_path)) ||
+        std::filesystem::file_size(receipt_path) > credit::management_record_bytes)
+      throw Error("STORAGE_ERROR", "Invalid original configuration receipt");
     const auto receipt = read_json(receipt_path);
     if (receipt.at("fingerprint") != fingerprint)
       throw Error("IDEMPOTENCY_CONFLICT", "Request ID was used for another operation");
@@ -134,6 +138,23 @@ Json RemoteConfiguration::request(const Json &d, bool busy, bool &restart) {
     }
     if (receipt.at("before") != revision)
       throw Error("CONFIG_CONFLICT", "Configuration changed after the interrupted replacement");
+  }
+  // The config lock serializes admission across processes. Refusal identities
+  // have no TTL; a full ledger may recover old requests but cannot admit new ones.
+  if (!std::filesystem::exists(receipt_path) && std::filesystem::exists(receipts_)) {
+    if (!std::filesystem::is_directory(std::filesystem::symlink_status(receipts_)))
+      throw Error("STORAGE_ERROR", "Invalid configuration receipt directory");
+    int64_t records = 0, bytes = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(receipts_)) {
+      if (!std::filesystem::is_regular_file(entry.symlink_status()))
+        throw Error("STORAGE_ERROR", "Invalid configuration receipt entry");
+      ++records;
+      bytes += static_cast<int64_t>(entry.file_size()) + 2048;
+      if (records >= credit::management_records ||
+          bytes + credit::management_record_bytes >
+              credit::management_records * credit::management_record_bytes)
+        throw Error("BACKPRESSURE", "Configuration refusal identity budget exhausted");
+    }
   }
   if (d.value("revision", "") != revision)
     throw Error("CONFIG_CONFLICT", "Configuration changed; read it again before writing");

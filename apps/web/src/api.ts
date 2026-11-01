@@ -1,5 +1,19 @@
 import { observe } from './notifications.ts';
 import { relayPath } from './routes.ts';
+import {
+  idSchema,
+  operationIntentSchema,
+  type OperationIntent,
+} from '../../../packages/protocol/src/index.ts';
+export type OperationExchange = {
+  instance: string;
+  owner: string;
+  ack?: boolean;
+  commit: (
+    envelope: { data?: unknown; error?: unknown },
+    receipt: OperationIntent,
+  ) => Promise<void>;
+};
 let emailAccount = '';
 const restoredHosts = new Map<string, Promise<void>>();
 export function setEmailAccount(accountId: string) {
@@ -47,7 +61,19 @@ export async function api(
   signal?: AbortSignal,
   requestId?: string,
   headers?: Record<string, string>,
+  operation?: OperationExchange,
 ): Promise<any> {
+  const originalId = requestId || crypto.randomUUID();
+  if (operation) {
+    idSchema.parse(originalId);
+    idSchema.parse(operation.instance);
+    if (data === undefined)
+      throw new ApiError(
+        'INVALID_REQUEST',
+        'Original operation requires its fixed body',
+        400,
+      );
+  }
   if (emailAccount && /^\/(hosts\/|sessions|client\/)/.test(path)) {
     const url = new URL(path, location.origin);
     const hostId =
@@ -64,8 +90,16 @@ export async function api(
     headers: {
       'Content-Type': 'application/json',
       'X-CoC-Async': '1',
-      'Idempotency-Key': requestId || crypto.randomUUID(),
+      'X-CoC-Delivery': '2',
+      'Idempotency-Key': originalId,
       ...headers,
+      ...(operation
+        ? {
+            'Idempotency-Key': originalId,
+            'X-CoC-Operation-Instance': operation.instance,
+            ...(operation.ack ? { 'X-CoC-Operation-Ack': '1' } : {}),
+          }
+        : {}),
     },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
@@ -102,11 +136,12 @@ export async function api(
     );
   if (
     /^\/(hosts|sessions)(?:[/?]|$)/.test(path) &&
-    response.headers.get('X-CoC-Demand') !== '1'
+    (response.headers.get('X-CoC-Demand') !== '1' ||
+      response.headers.get('X-CoC-Delivery') !== '2')
   )
     throw new ApiError(
       'UPGRADE_REQUIRED',
-      'Upgrade Relay for demand-v1 asynchronous requests',
+      'Upgrade Relay for delivery:2 asynchronous requests',
       409,
     );
   if (response.status === 202 && result.accepted === true) {
@@ -115,20 +150,35 @@ export async function api(
       result.operationId,
       signal,
       path.startsWith('/admin/'),
+      operation ? { ...operation, requestId: originalId } : undefined,
     );
   }
+  if (operation)
+    throw new ApiError(
+      'UPGRADE_REQUIRED',
+      'Original operation requires endpoint receipt forwarding',
+      409,
+    );
   return result;
 }
-// Read retries never resend a mutation. Unknown receipt results are safe to
-// query again only because callers of this helper issue GET operations.
+// GET reads and explicitly read-only POST queries may be repeated after the
+// relay loses a forwarding correlation. Mutations continue to use api().
 export async function readApi(
   path: string,
   signal?: AbortSignal,
   headers?: Record<string, string>,
 ) {
+  return queryApi(path, undefined, signal, headers);
+}
+export async function queryApi(
+  path: string,
+  data?: unknown,
+  signal?: AbortSignal,
+  headers?: Record<string, string>,
+) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await api(path, undefined, signal, undefined, headers);
+      return await api(path, data, signal, undefined, headers);
     } catch (error) {
       if (
         signal?.aborted ||
@@ -159,6 +209,7 @@ function waitOperation(
   operationId: string,
   signal?: AbortSignal,
   admin = false,
+  operation?: OperationExchange & { requestId: string },
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     let ended = false,
@@ -209,6 +260,41 @@ function waitOperation(
         );
         if (ended) return;
         if (receipt.state === 'completed') {
+          if (operation) {
+            if (receipt.intent !== undefined) {
+              const proof = operationIntentSchema.safeParse(receipt.intent);
+              if (
+                !proof.success ||
+                proof.data.instance !== operation.instance ||
+                proof.data.requestId !== operation.requestId ||
+                proof.data.owner !== operation.owner ||
+                (proof.data.ack ?? false) !== (operation.ack ?? false)
+              )
+                throw new ApiError(
+                  'DELIVERY_STATE_MISMATCH',
+                  'Endpoint receipt belongs to another original operation',
+                  409,
+                );
+              if (receipt.error === undefined && receipt.result === undefined)
+                throw new ApiError(
+                  'INVALID_RESPONSE',
+                  'Missing original operation result',
+                  502,
+                );
+              await operation.commit(
+                receipt.error === undefined
+                  ? { data: receipt.result }
+                  : { error: receipt.error },
+                proof.data,
+              );
+              if (ended) return;
+            } else if (receipt.error === undefined)
+              throw new ApiError(
+                'RESULT_UNKNOWN',
+                'Endpoint did not confirm a durable original result',
+                409,
+              );
+          }
           void api(
             `${admin ? '/admin' : ''}/hosts/${hostId}/operations/${operationId}`,
             {},

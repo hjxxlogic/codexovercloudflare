@@ -1,4 +1,4 @@
-import { api } from './api.ts';
+import { queryApi } from './api.ts';
 
 const chunkSize = 64 * 1024;
 export async function readFile(
@@ -9,7 +9,7 @@ export async function readFile(
   onProgress?: (offset: number, size: number) => void,
 ) {
   const call = (data: object, signal: AbortSignal) =>
-    api(`/hosts/${host}/files`, { ...data, projectId: project }, signal);
+    queryApi(`/hosts/${host}/files`, { ...data, projectId: project }, signal);
   const parts: BlobPart[] = [];
   const first = await call(
     { operation: 'read', path: remotePath, offset: 0 },

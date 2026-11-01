@@ -3,6 +3,7 @@
 #include <boost/asio/thread_pool.hpp>
 #include <boost/beast.hpp>
 #include <iostream>
+#include <random>
 namespace coc {
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -22,7 +23,8 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
   std::unique_ptr<CommandDelivery> delivery_;
   std::function<Json(Json)> resume_;
   std::string controller_;
-  unsigned generation_ = 0, attempts_ = 0;
+  Json control_;
+  unsigned generation_ = 0, attempts_ = 0, credit_attempts_ = 0;
   bool credit_pending_ = false, delivery_connected_ = false, connection_confirmed_ = false;
   std::map<std::string, Json> reads_;
   std::set<std::string> completed_reads_;
@@ -99,6 +101,8 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
                 const auto end = message.at("end").get<int64_t>();
                 const auto body = message.at("body").get<std::string>();
                 if (seq <= self->queued_output_) {
+                  self->delivery_store_->output_receive(self->path_ + ":output:v2", seq, end, body,
+                                                        self->output_progress_.at("instance"));
                   self->request_output(false);
                   return;
                 }
@@ -106,11 +110,17 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
                   self->request_output(true);
                   return;
                 }
+                auto payload = Json::parse(body);
+                self->delivery_->observe(payload);
+                payload.erase("coc");
+                auto accepted = self->delivery_store_->output_receive(
+                    self->path_ + ":output:v2", seq, end, body,
+                    self->output_progress_.at("instance"));
+                self->output_progress_ = accepted.at("state");
                 self->queued_output_ = seq;
-                const auto payload = Json::parse(body);
                 bool deliver = true;
                 if (payload.contains("id") && !payload.contains("method")) {
-                  const auto id = id_key(payload["id"]);
+                  const auto id = payload["id"].dump();
                   deliver = !self->completed_reads_.count(id) || self->reads_.count(id);
                   if (self->reads_.erase(id)) {
                     self->completed_reads_.insert(id);
@@ -118,22 +128,30 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
                       self->completed_reads_.erase(self->completed_reads_.begin());
                   }
                 }
-                self->send(body, seq, end, deliver);
+                self->send(payload.dump(), seq, end, deliver);
+                self->request_output(false);
                 return;
               }
               if (message.value("type", "") == "delivery-ready") {
+                if (message.value("delivery", 0) != 2)
+                  throw Error("UPGRADE_REQUIRED", "Business transport delivery:2 required");
                 const auto instance = message.at("instance").get<std::string>();
                 if (!valid_id(instance) || (self->output_progress_.contains("instance") &&
                                             self->output_progress_["instance"] != instance))
                   throw Error("DELIVERY_STATE_MISMATCH", "Agent journal identity changed");
                 self->output_progress_["instance"] = instance;
-                self->delivery_store_->cache_put(self->path_ + ":output", self->output_progress_);
+                self->delivery_store_->cache_put(self->path_ + ":output:v2",
+                                                 self->output_progress_);
                 self->controller_ = message.at("controller");
+                self->control_ = message.at("control");
                 self->connection_confirmed_ = true;
                 self->attempts_ = 0;
                 return;
               }
+              const auto progress = self->delivery_->progress();
               if (self->delivery_->receive(message)) {
+                if (progress != self->delivery_->progress())
+                  self->credit_attempts_ = 0;
                 self->schedule_credit();
                 return;
               }
@@ -141,7 +159,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
                 throw Error("DELIVERY_REJECTED", "Reliable command identity rejected");
             }
             if (message.contains("id") && !message.contains("method")) {
-              const auto id = id_key(message["id"]);
+              const auto id = message["id"].dump();
               if (self->completed_reads_.count(id) && !self->reads_.count(id))
                 return;
               if (self->reads_.erase(id)) {
@@ -207,13 +225,16 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
     });
   }
   void request_output(bool replay) {
+    if (delivery_ && !delivery_->ready())
+      return;
     if (!delivery_ || !delivery_connected_ || ended_ || !remote_->ready())
       return;
     const auto received = output_progress_.at("received").get<int64_t>();
-    const auto bytes = output_progress_.at("bytes").get<int64_t>();
+    const auto consumed = output_progress_.value("consumed", int64_t(0));
+    const auto bytes = output_progress_.value("consumedBytes", int64_t(0));
     remote_->send({{"type", "delivery-output"},
                    {"received", received},
-                   {"credit", received + 32},
+                   {"credit", consumed + 32},
                    {"byteCredit", bytes + 2 * 1024 * 1024},
                    {"replay", replay}});
   }
@@ -222,12 +243,17 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
         (!delivery_->pending() && delivery_->ready()))
       return;
     credit_pending_ = true;
-    credit_timer_.expires_after(std::chrono::seconds(2));
+    static thread_local std::mt19937 jitter(std::random_device{}());
+    const auto delay = credit_attempts_ < 5
+                           ? std::min(10000U, 1000U << credit_attempts_)
+                           : 30000U + std::uniform_int_distribution<unsigned>(0, 30000)(jitter);
+    credit_timer_.expires_after(std::chrono::milliseconds(delay));
     auto self = shared_from_this();
     credit_timer_.async_wait([self](auto ec) {
       self->credit_pending_ = false;
       if (ec || self->ended_ || !self->delivery_connected_)
         return;
+      self->credit_attempts_ = std::min(5U, self->credit_attempts_ + 1);
       self->delivery_->retry();
       self->schedule_credit();
     });
@@ -255,15 +281,27 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
     }
     if (delivery_ && !delivery_connected_) {
       delivery_connected_ = true;
+      credit_attempts_ = 0;
       std::weak_ptr<Impl> weak = shared_from_this();
-      delivery_->connect([weak](Json frame) {
-        if (auto self = weak.lock())
-          if (!self->ended_ && self->remote_->ready())
-            self->remote_->send(frame);
-      });
-      request_output(true);
+      delivery_->connect(
+          [weak](Json frame) {
+            if (auto self = weak.lock())
+              if (!self->ended_ && self->remote_->ready())
+                self->remote_->send(frame);
+          },
+          control_);
       schedule_credit();
     }
+    if (delivery_ && !delivery_->ready()) {
+      poll_.expires_after(std::chrono::milliseconds(10));
+      auto self = shared_from_this();
+      poll_.async_wait([self, deadline](auto ec) {
+        if (!ec)
+          self->wait_remote(deadline);
+      });
+      return;
+    }
+    request_output(true);
     if (open_) {
       for (const auto &[id, request] : reads_) {
         (void)id;
@@ -312,10 +350,25 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
           if (rpc_delivery_lane(message).empty() && message.contains("id")) {
             if (self->reads_.size() >= 100)
               throw Error("BACKPRESSURE", "Too many outstanding reads");
-            self->completed_reads_.erase(id_key(message["id"]));
-            self->reads_[id_key(message["id"])] = message;
+            self->completed_reads_.erase(message["id"].dump());
+            self->reads_[message["id"].dump()] = message;
           }
-          self->delivery_->submit(message);
+          try {
+            self->delivery_->submit(message);
+          } catch (const Error &error) {
+            if (message.value("method", "") == "$/cancelRequest") {
+              std::cerr << "CLI cancellation: " << error.code << "\n";
+            } else {
+              if (!message.contains("id") ||
+                  (error.code != "TARGET_NOT_FOUND" && error.code != "CANCELLED_BEFORE_START"))
+                throw;
+              self->send(Json{
+                  {"id", message.at("id")},
+                  {"error",
+                   {{"code", -32001}, {"message", error.what()}, {"data", {{"code", error.code}}}}}}
+                             .dump());
+            }
+          }
           self->schedule_credit();
         } else
           self->remote_->send_text(text);
@@ -332,7 +385,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
   void send(std::string message, int64_t seq = 0, int64_t end = 0, bool deliver = true) {
     if (ended_)
       return;
-    if (message.size() > max_frame || queued_ + message.size() > max_queue) {
+    if (message.size() > max_queue - 4096 || queued_ + message.size() > max_queue) {
       close();
       return;
     }
@@ -350,13 +403,8 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
     const auto &sent = writes_.front();
     if (sent.seq) {
       try {
-        if (sent.seq != output_progress_.at("received").get<int64_t>() + 1)
-          throw Error("DELIVERY_GAP", "Local TUI output lost ordering");
-        Json progress = {{"received", sent.seq},
-                         {"bytes", sent.end},
-                         {"instance", output_progress_.at("instance")}};
-        delivery_store_->cache_put(path_ + ":output", progress);
-        output_progress_ = progress;
+        delivery_store_->output_consumed(path_ + ":output:v2", sent.seq);
+        output_progress_ = delivery_store_->cache_get(path_ + ":output:v2");
         request_output(false);
       } catch (const std::exception &error) {
         std::cerr << "CLI output receipt: " << error_data(error).dump() << '\n';
@@ -388,11 +436,12 @@ public:
         path_(std::move(path)) {
     delivery_store_ = store;
     if (store) {
-      const auto saved = store->cache_get(path_ + ":output");
+      store->local_reserve(path_ + ":output:v2", "output");
+      const auto saved = store->cache_get(path_ + ":output:v2");
       if (!saved.is_null())
         output_progress_ = saved;
       queued_output_ = output_progress_.at("received");
-      store->cache_put(path_ + ":output", output_progress_);
+      store->cache_put(path_ + ":output:v2", output_progress_);
     }
     if (store)
       delivery_ = std::make_unique<CommandDelivery>(*store, path_ + ":delivery",

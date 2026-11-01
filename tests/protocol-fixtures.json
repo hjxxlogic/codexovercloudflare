@@ -63,13 +63,17 @@
       "action": "approval",
       "requestId": "r3",
       "approvalId": "a1",
-      "allow": false
+      "allow": false,
+      "runtimeId": "runtime1",
+      "approvalVersion": "version1"
     },
     "output": {
       "action": "approval",
       "requestId": "r3",
       "approvalId": "a1",
-      "allow": false
+      "allow": false,
+      "runtimeId": "runtime1",
+      "approvalVersion": "version1"
     }
   },
   {

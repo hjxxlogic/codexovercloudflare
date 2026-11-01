@@ -56,6 +56,7 @@ async function call(path: string, data?: unknown, cookie = '', admin = false) {
   return fetch(origin + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers: {
+      'X-CoC-Delivery': '2',
       Origin: origin,
       'Content-Type': 'application/json',
       Cookie: cookie,

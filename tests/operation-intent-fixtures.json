@@ -1,0 +1,105 @@
+[
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "output": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ack": true,
+      "extra": "ignored"
+    },
+    "output": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ack": true
+    }
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "forged"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "bad/instance",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ack": "true"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "original-1",
+      "instance": "agent-store-1",
+      "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ack": null
+    },
+    "error": true
+  },
+  {
+    "input": null,
+    "error": true
+  },
+  {
+    "input": {
+      "requestId": "missing"
+    },
+    "error": true
+  }
+]

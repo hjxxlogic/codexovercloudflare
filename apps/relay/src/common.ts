@@ -50,7 +50,12 @@ export const json = (
 ) =>
   Response.json(data, {
     status,
-    headers: { 'Cache-Control': 'no-store', 'X-CoC-Demand': '1', ...headers },
+    headers: {
+      'Cache-Control': 'no-store',
+      'X-CoC-Demand': '1',
+      'X-CoC-Delivery': '2',
+      ...headers,
+    },
   });
 export async function body(req: Request): Promise<any> {
   if (Number(req.headers.get('content-length') || 0) > MAX_FRAME)

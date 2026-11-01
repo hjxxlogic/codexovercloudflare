@@ -43,7 +43,10 @@
     "test:projects": "tsx tests/native-projects.ts",
     "test:projects:e2e": "tsx tests/projects-e2e.ts",
     "test:delivery": "tsx tests/native-delivery.ts",
-    "test:configuration": "tsx tests/native-configuration.ts"
+    "test:operations": "tsx tests/native-operations.ts && tsx tests/native-cli-operations.ts",
+    "test:configuration": "tsx tests/native-configuration.ts",
+    "test:operations:web": "vitest run tests/web-operations.test.ts tests/web-api.test.ts && tsx tests/browser-operations.ts",
+    "test:uploads:web": "vitest run tests/web-uploads.test.ts && tsx tests/browser-uploads.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

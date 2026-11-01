@@ -6,7 +6,10 @@ import { api } from '../apps/web/src/api.ts';
 const stop = vi.fn();
 const fetcher = vi.fn<typeof fetch>();
 function response(data: unknown, status = 200) {
-  return Response.json(data, { status, headers: { 'X-CoC-Demand': '1' } });
+  return Response.json(data, {
+    status,
+    headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+  });
 }
 beforeEach(() => {
   vi.useFakeTimers();

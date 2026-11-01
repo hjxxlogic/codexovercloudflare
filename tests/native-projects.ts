@@ -18,9 +18,15 @@ const agentBinary = resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent');
 const clientBinary = resolve(process.env.COC_CLI_BINARY || 'build/coc-client');
 const peers = new Map<string, WebSocket>();
 const pending = new Map<string, (message: any) => void>();
+const receipts = new Map<string, any>();
 const children: ChildProcess[] = [];
 let changes = 0;
-async function control(host: string, action: string, data: unknown) {
+async function control(
+  host: string,
+  action: string,
+  data: unknown,
+  intent?: unknown,
+) {
   const requestId = randomUUID();
   return new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -29,6 +35,16 @@ async function control(host: string, action: string, data: unknown) {
     }, 10000);
     pending.set(requestId, (message) => {
       clearTimeout(timer);
+      if (intent) {
+        resolve({
+          state: 'completed',
+          ...(message.error
+            ? { error: message.error }
+            : { result: message.data }),
+          ...(message.intent ? { intent: message.intent } : {}),
+        });
+        return;
+      }
       if (message.error)
         reject(
           Object.assign(new Error(message.error.message), {
@@ -37,26 +53,57 @@ async function control(host: string, action: string, data: unknown) {
         );
       else resolve(message.data);
     });
-    peers
-      .get(host)!
-      .send(JSON.stringify({ type: 'control', action, data, requestId }));
+    peers.get(host)!.send(
+      JSON.stringify({
+        type: 'control',
+        action,
+        data,
+        requestId,
+        ...(intent ? { intent } : {}),
+      }),
+    );
   });
 }
 const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('X-CoC-Demand', '1');
+  res.setHeader('X-CoC-Delivery', '2');
   const host = req.headers.authorization?.includes('bob') ? 'bob' : 'alice';
   try {
     if (req.url === '/api/v1/agent/requests')
       res.end(JSON.stringify({ hostId: host, pending: [] }));
     else if (req.url === '/api/v1/hosts')
       res.end(JSON.stringify([{ id: host, name: host, online: true }]));
-    else if (req.url === `/api/v1/hosts/${host}/project-management`) {
+    else if (req.url === `/api/v1/hosts/${host}/probe`)
+      res.end(JSON.stringify(await control(host, 'probe', {})));
+    else if (req.url?.startsWith(`/api/v1/hosts/${host}/operations/`)) {
+      const id = req.url.split('/').at(-1)!;
+      if (req.method === 'POST') {
+        receipts.delete(id);
+        res.end('{}');
+      } else res.end(JSON.stringify(receipts.get(id) || { state: 'pending' }));
+    } else if (req.url === `/api/v1/hosts/${host}/project-management`) {
       let body = '';
       for await (const chunk of req) body += chunk;
       const data =
         req.method === 'GET' ? { operation: 'list' } : JSON.parse(body);
-      res.end(JSON.stringify(await control(host, 'projectManage', data)));
+      const instance = req.headers['x-coc-operation-instance'];
+      if (instance) {
+        const id = 'delivery_' + randomUUID();
+        const intent = {
+          instance,
+          requestId: req.headers['idempotency-key'],
+          owner: 'a'.repeat(64),
+          ...(req.headers['x-coc-operation-ack'] === '1' ? { ack: true } : {}),
+        };
+        receipts.set(id, await control(host, 'projectManage', data, intent));
+        res
+          .writeHead(202)
+          .end(
+            JSON.stringify({ accepted: true, operationId: id, hostId: host }),
+          );
+      } else
+        res.end(JSON.stringify(await control(host, 'projectManage', data)));
     } else res.writeHead(404).end('{}');
   } catch (e: any) {
     res
@@ -67,7 +114,9 @@ const server = createServer(async (req, res) => {
 const sockets = new WebSocketServer({ server });
 sockets.on('connection', (ws, req) => {
   const host = req.headers.authorization?.includes('bob') ? 'bob' : 'alice';
-  ws.send(JSON.stringify({ type: 'hello', minProtocol: 1, demand: 1 }));
+  ws.send(
+    JSON.stringify({ type: 'hello', delivery: 2, minProtocol: 1, demand: 1 }),
+  );
   ws.on('message', (raw) => {
     const d = JSON.parse(String(raw));
     if (d.type === 'capabilities') peers.set(host, ws);
@@ -95,7 +144,10 @@ async function waitFor(predicate: () => boolean, message: string) {
   }
 }
 async function command(binary: string, args: string[], expected = 0) {
-  const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(binary, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, COC_HISTORY_DIR: join(root, 'history') },
+  });
   let output = '',
     error = '';
   child.stdout.on('data', (d) => (output += d));

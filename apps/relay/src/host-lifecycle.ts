@@ -4,6 +4,12 @@ import { D1State, type StateStorage } from './state.ts';
 export const HOST_STATE_KEY = '@hostState';
 export const HOST_IDLE_MS = 60_000;
 const PAGE_SIZE = 64;
+// Old transport progress cannot be restored or copied into a new archive.
+// Permission epochs, leases, revocations and routing metadata remain intact.
+const copyable = (key: string) =>
+  !key.startsWith('@') &&
+  key !== 'agentInstance' &&
+  !/^(send-head|receive-head|head-instance):/.test(key);
 
 export type HostLocation = {
   version: 1;
@@ -132,7 +138,7 @@ export class HostLifecycle {
         limit: PAGE_SIZE,
       });
       const records = Object.fromEntries(
-        [...page].filter(([key]) => !key.startsWith('@')),
+        [...page].filter(([key]) => copyable(key)),
       );
       state = {
         ...state,
@@ -206,7 +212,7 @@ export class HostLifecycle {
         limit: PAGE_SIZE,
       });
       const records = Object.fromEntries(
-        [...page].filter(([key]) => !key.startsWith('@')),
+        [...page].filter(([key]) => copyable(key)),
       );
       if (Object.keys(records).length) await this.archive.put(records);
       state = {

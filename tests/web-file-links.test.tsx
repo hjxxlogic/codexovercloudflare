@@ -11,7 +11,9 @@ import { fileType, filePreviewUrl } from '../apps/web/src/file-types.ts';
 
 const root = '/workspace/example';
 function demandResponse(body: string) {
-  return new Response(body, { headers: { 'X-CoC-Demand': '1' } });
+  return new Response(body, {
+    headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+  });
 }
 describe('chat file paths', () => {
   it('resolves absolute, relative, encoded and editor paths within the project', () => {

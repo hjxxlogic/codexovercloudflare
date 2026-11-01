@@ -479,6 +479,32 @@ Json redact(Json v) {
     }
   return v;
 }
+Json command_target(const Json &value) {
+  if (!value.is_object())
+    throw Error("INVALID_REQUEST", "Invalid command target");
+  Json result;
+  for (const auto &key : {"instance", "owner", "stream"}) {
+    if (!value.contains(key) || !value.at(key).is_string() || !valid_id(value.at(key)))
+      throw Error("INVALID_REQUEST", "Invalid command target identity");
+    result[key] = value.at(key);
+  }
+  if (!value.contains("controlEpoch") || !value.at("controlEpoch").is_number_integer() ||
+      value.at("controlEpoch").get<int64_t>() <= 0 ||
+      value.at("controlEpoch").get<int64_t>() > 9007199254740991LL ||
+      !value.contains("requestId") || !value.at("requestId").is_string() ||
+      value.at("requestId").get<std::string>().empty() ||
+      value.at("requestId").get<std::string>().size() > 512)
+    throw Error("INVALID_REQUEST", "Invalid original request target");
+  result["controlEpoch"] = value.at("controlEpoch");
+  result["requestId"] = value.at("requestId");
+  if (value.contains("turnId")) {
+    if (!value.at("turnId").is_string() || value.at("turnId").get<std::string>().empty() ||
+        utf16_length(value.at("turnId")) > 200)
+      throw Error("INVALID_REQUEST", "Invalid target turn");
+    result["turnId"] = value.at("turnId");
+  }
+  return result;
+}
 Json web_command(Json v) {
   if (!v.is_object())
     throw Error("INVALID_REQUEST", "Invalid web command");
@@ -521,10 +547,17 @@ Json web_command(Json v) {
     auto s = v.at("approvalId").get<std::string>();
     if (s.empty() || s.size() > 200 || !v.at("allow").is_boolean())
       throw Error("INVALID_REQUEST", "Invalid approval");
+    for (const auto &key : {"runtimeId", "approvalVersion"}) {
+      if (!v.contains(key) || !v.at(key).is_string() || !valid_id(v.at(key)))
+        throw Error("INVALID_REQUEST", "Approval requires its runtime and original version");
+      out[key] = v.at(key);
+    }
     out["approvalId"] = s;
     out["allow"] = v["allow"];
   } else if (a != "interrupt")
     throw Error("INVALID_REQUEST", "Unknown web command");
+  if (a == "interrupt" && v.contains("target"))
+    out["target"] = command_target(v.at("target"));
   return out;
 }
 std::string web_fingerprint(const Json &c) {
@@ -538,9 +571,14 @@ std::string web_fingerprint(const Json &c) {
   if (c.at("action") == "models" && c.contains("cursor"))
     out += ",\"cursor\":" + c.at("cursor").dump();
   if (c.at("action") == "approval")
-    out += ",\"approvalId\":" + c.at("approvalId").dump() + ",\"allow\":" + c.at("allow").dump();
+    out += ",\"approvalId\":" + c.at("approvalId").dump() +
+           ",\"runtimeId\":" + c.at("runtimeId").dump() +
+           ",\"approvalVersion\":" + c.at("approvalVersion").dump() +
+           ",\"allow\":" + c.at("allow").dump();
   if (c.at("action") == "autoApproval")
     out += ",\"enabled\":" + c.at("enabled").dump();
+  if (c.at("action") == "interrupt" && c.contains("target"))
+    out += ",\"target\":" + c.at("target").dump();
   return out + "}";
 }
 } // namespace coc

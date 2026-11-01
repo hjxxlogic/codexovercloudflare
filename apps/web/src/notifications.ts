@@ -1,4 +1,4 @@
-import { relayPath } from './routes.ts';
+import { relaySocketPath } from './routes.ts';
 type Listener = (event: any) => void;
 type Channel = {
   socket: WebSocket;
@@ -15,7 +15,7 @@ function connect(path: string, channel: Channel) {
   clearTimeout(channel.handshake);
   channel.ready = false;
   const socket = new WebSocket(
-    `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${relayPath(path)}`,
+    `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${relaySocketPath(path)}`,
   );
   channel.socket = socket;
   let ended = false;

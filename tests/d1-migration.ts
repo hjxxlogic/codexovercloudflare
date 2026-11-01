@@ -153,6 +153,7 @@ async function request(path: string, credential: string, data?: unknown) {
       Authorization: 'Bearer ' + credential,
       Origin: origin,
       'X-CoC-Async': '1',
+      'X-CoC-Delivery': '2',
       'Content-Type': 'application/json',
     },
     body: data === undefined ? undefined : JSON.stringify(data),
@@ -171,6 +172,8 @@ async function connect(key: string) {
   ws.send(
     JSON.stringify({
       type: 'capabilities',
+      delivery: 2,
+      deliveryInstance: 'test-agent-store',
       protocol: 1,
       build: {
         version: '0.5.14',

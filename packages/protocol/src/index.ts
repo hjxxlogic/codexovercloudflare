@@ -4,6 +4,24 @@ export const MAX_FRAME = 256 * 1024;
 export const MAX_QUEUE = 8 * 1024 * 1024;
 export const CODEX_VERSION = '0.164.0';
 export const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+export const operationIntentSchema = z.object({
+  requestId: idSchema,
+  instance: idSchema,
+  owner: z.string().regex(/^[a-f0-9]{64}$/),
+  ack: z.boolean().optional(),
+});
+export type OperationIntent = z.infer<typeof operationIntentSchema>;
+export const controlProofSchema = z.object({
+  controlEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  connectionGeneration: z
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER),
+  controlId: idSchema,
+  owner: idSchema,
+});
+export type ControlProof = z.infer<typeof controlProofSchema>;
 export const accessEmailSchema = z
   .string()
   .max(254)
@@ -125,6 +143,19 @@ export const agentConfigSchema = z.object({
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export type Project = z.infer<typeof projectSchema>;
+export const commandTargetSchema = z.object({
+  controlEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  instance: idSchema,
+  owner: idSchema,
+  requestId: z
+    .string()
+    .min(1)
+    .max(512)
+    .refine((value) => new TextEncoder().encode(value).length <= 512),
+  stream: idSchema,
+  turnId: z.string().min(1).max(200).optional(),
+});
+export type CommandTarget = z.infer<typeof commandTargetSchema>;
 export const sessionSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$/),
   projectId: idSchema,
@@ -138,6 +169,7 @@ export const sessionSchema = z.object({
   autoApproval: z.boolean().optional(),
   externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
+  activeTask: commandTargetSchema.optional(),
   sandbox: z.enum(['read-only', 'workspace-write']).optional(),
   running: z.boolean(),
   createdAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -171,7 +203,11 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     requestId: idSchema,
     cursor: z.string().max(4096).optional(),
   }),
-  z.object({ action: z.literal('interrupt'), requestId: idSchema }),
+  z.object({
+    action: z.literal('interrupt'),
+    requestId: idSchema,
+    target: commandTargetSchema.optional(),
+  }),
   z.object({
     action: z.literal('autoApproval'),
     requestId: idSchema,
@@ -180,7 +216,9 @@ export const webCommandSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('approval'),
     requestId: idSchema,
-    approvalId: z.string().max(200),
+    approvalId: z.string().min(1).max(200),
+    runtimeId: idSchema,
+    approvalVersion: idSchema,
     allow: z.boolean(),
   }),
 ]);
@@ -189,7 +227,30 @@ const sequenceSchema = z
   .int()
   .min(-Number.MAX_SAFE_INTEGER)
   .max(Number.MAX_SAFE_INTEGER);
+const historySubscriptionFields = {
+  stream: idSchema,
+  instance: idSchema,
+  agentInstance: idSchema.optional(),
+  exchangeId: idSchema,
+  receivedRevision: sequenceSchema.nonnegative(),
+  acknowledgedRevision: sequenceSchema.nonnegative(),
+  streamSerial: sequenceSchema.positive().optional(),
+  creditGeneration: idSchema.optional(),
+};
 export const historyCommandSchema = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('subscribe'),
+    requestId: idSchema,
+    ...historySubscriptionFields,
+  }),
+  z.object({
+    operation: z.enum(['ack', 'retire']),
+    requestId: idSchema,
+    ...historySubscriptionFields,
+    agentInstance: idSchema,
+    streamSerial: sequenceSchema.positive(),
+    creditGeneration: idSchema,
+  }),
   z
     .object({
       operation: z.literal('page'),
@@ -239,6 +300,7 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
   }),
   z.object({
     operation: z.literal('chunk'),
+    agentInstance: idSchema.optional(),
     uploadId: idSchema,
     offset: z
       .number()
@@ -248,7 +310,17 @@ export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
     data: z.string().max(87384),
   }),
   z.object({
-    operation: z.enum(['finish', 'cancel', 'status']),
+    operation: z.literal('finish'),
+    uploadId: idSchema,
+    agentInstance: idSchema.optional(),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  }),
+  z.object({
+    operation: z.enum(['cancel', 'status']),
+    agentInstance: idSchema.optional(),
     uploadId: idSchema,
   }),
 ]);
@@ -285,6 +357,13 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       mode: z.enum(['web', 'cli']),
       stream: idSchema,
       lane: z.enum(['normal', 'priority']),
+      exchangeId: idSchema.optional(),
+      control: controlProofSchema.optional(),
+      instance: idSchema.optional(),
+      resultReceived: sequenceSchema.nonnegative().optional(),
+      resultBytes: sequenceSchema.nonnegative().optional(),
+      contentSeq: sequenceSchema.positive().optional(),
+      offset: sequenceSchema.nonnegative().optional(),
       seq: sequenceSchema.positive().optional(),
     }),
   ),
@@ -340,6 +419,8 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       mode: z.enum(['web', 'cli']),
       requestId: idSchema,
       approvalId: z.string().min(1).max(200),
+      runtimeId: idSchema,
+      approvalVersion: idSchema,
       allow: z.boolean(),
     }),
   ),
@@ -372,7 +453,17 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
     z
       .object({
         sessionId: sessionIdSchema,
-        operation: z.enum(['page', 'content']),
+        operation: z.enum(['page', 'content', 'subscribe', 'ack', 'retire']),
+        stream: idSchema.optional(),
+        instance: idSchema.optional(),
+        agentInstance: idSchema.optional(),
+        exchangeId: idSchema.optional(),
+        receivedRevision: sequenceSchema.nonnegative().optional(),
+        acknowledgedRevision: sequenceSchema.nonnegative().optional(),
+        streamSerial: sequenceSchema.positive().optional(),
+        creditGeneration: idSchema.optional(),
+        owner: z.string().min(1).max(128).optional(),
+        route: idSchema.optional(),
         before: sequenceSchema.optional(),
         after: sequenceSchema.nonnegative().optional(),
         seq: sequenceSchema.optional(),

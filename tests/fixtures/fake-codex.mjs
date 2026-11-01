@@ -103,7 +103,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (m.id === undefined) return;
   let result = {};
-  if (m.method === 'initialize') result = { userAgent: 'fake-codex' };
+  if (m.method === 'initialize')
+    result = {
+      userAgent:
+        m.params?.clientInfo?.name === 'delivery-large-result'
+          ? '你好'.repeat(50000)
+          : 'fake-codex',
+    };
   if (m.method === 'initialize' && process.argv.includes('--proxy-env'))
     result.environment = proxyEnvironment();
   if (m.method === 'thread/start')
@@ -263,4 +269,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       throw new Error('External writer must never be controlled');
   }
   send({ id: m.id, result });
+  if (
+    m.method === 'initialize' &&
+    m.params?.clientInfo?.name === 'delivery-output-flood'
+  )
+    for (let i = 0; i < 160; i++)
+      send({
+        method: 'test/output',
+        params: { index: i, text: 'x'.repeat(64 * 1024) },
+      });
 });

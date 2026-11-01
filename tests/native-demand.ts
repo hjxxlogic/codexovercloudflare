@@ -32,7 +32,9 @@ sockets.on('connection', (ws) => {
     return;
   }
   if (connections > 1) replyToPing = true;
-  ws.send(JSON.stringify({ type: 'hello', minProtocol: 1, demand: 1 }));
+  ws.send(
+    JSON.stringify({ type: 'hello', delivery: 2, minProtocol: 1, demand: 1 }),
+  );
   ws.on('message', () => frames++);
   ws.on('ping', (payload) => {
     assert.equal(payload.toString(), 'coc-keepalive');

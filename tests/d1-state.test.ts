@@ -366,7 +366,7 @@ describe('D1 relay lifecycle', () => {
     expect(h.legacy.alarm).toBe(Date.now() + 60000);
     expect(await relay.storage.get('presence')).toBeDefined();
   });
-  it('runs concurrent online controls and restores hibernated state with zero Host D1 queries', async () => {
+  it('retries transient reads after hibernation without Host D1 queries', async () => {
     const h = runtime();
     h.legacy.values.set('agentEpoch', 3);
     const auth = {
@@ -387,6 +387,8 @@ describe('D1 relay lifecycle', () => {
         auth: { ...auth, hash: 'agent', role: 'agent' },
         epoch: 3,
         protocol: 1,
+        deliveryVersion: 2,
+        deliveryInstance: 'agent-store',
         deadline: Number.MAX_SAFE_INTEGER,
       }),
     };
@@ -416,6 +418,22 @@ describe('D1 relay lifecycle', () => {
       ),
     );
     relay = create();
+    for (const operation of operations)
+      expect(await relay.loadOperation(operation.id)).toBeUndefined();
+    // A new DO cannot recover query bodies/results from cloud storage. Retry
+    // the endpoint read; retired wire callbacks remain unrelated to new reads.
+    const retried = await Promise.all(
+      operations.map(() =>
+        relay.start({
+          auth,
+          hostId: 'host-a',
+          kind: 'control',
+          stage: 'execute',
+          action: 'projects',
+          data: {},
+        }),
+      ),
+    );
     for (const [raw] of agent.send.mock.calls.slice()) {
       const frame = JSON.parse(raw);
       await relay.webSocketMessage(
@@ -428,7 +446,7 @@ describe('D1 relay lifecycle', () => {
         }),
       );
     }
-    for (const operation of operations)
+    for (const operation of retried)
       expect(await relay.loadOperation(operation.id)).toMatchObject({
         state: 'completed',
         result: [{ id: 'project' }],

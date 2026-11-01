@@ -30,6 +30,7 @@ class LoginRecovery(unittest.TestCase):
                 self.send_response(200)
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('X-CoC-Demand', '1')
+                self.send_header('X-CoC-Delivery', '2')
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -63,6 +64,7 @@ class LoginRecovery(unittest.TestCase):
                 self.send_response(status)
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('X-CoC-Demand', '1')
+                self.send_header('X-CoC-Delivery', '2')
                 self.end_headers()
                 self.wfile.write(body)
 

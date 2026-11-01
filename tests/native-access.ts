@@ -57,6 +57,7 @@ const server = createServer(
       expectHeaders ? 'native-access-secret' : undefined,
     );
     res.setHeader('X-CoC-Demand', '1');
+    res.setHeader('X-CoC-Delivery', '2');
     res.setHeader('Content-Type', html ? 'text/html' : 'application/json');
     if (html) {
       res.end('<html>Access login</html>');
