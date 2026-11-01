@@ -2,9 +2,9 @@
 
 ## 0.6.0 本地候选（未发布）
 
-Worker / CW / Agent / CLI 及 CMake / 锁文件已统一为 0.6.0，本轮只验证本机 Linux，不运行 GitHub Actions、不部署。P0–P4 已完成，真实旧更新器和最终验收仍待记录；版本号不代表验收结束。业务要求唯一 delivery:2；发行清单及原生构建 protocol 保持 1，使真实旧 update 下载 / 校验 / 安装通路可用，旧业务仍明确拒绝。
+Worker / CW / Agent / CLI 及 CMake / 锁文件已统一为 0.6.0，本轮只验证本机 Linux，不运行 GitHub Actions、不部署。P0–P7 已按本机范围完成，真实旧更新器 14 项与安装后完整 E2E 42 项通过；详细故障 / 资源 / 来源证据见 TEST_REPORT。业务要求唯一 delivery:2；发行清单及原生构建 protocol 保持 1，使真实旧 update 下载 / 校验 / 安装通路可用，旧业务仍明确拒绝。
 
-本轮选择 Agent 手动更新：等待任务结束、停旧服务、`coc-agent update` 后启动；client 退出旧 TUI 再 `coc-client update`。不增加旧 hello 业务兼容，旧新准入之间的自动升级不作为已验证能力。真实旧更新器必须完成成功 / 失败演练及安装后新进程的 delivery:2 业务，不能只检查磁盘版本。
+本轮选择 Agent 手动更新：等待任务结束、停旧服务、`coc-agent update` 后启动；client 退出旧 TUI 再 `coc-client update`。不增加旧 hello 业务兼容，旧新准入之间的自动升级不作为已验证能力。真实旧 Agent 0.5.20 / CLI 0.5.13 已在隔离副本上完成成功 / 六类失败演练，以及安装后真实新进程的 delivery:2 业务。
 
 [本地候选和切换步骤](TRANSPORT_CUTOVER.md) 给出可运行的候选来源核对、源码归档摘要复算、私有 SQLite 备份及失败恢复步骤；本轮只演练隔离目录。新状态不得自动交给旧版读取，旧缓存任务不导入新流；凭据、配置、项目和权威历史保留。实际发布 / 多平台验证为后续事项。以下历史发行要求不覆盖本轮用户限定的本地范围。
 

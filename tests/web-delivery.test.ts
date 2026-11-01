@@ -266,6 +266,21 @@ it('keeps priority capacity when the normal outbox is full and has no credit', a
   expect(h.frames('delivery-command')).toHaveLength(1);
   expect(h.frames('delivery-command')[0].lane).toBe('priority');
   expect(h.saved().normal.next).toBe(0);
+  console.info('delivery_acceptance', {
+    scenario: 'normal-full-priority-available',
+    endpoint: 'CW',
+    unconfirmedCommands: h.saved().normal.entries.length,
+    unconfirmedBytes: h
+      .saved()
+      .normal.entries.reduce(
+        (bytes: number, entry: any) => bytes + Buffer.byteLength(entry.body),
+        0,
+      ),
+    creditStalledCommands: h
+      .saved()
+      .normal.entries.filter((entry: any) => entry.seq === 0).length,
+    priorityPublished: h.frames('delivery-command').length,
+  });
 });
 it('ignores older online ACKs while preserving larger credit and validates byte boundaries', async () => {
   const h = harness();
@@ -436,11 +451,22 @@ it('continues slow recovery after fast retries, even without new business', asyn
   const h = harness();
   await h.connect(window(0, 0));
   await h.sender.submit(command('one'));
+  const queuedAt = Date.now();
   const before = h.frames('delivery-open').length;
   await vi.advanceTimersByTimeAsync(240000);
   expect(h.frames('delivery-open').length).toBeGreaterThan(before + 5);
   expect(h.saved().normal.entries).toHaveLength(1);
   expect(h.saved().normal.next).toBe(0);
+  console.info('delivery_acceptance', {
+    scenario: 'silent-credit-loss',
+    endpoint: 'CW',
+    clock: 'deterministic-test-clock',
+    unconfirmedCommands: h.saved().normal.entries.length,
+    unconfirmedBytes: Buffer.byteLength(h.saved().normal.entries[0].body),
+    oldestRequestAgeMs: Date.now() - queuedAt,
+    recoveryFrames: h.frames('delivery-open').length - before,
+    commandsPublishedWithoutCredit: h.frames('delivery-command').length,
+  });
 });
 it('stops scheduling after recovery finishes with no pending work', async () => {
   const h = harness();

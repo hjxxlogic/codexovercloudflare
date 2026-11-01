@@ -354,6 +354,13 @@ void core() {
       Store journal(dir.path);
       check(journal.delivery_record("stream", 1)["result"]["error"]["code"] == "RESULT_UNKNOWN",
             "Restart does not replay uncertain side effects");
+      std::cout << Json{{"event", "delivery_acceptance"},
+                        {"scenario", "started-command-restart"},
+                        {"endpoint", "A"},
+                        {"unknownResults", 1},
+                        {"unknownCommandRestarted", journal.delivery_start("stream", 1)}}
+                       .dump()
+                << '\n';
       check(journal.delivery_record("stream", 2)["result"]["error"]["code"] == "SESSION_CLOSED",
             "Unstarted commands fail explicitly after runtime loss");
       check(journal.delivery_record("stream", 1)["result"]["requestId"] == "one" &&

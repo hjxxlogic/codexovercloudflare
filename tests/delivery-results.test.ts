@@ -73,6 +73,15 @@ it('preserves out-of-order results through restart without acknowledging a gap',
   expect(b.journal.received).toBe(2);
   expect(b.journal.bytes).toBe(second.resultEnd);
   expect(b.journal.buffer).toEqual({});
+  console.info('delivery_acceptance', {
+    scenario: 'result-gap-and-restart',
+    endpoint: 'CW',
+    gapsBeforeRecovery: second.resultSeq - a.journal.received - 1,
+    bufferedResultsBeforeRecovery: Object.keys(a.journal.buffer).length,
+    acknowledgedBeforeRecovery: a.journal.received,
+    acknowledgedAfterRecovery: b.journal.received,
+    confirmedResultBytes: b.journal.bytes,
+  });
 });
 it('rejects corruption, identity conflicts and broken byte boundaries atomically', async () => {
   const first = completion(2, 1);

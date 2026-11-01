@@ -1,5 +1,34 @@
 # 本机测试记录
 
+## 0.6.0 最终本机验收（2026-11-01，未发布部署）
+
+P0–P7 已按本轮用户限定的本机范围完成并勾选。保留现有 delivery:2，无旧业务兼容分支；选择停服后手动更新 Agent。以下早期阶段记录为历史快照，其中的“尚未完成”不覆盖本节结果。未运行 GitHub Actions、其它平台构建、模型任务、生产发布或部署；依赖位于用户 ~/.local。
+
+实际功能验收候选为干净提交 dc978fa1e59c4f97d0c67693a9bc7a801606488f，0.6.0 / linux-x86_64 / protocol 1 / dirty false，sourceDigest e840d8be6eea7a162b77bb5fe2377c409dd36e0970d4fe44f819df191ec8dcd3。业务版本独立为 delivery:2。候选 `.local/acceptance/candidate-060-2/build.json` 与 SHA256SUMS 绑定 13 个 Worker / CW / 原生 / 源码文件；脚本从源码归档实际字节复算 sourceDigest，并验证包内程序等于真实构建。随后收尾仅更新文档及已有故障测试的脱敏计量输出，不改变生产行为；最终干净制品位于 `.local/acceptance/candidate-060-final/`，以其中 build.json / SHA256SUMS 为最终身份依据，不将先前候选的提交号套用于最终包。
+
+| 验收范围                                               | 实际结果 / 证据                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地完整回归                                           | 完整原生 / CW 构建、TypeScript、Worker dry-run、7 项 CTest（99.50 秒）、26 文件 / 403 项 Vitest、lint / C++ 格式 / 协议一致性通过；`/tmp/coc-060-{build,tests,lint,cpp,protocol}.log`                                                                                                                               |
+| 丢尾命令 / 结果 / ACK / WINDOW、重复 / 乱序 / 内容冲突 | native-core、native-delivery、web-delivery、delivery-results 验证按原身份恢复、连续 ACK 不跨缺口、结果只应用一次；真实 Agent 故障测试及网页虚拟时钟慢速恢复通过；早期专项日志索引见后文                                                                                                                             |
+| 重建 / 崩溃 / 状态替换                                 | Agent 持久 started 重启后 RESULT_UNKNOWN，不重做副作用；CC 重建保留正文 / 连续输出，CW 刷新 / 多标签页 / 存储提交失败与缓存清理隔离通过；Worker 丢转发内存后由端点恢复，权限状态独立保留                                                                                                                            |
+| 权限与控制隔离                                         | relay-order、native-core、完整 E2E 覆盖撤销 / 接管 / 过期连接 / 跨主体 ACK / 主机隔离；CONTROL_READY 丢失及代际提交前后故障、退休回调、在线旧 ACK 与真实恢复回退测试通过                                                                                                                                            |
+| 取消 / 独立结果 / 正文                                 | 先到取消阻止迟到启动、已发布项不删序号、精确 turn 与 runtime 审批版本、逆序完成 resultSeq、transfer 全文持久化先于 ACK、history 引用 ACK 后保留 / 修订过期 / 显式删除，原生与网页通过                                                                                                                               |
+| 资源及存储故障                                         | normal / priority 独立，跨会话总预留、零字节帧 / 鉴权并发、慢读者 / 历史 / 输出上限、上传 / 项目 / 配置账本及 SIGKILL 暂存回收通过；存储失败拒绝新副作用。资源源码和测量见 TRANSPORT_STATE_INVENTORY 当前资源表；`/tmp/coc-runtime-resource-samples.log`、`/tmp/coc-history-ref-runtime.log`                        |
+| 唯一业务版本与入口                                     | 预定创建 / 停止、项目、上传、任务 / 写 RPC / 审批、远程配置 / 重启均使用原请求或命令窗口；共享分类 / 上传 / 分配证明样例覆盖缺失、旧版和非法格式；旧 requests / 裸会话写入与云端业务回执不可达，不导入旧待办                                                                                                        |
+| 空闲与持续负载                                         | 正常空闲无新增业务恢复轮询；relay-order 的 1000 帧结果 / 窗口负载带消费确认，Host storage.put 为 0。只统计业务转发，不将必要权限持久化算作可删除状态；不据此推算费用                                                                                                                                                |
+| 真实旧更新器                                           | Agent 0.5.20、CLI 0.5.13 各自通过网络 / 无平台 / 校验和 / 身份 / 协议 / 安装失败保留原程序，以及成功安装，共 14 项；旧原文件只读且最终 SHA256 不变。`.local/acceptance/legacy-update-060-2/evidence.json`、`/tmp/coc-060-legacy-update2.log`                                                                        |
+| 安装后业务握手                                         | 完整 E2E 直接运行上述成功更新后安装的 Agent / CLI ELF；真实 Wrangler / Chromium / 确定性 Codex 对端，42 项全部通过，包括新业务、审批 / 中断、控制权、断线恢复、上传丢块回包与重开恢复、撤销。`.local/acceptance/legacy-update-060-2/installed-e2e.log`                                                              |
+| 旧状态保留与备份恢复                                   | 真实旧库初始化、旧历史种子及新 Agent 同 dataDir 启动后，历史保留且未导入 transport2_commands。该实际升级库隔离备份 / 全新恢复，43 表 / 27 个可靠表逐行一致、配置 / 项目 / 实例保留、0600；`state-rehearsal-060/evidence.json`。另 `test:backup` 覆盖在线 WAL、未确认结果、锁 / 链接拒绝；`/tmp/coc-060-backup2.log` |
+| 制品 / 版本 / 失败恢复                                 | package / 根锁文件 / CMake 统一 0.6.0；本机原生包、源码包、Worker / CW 和清单来源一致；真实失败保留旧程序且成功保存 .previous。切换与检查点回退规则见 TRANSPORT_CUTOVER；禁止旧程序自动读取新状态或重放未知操作                                                                                                     |
+
+真实旧来源按二进制 --version 核验，不能按外层 0.5.12 目录名猜测：Agent commit 78418e6eccbe69bbb36dc05ffc7077092660f93c，SHA256 022975b0a06dd57365323579cda1a65144793893baef52562b660dfee528ba0c；CLI commit 99506d28bec9d97800b378c2e9f987a048ceceec，SHA256 9ca35a742263482c5a799071804eeff6b9855e65b02a5514b579bc92ccf7819c。旧更新器回环夹具采用 ubuntu20.04 选择器文件名，仅为旧选择器映射；实际在 Ubuntu 24.04.5 运行，不代表 Ubuntu 20.04、Debian、musl 或 Windows 兼容性。
+
+两次无 WebSocket 对端的隔离初始化（旧 / 新 Agent）均需超时强杀回收，记录在 initializationCleanup；不宣称这一步优雅退出。它只初始化无任务库，正式业务验收来自其后的已安装程序完整 E2E。第一次备份演练成功备份 / 恢复后，配置副本核对命令误用了文件名 agent.json；改为夹具的实际 config.json，复用已有快照完成逐表核对，没有覆盖备份、修改原夹具或重复执行升级。
+
+脱敏计量专项：CW 普通窗口无信用时保留 96 项 / 5932 字节，独立 priority 发布 1 项；静默丢信用的虚拟 240000 毫秒内保留原项 / 50 字节，发出 9 个恢复 OPEN 帧，无信用命令发送 0；结果有 1 个缺口 / 1 个缓冲时 ACK 为 0，补齐后为 2 / 76 字节；A started 重启记录 1 项未知结果，旧命令未重启。这里是故障夹具采样，不是生产长期指标；恢复帧计数不等于退避轮数。日志 `/tmp/coc-060-acceptance-metrics.log`、`native-metrics.log`（共同前缀 `/tmp/coc-060-acceptance-`）。新增输出后仅运行受影响的 native-core（32.48 秒）和 37 项网页专项，全部通过；生产实现未变，不重复未受影响的完整 E2E。
+
+本轮本机验收没有剩余阻断项。后续正式发行仍须按目标平台取得正式构建 / 验证与部署授权；旧新准入间的 Agent 自动升级未验收，已明确采用手动方案。生产切换、跨网络 / 长时间负载、真实计费及模型任务不在本轮结果内。
+
 ## 0.6.0 干净候选来源与旧更新器初始化（2026-11-01）
 
 提交 54bec5413e4486a26b5100022dc7c960388bd4fe 的干净候选构建、13 个 Worker / 网页 / 下载文件校验及源码归档逐项摘要复算通过；版本 0.6.0，protocol 1，sourceDigest bf493b29f7823ea53874ab5dbf846405ff1bc981b004c57fd97cdf4899fdbb20。证据 `.local/acceptance/candidate-060-1/build.json`、`SHA256SUMS` 和 `/tmp/coc-060-candidate.log`；仅本机 Ubuntu 24.04，不代表其它发行平台。

@@ -58,4 +58,4 @@ python3 scripts/state-backup.py restore \
   --data-dir "$coc_state_dir" --file "$coc_backup_dir/agent.db"
 ```
 
-脚本只恢复选定快照，不启动任何版本，不自动清理待办或工作区。本轮演练仅使用临时数据库；生产回退及云端部署需要单独执行指令。
+脚本只恢复选定快照，不启动任何版本，不自动清理待办或工作区。本轮已对真实旧 Agent 升级后生成的隔离数据库完成备份 / 恢复：43 张表（含 27 张 transport2 表）逐行一致，原实例与历史保留，快照及全新恢复文件均为 0600；配置和项目目录另作私有副本核对。证据 `.local/acceptance/state-rehearsal-060/evidence.json`。生产回退及云端部署需要单独执行指令。
