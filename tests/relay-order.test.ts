@@ -1052,6 +1052,81 @@ describe('recoverable asynchronous controls', () => {
   });
 });
 describe('flow control and authorization on activity', () => {
+  it('bounds zero-byte incoming frames by local and global records and releases every promise', async () => {
+    const h = harness();
+    const relay = h.relay as any;
+    let release!: () => void;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    vi.spyOn(relay, 'handleMessage').mockImplementation(() => gate);
+    const peers = Array.from({ length: 3 }, (_, n) =>
+      socket({ id: 'peer-' + n, role: 'web' }),
+    );
+    const work: Promise<unknown>[] = [];
+    for (const peer of peers.slice(0, 2))
+      for (let n = 0; n < 1024; n++)
+        work.push(relay.webSocketMessage(peer, ''));
+    await relay.webSocketMessage(peers[0], '');
+    await relay.webSocketMessage(peers[2], '');
+    expect(relay.incomingRecords).toBe(2048);
+    expect(relay.incomingBytes).toBe(0);
+    expect(peers[0].close).toHaveBeenCalledOnce();
+    expect(peers[2].close).toHaveBeenCalledOnce();
+    release();
+    await Promise.all(work);
+    expect(relay.incomingRecords).toBe(0);
+    expect(relay.trafficMetrics.queueOverflows).toBe(2);
+  });
+  it('bounds zero-byte forwarding across sockets and keeps reservations until completion', async () => {
+    const h = harness();
+    const relay = h.relay as any;
+    let release!: () => void;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    vi.spyOn(relay, 'authorized').mockImplementation(() => gate);
+    const peers = Array.from({ length: 3 }, (_, n) =>
+      socket({ id: 'forward-' + n, auth, deadline: Number.MAX_SAFE_INTEGER }),
+    );
+    for (const peer of peers.slice(0, 2))
+      for (let n = 0; n < 1000; n++) relay.forward(peer, { type: 'event' }, 0);
+    relay.forward(peers[0], {}, 0);
+    relay.forward(peers[2], {}, 0);
+    expect(relay.forwardingRecords).toBe(2000);
+    expect(relay.forwardingBytes).toBe(0);
+    expect(peers[0].close).toHaveBeenCalledOnce();
+    expect(peers[2].close).toHaveBeenCalledOnce();
+    release();
+    await Promise.all(h.waiting);
+    expect(relay.forwardingRecords).toBe(0);
+    expect(peers[0].send).toHaveBeenCalledTimes(1000);
+    expect(peers[1].send).toHaveBeenCalledTimes(1000);
+    expect(relay.trafficMetrics.queueOverflows).toBe(2);
+  });
+  it('caps distinct in-flight authorization checks while retaining same-identity coalescing', async () => {
+    const h = harness();
+    const relay = h.relay as any;
+    let release!: (value: unknown) => void;
+    const gate = new Promise((done) => {
+      release = done;
+    });
+    vi.mocked(registryCall).mockImplementation(() => gate);
+    const work = Array.from({ length: 128 }, (_, n) =>
+      relay.authorized('identity-' + n),
+    );
+    const same = relay.authorized('identity-0');
+    await expect(relay.authorized('extra')).rejects.toMatchObject({
+      code: 'OVERLOADED',
+    });
+    expect(registryCall).toHaveBeenCalledTimes(128);
+    release({ expires: Number.MAX_SAFE_INTEGER });
+    await Promise.all([...work, same]);
+    expect(relay.authorizing.size).toBe(0);
+    expect(relay.authorization.size).toBe(128);
+    expect(relay.trafficMetrics.queueOverflows).toBe(1);
+  });
+
   it.each([
     [new Error('private storage failure'), 1011, 500],
     [new AppError('INVALID_REQUEST', 'Request failed', 400), 1011, 400],
@@ -1754,7 +1829,8 @@ describe('reliable session streams', () => {
       credit: 16,
       byteCredit: 2 * 1024 * 1024,
     };
-    for (const type of ['delivery-window', 'delivery-result']) {
+    for (let n = 0; n < 1000; n++) {
+      const type = n % 2 ? 'delivery-result' : 'delivery-window';
       await h.current.webSocketMessage(
         h.agent as unknown as WebSocket,
         JSON.stringify({
@@ -1770,12 +1846,20 @@ describe('reliable session streams', () => {
           },
         }),
       );
+      if (n % 100 === 99) {
+        await Promise.all(h.waiting);
+        const packet = JSON.parse(h.client.send.mock.calls.at(-1)![0]);
+        await h.current.webSocketMessage(
+          h.client as unknown as WebSocket,
+          JSON.stringify({ type: 'receipt', receiptId: packet.receiptId }),
+        );
+      }
     }
     await Promise.all(h.waiting);
     const forwarded = h.client.send.mock.calls
       .map(([raw]) => JSON.parse(raw))
       .filter((frame) => frame.window?.stream === 'agent-stream');
-    expect(forwarded).toHaveLength(2);
+    expect(forwarded).toHaveLength(1000);
     expect(
       forwarded.every(
         (frame) =>

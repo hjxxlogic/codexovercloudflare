@@ -238,6 +238,8 @@ export class HostRelayDO extends DurableObject<Env> {
   private inactive() {
     return (
       !this.handlers &&
+      !this.incomingRecords &&
+      !this.forwardingRecords &&
       !this.incomingBytes &&
       !this.forwardingBytes &&
       !this.ctx.getWebSockets().some((ws) => ws.readyState < 2)
@@ -274,6 +276,25 @@ export class HostRelayDO extends DurableObject<Env> {
   >();
   private authorizationVersion = 0;
   private authMetrics = { hits: 0, misses: 0, coalesced: 0 };
+  private trafficMetrics = { rejects: 0, queueOverflows: 0, authFailures: 0 };
+  private reject(reason: string, overflow = false, authentication = false) {
+    this.trafficMetrics.rejects++;
+    if (overflow) this.trafficMetrics.queueOverflows++;
+    if (authentication) this.trafficMetrics.authFailures++;
+    console.log(
+      JSON.stringify({
+        event: 'host_reject',
+        reason,
+        ...this.trafficMetrics,
+        incomingRecords: this.incomingRecords,
+        incomingBytes: this.incomingBytes,
+        forwardingRecords: this.forwardingRecords,
+        forwardingBytes: this.forwardingBytes,
+      }),
+    );
+  }
+  private incomingRecords = 0;
+  private forwardingRecords = 0;
   private incomingBytes = 0;
   private forwardingBytes = 0;
   private forwards = new WeakMap<
@@ -289,14 +310,17 @@ export class HostRelayDO extends DurableObject<Env> {
     if (
       queue.bytes + bytes > MAX_QUEUE ||
       queue.count >= 1000 ||
+      this.forwardingRecords >= 2000 ||
       this.forwardingBytes + bytes > MAX_QUEUE * 2
     ) {
+      this.reject('forward-queue-full', true);
       client.close(4008, 'Forwarding budget exhausted');
       return;
     }
     queue.bytes += bytes;
     queue.count++;
     this.forwardingBytes += bytes;
+    this.forwardingRecords++;
     const current = queue.tail
       .then(async () => {
         const attachment = client.deserializeAttachment() as Attachment;
@@ -308,6 +332,13 @@ export class HostRelayDO extends DurableObject<Env> {
           this.send(client, payload);
       })
       .catch((error) => {
+        this.reject(
+          authorizationFailed(error)
+            ? 'forward-authorization'
+            : 'forward-failure',
+          false,
+          authorizationFailed(error),
+        );
         client.close(
           authorizationFailed(error) ? 4001 : 1011,
           authorizationFailed(error)
@@ -319,6 +350,7 @@ export class HostRelayDO extends DurableObject<Env> {
         queue!.bytes -= bytes;
         queue!.count--;
         this.forwardingBytes -= bytes;
+        this.forwardingRecords--;
         if (queue!.tail === current) this.forwards.delete(client);
         await this.cleanup();
       });
@@ -339,6 +371,10 @@ export class HostRelayDO extends DurableObject<Env> {
     if (active) {
       this.authMetrics.coalesced++;
       return active.promise;
+    }
+    if (this.authorizing.size >= 128) {
+      this.reject('authorization-capacity', true);
+      throw new AppError('OVERLOADED', 'Authorization checks are busy', 429);
     }
     this.authMetrics.misses++;
     const version = this.authorizationVersion;
@@ -371,7 +407,7 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   private messages = new WeakMap<
     WebSocket,
-    { tail: Promise<void>; bytes: number }
+    { tail: Promise<void>; bytes: number; count: number }
   >();
   agent() {
     return this.ctx.getWebSockets('agent').find((s) => s.readyState === 1);
@@ -1934,18 +1970,23 @@ export class HostRelayDO extends DurableObject<Env> {
         : raw.byteLength;
     let queue = this.messages.get(ws);
     if (!queue) {
-      queue = { tail: Promise.resolve(), bytes: 0 };
+      queue = { tail: Promise.resolve(), bytes: 0, count: 0 };
       this.messages.set(ws, queue);
     }
     if (
       queue.bytes + bytes > MAX_QUEUE ||
+      queue.count >= 1024 ||
+      this.incomingRecords >= 2048 ||
       this.incomingBytes + bytes > MAX_QUEUE * 2
     ) {
+      this.reject('incoming-queue-full', true);
       ws.close(4000, 'Incoming message queue full');
       return;
     }
     queue.bytes += bytes;
     this.incomingBytes += bytes;
+    queue.count++;
+    this.incomingRecords++;
     const started = Date.now();
     const current = queue.tail
       .catch(() => {})
@@ -1956,6 +1997,8 @@ export class HostRelayDO extends DurableObject<Env> {
     } finally {
       queue.bytes -= bytes;
       this.incomingBytes -= bytes;
+      queue.count--;
+      this.incomingRecords--;
       if (queue.tail === current) this.messages.delete(ws);
       console.log(
         JSON.stringify({
@@ -1964,6 +2007,7 @@ export class HostRelayDO extends DurableObject<Env> {
           bytes,
           durationMs: Date.now() - started,
           authorization: this.authMetrics,
+          traffic: this.trafficMetrics,
         }),
       );
       this.authMetrics = { hits: 0, misses: 0, coalesced: 0 };
@@ -2486,6 +2530,13 @@ export class HostRelayDO extends DurableObject<Env> {
         payload,
       });
     } catch (e) {
+      this.reject(
+        !credentialChecked && authorizationFailed(e)
+          ? 'frame-authorization'
+          : 'frame-rejected',
+        false,
+        !credentialChecked && authorizationFailed(e),
+      );
       try {
         this.send(ws, {
           type: 'error',

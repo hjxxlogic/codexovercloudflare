@@ -286,14 +286,6 @@ void Store::delivery_release(const std::string &stream) {
              {stream})
            .empty())
     return;
-  for (const auto &marker : query(
-           "SELECT key FROM cache WHERE key IN (SELECT "
-           "'external-submission:'||b.session||':'||substr(k.request_id,5) FROM "
-           "transport2_command_keys "
-           "k JOIN transport2_credit b ON b.stream=k.stream WHERE k.stream=? AND k.request_id LIKE "
-           "'web:%')",
-           {stream}))
-    cache_forget(marker.at("key"));
   // A closed flow still has a permanent bounded tombstone and namespace boundary.
   // All results were acknowledged, so its per-command bodies and identity index may go.
   for (const auto &table :

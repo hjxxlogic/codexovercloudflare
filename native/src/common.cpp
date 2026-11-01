@@ -98,6 +98,30 @@ void save_private_text(const std::filesystem::path &p, const std::string &text, 
   const auto temporary = p.string() + ".tmp-" + uuid();
   int fd = -1;
   try {
+    // Serialize actual replacements in this directory, including across threads
+    // and processes, before reclaiming this target's abandoned private files.
+    // No lock file is added to bounded receipt directories.
+    if (flock(dirfd, LOCK_EX | LOCK_NB) != 0)
+      throw Error("CONFIG_BUSY", "Another private replacement is in progress");
+    const auto prefix = p.filename().string() + ".tmp-";
+    static const std::regex temporary_id(
+        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+    bool removed = false;
+    for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+      const auto name = entry.path().filename().string();
+      if (name.compare(0, prefix.size(), prefix) != 0 ||
+          !std::regex_match(name.substr(prefix.size()), temporary_id))
+        continue;
+      struct stat abandoned {};
+      if (fstatat(dirfd, name.c_str(), &abandoned, AT_SYMLINK_NOFOLLOW) != 0 ||
+          !S_ISREG(abandoned.st_mode) || abandoned.st_uid != geteuid())
+        throw Error("CONFIG_ERROR", "Abandoned private replacement must be an owned regular file");
+      if (unlinkat(dirfd, name.c_str(), 0) != 0)
+        throw Error("CONFIG_ERROR", "Cannot reclaim abandoned private replacement");
+      removed = true;
+    }
+    if (removed && fsync(dirfd) != 0)
+      throw Error("CONFIG_ERROR", "Cannot persist private replacement cleanup");
     struct stat existing {};
     if (lstat(p.c_str(), &existing) == 0 && !S_ISREG(existing.st_mode))
       throw Error("CONFIG_ERROR", "Configuration must be a regular file");

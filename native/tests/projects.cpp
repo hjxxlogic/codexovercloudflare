@@ -71,6 +71,90 @@ Json rename_request(const std::string &request, int64_t revision) {
           {"requestId", request},
           {"revision", revision}};
 }
+void legacy_catalog(const std::filesystem::path &root) {
+  const auto work = root / "legacy-work";
+  std::filesystem::create_directory(work);
+  const auto config = catalog_config(root, "legacy-catalog");
+  Store::Lock lock(config.at("dataDir"), true);
+  const auto file = root / "legacy-catalog" / "projects.json";
+  const Json legacy = {
+      {"version", 1},
+      {"hostId", "budget"},
+      {"revision", 77},
+      {"projects",
+       Json::array({{{"id", "base"}, {"name", "Saved project"}, {"path", work.u8string()}}})},
+      {"receipts", Json::array({{{"requestId", "old-request"}, {"result", {{"revision", 999}}}}})}};
+  save_private(file, legacy);
+  Projects projects(config);
+  const auto listed = projects.list();
+  check(listed.at("revision") == 77 && listed.at("projects").at(0).at("name") == "Saved project" &&
+            listed.at("projects").at(0).at("path") == work.u8string(),
+        "Upgrade preserves authoritative old catalog, paths, names and revision");
+  check(projects.usage().at("requests") == 0, "Legacy business receipts are not imported");
+  const auto idle = [](const std::string &) { return false; };
+  rejects([&] { projects.request(rename_request("old-request", 76), idle); }, "PROJECT_CONFLICT");
+  projects.request(rename_request("new-intention", 77), idle);
+  const auto stored = read_json(file);
+  check(!stored.contains("receipts") && stored.at("journal").at("version") == 2 &&
+            stored.at("journal").at("keys").size() == 1 && stored.at("revision") == 78,
+        "First explicit new change publishes only the new journal without replaying legacy work");
+}
+#ifdef __linux__
+void interrupted_private_files(const std::filesystem::path &root) {
+  const auto file = root / "private.json";
+  const auto name = file.string();
+  save_private_text(file, "original");
+  const auto foreign = name + ".tmp-user-file";
+  {
+    std::ofstream out(foreign);
+    out << "preserved";
+  }
+  for (int n = 0; n < 4; ++n) {
+    const auto child = fork();
+    check(child >= 0, "Fork private replacement writer");
+    if (!child) {
+      fault_catalog = name.c_str();
+      project_fault = 3;
+      save_private_text(file, std::string(65536, 'x'));
+      _exit(59);
+    }
+    int state = 0;
+    check(waitpid(child, &state, WUNTRACED) == child && WIFSTOPPED(state),
+          "Writer stops after temporary file fsync and before publication");
+    // The active writer's actual directory lock prevents deleting its temp file.
+    bool blocked = false;
+    try {
+      save_private_text(file, "racing writer");
+    } catch (const Error &error) {
+      blocked = error.code == "CONFIG_BUSY";
+    }
+    kill(child, SIGKILL);
+    waitpid(child, &state, 0);
+    check(blocked, "Concurrent private writer fails closed before orphan cleanup");
+    size_t temporary = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(root))
+      if (entry.path().filename().string().find("private.json.tmp-") == 0 &&
+          entry.path() != foreign)
+        ++temporary;
+    check(temporary == 1, "Repeated crashes retain at most one target replacement");
+    std::ifstream input(file);
+    std::string original;
+    input >> original;
+    check(original == "original", "Unpublished replacement never changes authoritative file");
+  }
+  save_private_text(file, "published");
+  check(std::filesystem::exists(foreign), "Cleanup preserves foreign temporary names");
+  for (const auto &entry : std::filesystem::directory_iterator(root))
+    check(entry.path().filename().string().find("private.json.tmp-") != 0 ||
+              entry.path() == foreign,
+          "Successful publication reclaims only exact abandoned private replacements");
+  const auto symlink = name + ".tmp-" + uuid();
+  std::filesystem::create_symlink(file, symlink);
+  rejects([&] { save_private_text(file, "must not publish"); }, "CONFIG_ERROR");
+  check(std::filesystem::is_symlink(symlink),
+        "Cleanup refuses an unexpected link without following it");
+}
+#endif
 void journal_limits(const std::filesystem::path &root) {
   const auto work = root / "budget-base";
   std::filesystem::create_directory(work);
@@ -500,6 +584,10 @@ int main() {
     }
     check(local_project_request(other, {{"operation", "list"}})["projects"].empty(),
           "Stale endpoint ignored when state lock is available");
+    legacy_catalog(root);
+#ifdef __linux__
+    interrupted_private_files(root);
+#endif
     journal_limits(root);
     owner_isolation(root);
     catalog_limits(root);

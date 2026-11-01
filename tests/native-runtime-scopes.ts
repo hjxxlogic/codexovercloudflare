@@ -2,7 +2,15 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -215,6 +223,28 @@ async function readDone(session: any, cursor: string) {
 async function usage() {
   return (await control('probe')).runtimeResources;
 }
+async function sampleResources(phase: string) {
+  const status = readFileSync(`/proc/${child!.pid}/status`, 'utf8');
+  const quantity = (key: string) =>
+    Number(status.match(new RegExp(`^${key}:\\s+(\\d+)`, 'm'))?.[1] ?? 0) *
+    1024;
+  const directory = join(root, 'state');
+  let stateFileBytes = 0;
+  for (const name of readdirSync(directory)) {
+    const file = statSync(join(directory, name));
+    if (file.isFile()) stateFileBytes += file.size;
+  }
+  console.log(
+    'RESOURCE_SAMPLE ' +
+      JSON.stringify({
+        phase,
+        agentRssBytes: quantity('VmRSS'),
+        agentPeakRssBytes: quantity('VmHWM'),
+        stateFileBytes,
+        resources: await usage(),
+      }),
+  );
+}
 async function stopped(sessions: any[]) {
   for (const item of sessions) await control('stop', { sessionId: item.id });
   await until(async () => {
@@ -281,6 +311,7 @@ try {
     512,
     'Priority may not borrow or release normal records',
   );
+  await sampleResources('512 queued reads');
   await stopped(queues);
   console.log(
     'PASS: actual Web queue local/global record pressure, independent priority and release on close',
@@ -306,6 +337,7 @@ try {
     'BACKPRESSURE',
   );
   const beforeCancel = await usage();
+  await sampleResources('Web byte pressure');
   assert.equal(beforeCancel.commands.records, 4);
   assert(beforeCancel.commands.bytes <= 2 * 1024 * 1024);
   command(
@@ -371,6 +403,7 @@ try {
     ),
   );
   assert.equal((await usage()).approvals.records, 128);
+  await sampleResources('128 pending approvals');
   const pending = await control('approvals', {
     sessionId: approvals[0].id,
     mode: 'web',

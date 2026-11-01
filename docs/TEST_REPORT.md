@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 中继集合预算与实际占用（2026-11-01，仅本机）
+
+中继收入队列增加每连接 1024 / 全局 2048 条限制，转发增加全局 2000 条限制，在途不同身份鉴权限制 128 项，保持同身份合并和 128 项缓存。零字节帧也计数，完成后才释放。host_reject / host_frame 仅记录拒绝、溢出、鉴权失败与队列数量 / 字节，不记录正文或凭据。89 项 relay-order 专项与类型检查通过；新压力测试覆盖空帧、两连接共享边界和鉴权并发。1000 帧窗口 / 结果加实际消费确认的转发，Host storage.put 为 0；正常空闲无周期鉴权 / alarm 的测试保持通过。首次持续负载测试没有消费确认，按既有慢读者限额只转发 998 帧；补齐真实消费确认后通过，没有放宽限额。日志 `/tmp/coc-relay-resource-tests2.log`、`types.log`（共同前缀 `/tmp/coc-relay-resource-`）。
+
+真实 Agent 的三组 RSS / 状态文件与逻辑资源样本见 `/tmp/coc-runtime-resource-samples.log` 及 TRANSPORT_STATE_INVENTORY 的当前资源表。最大观测 Agent RSS 峰值 19,832,832 字节，仅代表此确定性负载，不包括子进程，也不是物理上限或费用预测。私有文件回收完整构建、6 项 CTest / 398 项 Vitest、真实远程配置替换 / Agent 与 CLI 重启、重复重启不重做、原备份保留、lint 和 C++ 格式均通过；日志共同前缀 `/tmp/coc-private-replacements-`：`full-build.log`、`alltests.log`、`configuration.log`、`lint.log`、`cpp.log`。删除信用退役时对旧 external-submission 缓存键的无效清理后，native-core 33.37 秒通过；本轮全部 26 文件 / 401 项 Vitest 与 lint 通过，日志 `/tmp/coc-resource-close-core.log`、`unit.log`、`lint.log`（共同前缀 `/tmp/coc-resource-close-`）。本次中继与最终跨模块完整 E2E 待最终候选统一执行。
+
+## 私有暂存回收与旧项目目录（2026-11-01，仅本机）
+
+`native-projects` 新增实际 fork / 文件 fsync 处 SIGSTOP / SIGKILL：连续四次在私有替换发布前退出，每次仅剩一份目标暂存，旧文件始终不变；活跃子进程持锁时另一写入明确 CONFIG_BUSY，最终成功写入清理遗留，外来文件保留，异常符号链接拒绝。旧 v1 项目目录的路径、名称和 revision 保留，旧 receipts 不导入新 journal，旧修订请求拒绝，只有显式新意图更新目录。专项通过（14.41 秒），日志 `/tmp/coc-private-replacements-build.log` 与 `/tmp/coc-private-replacements-tests.log`。物理内存 / 磁盘采样、真实旧更新器及最终 0.6.0 切换仍待完成。
+
 ## Web 队列与审批集合预算（2026-11-01，仅本机）
 
 - 新增 `RuntimeResources` 共享预留，随实际队列、执行闭包和审批原件 / 镜像释放；普通 / priority / 审批 / 外部请求互不借用。取消已持久终结的队列项立即回收；结果 ACK 后清理空路由，查询退休路由不创建元数据。
