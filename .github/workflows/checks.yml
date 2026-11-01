@@ -50,7 +50,7 @@ jobs:
           npm run build
       - name: Native and unit regressions including DO archive and CW recovery
         run: npm test
-      - run: npm run test:tls
+      - run: python3 scripts/ci-command.py npm run test:tls
       - run: python3 scripts/ci-command.py npm run test:billing
       - run: python3 scripts/ci-command.py npm run test:projects
       - run: python3 scripts/ci-command.py npm run test:delivery
@@ -146,9 +146,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ccache --zero-stats
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build build -j 2
-          cmake -E chdir build ctest --output-on-failure
-          python3 tests/native-login.py
+          python3 scripts/ci-command.py cmake --build build -j 2
+          python3 scripts/ci-command.py cmake -E chdir build ctest --output-on-failure
+          python3 scripts/ci-command.py python3 tests/native-login.py
       - name: Package verified Linux binaries
         run: python3 scripts/package-release.py --build-dir build --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
@@ -233,7 +233,7 @@ jobs:
           key: native-${{ runner.os }}-${{ runner.arch }}-sanitizers-v1-${{ github.sha }}
           restore-keys: native-${{ runner.os }}-${{ runner.arch }}-sanitizers-v1-
       - run: ccache --zero-stats && cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCOC_SANITIZE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake --build build-sanitize -j 2
-      - run: ctest --test-dir build-sanitize --output-on-failure
+      - run: python3 scripts/ci-command.py ctest --test-dir build-sanitize --output-on-failure
       - name: Report compiler cache statistics
         if: always() && steps.compiler-cache.outcome == 'success'
         run: ccache --show-stats

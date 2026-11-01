@@ -127,6 +127,11 @@ if(BUILD_TESTING)
  endif()
  add_test(NAME native-core COMMAND coc-tests)
  set_tests_properties(native-core PROPERTIES TIMEOUT 300)
+ if(COC_SANITIZE)
+  # Full-capacity durable journals perform thousands of instrumented JSON/SQL operations.
+  # Keep the coverage and production limits; give sanitizer builds a separate deadline.
+  set_tests_properties(native-projects native-operations PROPERTIES TIMEOUT 240)
+ endif()
 endif()
 install(TARGETS coc-client coc-agent RUNTIME DESTINATION bin)
 option(COC_FUZZ "Build LLVM libFuzzer protocol harness (Clang required)" OFF)

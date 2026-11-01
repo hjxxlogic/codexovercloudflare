@@ -111,65 +111,71 @@ int main() {
     duplicate["projects"].push_back(
         {{"id", "duplicate"}, {"name", "Duplicate"}, {"path", upper_path}});
     rejects([&] { agent_config(duplicate); }, "CONFIG_ERROR");
-    Store file_store((root / "file-state").u8string());
-    WorkspaceFiles files(file_store);
-    std::map<std::string, std::string> checksums;
-    auto request = [&](Json value, const std::string &policy = "workspace-write") {
-      const auto operation = value.at("operation");
-      const auto id = value.value("uploadId", "");
-      if (operation == "begin")
-        value["sha256"] = checksums[id] = delivery_digest(value.at("size") == 0 ? "" : "hello");
-      else if (operation != "list" && operation != "read") {
-        value["agentInstance"] = file_store.delivery_instance();
-        if (operation == "finish")
-          value["sha256"] = checksums.at(id);
-      }
-      std::cout << "FILE: " << value.at("operation").get<std::string>() << " "
-                << value.value("path", "") << std::endl;
-      return files.request(path, policy, "owner", value);
-    };
-    for (auto bad : {"../outside", "C:/outside", "a\\b", "file:stream", "CON", "a.", "a ", "a//b",
-                     ".COC-UPLOAD-secret", "COM\xc2\xb9", "NUL .txt"})
-      rejects([&] { request({{"operation", "read"}, {"path", bad}}); }, "INVALID_PATH");
-    rejects(
-        [&] {
-          request({{"operation", "begin"}, {"uploadId", "readonly"}, {"path", "a"}, {"size", 1}},
-                  "read-only");
-        },
-        "FORBIDDEN");
-    request({{"operation", "begin"}, {"uploadId", "test"}, {"path", "hello.txt"}, {"size", 5}});
-    request({{"operation", "chunk"}, {"uploadId", "test"}, {"offset", 0}, {"data", "aGVsbG8="}});
-    auto done = request({{"operation", "finish"}, {"uploadId", "test"}});
-    check(done.at("size") == 5, "Upload committed");
-    check(request({{"operation", "finish"}, {"uploadId", "test"}}) == done, "Finish deduplicated");
-    auto read = request({{"operation", "read"}, {"path", "hello.txt"}});
-    check(read.at("data") == "aGVsbG8=", "File read roundtrip");
-    const auto stale_read = [&] {
-      request({{"operation", "read"}, {"path", "hello.txt"}, {"version", "stale"}});
-    };
-    rejects(stale_read, "FILE_CHANGED");
-    check(request({{"operation", "list"}}).at("entries").size() == 1, "Directory listing");
-    request({{"operation", "begin"},
-             {"uploadId", "replace"},
-             {"path", "hello.txt"},
-             {"size", 0},
-             {"overwrite", true}});
-    request({{"operation", "finish"}, {"uploadId", "replace"}});
-    check(request({{"operation", "read"}, {"path", "hello.txt"}}).at("size") == 0, "Overwrite");
-    std::filesystem::create_directory(project / "nested");
-    request(
-        {{"operation", "begin"}, {"uploadId", "locked"}, {"path", "nested/file.txt"}, {"size", 0}});
-    check(!MoveFileExW((project / "nested").c_str(), (project / "moved").c_str(), 0),
-          "Held upload ancestors cannot be moved");
-    request({{"operation", "cancel"}, {"uploadId", "locked"}});
-    check(MoveFileExW((project / "nested").c_str(), (project / "moved").c_str(), 0) != FALSE,
-          "Cancel releases ancestor handles");
-    std::filesystem::remove(project / "moved");
-    // Symlink creation is available on CI with developer mode or elevated token.
-    std::error_code ec;
-    std::filesystem::create_directory_symlink(root, project / "escape", ec);
-    if (!ec)
-      rejects([&] { request({{"operation", "list"}, {"path", "escape"}}); }, "FORBIDDEN");
+    {
+      // Release SQLite and upload handles before deleting the temporary directory.
+      Store file_store((root / "file-state").u8string());
+      WorkspaceFiles files(file_store);
+      std::map<std::string, std::string> checksums;
+      auto request = [&](Json value, const std::string &policy = "workspace-write") {
+        const auto operation = value.at("operation");
+        const auto id = value.value("uploadId", "");
+        if (operation == "begin")
+          value["sha256"] = checksums[id] = delivery_digest(value.at("size") == 0 ? "" : "hello");
+        else if (operation != "list" && operation != "read") {
+          value["agentInstance"] = file_store.delivery_instance();
+          if (operation == "finish")
+            value["sha256"] = checksums.at(id);
+        }
+        std::cout << "FILE: " << value.at("operation").get<std::string>() << " "
+                  << value.value("path", "") << std::endl;
+        return files.request(path, policy, "owner", value);
+      };
+      for (auto bad : {"../outside", "C:/outside", "a\\b", "file:stream", "CON", "a.", "a ", "a//b",
+                       ".COC-UPLOAD-secret", "COM\xc2\xb9", "NUL .txt"})
+        rejects([&] { request({{"operation", "read"}, {"path", bad}}); }, "INVALID_PATH");
+      rejects(
+          [&] {
+            request({{"operation", "begin"}, {"uploadId", "readonly"}, {"path", "a"}, {"size", 1}},
+                    "read-only");
+          },
+          "FORBIDDEN");
+      request({{"operation", "begin"}, {"uploadId", "test"}, {"path", "hello.txt"}, {"size", 5}});
+      request({{"operation", "chunk"}, {"uploadId", "test"}, {"offset", 0}, {"data", "aGVsbG8="}});
+      auto done = request({{"operation", "finish"}, {"uploadId", "test"}});
+      check(done.at("size") == 5, "Upload committed");
+      check(request({{"operation", "finish"}, {"uploadId", "test"}}) == done,
+            "Finish deduplicated");
+      auto read = request({{"operation", "read"}, {"path", "hello.txt"}});
+      check(read.at("data") == "aGVsbG8=", "File read roundtrip");
+      const auto stale_read = [&] {
+        request({{"operation", "read"}, {"path", "hello.txt"}, {"version", "stale"}});
+      };
+      rejects(stale_read, "FILE_CHANGED");
+      check(request({{"operation", "list"}}).at("entries").size() == 1, "Directory listing");
+      request({{"operation", "begin"},
+               {"uploadId", "replace"},
+               {"path", "hello.txt"},
+               {"size", 0},
+               {"overwrite", true}});
+      request({{"operation", "finish"}, {"uploadId", "replace"}});
+      check(request({{"operation", "read"}, {"path", "hello.txt"}}).at("size") == 0, "Overwrite");
+      std::filesystem::create_directory(project / "nested");
+      request({{"operation", "begin"},
+               {"uploadId", "locked"},
+               {"path", "nested/file.txt"},
+               {"size", 0}});
+      check(!MoveFileExW((project / "nested").c_str(), (project / "moved").c_str(), 0),
+            "Held upload ancestors cannot be moved");
+      request({{"operation", "cancel"}, {"uploadId", "locked"}});
+      check(MoveFileExW((project / "nested").c_str(), (project / "moved").c_str(), 0) != FALSE,
+            "Cancel releases ancestor handles");
+      std::filesystem::remove(project / "moved");
+      // Symlink creation is available on CI with developer mode or elevated token.
+      std::error_code ec;
+      std::filesystem::create_directory_symlink(root, project / "escape", ec);
+      if (!ec)
+        rejects([&] { request({{"operation", "list"}, {"path", "escape"}}); }, "FORBIDDEN");
+    }
     std::cout << "RUN: process arguments, jobs and RPC" << std::endl;
     auto child = (executable_path().parent_path() / "coc-test-child.exe").u8string();
     Json arguments =

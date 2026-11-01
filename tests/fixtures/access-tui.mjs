@@ -15,9 +15,11 @@ const ws = new WebSocket(url, {
   headers: { Authorization: 'Bearer ' + process.env.COC_REMOTE_TICKET },
 });
 const deadline = setTimeout(() => process.exit(2), 10000);
+ws.on('open', () => ws.send(JSON.stringify({ id: 1, method: 'account/read' })));
 ws.on('message', (raw) => {
-  assert.equal(JSON.parse(raw).test, 'shared-access-bridge');
-  ws.send(JSON.stringify({ test: 'bridge-reply' }));
+  const message = JSON.parse(raw);
+  assert.equal(message.id, 1);
+  assert.equal(message.result.test, 'shared-access-bridge');
   clearTimeout(deadline);
   ws.close();
 });

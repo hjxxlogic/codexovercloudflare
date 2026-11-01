@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { WebSocketServer } from 'ws';
+import { SyntheticDelivery } from './helpers/synthetic-delivery.ts';
 const dir = mkdtempSync(join(tmpdir(), 'coc-access-'));
 const save = (name: string, value: unknown) =>
   writeFileSync(join(dir, name), JSON.stringify(value), { mode: 0o600 });
@@ -64,7 +65,13 @@ const server = createServer(
       return;
     }
     if (req.url?.endsWith('/attach'))
-      res.end(JSON.stringify({ mode: 'cli', ticket: 'native-access-ticket' }));
+      res.end(
+        JSON.stringify({
+          mode: 'cli',
+          ticket: 'native-access-ticket',
+          delivery: 2,
+        }),
+      );
     else res.end(JSON.stringify([{ id: 'host', name: 'test', online: true }]));
   },
 );
@@ -75,9 +82,25 @@ wss.on('connection', (ws, req) => {
   if (req.url?.startsWith('/ws/v1/cli/')) {
     wsCalls++;
     assert.equal(req.headers.authorization, 'Bearer native-access-ticket');
-    ws.send(JSON.stringify({ test: 'shared-access-bridge' }));
+    const delivery = new SyntheticDelivery();
+    const send = (value: unknown) => ws.send(JSON.stringify(value));
+    send({
+      type: 'delivery-ready',
+      delivery: 2,
+      instance: 'ui-agent',
+      controller: 'access-controller',
+      control: delivery.control,
+    });
     ws.on('message', (raw) => {
-      if (JSON.parse(raw.toString()).test === 'bridge-reply') reply = true;
+      const frame = JSON.parse(raw.toString());
+      if (frame.type?.startsWith('delivery-')) {
+        delivery.receive(frame, send);
+        return;
+      }
+      assert.equal(frame.id, 1);
+      assert.equal(frame.method, 'account/read');
+      reply = true;
+      send({ id: frame.id, result: { test: 'shared-access-bridge' } });
     });
   }
 });
@@ -137,7 +160,8 @@ try {
         });
       },
     );
-  assert.equal((await run(['attach', 'host~session'])).code, 0);
+  const attached = await run(['attach', 'host~session']);
+  assert.equal(attached.code, 0, attached.output);
   assert.equal(
     wsCalls,
     1,

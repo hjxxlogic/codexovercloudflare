@@ -414,3 +414,9 @@ D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并�
 真实旧更新器须在提交并重新构建后运行：`npm run test:update:legacy -- --old-agent /path/to/old/coc-agent --old-client /path/to/old/coc-client --output .local/acceptance/legacy-update --e2e`。输出目录必须尚不存在；脚本仅复制旧程序，生成回环发行服务器，检查成功安装及网络 / 平台 / 校验 / 身份 / 协议 / 安装失败保留旧文件，配置 / 状态逐字节保留，随后实际运行新程序。`--e2e` 使用实际安装后的程序执行本地 Worker / CLI / Chromium 全套业务测试。旧更新器的平台选择器仅使用 ubuntu20.04 夹具名使其在本机取得候选，不证明本机构建可运行于 Ubuntu 20.04；最终包使用本机平台标签，不冒充其它发行平台。没有 Actions、生产服务或外网发布。
 
 本机候选可运行 `python3 scripts/prepare-local-candidate.py --output .local/acceptance/candidate-060`：必须干净源码，重建后核对原生 / 网页 / Worker 及归档来源，不进行发布。切换与失败恢复边界见 [步骤](TRANSPORT_CUTOVER.md)。
+
+## 发布门禁故障诊断
+
+Ubuntu/Debian 构建与原生测试、TLS/Access 集成和 sanitizer CTest 使用 `scripts/ci-command.py` 输出有界失败摘要到 GitHub annotations，保留原退出码。完整日志仍需 GitHub 登录。ASan/UBSan 的项目与原请求容量测试各保留全部样本，单项时限为 240 秒；普通构建仍为 60 秒，不能用减少容量覆盖或跳过测试规避门禁。
+
+Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只读 RPC，仍验证 HTTPS/WSS 凭据、证书信任、origin 隔离及 HTML 拒绝。Windows 工作区文件夹具在删除临时目录前释放 WorkspaceFiles 和 Store，保持 Windows 文件共享与锁定语义。

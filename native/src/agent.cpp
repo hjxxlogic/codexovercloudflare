@@ -329,7 +329,7 @@ public:
     for (const auto &[id, rt] : runtimes_) {
       std::set<std::string> executing;
       for (const auto &[key, context] : rt->deliveries)
-        executing.insert(context.at("stream"));
+        executing.insert(context.at("stream").get<std::string>());
       for (auto route = rt->result_routes.begin(); route != rt->result_routes.end();) {
         if (route->second.at("epoch") != rt->epoch ||
             (!executing.count(route->first) && !store_.delivery_result_pending(route->first)))
