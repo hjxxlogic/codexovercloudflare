@@ -375,15 +375,6 @@ Json CommandDelivery::receive_result(const std::string &lane, const Json &frame,
     bytes += buffered.at("body").get<std::string>().size() + buffered.value("content", "").size();
   if (journal["buffer"].size() > 100 || bytes > 2 * 1024 * 1024)
     throw Error("BACKPRESSURE", "Result receive buffer is full");
-  journal["cache"].push_back(record);
-  bytes = 0;
-  for (const auto &cached : journal["cache"])
-    bytes += cached.at("body").get<std::string>().size() + cached.value("content", "").size();
-  while (journal["cache"].size() > 64 || bytes > 2 * 1024 * 1024) {
-    bytes -= journal["cache"].front().at("body").get<std::string>().size() +
-             journal["cache"].front().value("content", "").size();
-    journal["cache"].erase(journal["cache"].begin());
-  }
   if (!original.contains("method") && original.contains("id") && original.contains("coc") &&
       original.at("coc").contains("approval") && state_.contains("approvals")) {
     const auto approval_key = original.at("id").dump();
@@ -403,7 +394,24 @@ Json CommandDelivery::receive_result(const std::string &lane, const Json &frame,
       throw Error("INVALID_REQUEST", "Non-continuous result byte boundary");
     journal["received"] = journal.at("received").get<int64_t>() + 1;
     journal["bytes"] = bytes;
+    // Move the continuous prefix into its bounded tail; do not persist two bodies.
+    // Remove a duplicate left by a previously written journal before appending.
+    auto &cache = journal["cache"];
+    for (auto it = cache.begin(); it != cache.end();)
+      if (it->at("seq") == value.at("seq"))
+        it = cache.erase(it);
+      else
+        ++it;
+    cache.push_back(value);
     journal["buffer"].erase(next);
+  }
+  bytes = 0;
+  for (const auto &cached : journal["cache"])
+    bytes += cached.at("body").get<std::string>().size() + cached.value("content", "").size();
+  while (journal["cache"].size() > 64 || bytes > 2 * 1024 * 1024) {
+    bytes -= journal["cache"].front().at("body").get<std::string>().size() +
+             journal["cache"].front().value("content", "").size();
+    journal["cache"].erase(journal["cache"].begin());
   }
   if (payload.is_object() && payload.contains("error") && !payload.contains("id") &&
       original.contains("id"))

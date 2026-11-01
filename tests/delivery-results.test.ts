@@ -56,6 +56,8 @@ it('preserves out-of-order results through restart without acknowledging a gap',
   expect(a.journal.received).toBe(0);
   expect(a.journal.bytes).toBe(0);
   expect(a.completed).toHaveLength(1);
+  expect(a.journal.cache).toEqual([]);
+  expect(Object.keys(a.journal.buffer)).toEqual(['2']);
   const saved = JSON.parse(JSON.stringify(a));
   const duplicate = await receiveResults(
     saved.journal,
@@ -73,6 +75,7 @@ it('preserves out-of-order results through restart without acknowledging a gap',
   expect(b.journal.received).toBe(2);
   expect(b.journal.bytes).toBe(second.resultEnd);
   expect(b.journal.buffer).toEqual({});
+  expect(b.journal.cache.map((v) => v.seq)).toEqual([1, 2]);
   console.info('delivery_acceptance', {
     scenario: 'result-gap-and-restart',
     endpoint: 'CW',
@@ -235,4 +238,26 @@ it('commits a history reference and terminal result without reading temporary tr
       window,
     ),
   ).rejects.toThrow();
+});
+
+it('compacts an earlier duplicated journal when its gap closes', async () => {
+  const first = completion(2, 1);
+  const second = completion(1, 2, first.resultEnd);
+  const accepted = await receiveResults(
+    emptyResults(),
+    commands,
+    [second],
+    window,
+  );
+  const saved = JSON.parse(JSON.stringify(accepted));
+  saved.journal.cache.push(saved.journal.buffer['2']);
+  const recovered = await receiveResults(
+    saved.journal,
+    saved.entries,
+    [first],
+    window,
+  );
+  expect(recovered.journal.received).toBe(2);
+  expect(recovered.journal.cache.map((v) => v.seq)).toEqual([1, 2]);
+  expect(recovered.completed).toHaveLength(1);
 });

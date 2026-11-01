@@ -109,7 +109,20 @@ export async function receiveResults(
         2 * 1024 * 1024
     )
       throw new Error('Result receive buffer is full');
-    journal.cache.push(record);
+    entries = entries.filter((v) => v !== entry);
+    completed.push({ body: entry.body, payload });
+    while (journal.buffer[journal.received + 1]) {
+      const next = journal.buffer[journal.received + 1];
+      if (next.end !== journal.bytes + size(next.body))
+        throw new Error('Result is not a continuous byte boundary');
+      journal.received++;
+      journal.bytes = next.end;
+      // Only the continuous prefix belongs in the bounded diagnostic tail.
+      // Earlier journals may already contain this record in both collections.
+      journal.cache = journal.cache.filter((v) => v.seq !== next.seq);
+      journal.cache.push(next);
+      delete journal.buffer[next.seq];
+    }
     while (
       journal.cache.length > 64 ||
       journal.cache.reduce(
@@ -119,16 +132,6 @@ export async function receiveResults(
         2 * 1024 * 1024
     )
       journal.cache.shift();
-    entries = entries.filter((v) => v !== entry);
-    completed.push({ body: entry.body, payload });
-    while (journal.buffer[journal.received + 1]) {
-      const next = journal.buffer[journal.received + 1];
-      if (next.end !== journal.bytes + size(next.body))
-        throw new Error('Result is not a continuous byte boundary');
-      journal.received++;
-      journal.bytes = next.end;
-      delete journal.buffer[next.seq];
-    }
   }
   return { journal, entries, completed };
 }

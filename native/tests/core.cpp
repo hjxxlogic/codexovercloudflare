@@ -214,6 +214,51 @@ void core() {
             "Duplicate transfer result repeats its ACK without fetching or applying again");
     }
     {
+      // Reuse the known receiver proof and publish two more commands.
+      Json window = {{"stream", "receiver"},
+                     {"instance", "journal"},
+                     {"streamSerial", 1},
+                     {"creditGeneration", "generation"},
+                     {"received", 2},
+                     {"receivedBytes", journal.cache_get("sender:v2")["normal"]["bytes"]},
+                     {"credit", 4},
+                     {"byteCredit", 2 * 1024 * 1024}};
+      sender.receive({{"type", "delivery-window"}, {"lane", "normal"}, {"window", window}});
+      sender.submit({{"id", 3}, {"method", "turn/start"}});
+      sender.submit({{"id", 4}, {"method", "turn/start"}});
+      window["received"] = 4;
+      window["receivedBytes"] = sent.back().at("end");
+      const auto prior =
+          journal.cache_get("sender:v2")["normal"]["results"]["bytes"].get<int64_t>();
+      const auto first = Json{{"id", 3}, {"result", true}}.dump();
+      const auto second = Json{{"id", 4}, {"result", true}}.dump();
+      window["sent"] = 4;
+      window["resultBytes"] = prior + first.size() + second.size();
+      auto result = [&](int seq, const std::string &body, int64_t end) {
+        return Json{{"type", "delivery-result"},
+                    {"lane", "normal"},
+                    {"seq", seq},
+                    {"resultStream", "receiver_r"},
+                    {"resultSeq", seq},
+                    {"resultEnd", end},
+                    {"resultBody", body},
+                    {"resultDigest", delivery_digest(body)},
+                    {"window", window}};
+      };
+      const auto later = result(4, second, prior + first.size() + second.size());
+      sender.receive(later);
+      auto saved = journal.cache_get("sender:v2")["normal"]["results"];
+      check(saved["received"] == 2 && saved["buffer"].size() == 1 && saved["cache"].size() == 2,
+            "A result beyond a gap has only one durable body and cannot advance the ACK");
+      sender.receive(later);
+      check(replies.size() == 3, "Duplicate buffered result does not repeat the callback");
+      sender.receive(result(3, first, prior + first.size()));
+      saved = journal.cache_get("sender:v2")["normal"]["results"];
+      check(saved["received"] == 4 && saved["buffer"].empty() && saved["cache"].size() == 4 &&
+                saved["cache"][3]["seq"] == 4,
+            "Filling the gap atomically moves the continuous prefix into the bounded tail");
+    }
+    {
       std::vector<Json> frames;
       CommandDelivery recovering(journal, "recovery-sender", [](Json) {});
       auto transport = [&](Json frame) { frames.push_back(frame); };

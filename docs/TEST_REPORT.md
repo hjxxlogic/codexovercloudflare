@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 结果缓存去重验证（2026-11-01，第二批，未提交发行）
+
+CW/CC 新乱序结果仅存入缺口缓冲，连续前缀推进时原子移入有界尾部。复用已有存储结构及确认规则，无 wire/schema 变更。审计证明见 [简化审计记录](TRANSPORT_SIMPLIFICATION_AUDIT.md)。
+
+- 原生构建、7 项 CTest、26 文件 / 404 项 Vitest 通过。
+- `npm run test:delivery` 通过：真实 Agent 命令/结果恢复、取消、大结果校验、信用、慢接收端终结、关闭流结果与历史尾部恢复；日志 `/tmp/coc-result-tail-delivery.log`。
+- 新增/扩展断言验证：缺口期间仅一份持久正文且 ACK 不前进，重复回包不重复回调，缺口闭合后移动至尾部，CW 重启恢复及旧重复布局压缩。既有完整 transfer 校验与历史引用测试通过。
+- TypeScript、协议生成一致性、C++ 格式、ESLint/Prettier 通过。
+- 本机日志：`/tmp/coc-result-tail-{build,test,lint}.log`；未运行跨平台构建或发布部署。完整简化计划尚未完成。
+
 ## 协议简化首批验证（2026-11-01，未发布）
 
 本批仅修复创建会话与原请求关联的崩溃窗口，以及统一 CW 命令、HTTP 原请求和上传的恢复延迟公式，不表示简化计划 S0–S5 完成。完整审计与未执行项见 [简化审计记录](TRANSPORT_SIMPLIFICATION_AUDIT.md)。
