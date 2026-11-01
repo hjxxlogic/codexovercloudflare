@@ -1,25 +1,23 @@
 // Real IndexedDB regression checks using only an isolated browser and synthetic data.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
-import ts from 'typescript';
 import type { HistoryCache } from '../apps/web/src/history.ts';
-const source =
-  ['events.ts', 'cache-budget.ts', 'history.ts', 'history-subscription.ts']
-    .map((file) =>
-      ts
-        .transpileModule(readFileSync(`apps/web/src/${file}`, 'utf8'), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ES2022,
-            module: ts.ModuleKind.ES2022,
-          },
-        })
-        .outputText.replace(/^import .* from ['"]\.\/events\.ts['"];?$/m, '')
-        .replace(/^import .* from ['"]\.\/cache-budget\.ts['"];?$/m, '')
-        .replaceAll('export ', ''),
-    )
-    .join('\n') +
-  '\nglobalThis.HistoryCache = HistoryCache; globalThis.HistorySubscription = HistorySubscription;';
+// Bundle the actual module graph so new shared dependencies remain part of the fixture.
+const bundle = await build({
+  stdin: {
+    contents: `import { HistoryCache } from './apps/web/src/history.ts';
+import { HistorySubscription } from './apps/web/src/history-subscription.ts';
+Object.assign(globalThis, { HistoryCache, HistorySubscription });`,
+    resolveDir: process.cwd(),
+  },
+  bundle: true,
+  write: false,
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2022',
+});
+const source = bundle.outputFiles[0].text;
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext();

@@ -165,7 +165,10 @@ try {
     closeTimeout: 1000,
   };
   socket = new WebSocket(
-    origin.replace(/^http/, 'ws') + '/guest/ws/v1/hosts/' + host.hostId,
+    origin.replace(/^http/, 'ws') +
+      '/guest/ws/v1/hosts/' +
+      host.hostId +
+      '?delivery=2',
     socketOptions,
   );
   const [, [message]] = await Promise.all([

@@ -420,3 +420,5 @@ D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并�
 Ubuntu/Debian 构建与原生测试、TLS/Access 集成和 sanitizer CTest 使用 `scripts/ci-command.py` 输出有界失败摘要到 GitHub annotations，保留原退出码。完整日志仍需 GitHub 登录。ASan/UBSan 的项目与原请求容量测试各保留全部样本，单项时限为 240 秒；普通构建仍为 60 秒，不能用减少容量覆盖或跳过测试规避门禁。
 
 Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只读 RPC，仍验证 HTTPS/WSS 凭据、证书信任、origin 隔离及 HTML 拒绝。Windows 工作区文件夹具在删除临时目录前释放 WorkspaceFiles 和 Store，保持 Windows 文件共享与锁定语义。
+
+浏览器缓存回归与原请求/上传夹具一样，通过 esbuild 打包真实模块依赖，不手工删除 import 或拼接 TypeScript 源文件。游客主机订阅 WebSocket 须像真实客户端一样携带 `delivery=2`。更新器夹具的安装副本固定为 0755，不能继承开发构建目录的组写权限，也不能放宽生产安全检查来适配测试。

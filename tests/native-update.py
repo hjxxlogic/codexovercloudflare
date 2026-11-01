@@ -102,6 +102,8 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
         folder.mkdir(mode=0o700)
         binary = folder / ('coc-agent' if agent else 'coc-client')
         shutil.copy2(AGENT if agent else CLI, binary)
+        # Model an installed executable, independent of the developer build umask.
+        binary.chmod(0o755)
         config = folder / 'config.json'
         config.write_text(json.dumps({'version': 2, 'entries': [], 'selected': '',
                                       'autoUpdate': False if disabled else ({} if MUSL else {'platform': PLATFORM})}))
