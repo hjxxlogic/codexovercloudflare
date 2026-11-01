@@ -394,3 +394,11 @@ D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并�
 ## 多项目开发验证
 
 `npm test` 包含 `native-projects` CTest 和项目授权 Vitest。`npm run test:projects` 启动两个真实 Agent 及本机/远程 CLI，使用模拟 Relay/Codex 检查动态登记、活动会话保护、请求重试及重启恢复。`npm run test:projects:e2e` 启动临时 Wrangler、真实 Agent/CC 和 Chromium，覆盖管理员项目页面、管理邮箱、CC 身份配对与桌面/移动截图；不使用生产状态或模型。原生二进制可用 COC_AGENT_BINARY / COC_CLI_BINARY 覆盖，浏览器和截图沿用 PLAYWRIGHT_BROWSERS_PATH / COC_BROWSER_PATH / COC_ARTIFACT_DIR。新增原生目录与本地控制测试同时编入 Windows CTest。
+
+## delivery:2 本机收尾验收
+
+`npm run test:runtime` 使用真实 Agent、确定性 stdio / 共享审批服务器验证队列 / 审批全局限额、priority、即时取消归还及不可变 history 引用；打印仅含数量的 Linux RSS / 状态文件样本。`native-history-reference` 由 CTest 验证原生 / Zod 共享格式和引用生命周期。
+
+真实旧更新器须在提交并重新构建后运行：`npm run test:update:legacy -- --old-agent /path/to/old/coc-agent --old-client /path/to/old/coc-client --output .local/acceptance/legacy-update --e2e`。输出目录必须尚不存在；脚本仅复制旧程序，生成回环发行服务器，检查成功安装及网络 / 平台 / 校验 / 身份 / 协议 / 安装失败保留旧文件，配置 / 状态逐字节保留，随后实际运行新程序。`--e2e` 使用实际安装后的程序执行本地 Worker / CLI / Chromium 全套业务测试。旧更新器的平台选择器仅使用 ubuntu20.04 夹具名使其在本机取得候选，不证明本机构建可运行于 Ubuntu 20.04；最终包使用本机平台标签，不冒充其它发行平台。没有 Actions、生产服务或外网发布。
+
+本机候选可运行 `python3 scripts/prepare-local-candidate.py --output .local/acceptance/candidate-060`：必须干净源码，重建后核对原生 / 网页 / Worker 及归档来源，不进行发布。切换与失败恢复边界见 [步骤](TRANSPORT_CUTOVER.md)。

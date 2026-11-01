@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.5.21",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -47,7 +47,8 @@
     "test:configuration": "tsx tests/native-configuration.ts",
     "test:operations:web": "vitest run tests/web-operations.test.ts tests/web-api.test.ts && tsx tests/browser-operations.ts",
     "test:uploads:web": "vitest run tests/web-uploads.test.ts && tsx tests/browser-uploads.ts",
-    "test:runtime": "tsx tests/native-runtime-scopes.ts"
+    "test:runtime": "tsx tests/native-runtime-scopes.ts",
+    "test:update:legacy": "python3 tests/native-legacy-update.py"
   },
   "dependencies": {
     "react": "^19.3.1",

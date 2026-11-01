@@ -1,3 +1,4 @@
+import { historyReferenceSchema } from '../../../packages/protocol/src/index.ts';
 import {
   deliveryDigest,
   deliveryResultSchema,
@@ -78,6 +79,8 @@ export async function receiveResults(
         throw new Error('Transfer result content verification failed');
       payload = JSON.parse(content);
     }
+    if (payload?.result?.history?.type === 'delivery-content')
+      historyReferenceSchema.parse(payload.result.history);
     const original = JSON.parse(entry.body);
     if (
       (payload?.requestId !== undefined &&

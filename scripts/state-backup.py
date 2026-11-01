@@ -13,7 +13,9 @@ def checked(path):
         database.close()
         raise RuntimeError('Database integrity check failed')
     tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if not {'sessions', 'events', 'requests', 'history'} <= tables:
+    # requests was removed by delivery:2. Authoritative history remains readable
+    # in both old and new databases; backup must include every reliable table.
+    if not {'sessions', 'events', 'history'} <= tables:
         database.close()
         raise RuntimeError('Not an Agent history database')
     return database

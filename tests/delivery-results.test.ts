@@ -1,3 +1,5 @@
+import { historyReferenceSchema } from '../packages/protocol/src/index.ts';
+import historyReferences from './history-reference-fixtures.json';
 import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
 import {
@@ -164,4 +166,64 @@ it('requires complete verified transfer content before retiring the command or a
   expect(accepted.journal.bytes).toBe(result.resultEnd);
   expect(accepted.journal.cache[0].content).toBe(content);
   expect(accepted.completed[0].payload.text).toBe('结果'.repeat(100000));
+});
+
+it('shares immutable history reference validation with the native endpoint', () => {
+  for (const fixture of historyReferences)
+    expect(
+      historyReferenceSchema.safeParse(fixture.input).success,
+      fixture.name,
+    ).toBe(!fixture.error);
+});
+it('commits a history reference and terminal result without reading temporary transfer content', async () => {
+  const descriptor = historyReferences[0].input;
+  const resultBody = JSON.stringify({
+    type: 'ack',
+    requestId: 'command-1',
+    result: { turnId: 'original-turn', history: descriptor },
+  });
+  const frame = {
+    ...completion(1, 1),
+    resultBody,
+    resultEnd: Buffer.byteLength(resultBody),
+    resultDigest: createHash('sha256').update(resultBody).digest('hex'),
+  };
+  let reads = 0;
+  const received = await receiveResults(
+    emptyResults(),
+    commands,
+    [frame],
+    window,
+    async () => {
+      reads++;
+      throw new Error('History must not use transfer lifetime');
+    },
+  );
+  expect(reads).toBe(0);
+  expect(received.journal.received).toBe(1);
+  expect(received.entries.map((entry) => entry.seq)).toEqual([2]);
+  expect(JSON.parse(received.journal.cache[0].body).result.history).toEqual(
+    descriptor,
+  );
+  expect(received.completed[0].payload.result.turnId).toBe('original-turn');
+  const invalidBody = JSON.stringify({
+    type: 'ack',
+    requestId: 'command-1',
+    result: { history: { ...descriptor, revision: -1 } },
+  });
+  await expect(
+    receiveResults(
+      emptyResults(),
+      commands,
+      [
+        {
+          ...frame,
+          resultBody: invalidBody,
+          resultEnd: Buffer.byteLength(invalidBody),
+          resultDigest: createHash('sha256').update(invalidBody).digest('hex'),
+        },
+      ],
+      window,
+    ),
+  ).rejects.toThrow();
 });

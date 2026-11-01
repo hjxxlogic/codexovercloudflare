@@ -1,0 +1,308 @@
+[
+  {
+    "name": "immutable history",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": false
+  },
+  {
+    "name": "imported history identity",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": -7,
+      "revision": 0,
+      "length": 0,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": false
+  },
+  {
+    "name": "invalid retention transfer",
+    "input": {
+      "type": "delivery-content",
+      "retention": "transfer",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid sessionId host~~session",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid agentInstance bad~store",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "bad~store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid digest zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid contentId bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid seq 1.5",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1.5,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid seq 9007199254740992",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 9007199254740992,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid revision -1",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": -1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid length 67108865",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 67108865,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "invalid type 7",
+    "input": {
+      "type": 7,
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing type",
+    "input": {
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing retention",
+    "input": {
+      "type": "delivery-content",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing agentInstance",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing sessionId",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing seq",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing revision",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing length",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing contentId",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  },
+  {
+    "name": "missing digest",
+    "input": {
+      "type": "delivery-content",
+      "retention": "history",
+      "agentInstance": "original-store",
+      "sessionId": "host~session",
+      "seq": 1,
+      "revision": 1,
+      "length": 12,
+      "contentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "error": true
+  }
+]

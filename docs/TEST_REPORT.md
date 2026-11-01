@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## history 不可变引用及 0.6.0 本地候选（2026-11-01）
+
+新增 history_reference.cpp，在有界分块内计算原文 UTF-8 长度 / SHA256，绑定原实例、会话、seq 和 revision；Web 任务终态附带引用。CC / CW 保存引用与业务终态后即可确认，不读取 transfer 正文；历史读取核验原证明，ACK 不删除权威历史，修订变化 / 显式清理返回 CONTENT_UNAVAILABLE。原生 / Zod 共用 22 项格式样例。native-history-reference 通过真实 Store / CC 的提交先于 callback / ACK、结果正文回收但历史保留、修订变化、显式删除及已完成任务不重新入队；网页 7 项结果专项通过；真实 Agent 的 history 读取、结果 ACK 后保留、空路由即时回收与跨会话拒绝通过，并保留既有队列 / 审批压力验证。日志共同前缀 `/tmp/coc-history-ref-`：`native2.log`、`unit3.log`、`web.log`、`runtime.log`、`types.log`。原生测试最初误将 result record 当作含命令 seq，已改为从原命令恢复 seq；第一次文本修正未命中格式化行，直接定位修正后通过，生产格式未放宽。
+
+本地完整构建 / Worker dry-run、7 项 CTest、26 文件 / 403 项 Vitest、lint、C++ 格式、协议一致性、备份 / 恢复及发行来源测试全部通过。日志 `/tmp/coc-060-build.log`、`tests.log`、`lint.log`、`cpp.log`、`protocol.log`、`backup.log` 和 `release.log`（共同前缀 `/tmp/coc-060-`）。发行来源测试使用合成多平台制品，不代表本轮构建或验证了其它平台。
+
+P0–P4 现已按实际证据勾选。package、锁文件根版本及 CMake 统一为 0.6.0 本地候选；P5–P7 仍未勾选。真实旧更新器脚本已准备，须用干净候选运行，尚未宣称通过。备份工具不再依赖已删除的 requests 表，仍使用 SQLite 在线备份、私有文件和 Agent 实例锁，不启动旧程序读取新状态。
+
 ## 中继集合预算与实际占用（2026-11-01，仅本机）
 
 中继收入队列增加每连接 1024 / 全局 2048 条限制，转发增加全局 2000 条限制，在途不同身份鉴权限制 128 项，保持同身份合并和 128 项缓存。零字节帧也计数，完成后才释放。host_reject / host_frame 仅记录拒绝、溢出、鉴权失败与队列数量 / 字节，不记录正文或凭据。89 项 relay-order 专项与类型检查通过；新压力测试覆盖空帧、两连接共享边界和鉴权并发。1000 帧窗口 / 结果加实际消费确认的转发，Host storage.put 为 0；正常空闲无周期鉴权 / alarm 的测试保持通过。首次持续负载测试没有消费确认，按既有慢读者限额只转发 998 帧；补齐真实消费确认后通过，没有放宽限额。日志 `/tmp/coc-relay-resource-tests2.log`、`types.log`（共同前缀 `/tmp/coc-relay-resource-`）。

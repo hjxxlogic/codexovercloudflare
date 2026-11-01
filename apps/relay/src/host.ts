@@ -2551,6 +2551,7 @@ export class HostRelayDO extends DurableObject<Env> {
           [
             'CONTENT_CHANGED',
             'CONTENT_NOT_FOUND',
+            'CONTENT_UNAVAILABLE',
             'HOST_OFFLINE',
             'RESULT_UNKNOWN',
           ].includes(e.code)
@@ -2716,9 +2717,12 @@ function agentErrorStatus(code: string) {
   if (code === 'FORBIDDEN') return 403;
   if (['CAPACITY', 'BACKPRESSURE'].includes(code)) return 429;
   if (
-    ['SESSION_NOT_FOUND', 'CONTENT_NOT_FOUND', 'PROJECT_NOT_FOUND'].includes(
-      code,
-    )
+    [
+      'SESSION_NOT_FOUND',
+      'CONTENT_NOT_FOUND',
+      'CONTENT_UNAVAILABLE',
+      'PROJECT_NOT_FOUND',
+    ].includes(code)
   )
     return 404;
   if (code === 'MESSAGE_TOO_LARGE') return 413;

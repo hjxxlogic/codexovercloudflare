@@ -3,6 +3,7 @@
 #include <functional>
 #include <set>
 namespace coc {
+Json history_reference_descriptor(const Json &);
 std::string delivery_digest(const std::string &body);
 std::string delivery_request_key(const Json &original);
 Json delivery_failure(const Json &original, const std::string &code, const std::string &message);

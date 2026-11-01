@@ -358,6 +358,10 @@ Json CommandDelivery::receive_result(const std::string &lane, const Json &frame,
       throw Error("IDEMPOTENCY_CONFLICT", "Transfer result content verification failed");
     payload = Json::parse(content);
   }
+  if (payload.is_object() && payload.contains("result") && payload.at("result").is_object() &&
+      payload.at("result").contains("history") && payload.at("result").at("history").is_object() &&
+      payload.at("result").at("history").value("type", "") == "delivery-content")
+    history_reference_descriptor(payload.at("result").at("history"));
   if (original.contains("id") && payload.is_object() && payload.contains("id") &&
       original.at("id") != payload.at("id"))
     throw Error("IDEMPOTENCY_CONFLICT", "Result request identity changed");

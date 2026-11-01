@@ -460,15 +460,16 @@ public:
       if (latest.at(results[i]["seq"].get<int64_t>()) == i)
         publish(entries[i]["session"], results[i]);
   }
-  void emit(const std::string &id, const std::string &type, const Json &data) {
+  Json emit(const std::string &id, const std::string &type, const Json &data) {
     const bool delta = type == "item/agentMessage/delta" ||
                        type == "item/commandExecution/outputDelta" ||
                        type == "item/fileChange/outputDelta";
     auto safe = redact(data);
     if (!delta) {
       flush_events();
-      publish(id, store_.event(id, type, safe));
-      return;
+      auto event = store_.event(id, type, safe);
+      publish(id, event);
+      return event;
     }
     const auto bytes = safe.dump().size();
     if (buffered_bytes_ + bytes > 128 * 1024)
@@ -485,6 +486,7 @@ public:
     buffered_bytes_ += bytes;
     if (buffered_events_.size() >= 128 || buffered_bytes_ >= 128 * 1024)
       flush_events();
+    return nullptr;
   }
   Json manage_projects(const Json &d, const std::string &owner = "local") {
     if (stopped_)
@@ -1039,9 +1041,17 @@ public:
         return;
       }
       if (d.value("operation", "page") == "content") {
-        done(store_.content(id, d.at("seq"), d.value("offset", int64_t(0)),
-                            d.value("revision", int64_t(-1))),
-             nullptr);
+        if (d.contains("reference")) {
+          const auto reference = history_reference_descriptor(d.at("reference"));
+          if (d.at("seq") != reference.at("seq") ||
+              (d.contains("revision") && d.at("revision") != reference.at("revision")))
+            throw Error("INVALID_REQUEST", "History query must match its immutable reference");
+          done(store_.history_content(id, reference, d.value("offset", int64_t(0))), nullptr);
+        } else {
+          done(store_.content(id, d.at("seq"), d.value("offset", int64_t(0)),
+                              d.value("revision", int64_t(-1))),
+               nullptr);
+        }
         return;
       }
       auto page = store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)));
@@ -2176,16 +2186,17 @@ public:
                                              {"text_elements", Json::array()}}})}};
       if (cmd.contains("model"))
         params["model"] = cmd["model"];
+      auto user_event = std::make_shared<Json>();
       rt->process->request(
           "turn/start", params,
-          [this, id, complete](Json result, Json error) {
+          [this, id, complete, user_event](Json result, Json error) {
             auto current = store_.get(id);
             if (error.is_null()) {
               auto turn = result.at("turn").at("id");
               if (current["running"] == true)
                 current["turnId"] = turn;
               store_.save(current);
-              complete({{"turnId", turn}}, nullptr);
+              complete({{"turnId", turn}, {"history", *user_event}}, nullptr);
             } else {
               if (error.value("code", "") != "RESULT_UNKNOWN") {
                 current["running"] = false;
@@ -2194,7 +2205,7 @@ public:
               complete(nullptr, error);
             }
           },
-          [this, id, rt, cmd]() {
+          [this, id, rt, cmd, user_event]() {
             auto s = store_.get(id);
             s["running"] = true;
             const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
@@ -2205,7 +2216,9 @@ public:
               s.erase("activeTask");
             s.erase("turnId");
             store_.save(s);
-            emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
+            const auto event =
+                emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
+            *user_event = store_.history_reference(id, event.at("seq"));
           });
       return;
     }

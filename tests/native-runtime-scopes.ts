@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { operationWrite } from '../packages/protocol/src/index.ts';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { SharedApprovals } from './fixtures/shared-approvals.ts';
@@ -315,6 +315,84 @@ try {
   await stopped(queues);
   console.log(
     'PASS: actual Web queue local/global record pressure, independent priority and release on close',
+  );
+  const referenceSession = await session();
+  const referenceStream = streamId(referenceSession);
+  await open(referenceSession, referenceStream);
+  const originalText = 'immutable user text 你好 ' + 'x'.repeat(9000);
+  command(referenceSession, referenceStream, {
+    action: 'prompt',
+    requestId: 'history-reference',
+    text: originalText,
+  });
+  await until(() =>
+    results(referenceStream).some(
+      (item) => item.result.requestId === 'history-reference',
+    ),
+  );
+  const referenceResult = results(referenceStream).find(
+    (item) => item.result.requestId === 'history-reference',
+  )!;
+  const reference = referenceResult.result.result.history;
+  assert.equal(reference.retention, 'history');
+  assert.equal(reference.length, Buffer.byteLength(originalText));
+  assert.equal(
+    reference.digest,
+    createHash('sha256').update(originalText).digest('hex'),
+  );
+  const receiptWindow = windows.get(referenceStream);
+  send({
+    type: 'delivery-receipt',
+    sessionId: referenceSession.id,
+    mode: 'web',
+    stream: referenceStream,
+    instance: receiptWindow.instance,
+    streamSerial: receiptWindow.streamSerial,
+    creditGeneration: receiptWindow.creditGeneration,
+    received: referenceResult.frame.resultSeq,
+    receivedBytes: referenceResult.frame.resultEnd,
+  });
+  await until(async () => (await usage()).resultRoutes.records === 0);
+  let offset = 0,
+    originalContent = '';
+  do {
+    const part = await control('history', {
+      sessionId: referenceSession.id,
+      operation: 'content',
+      seq: reference.seq,
+      revision: reference.revision,
+      reference,
+      offset,
+    });
+    originalContent += part.text;
+    offset = part.more ? part.nextOffset : -1;
+  } while (offset >= 0);
+  assert.equal(
+    originalContent,
+    originalText,
+    'Result ACK must not delete authoritative history',
+  );
+  await assert.rejects(
+    control('history', {
+      sessionId: referenceSession.id,
+      operation: 'content',
+      seq: reference.seq,
+      reference: { ...reference, revision: reference.revision + 1 },
+    }),
+    (error: any) => error.code === 'CONTENT_UNAVAILABLE',
+  );
+  await assert.rejects(
+    control('history', {
+      sessionId: referenceSession.id,
+      operation: 'content',
+      seq: reference.seq,
+      reference: { ...reference, sessionId: 'another~session' },
+    }),
+    (error: any) => error.code === 'FORBIDDEN',
+  );
+  await stopped([referenceSession]);
+  console.log(
+    'PASS: actual immutable history descriptor, result ACK retains original content, route cache reclamation and unavailable revision',
   );
   // Byte pressure is reached with only three large queued prompts. Cancellation
   // reclaims the exact queued original immediately, despite a stalled read ahead.

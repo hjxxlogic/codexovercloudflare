@@ -237,6 +237,23 @@ const sequenceSchema = z
   .int()
   .min(-Number.MAX_SAFE_INTEGER)
   .max(Number.MAX_SAFE_INTEGER);
+export const historyReferenceSchema = z
+  .object({
+    type: z.literal('delivery-content'),
+    retention: z.literal('history'),
+    agentInstance: idSchema,
+    sessionId: sessionSchema.shape.id,
+    seq: sequenceSchema,
+    revision: sequenceSchema.nonnegative(),
+    length: sequenceSchema.nonnegative().max(64 * 1024 * 1024),
+    contentId: z.string().regex(/^[a-f0-9]{64}$/),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .refine(
+    (v) => v.contentId === v.digest,
+    'History content identity must match its digest',
+  );
+export type HistoryReference = z.infer<typeof historyReferenceSchema>;
 const historySubscriptionFields = {
   stream: idSchema,
   instance: idSchema,
@@ -278,6 +295,7 @@ export const historyCommandSchema = z.discriminatedUnion('operation', [
     seq: sequenceSchema,
     offset: sequenceSchema.nonnegative().default(0),
     revision: sequenceSchema.nonnegative().optional(),
+    reference: historyReferenceSchema.optional(),
   }),
 ]);
 export const workspaceFileCommandSchema = z.discriminatedUnion('operation', [
@@ -484,6 +502,7 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
         seq: sequenceSchema.optional(),
         offset: sequenceSchema.nonnegative().optional(),
         revision: sequenceSchema.nonnegative().optional(),
+        reference: historyReferenceSchema.optional(),
       })
       .refine((v) =>
         v.operation === 'content'

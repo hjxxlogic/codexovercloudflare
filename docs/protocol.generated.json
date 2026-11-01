@@ -1194,6 +1194,62 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "reference": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "delivery-content"
+              },
+              "retention": {
+                "type": "string",
+                "const": "history"
+              },
+              "agentInstance": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 67108864
+              },
+              "contentId": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "type",
+              "retention",
+              "agentInstance",
+              "sessionId",
+              "seq",
+              "revision",
+              "length",
+              "contentId",
+              "digest"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -2444,6 +2500,62 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "reference": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "delivery-content"
+                  },
+                  "retention": {
+                    "type": "string",
+                    "const": "history"
+                  },
+                  "agentInstance": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "length": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 67108864
+                  },
+                  "contentId": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "retention",
+                  "agentInstance",
+                  "sessionId",
+                  "seq",
+                  "revision",
+                  "length",
+                  "contentId",
+                  "digest"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

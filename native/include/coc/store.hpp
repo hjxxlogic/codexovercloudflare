@@ -74,6 +74,8 @@ public:
   void local_operation_finish(const std::string &request, const Json &envelope,
                               const Json &receipt);
   void local_operation_confirm(const std::string &request);
+  Json history_reference(const std::string &id, int64_t seq);
+  Json history_content(const std::string &id, const Json &reference, int64_t offset);
   Json content(const std::string &id, int64_t seq, int64_t offset, int64_t revision = -1);
   void archive_page(const std::string &id, const Json &events, const Json &cursor);
   Json external_item(const std::string &id, const std::string &turn, Json item,
