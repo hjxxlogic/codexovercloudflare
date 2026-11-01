@@ -31,6 +31,10 @@
 | [d1-relay-state](d1-relay-state.md)                                         | D1 目录/归档与在线 DO 状态分工；传输业务状态以当前协议为准               |
 | [protocol.generated.json](protocol.generated.json)                          | 协议生成产物；修改源 schema 后运行 `npm run protocol:generate`，不要手改 |
 
+## 待实施优化方案
+
+- [历史存储与环形缓存优化](HISTORY_STORAGE_OPTIMIZATION.md)：本机容量调查、Codex 回源边界、Agent JSON 配额设计和分批实施门禁；尚未实现。
+
 ## 验收、发布和历史证据
 
 | 文档                                              | 用途                                                     |

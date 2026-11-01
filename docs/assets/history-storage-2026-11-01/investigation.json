@@ -1,0 +1,69 @@
+{
+  "date": "2026-11-01",
+  "sourceCommit": "4b164c62fe93581903d5ead53d367c4675a74360",
+  "status": "investigation only; no implementation or cleanup",
+  "snapshot": "private SQLite online backup before local Agent test",
+  "accounting": [
+    {
+      "table": "events",
+      "records": 48224,
+      "accountedBytes": 147325641
+    },
+    {
+      "table": "chunks",
+      "records": 40163,
+      "accountedBytes": 104311385
+    },
+    {
+      "table": "history",
+      "records": 8416,
+      "accountedBytes": 35819922
+    },
+    {
+      "table": "bodies",
+      "records": 355,
+      "accountedBytes": 911894
+    },
+    {
+      "table": "streams",
+      "records": 51,
+      "accountedBytes": 194559
+    }
+  ],
+  "totalRecords": 97209,
+  "totalAccountedBytes": 288563401,
+  "sqliteBackupBytes": 67444736,
+  "globalLimitBytes": 268435456,
+  "sessionLimitBytes": 67108864,
+  "integrity": "ok",
+  "codexProbe": {
+    "codexVersion": "0.166.0",
+    "operations": [
+      {
+        "method": "initialize",
+        "success": true
+      },
+      {
+        "method": "thread/read",
+        "success": true
+      },
+      {
+        "method": "thread/items/list",
+        "success": true
+      },
+      {
+        "method": "thread/items/read",
+        "success": true
+      }
+    ],
+    "historyMode": "paginated",
+    "pageItems": 1,
+    "readItems": 1,
+    "scope": "One persisted completed item; no thread start, resume, turn or model request. No content or identifiers retained."
+  },
+  "limitations": [
+    "One completed persisted item tested; not all item types or immutable historical revisions.",
+    "No Agent cleanup, quota change, production migration or model request performed.",
+    "No content, credentials, session identifiers or project paths published."
+  ]
+}
