@@ -80,6 +80,20 @@ const restoredItems = [
     status: 'completed',
   },
 ];
+const scopeApprovals = new Map();
+function scopeApproval(bytes = 0) {
+  const request = {
+    id: 'scope-' + nextApproval++,
+    method: 'item/commandExecution/requestApproval',
+    params: {
+      command: bytes ? '\\'.repeat(bytes) : 'echo scope',
+      cwd: process.cwd(),
+    },
+  };
+  scopeApprovals.set(request.id, request);
+  send(request);
+  return request;
+}
 const budgetHeld = [];
 let nextApproval = 100,
   turn = 0,
@@ -87,6 +101,14 @@ let nextApproval = 100,
 createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (!m.method) {
+    if (scopeApprovals.has(m.id)) {
+      scopeApprovals.delete(m.id);
+      send({
+        method: 'scope/decision',
+        params: { requestId: m.id, result: m.result, error: m.error },
+      });
+      return;
+    }
     if (approval) {
       send({
         method: 'item/agentMessage/delta',
@@ -201,6 +223,26 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     ['turn/start', 'turn/interrupt'].includes(m.method)
   )
     throw new Error('External writer must never be controlled');
+  if (m.method === 'model/list' && m.params?.cursor === 'scope-budget-stall')
+    return;
+  if (m.method === 'model/list' && m.params?.cursor === 'scope-budget-one')
+    scopeApproval();
+  if (m.method === 'model/list' && m.params?.cursor === 'scope-budget-large')
+    scopeApproval(40000);
+  if (m.method === 'model/list' && m.params?.cursor === 'scope-budget-history')
+    for (let n = 0; n < 200; n++)
+      send({ method: 'scope/history', params: { n, text: 'x'.repeat(1024) } });
+  if (
+    m.method === 'model/list' &&
+    m.params?.cursor === 'scope-budget-conflict'
+  ) {
+    const first = scopeApprovals.values().next().value;
+    if (first)
+      send({
+        ...first,
+        params: { ...first.params, command: 'Changed unresolved request' },
+      });
+  }
   if (m.method === 'model/list' && m.params?.cursor === 'runtime-budget-hold') {
     budgetHeld.push(m);
     return;
@@ -232,6 +274,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       params: { turn: result.turn, model: m.params.model },
     });
     const text = m.params.input[0].text;
+    if (text.startsWith('scope-approvals:')) {
+      const count = Number(text.split(':')[1]);
+      for (let n = 0; n < count; n++) {
+        const request = scopeApproval();
+        if (n === 0) send(request); // Exact replay keeps the same approval version and reservation.
+      }
+      return;
+    }
     if (text.includes('approval')) {
       approval = nextApproval++;
       send({

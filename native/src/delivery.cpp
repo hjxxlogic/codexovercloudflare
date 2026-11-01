@@ -419,6 +419,12 @@ Json Store::delivery_result_state(const std::string &stream) {
              {stream})
       .at(0);
 }
+bool Store::delivery_result_pending(const std::string &stream) {
+  // A retired cache route must not recreate deleted result-head metadata.
+  const auto rows =
+      query("SELECT sent,acked FROM transport2_result_heads WHERE stream=?", {stream});
+  return !rows.empty() && rows.at(0).at("sent") > rows.at(0).at("acked");
+}
 void Store::delivery_finish(const std::string &stream, int64_t seq, const Json &result) {
   const bool transaction = sqlite3_get_autocommit(db_) != 0;
   if (transaction)

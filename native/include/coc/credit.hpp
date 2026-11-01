@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 namespace coc::credit {
 // Budgets charge payload plus conservative record/index overhead. Filesystem
@@ -21,6 +22,24 @@ constexpr int64_t process_queue_bytes = 2 * 1024 * 1024;
 constexpr int64_t process_priority_queue_bytes = 512 * 1024;
 constexpr int64_t process_queue_global_bytes = 16 * 1024 * 1024;
 constexpr int64_t process_priority_queue_global_bytes = 2 * 1024 * 1024;
+constexpr int64_t runtime_commands = 100;
+constexpr int64_t runtime_command_global = 512;
+constexpr int64_t runtime_command_bytes = 2 * 1024 * 1024;
+constexpr int64_t runtime_command_global_bytes = 16 * 1024 * 1024;
+constexpr int64_t runtime_priority = 8;
+constexpr int64_t runtime_priority_global = 64;
+constexpr int64_t runtime_priority_bytes = 512 * 1024;
+constexpr int64_t runtime_priority_global_bytes = 2 * 1024 * 1024;
+constexpr int64_t runtime_approvals = 32;
+constexpr int64_t runtime_approval_global = 128;
+constexpr int64_t runtime_approval_bytes = 1024 * 1024;
+constexpr int64_t runtime_approval_global_bytes = 8 * 1024 * 1024;
+constexpr std::size_t runtime_approval_wire = 64 * 1024;
+constexpr std::size_t runtime_approval_global_wire = 1024 * 1024;
+constexpr int64_t approval_requests = 4;
+constexpr int64_t approval_requests_global = 64;
+constexpr int64_t approval_request_bytes = 64 * 1024;
+constexpr int64_t approval_request_global_bytes = 1024 * 1024;
 constexpr int64_t record_limit = 1024;
 constexpr int64_t record_bytes = 8192;
 constexpr int64_t flow_limit = 1024;

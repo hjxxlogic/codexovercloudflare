@@ -1,16 +1,36 @@
 #include "coc/approvals.hpp"
+#include "coc/credit.hpp"
 #include "coc/external.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
 namespace coc {
+std::string rpc_key(const Json &id) {
+  if ((!id.is_string() && !id.is_number_integer()) || id.dump().size() > 512 ||
+      (id.is_number_integer() && (id < -9007199254740991LL || id > 9007199254740991LL)))
+    throw Error("INVALID_REQUEST", "RPC ID must be a bounded string or safe integer");
+  return id.dump();
+}
+std::shared_ptr<void> reserve_approval(const std::shared_ptr<RuntimeResources> &scope,
+                                       const Json &rpc, bool mirrored) {
+  const auto encoded = rpc.dump();
+  // Include callback mirrors, map/set entries and the public runtime/version
+  // envelope. An independent wire reserve keeps all pending approvals pageable
+  // together with the bounded history snapshot in a 256 KiB frame.
+  return scope->reserve(RuntimeResource::approval,
+                        (mirrored ? 8 : 4) * encoded.size() + (mirrored ? 16384 : 8192),
+                        2 * Json(encoded).dump().size() + 1024);
+}
+
 ExternalApprovals::ExternalApprovals(asio::io_context &io, Json config, std::string thread,
-                                     std::string cwd, std::function<void(Json)> approval,
+                                     std::string cwd,
+                                     std::function<void(Json, std::shared_ptr<void>)> approval,
                                      std::function<void(Json)> resolved,
-                                     std::function<void(bool, std::string)> state)
-    : io_(io), config_(std::move(config)), thread_(std::move(thread)), cwd_(std::move(cwd)),
-      connect_timer_(io), retry_(io), approval_(std::move(approval)),
-      resolved_(std::move(resolved)), state_(std::move(state)) {}
+                                     std::function<void(bool, std::string)> state,
+                                     std::shared_ptr<RuntimeResources> resources)
+    : resources_(std::move(resources)), io_(io), config_(std::move(config)),
+      thread_(std::move(thread)), cwd_(std::move(cwd)), connect_timer_(io), retry_(io),
+      approval_(std::move(approval)), resolved_(std::move(resolved)), state_(std::move(state)) {}
 void ExternalApprovals::start() {
   if (stopped_)
     return;
@@ -36,8 +56,20 @@ void ExternalApprovals::start() {
       endpoint = "unix://" + (root / "app-server-control/app-server-control.sock").u8string();
 #endif
     }
-    auto message = [self](Json value) { self->receive(std::move(value)); };
-    auto closed = [self](unsigned) { self->failed("Original approval server disconnected"); };
+    const auto generation = ++generation_;
+    auto message = [self, generation](Json value) {
+      if (generation != self->generation_)
+        return;
+      try {
+        self->receive(std::move(value));
+      } catch (const std::exception &error) {
+        self->failed(error.what());
+      }
+    };
+    auto closed = [self, generation](unsigned) {
+      if (generation == self->generation_)
+        self->failed("Original approval server disconnected");
+    };
     if (endpoint.rfind("unix://", 0) == 0)
       socket_ = unix_socket(io_, endpoint.substr(7), message, closed);
     else {
@@ -103,21 +135,31 @@ void ExternalApprovals::wait_ready() {
   });
 }
 void ExternalApprovals::request(const std::string &method, const Json &params, Completion done) {
-  const auto id = "coc-approval-" + uuid();
-  auto timer = std::make_shared<asio::steady_timer>(io_, std::chrono::seconds(20));
-  requests_[id] = {done, timer};
-  timer->async_wait([self = shared_from_this(), id](auto error) {
-    if (!error && self->requests_.count(id)) {
-      auto request = self->requests_.extract(id).mapped();
-      request.done(nullptr,
-                   {{"code", "RESULT_UNKNOWN"}, {"message", "Approval server response timed out"}});
-    }
-  });
+  std::string id;
+  std::shared_ptr<asio::steady_timer> timer;
   try {
+    if (!socket_ || !socket_->ready())
+      throw Error("APPROVAL_UNAVAILABLE", "Original approval connection is unavailable");
+    const auto bytes = params.dump().size();
+    if (bytes > max_frame)
+      throw Error("BACKPRESSURE", "Approval request exceeds frame budget");
+    auto reservation = resources_->reserve(RuntimeResource::approval_request, 4 * bytes + 8192);
+    id = "coc-approval-" + uuid();
+    timer = std::make_shared<asio::steady_timer>(io_, std::chrono::seconds(20));
+    requests_[id] = {done, timer, std::move(reservation)};
+    timer->async_wait([self = shared_from_this(), id](auto error) {
+      if (!error && self->requests_.count(id)) {
+        auto request = self->requests_.extract(id).mapped();
+        request.reservation.reset();
+        request.done(nullptr, {{"code", "RESULT_UNKNOWN"},
+                               {"message", "Approval server response timed out"}});
+      }
+    });
     socket_->send({{"id", id}, {"method", method}, {"params", params}});
   } catch (const std::exception &error) {
     requests_.erase(id);
-    timer->cancel();
+    if (timer)
+      timer->cancel();
     done(nullptr, error_data(error));
   }
 }
@@ -157,6 +199,7 @@ void ExternalApprovals::receive(Json value) {
     if (requests_.count(id)) {
       auto request = requests_.extract(id).mapped();
       request.timer->cancel();
+      request.reservation.reset();
       request.done(value.value("result", Json()), value.value("error", Json()));
     }
     return;
@@ -167,27 +210,32 @@ void ExternalApprovals::receive(Json value) {
   if ((method == "item/started" || method == "item/completed") && params.contains("item") &&
       (params["item"].value("type", "") == "fileChange" ||
        params["item"].value("type", "") == "commandExecution")) {
-    approval_({{"context", params}});
+    approval_({{"context", params}}, nullptr);
     return;
   }
   if (method == "serverRequest/resolved") {
-    const auto key = "external:" + params.at("requestId").dump();
+    const auto key = "external:" + rpc_key(params.at("requestId"));
     if (approvals_.erase(key)) {
       submitted_.erase(key);
       resolved_({{"approvalId", key}, {"message", "Original server resolved the approval"}});
     }
   } else if (value.contains("id")) {
-    const auto key = "external:" + value["id"].dump();
-    if (approvals_.count(key))
+    const auto key = "external:" + rpc_key(value.at("id"));
+    if (approvals_.count(key)) {
+      if (approvals_.at(key).rpc != value)
+        throw Error("IDEMPOTENCY_CONFLICT", "Original server reused an unresolved approval ID");
       return;
-    approvals_[key] = value;
+    }
+    auto reservation = reserve_approval(resources_, value, true);
+    approvals_[key] = {value, reservation};
     const bool supported = method == "item/commandExecution/requestApproval" ||
                            method == "item/fileChange/requestApproval" ||
                            method == "item/permissions/requestApproval";
     approval_({{"approvalId", key},
                {"method", method},
                {"params", redact(params)},
-               {"unsupported", !supported}});
+               {"unsupported", !supported}},
+              std::move(reservation));
   }
 }
 Json ExternalApprovals::answer(const std::string &key, bool allow) {
@@ -199,7 +247,7 @@ Json ExternalApprovals::answer(const std::string &key, bool allow) {
   if (submitted_.count(key))
     throw Error("RESULT_UNKNOWN",
                 "A decision was already submitted; await original server confirmation");
-  const auto &rpc = it->second;
+  const auto &rpc = it->second.rpc;
   const auto result = approval_decision(rpc, allow);
   submitted_.insert(key);
   socket_->send({{"id", rpc.at("id")}, {"result", result}});
@@ -237,6 +285,7 @@ void ExternalApprovals::failed(const std::string &message) {
   if (stopped_)
     return;
   connected_ = false;
+  ++generation_;
   connect_timer_.cancel();
   auto socket = std::move(socket_);
   // Suppress recursive close callbacks while tearing down this connection.
@@ -247,6 +296,7 @@ void ExternalApprovals::failed(const std::string &message) {
   requests_.clear();
   for (auto &[id, request] : requests) {
     request.timer->cancel();
+    request.reservation.reset();
     request.done(nullptr, {{"code", "APPROVAL_UNAVAILABLE"}, {"message", message}});
   }
   approvals_.clear();
@@ -264,6 +314,7 @@ void ExternalApprovals::failed(const std::string &message) {
 void ExternalApprovals::close() {
   stopped_ = true;
   connected_ = false;
+  ++generation_;
   connect_timer_.cancel();
   retry_.cancel();
   if (socket_)

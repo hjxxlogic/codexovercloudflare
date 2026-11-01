@@ -8,7 +8,7 @@ inline void approval_configuration_fixture(const std::string &cwd) {
   auto verify = [&](Json config, const std::string &expected) {
     std::string failure;
     auto bridge = std::make_shared<ExternalApprovals>(
-        io, config, "thread", cwd, [](Json) {}, [](Json) {},
+        io, config, "thread", cwd, [](Json, std::shared_ptr<void>) {}, [](Json) {},
         [&](bool connected, std::string message) {
           if (!connected)
             failure = std::move(message);
@@ -103,7 +103,7 @@ inline void shared_approval_fixture(const std::string &cwd) {
   bridge = std::make_shared<ExternalApprovals>(
       io, Json{{"approvalEndpoint", "ws://127.0.0.1:" + std::to_string(port)}}, "shared-thread",
       cwd,
-      [&](Json approval) {
+      [&](Json approval, std::shared_ptr<void>) {
         const auto key = approval.at("approvalId").get<std::string>();
         identities.insert(key);
         bridge->answer(key, true);

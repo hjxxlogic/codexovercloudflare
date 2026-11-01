@@ -1,5 +1,6 @@
 #include "coc/credit.hpp"
 #include "coc/process.hpp"
+#include "runtime-scopes.hpp"
 #include <chrono>
 #include <csignal>
 #include <filesystem>
@@ -340,6 +341,7 @@ int main(int argc, char **argv) {
     return peer();
   try {
     const auto executable = std::filesystem::absolute(argv[0]).u8string();
+    runtime_scope_contract();
     roles(executable);
     pending(executable);
     pending_global(executable);

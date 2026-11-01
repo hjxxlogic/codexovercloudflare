@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## Web 队列与审批集合预算（2026-11-01，仅本机）
+
+- 新增 `RuntimeResources` 共享预留，随实际队列、执行闭包和审批原件 / 镜像释放；普通 / priority / 审批 / 外部请求互不借用。取消已持久终结的队列项立即回收；结果 ACK 后清理空路由，查询退休路由不创建元数据。
+- `native-runtime-budget` 已通过：共享引用释放、普通字节满仍可使用 priority / 审批、审批线编码上限、跨线程竞争全局 128 条审批和释放归零；同时保留真实子进程压力回归。日志 `/tmp/coc-runtime-scopes-unit1.log`。
+- `test:runtime` 已通过真实 Agent：六会话占满全局 512 条普通队列仍能执行 priority；64 KiB 提示触及字节限额后返回持久 BACKPRESSURE，精确取消释放原项并可继续入队；五会话验证审批全局 128 条与拒绝、原版本重放、显式拒绝后的额度再用、大输入拒绝及密集历史同步的实际帧上限。冲突 ID 关闭运行时并释放额度。外部审批溢出断开后，原服务器 33 个请求全部待决、零自动答复、转发镜像与计量归零。日志 `/tmp/coc-runtime-scopes-integration2.log`。
+
+完整本地构建与 Worker dry-run、6 项 CTest（100.50 秒）、26 文件 / 398 项 Vitest、ESLint / Prettier、C++ 格式及协议一致性全部通过；完整真实 Agent / Worker / CLI / Chromium E2E 的 42 项场景通过。交叉回归日志为 `/tmp/coc-runtime-scopes-build3.log`、`tests.log`、`integration3.log`、`e2e.log`、`lint.log`、`cpp.log` 和 `protocol.log`（共同前缀 `/tmp/coc-runtime-scopes-`）。测试编写中私有查询接口及隐式数组类型导致的编译失败已修正；未放宽生产接口或预算。
+
+此项仍不是完整 R4 或 0.6.0 验收：其它管理资源、物理占用、真实旧程序升级与最终版本 / 切换仍待完成。
+
 ## Codex 进程、未完成 RPC 与输入队列预算（2026-11-01，仅本机，未部署）
 
 - 完整本机构建通过，包含原生程序、网页、TypeScript 和 Worker dry-run。6 项 CTest / 26 文件 398 项 Vitest 全部通过；最终 CTest 104.91 秒，新增运行时专项 21.12 秒。ESLint / Prettier、clang-format 和生成协议检查通过。

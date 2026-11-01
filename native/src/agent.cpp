@@ -28,6 +28,11 @@ struct Approval {
   bool submitted = false, unsupported = false;
   std::string version = uuid();
   bool auto_attempted = false;
+  std::shared_ptr<void> reservation{};
+};
+struct QueuedCommand {
+  Json frame;
+  std::shared_ptr<void> reservation;
 };
 struct Runtime {
   std::string runtime_id = uuid();
@@ -38,10 +43,10 @@ struct Runtime {
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
   int64_t published_revision = 0;
   bool submitted = false, busy = false;
-  size_t priority = 0;
+  std::shared_ptr<RuntimeResources> resources = std::make_shared<RuntimeResources>();
   std::map<std::string, Approval> approvals;
   std::map<std::string, std::string> requests;
-  std::deque<Json> commands;
+  std::deque<QueuedCommand> commands;
   std::map<std::string, Json> deliveries, result_routes;
   Json immediate_delivery, interrupt_target;
   std::string cli_delivery_stream;
@@ -283,6 +288,66 @@ public:
             {"resultDigest", record.at("resultDigest")},
             {"heads", store_.delivery_heads(id)},
             {"window", store_.delivery_window(stream)}}}});
+  }
+  bool remember_approval(const std::shared_ptr<Runtime> &rt, const std::string &key,
+                         const Json &rpc, bool unsupported = false,
+                         std::shared_ptr<void> reservation = {}) {
+    if (key.size() > 521)
+      throw Error("INVALID_REQUEST", "Approval identity exceeds its budget");
+    const auto found = rt->approvals.find(key);
+    if (found != rt->approvals.end()) {
+      if (found->second.rpc != rpc)
+        throw Error("IDEMPOTENCY_CONFLICT", "Server reused an unresolved approval ID");
+      return false;
+    }
+    if (!reservation)
+      reservation = reserve_approval(rt->resources, rpc);
+    Approval approval{rpc, now(), false, unsupported};
+    approval.reservation = std::move(reservation);
+    rt->approvals.emplace(key, std::move(approval));
+    return true;
+  }
+  void discard_finished_commands(const std::string &id, const std::shared_ptr<Runtime> &rt) {
+    for (auto queued = rt->commands.begin(); queued != rt->commands.end();) {
+      const auto &context = queued->frame.at("delivery");
+      if (context.is_null()) {
+        ++queued;
+        continue;
+      }
+      const auto record = store_.delivery_record(context.at("stream"), context.at("seq"));
+      if (record.is_null() || record.at("phase") != "finished") {
+        ++queued;
+        continue;
+      }
+      rt->deliveries.erase(queued->frame.at("payload").value("requestId", ""));
+      delivery_reply(id, context, record.at("result"));
+      queued = rt->commands.erase(queued);
+    }
+  }
+  void prune_result_routes() {
+    for (const auto &[id, rt] : runtimes_) {
+      std::set<std::string> executing;
+      for (const auto &[key, context] : rt->deliveries)
+        executing.insert(context.at("stream"));
+      for (auto route = rt->result_routes.begin(); route != rt->result_routes.end();) {
+        if (route->second.at("epoch") != rt->epoch ||
+            (!executing.count(route->first) && !store_.delivery_result_pending(route->first)))
+          route = rt->result_routes.erase(route);
+        else
+          ++route;
+      }
+    }
+  }
+  Json runtime_usage() {
+    auto result = RuntimeResources::usage();
+    size_t routes = 0, route_bytes = 0;
+    for (const auto &[id, rt] : runtimes_)
+      for (const auto &[stream, context] : rt->result_routes) {
+        ++routes;
+        route_bytes += stream.size() + context.dump().size() + 1024;
+      }
+    result["resultRoutes"] = {{"records", routes}, {"bytes", route_bytes}};
+    return result;
   }
   void notice(const std::string &id, const Json &p) {
     auto r = runtimes_.find(id);
@@ -623,6 +688,7 @@ public:
           store_.get(id).at("mode") != d.at("mode"))
         throw Error("FORBIDDEN", "Wrong result receipt scope");
       store_.delivery_result_ack(stream, d.at("received"), d.at("receivedBytes"));
+      prune_result_routes();
       return;
     }
     auto it = runtimes_.find(id);
@@ -702,7 +768,10 @@ public:
         }
         return;
       }
+      delivery.erase("body"); // The durable command owns the body, not its retry routes.
       delivery["epoch"] = incoming_epoch;
+      if (!rt->result_routes.count(stream))
+        prune_result_routes();
       rt->result_routes[stream] = delivery;
       notice(id, {{"type", "delivery-window"},
                   {"lane", delivery.at("lane")},
@@ -754,20 +823,20 @@ public:
       const auto payload = d.at("payload");
       const auto action = payload.value("action", "");
       if (action == "interrupt" || action == "approval" || action == "autoApproval") {
-        if (rt->priority >= 8) {
-          notice(id,
-                 {{"type", "error"},
-                  {"requestId", payload.value("requestId", Json())},
-                  {"error",
-                   {{"code", "BACKPRESSURE"}, {"message", "Priority control budget exhausted"}}}});
+        std::shared_ptr<void> reservation;
+        try {
+          reservation =
+              rt->resources->reserve(RuntimeResource::priority, 8 * payload.dump().size() + 16384);
+        } catch (const std::exception &error) {
+          notice(id, {{"type", "error"},
+                      {"requestId", payload.value("requestId", Json())},
+                      {"error", error_data(error)}});
           return;
         }
         if (!delivery.is_null() &&
             !store_.delivery_start(delivery.at("stream"), delivery.at("seq")))
           return;
-        ++rt->priority;
-        const auto complete = [this, id, rt, payload](Json, Json error) {
-          --rt->priority;
+        const auto complete = [this, id, payload, reservation](Json, Json error) {
           if (!error.is_null())
             notice(id, {{"type", "error"},
                         {"requestId", payload.value("requestId", Json())},
@@ -780,14 +849,18 @@ public:
         }
         return;
       }
-      if (rt->commands.size() >= 100) {
+      try {
+        auto reservation =
+            rt->resources->reserve(RuntimeResource::command, 8 * payload.dump().size() + 16384);
+        rt->commands.push_back(
+            {{{"epoch", rt->epoch}, {"payload", payload}, {"delivery", delivery}},
+             std::move(reservation)});
+      } catch (const std::exception &error) {
         notice(id, {{"type", "error"},
                     {"requestId", payload.value("requestId", Json())},
-                    {"error", {{"code", "BACKPRESSURE"}, {"message", "Web command queue full"}}}});
+                    {"error", error_data(error)}});
         return;
       }
-      rt->commands.push_back(
-          {{"epoch", rt->epoch}, {"payload", d.at("payload")}, {"delivery", delivery}});
       drain(id, rt);
     }
   }
@@ -823,10 +896,10 @@ public:
           if (generation < rt->epoch)
             throw Error("STALE_CONTROLLER", "Connection generation has already advanced");
           for (auto queued = rt->commands.begin(); queued != rt->commands.end();) {
-            const auto context = queued->value("delivery", Json());
+            const auto context = queued->frame.value("delivery", Json());
             const bool retired =
                 context.is_null()
-                    ? queued->at("epoch") != generation
+                    ? queued->frame.at("epoch") != generation
                     : store_.delivery_record(context.at("stream"), context.at("seq")).at("phase") ==
                           "finished";
             if (retired)
@@ -892,13 +965,15 @@ public:
         }
         result["record"] = record;
       }
+      prune_result_routes();
       done(result, nullptr);
       return;
     }
     if (action == "probe") {
       done({{"online", true},
             {"confirmedAt", now()},
-            {"deliveryInstance", store_.delivery_instance()}},
+            {"deliveryInstance", store_.delivery_instance()},
+            {"runtimeResources", runtime_usage()}},
            nullptr);
       return;
     }
@@ -1374,7 +1449,7 @@ public:
     const auto s = store_.get(id);
     rt->external_approvals = std::make_shared<ExternalApprovals>(
         io_, config_["externalSessions"], s.at("threadId"), project(s.at("projectId")).at("path"),
-        [this, id](Json approval) {
+        [this, id](Json approval, std::shared_ptr<void> reservation) {
           auto it = runtimes_.find(id);
           if (it == runtimes_.end() || stopped_)
             return;
@@ -1386,9 +1461,11 @@ public:
             return;
           }
           const auto key = approval.at("approvalId").get<std::string>();
-          it->second->approvals[key] = {
-              Json{{"method", approval.at("method")}, {"params", approval.at("params")}}, now(),
-              false, approval.value("unsupported", false)};
+          if (!remember_approval(
+                  it->second, key,
+                  {{"method", approval.at("method")}, {"params", approval.at("params")}},
+                  approval.value("unsupported", false), std::move(reservation)))
+            return;
           approval["runtimeId"] = it->second->runtime_id;
           approval["approvalVersion"] = it->second->approvals.at(key).version;
           emit(id, "approval", approval);
@@ -1437,7 +1514,8 @@ public:
                          "; remote approvals unavailable; original client remains authoritative"}});
             }
           }
-        });
+        },
+        rt->resources);
     rt->external_approvals->start();
   }
   void validate_approval(const std::shared_ptr<Runtime> &rt, const Json &cmd) {
@@ -1711,12 +1789,8 @@ public:
         throw Error("FORBIDDEN", "External readers use history and queue commands");
       if (!m.is_object())
         throw Error("INVALID_REQUEST", "Invalid RPC");
-      if (m.contains("id") &&
-          ((!m.at("id").is_string() && !m.at("id").is_number_integer()) ||
-           m.at("id").dump().size() > 512 ||
-           (m.at("id").is_number_integer() &&
-            (m.at("id") < -9007199254740991LL || m.at("id") > 9007199254740991LL))))
-        throw Error("INVALID_REQUEST", "RPC ID must be a bounded string or safe integer");
+      if (m.contains("id"))
+        rpc_key(m.at("id"));
       if (!m.contains("method")) {
         auto key = m.at("id").dump();
         if (!rt->approvals.count(key))
@@ -1906,7 +1980,7 @@ public:
           "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
           "item/permissions/requestApproval", "item/tool/requestUserInput",
           "mcpServer/elicitation/request"};
-      auto key = m["id"].dump();
+      const auto key = rpc_key(m.at("id"));
       bool basic = method == "item/commandExecution/requestApproval" ||
                    method == "item/fileChange/requestApproval" ||
                    method == "item/permissions/requestApproval";
@@ -1920,7 +1994,19 @@ public:
                {{"message", "Unsupported interactive request was rejected: " + method}});
         return;
       }
-      rt->approvals[key] = {m, now()};
+      try {
+        if (!remember_approval(rt, key, m))
+          return;
+      } catch (const Error &error) {
+        if (error.code != "BACKPRESSURE")
+          throw; // Ambiguous ID reuse closes the runtime; an old proof cannot answer new input.
+        rt->process->send(
+            {{"id", m.at("id")},
+             {"error",
+              {{"code", -32001}, {"message", error.what()}, {"data", error_data(error)}}}});
+        emit(id, "warning", {{"message", "Approval resource limit reached; request rejected"}});
+        return;
+      }
       if (s["mode"] == "web") {
         emit(id, "approval",
              {{"approvalId", key},
@@ -1955,29 +2041,27 @@ public:
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {
     if (rt->busy || rt->commands.empty() || !runtimes_.count(id))
       return;
-    auto d = rt->commands.front();
+    auto queued = std::move(rt->commands.front());
     rt->commands.pop_front();
+    auto d = std::move(queued.frame);
     if (d.value("delivery", Json()).is_null() && d["epoch"] != rt->epoch) {
-      if (!d.value("delivery", Json()).is_null()) {
-        auto error = Json{
-            {"type", "error"},
-            {"requestId", d["payload"].value("requestId", "")},
-            {"error",
-             {{"code", "STALE_CONTROLLER"}, {"message", "Controller changed before execution"}}}};
-        rt->deliveries.erase(d["payload"].value("requestId", ""));
-        delivery_reply(id, d.at("delivery"), error);
-      }
       drain(id, rt);
       return;
     }
     if (!d.value("delivery", Json()).is_null() &&
         !store_.delivery_start(d["delivery"]["stream"], d["delivery"]["seq"])) {
+      const auto record = store_.delivery_record(d["delivery"]["stream"], d["delivery"]["seq"]);
+      if (!record.is_null() && record.at("phase") == "finished") {
+        rt->deliveries.erase(d.at("payload").value("requestId", ""));
+        delivery_reply(id, d.at("delivery"), record.at("result"));
+      }
       drain(id, rt);
       return;
     }
     rt->busy = true;
     auto raw = d["payload"];
-    auto finish = [this, id, rt, raw](Json, Json error) {
+    auto finish = [this, id, rt, raw, reservation = std::move(queued.reservation)](Json,
+                                                                                   Json error) {
       if (!error.is_null())
         notice(id, {{"type", "error"},
                     {"requestId", raw.is_object() ? raw.value("requestId", Json()) : Json()},
@@ -2150,6 +2234,7 @@ public:
           return;
         }
         const auto cancelled = store_.delivery_cancel(id, target);
+        discard_finished_commands(id, rt);
         if (cancelled.at("state") == "started")
           throw Error("TARGET_NOT_ACTIVE", "The original task cannot be matched to this runtime");
         complete({{"state", cancelled.at("state") == "pending-target" ? "cancel-pending-target"
@@ -2269,6 +2354,10 @@ public:
     }
     store_.delivery_retire_session(id);
     emit(id, "sessionClosed", {{"state", s["state"]}});
+    auto rt = runtimes_.at(id);
+    rt->commands.clear();
+    rt->approvals.clear();
+    rt->result_routes.clear();
     runtimes_.erase(id);
   }
   void stop(const std::string &id) {
@@ -2401,6 +2490,7 @@ public:
       if (stopped_)
         return;
       try {
+        prune_result_routes();
         for (auto &[id, r] : runtimes_) {
           // A lost final RESULT/ACK or output frame must recover without new business.
           // The maintenance timer already exists; idle streams emit no traffic.
@@ -2453,6 +2543,7 @@ public:
                           {"historyRecords", history_usage.at("records")},
                           {"projects", projects_.usage()},
                           {"codexProcesses", CodexProcess::usage()},
+                          {"runtimeResources", runtime_usage()},
                           {"eventBatches", event_batches_},
                           {"batchedEvents", event_count_},
                           {"eventBatchMaxUs", event_batch_max_us_},

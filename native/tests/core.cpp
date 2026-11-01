@@ -377,6 +377,19 @@ void core() {
   {
     Temp dir;
     Store journal(dir.path);
+    check(!journal.delivery_result_pending("absent-result-route"),
+          "Missing result route is not pending");
+    sqlite3 *routes_db = nullptr;
+    check(sqlite3_open_v2((dir.path + "/agent.db").c_str(), &routes_db, SQLITE_OPEN_READONLY,
+                          nullptr) == SQLITE_OK,
+          "Open result route inspection");
+    sqlite3_stmt *routes = nullptr;
+    check(sqlite3_prepare_v2(routes_db, "SELECT COUNT(*) FROM transport2_result_heads", -1, &routes,
+                             nullptr) == SQLITE_OK &&
+              sqlite3_step(routes) == SQLITE_ROW && sqlite3_column_int(routes, 0) == 0,
+          "Checking a retired result route cannot recreate persistent metadata");
+    sqlite3_finalize(routes);
+    sqlite3_close(routes_db);
     const auto body = Json{{"id", 1}, {"method", "turn/start"}}.dump();
     journal.delivery_open("results", "session", 2, max_frame);
     journal.delivery_receive("results", 1, body.size(), body);
@@ -405,6 +418,9 @@ void core() {
           "Result page recovers the remaining completion");
     rejects([&] { journal.delivery_results("results", 0); }, "DELIVERY_STATE_MISMATCH");
     rejects([&] { journal.delivery_scope("results", "another-session"); }, "FORBIDDEN");
+    check(journal.delivery_result_pending("results"), "Unacknowledged result retains its route");
+    journal.delivery_result_ack("results", 2, second["resultEnd"]);
+    check(!journal.delivery_result_pending("results"), "Full result ACK releases the route");
   }
 
   {
@@ -1379,7 +1395,7 @@ void external_approval_contract(const std::string &endpoint, const std::string &
   };
   bridge = std::make_shared<ExternalApprovals>(
       io, Json{{"approvalEndpoint", endpoint}}, thread, cwd,
-      [&](Json approval) {
+      [&](Json approval, std::shared_ptr<void>) {
         received = true;
         auto result = bridge->answer(approval.at("approvalId"), allow);
         check(result.at("state") == "approval-submitted", "Approval forwarded as submission only");

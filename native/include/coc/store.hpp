@@ -99,6 +99,7 @@ public:
   bool delivery_start(const std::string &stream, int64_t seq);
   void delivery_finish(const std::string &stream, int64_t seq, const Json &result);
   Json delivery_result_state(const std::string &stream);
+  bool delivery_result_pending(const std::string &stream);
   void delivery_result_ack(const std::string &stream, int64_t received, int64_t bytes);
   Json delivery_content(const std::string &stream, int64_t result_seq, int64_t offset);
   Json delivery_results(const std::string &stream, int64_t after);
