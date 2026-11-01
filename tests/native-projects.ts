@@ -310,7 +310,7 @@ try {
     'Local control has a server-selected namespace independent of remote owners',
   );
   const extraSessions = [];
-  for (let i = 0; i < 6; i++)
+  for (let i = 0; i < 15; i++)
     extraSessions.push(
       await control('alice', 'create', {
         key: `quota-session-${i}`,
@@ -318,7 +318,14 @@ try {
         mode: 'web',
       }),
     );
-  // Seven active runtimes must not prevent the temporary thread-list reader.
+  // The seventeenth runtime is refused, while the independent reader still
+  // works at full runtime capacity. No phantom failed session is persisted.
+  const beforeFull = await control('alice', 'list', {});
+  await assert.rejects(
+    control('alice', 'create', { projectId: 'one', mode: 'web' }),
+    (error: any) => error.code === 'BACKPRESSURE',
+  );
+  assert.equal((await control('alice', 'list', {})).length, beforeFull.length);
   await control('alice', 'threads', { projectId: 'one' });
   for (const extra of extraSessions)
     await control('alice', 'stop', { sessionId: extra.id });

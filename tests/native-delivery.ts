@@ -985,6 +985,234 @@ try {
     cancelledCli.record.resultBody,
     'Session exit retires admission while preserving its unacknowledged original result',
   );
+  // Actual CLI admission: stalled read RPCs fill normal pending slots, while
+  // a proof-bound interruption uses its independent reservation. Client IDs
+  // include numeric 0 and string "0" and collide with internal request numbers.
+  const bounded = await control('create', {
+    projectId: 'project',
+    mode: 'cli',
+  });
+  await control('attach', {
+    sessionId: bounded.id,
+    epoch: 1,
+    expires: Date.now() + 15000,
+  });
+  await open(bounded.id, 'cli', 'bounded-normal');
+  await open(bounded.id, 'cli', 'bounded-priority', 'priority');
+  send({
+    type: 'delivery-output',
+    sessionId: bounded.id,
+    epoch: 1,
+    received: 0,
+    credit: 100,
+    byteCredit: 1024 * 1024,
+    replay: true,
+  });
+  let boundedEnd = 0;
+  for (const [index, payload] of [
+    { id: 1001, method: 'initialize', params: {} },
+    { id: 1002, method: 'thread/start', params: {} },
+    {
+      id: 1003,
+      method: 'turn/start',
+      params: {
+        input: [{ type: 'text', text: 'hold runtime budget' }],
+      },
+    },
+  ].entries()) {
+    boundedEnd = mutation(
+      bounded.id,
+      'bounded-normal',
+      'normal',
+      index + 1,
+      boundedEnd,
+      payload,
+      'cli',
+    );
+    await until(
+      () =>
+        database!
+          .prepare(
+            'SELECT phase FROM transport2_commands WHERE stream=? AND seq=?',
+          )
+          .get('bounded-normal', index + 1)?.phase === 'finished',
+    );
+  }
+  await until(() => {
+    const state = database!
+      .prepare('SELECT value FROM sessions WHERE id=?')
+      .get(bounded.id);
+    return state && JSON.parse(String(state.value)).activeTask?.turnId;
+  });
+  const boundedSession = await control('get', { sessionId: bounded.id });
+  const boundedOutput = () =>
+    frames
+      .filter(
+        (frame) =>
+          frame.sessionId === bounded.id &&
+          frame.payload?.type === 'delivery-data',
+      )
+      .map((frame) => JSON.parse(frame.payload.body));
+  const heldIds = [0, '0', ...Array.from({ length: 62 }, (_, i) => i + 1)];
+  for (const id of heldIds)
+    send({
+      type: 'rpc',
+      sessionId: bounded.id,
+      epoch: 1,
+      payload: {
+        id,
+        method: 'model/list',
+        params: { cursor: 'runtime-budget-hold', marker: JSON.stringify(id) },
+      },
+    });
+  send({
+    type: 'rpc',
+    sessionId: bounded.id,
+    epoch: 1,
+    payload: { id: 'overflow', method: 'model/list', params: {} },
+  });
+  await until(() =>
+    boundedOutput().some(
+      (item) =>
+        item.id === 'overflow' && item.error?.data?.code === 'BACKPRESSURE',
+    ),
+  );
+  assert(
+    !boundedOutput().some((item) => item.result?.original),
+    'Held requests must remain pending',
+  );
+  // Interruption must not create another user event.
+  const userCount = Number(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+      )
+      .get(bounded.id)!.n,
+  );
+  mutation(
+    bounded.id,
+    'bounded-priority',
+    'priority',
+    1,
+    0,
+    {
+      id: 7777,
+      method: 'turn/interrupt',
+      params: {
+        threadId: boundedSession.threadId,
+        turnId: boundedSession.turnId,
+      },
+      coc: { target: boundedSession.activeTask },
+    },
+    'cli',
+  );
+  await until(
+    () =>
+      boundedOutput().filter((item) => item.result?.original).length ===
+      heldIds.length,
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get('bounded-priority')?.phase === 'finished',
+  );
+  const boundedResults = boundedOutput().filter(
+    (item) => item.result?.original,
+  );
+  for (const id of heldIds)
+    assert.equal(
+      boundedResults.filter(
+        (item) => item.id === id && item.result.original === JSON.stringify(id),
+      ).length,
+      1,
+      'The original client ID must survive collision with internal interruption IDs',
+    );
+  send({
+    type: 'rpc',
+    sessionId: bounded.id,
+    epoch: 1,
+    payload: { id: 'after-drain', method: 'model/list', params: {} },
+  });
+  await until(() =>
+    boundedOutput().some(
+      (item) => item.id === 'after-drain' && item.result?.data,
+    ),
+  );
+  assert.equal(
+    Number(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+        )
+        .get(bounded.id)!.n,
+    ),
+    userCount,
+  );
+  // Once the old task has stopped, filling reads again must reject a new turn
+  // before the user event / running flag is written or Codex sees its input.
+  for (const id of heldIds)
+    send({
+      type: 'rpc',
+      sessionId: bounded.id,
+      epoch: 1,
+      payload: {
+        id,
+        method: 'model/list',
+        params: { cursor: 'runtime-budget-hold', marker: JSON.stringify(id) },
+      },
+    });
+  mutation(
+    bounded.id,
+    'bounded-normal',
+    'normal',
+    4,
+    boundedEnd,
+    {
+      id: 'rejected-turn',
+      method: 'turn/start',
+      params: {
+        threadId: boundedSession.threadId,
+        input: [{ type: 'text', text: 'must never start under pressure' }],
+      },
+    },
+    'cli',
+  );
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=4',
+        )
+        .get('bounded-normal')?.phase === 'finished',
+  );
+  const refusedTurn = JSON.parse(
+    String(
+      database
+        .prepare(
+          'SELECT body FROM transport2_results WHERE stream=? AND command_seq=4',
+        )
+        .get('bounded-normal')!.body,
+    ),
+  );
+  assert.equal(refusedTurn.error?.data?.code, 'BACKPRESSURE');
+  assert.equal(
+    (await control('get', { sessionId: bounded.id })).running,
+    false,
+  );
+  assert.equal(
+    Number(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+        )
+        .get(bounded.id)!.n,
+    ),
+    userCount,
+  );
+  await control('stop', { sessionId: bounded.id });
   const slow = await control('create', {
     key: 'slow-output-client',
     projectId: 'project',

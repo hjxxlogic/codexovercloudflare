@@ -1,6 +1,7 @@
 #include "coc/access.hpp"
 #include "coc/approvals.hpp"
 #include "coc/build.hpp"
+#include "coc/credit.hpp"
 #include "coc/delivery.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/external.hpp"
@@ -1031,9 +1032,16 @@ public:
       if (listing_threads_)
         throw Error("BACKPRESSURE", "History query already in progress");
       auto ignore_message = [](Json) {};
-      auto process = std::make_shared<CodexProcess>(io_, config_, p["path"], ignore_message, [] {});
+      auto process = std::make_shared<CodexProcess>(
+          io_, config_, p["path"], ignore_message, [] {}, CodexProcessRole::reader);
       listing_threads_ = true;
-      process->start();
+      try {
+        process->start();
+      } catch (...) {
+        listing_threads_ = false;
+        process->close();
+        throw;
+      }
       process->initialize([this, process, p, d, done](Json, Json error) {
         if (!error.is_null()) {
           listing_threads_ = false;
@@ -1180,19 +1188,23 @@ public:
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
-    store_.save(s);
     auto rt = std::make_shared<Runtime>();
     try {
       rt->process = std::make_shared<CodexProcess>(
           io_, config_, p["path"], [this, id](Json m) { on_codex(id, m); },
           [this, id] { on_exit(id); });
-    } catch (...) {
-      s["state"] = "failed";
       store_.save(s);
+      runtimes_[id] = rt;
+      rt->process->start();
+    } catch (const std::exception &error) {
+      if (runtimes_.erase(id))
+        rt->process->close();
+      if (error_data(error).value("code", "") != "BACKPRESSURE") {
+        s["state"] = "failed";
+        store_.save(s);
+      }
       throw;
     }
-    runtimes_[id] = rt;
-    rt->process->start();
     if (s["mode"] == "cli" && !d.value("external", false)) {
       done(s, nullptr);
       return;
@@ -1563,16 +1575,16 @@ public:
   }
   void load_archive(const std::string &id, Completion done) {
     auto s = store_.get(id);
+    if (archive_loading_.count(id))
+      throw Error("BACKPRESSURE", "Archive page is already loading");
     auto existing = runtimes_.find(id);
     // Closed sessions can still fetch uncached archive pages after Agent restart.
     const bool temporary = existing == runtimes_.end() || s.value("state", "") == "closing" ||
                            s.value("state", "") == "closed" || s.value("state", "") == "failed";
-    auto process = temporary
-                       ? std::make_shared<CodexProcess>(
-                             io_, config_, project(s["projectId"])["path"], [](Json) {}, [] {})
-                       : existing->second->process;
-    if (archive_loading_.count(id))
-      throw Error("BACKPRESSURE", "Archive page is already loading");
+    auto process = temporary ? std::make_shared<CodexProcess>(
+                                   io_, config_, project(s["projectId"])["path"], [](Json) {},
+                                   [] {}, CodexProcessRole::reader)
+                             : existing->second->process;
     archive_loading_.insert(id);
     auto read = [this, id, process, temporary, done]() {
       auto s = store_.get(id);
@@ -1600,7 +1612,13 @@ public:
                        });
     };
     if (temporary) {
-      process->start();
+      try {
+        process->start();
+      } catch (...) {
+        archive_loading_.erase(id);
+        process->close();
+        throw;
+      }
       process->initialize([this, id, process, read, done](Json, Json error) {
         if (!error.is_null()) {
           archive_loading_.erase(id);
@@ -1693,6 +1711,12 @@ public:
         throw Error("FORBIDDEN", "External readers use history and queue commands");
       if (!m.is_object())
         throw Error("INVALID_REQUEST", "Invalid RPC");
+      if (m.contains("id") &&
+          ((!m.at("id").is_string() && !m.at("id").is_number_integer()) ||
+           m.at("id").dump().size() > 512 ||
+           (m.at("id").is_number_integer() &&
+            (m.at("id") < -9007199254740991LL || m.at("id") > 9007199254740991LL))))
+        throw Error("INVALID_REQUEST", "RPC ID must be a bounded string or safe integer");
       if (!m.contains("method")) {
         auto key = m.at("id").dump();
         if (!rt->approvals.count(key))
@@ -1752,7 +1776,6 @@ public:
             guarded.at("params").at("turnId") != s.at("turnId"))
           throw Error("TARGET_NOT_FOUND",
                       "The interruption does not match this runtime's original task and turn");
-        store_.delivery_cancel(id, target);
       }
       if (method == "thread/start" && rt->submitted)
         throw Error("UNSUPPORTED_ACTION", "One thread per CLI session");
@@ -1772,26 +1795,68 @@ public:
         if (s.value("running", false))
           throw Error("TURN_BUSY", "A turn is already running");
         check_busy(s);
-        rt->submitted = true;
-        s["running"] = true;
-        s.erase("turnId");
-        const auto context = rt->deliveries.find("rpc:" + m.at("id").dump());
-        if (context != rt->deliveries.end())
-          s["activeTask"] =
-              store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
-        else
-          s.erase("activeTask");
-        store_.save(s);
       }
-      if (m.contains("id"))
-        rt->requests[m["id"].dump()] = method;
-      if (method == "turn/start" || method == "turn/steer") {
-        std::string text;
-        for (auto &input : guarded["params"].value("input", Json::array()))
-          text += input.value("text", "");
-        emit(id, "user", {{"text", text}});
+      auto before_send = [this, id, rt, m, guarded, method]() {
+        if (method == "turn/interrupt")
+          store_.delivery_cancel(id, command_target(m.at("coc").at("target")));
+        if (method == "turn/start") {
+          auto current = store_.get(id);
+          rt->submitted = true;
+          current["running"] = true;
+          current.erase("turnId");
+          const auto context = rt->deliveries.find("rpc:" + m.at("id").dump());
+          if (context != rt->deliveries.end())
+            current["activeTask"] =
+                store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
+          else
+            current.erase("activeTask");
+          store_.save(current);
+        }
+        if (method == "turn/start" || method == "turn/steer") {
+          std::string text;
+          for (auto &input : guarded.at("params").value("input", Json::array()))
+            text += input.value("text", "");
+          emit(id, "user", {{"text", text}});
+        }
+      };
+      if (!m.contains("id")) {
+        // Only initialized is a supported client notification. Writes require a
+        // response identity so they can own a pending slot and a durable result.
+        if (method != "initialized")
+          throw Error("INVALID_REQUEST", "RPC requests require an ID");
+        rt->process->send(guarded);
+        return;
       }
-      rt->process->send(guarded);
+      const auto client_id = m.at("id");
+      const auto key = client_id.dump();
+      if (rt->requests.count(key))
+        throw Error("IDEMPOTENCY_CONFLICT", "RPC ID is already pending");
+      rt->requests[key] = method;
+      rt->process->request(
+          method, guarded.value("params", Json::object()),
+          [this, id, rt, client_id, key, method](Json result, Json error) {
+            rt->requests.erase(key);
+            if (!runtimes_.count(id) || runtimes_.at(id) != rt)
+              return;
+            auto current = store_.get(id);
+            if (method == "thread/start" && error.is_null() && result.contains("thread")) {
+              current["threadId"] = result.at("thread").at("id");
+              store_.save(current);
+            }
+            if (method == "turn/start" && !error.is_null() &&
+                error.value("code", "") != "RESULT_UNKNOWN") {
+              current["running"] = false;
+              store_.save(current);
+            }
+            if (error.is_null())
+              rpc(id, {{"id", client_id}, {"result", result}});
+            else
+              rpc(id, {{"id", client_id},
+                       {"error", error.value("rpc", Json{{"code", -32001},
+                                                         {"message", error.at("message")},
+                                                         {"data", error}})}});
+          },
+          before_send);
     } catch (const std::exception &e) {
       rpc(id,
           {{"id", m.is_object() ? m.value("id", Json()) : Json()},
@@ -1813,18 +1878,6 @@ public:
              {"error",
               {{"code", -32601}, {"message", "External reader does not handle approvals"}}}});
       return;
-    }
-    if (s["mode"] == "cli" && m.contains("id") && method.empty()) {
-      auto key = m["id"].dump();
-      auto req = rt->requests.find(key);
-      if (req != rt->requests.end()) {
-        if (req->second == "thread/start" && m.contains("result") && m["result"].contains("thread"))
-          s["threadId"] = m["result"]["thread"]["id"];
-        if (m.contains("error") && req->second == "turn/start")
-          s["running"] = false;
-        rt->requests.erase(req);
-        store_.save(s);
-      }
     }
     if (method == "turn/started") {
       s["running"] = true;
@@ -2033,38 +2086,43 @@ public:
         complete(nullptr, error_data(error));
         return;
       }
-      s["running"] = true;
-      const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
-      if (context != rt->deliveries.end())
-        s["activeTask"] =
-            store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
-      else
-        s.erase("activeTask");
-      s.erase("turnId");
-      store_.save(s);
-      emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
       Json params = {{"threadId", s.at("threadId")},
                      {"input", Json::array({{{"type", "text"},
                                              {"text", cmd["text"]},
                                              {"text_elements", Json::array()}}})}};
       if (cmd.contains("model"))
         params["model"] = cmd["model"];
-      rt->process->request("turn/start", params, [this, id, complete](Json result, Json error) {
-        auto current = store_.get(id);
-        if (error.is_null()) {
-          auto turn = result.at("turn").at("id");
-          if (current["running"] == true)
-            current["turnId"] = turn;
-          store_.save(current);
-          complete({{"turnId", turn}}, nullptr);
-        } else {
-          if (error.value("code", "") != "RESULT_UNKNOWN") {
-            current["running"] = false;
-            store_.save(current);
-          }
-          complete(nullptr, error);
-        }
-      });
+      rt->process->request(
+          "turn/start", params,
+          [this, id, complete](Json result, Json error) {
+            auto current = store_.get(id);
+            if (error.is_null()) {
+              auto turn = result.at("turn").at("id");
+              if (current["running"] == true)
+                current["turnId"] = turn;
+              store_.save(current);
+              complete({{"turnId", turn}}, nullptr);
+            } else {
+              if (error.value("code", "") != "RESULT_UNKNOWN") {
+                current["running"] = false;
+                store_.save(current);
+              }
+              complete(nullptr, error);
+            }
+          },
+          [this, id, rt, cmd]() {
+            auto s = store_.get(id);
+            s["running"] = true;
+            const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
+            if (context != rt->deliveries.end())
+              s["activeTask"] =
+                  store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
+            else
+              s.erase("activeTask");
+            s.erase("turnId");
+            store_.save(s);
+            emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
+          });
       return;
     }
     if (action == "interrupt") {
@@ -2394,6 +2452,7 @@ public:
                           {"historyBytes", history_usage.at("bytes")},
                           {"historyRecords", history_usage.at("records")},
                           {"projects", projects_.usage()},
+                          {"codexProcesses", CodexProcess::usage()},
                           {"eventBatches", event_batches_},
                           {"batchedEvents", event_count_},
                           {"eventBatchMaxUs", event_batch_max_us_},

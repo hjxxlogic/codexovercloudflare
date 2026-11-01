@@ -1,5 +1,16 @@
 # 本机测试记录
 
+## Codex 进程、未完成 RPC 与输入队列预算（2026-11-01，仅本机，未部署）
+
+- 完整本机构建通过，包含原生程序、网页、TypeScript 和 Worker dry-run。6 项 CTest / 26 文件 398 项 Vitest 全部通过；最终 CTest 104.91 秒，新增运行时专项 21.12 秒。ESLint / Prettier、clang-format 和生成协议检查通过。
+- `native-runtime-budget` 使用真正的 stdio 子进程，不调用模型。实际占满 16 个会话 / 4 个历史进程额度后分别拒绝额外实例；关闭及构造失败不泄漏名额。未完成 RPC 与输入队列同时验证每进程 / 全局条数、字节约束，以及普通 / priority 隔离；正在写入的帧仍计量且不被打断，随后优先写入审批回复。
+- 输入队列或 pending 满时，预发送回调不执行且两个预留均不泄漏；预发送回调报告存储错误时同样不派发。响应释放 pending；退出对所有未确认请求回报 RESULT_UNKNOWN；真实等待 20 秒超时后释放 pending，随后用原内部 ID 的迟到回复不完成新请求，也不混入客户端输出。原 Codex RPC 错误的 code / message / data 保留。
+- `test:delivery` 通过真实 Agent / 确定性 Codex。64 个普通读取 RPC 未完成时，下一个明确背压；携带原任务与 turn 的中断仍成功，并恢复所有原客户端数字 / 字符串 ID（含数字 0 与字符串 "0"）。额度释放后新读取正常；再次占满时新 turn 在运行标记、用户事件和 Codex 输入之前被拒绝，持久结果保存 BACKPRESSURE。原有去重、结果全文、精确取消、输出与历史恢复回归也通过。
+- `test:projects` 通过真实两个 Agent 和 CC。一个 Agent 的 16 个运行时占满后，第 17 个创建返回 BACKPRESSURE，session 表不新增记录；独立临时进程的线程历史查询仍成功。本机 / 远程项目管理、活动保护及重启继续通过。
+- 完整 `test:e2e` 通过真实 Wrangler / Agent / CLI / Chromium，包括控制权接管及确认丢失、审批 / 自动审批、CLI 安全边界、网页历史与输出、上传首块丢回包和面板重开恢复，以及权限撤销。
+
+日志共同前缀 `/tmp/coc-runtime-budget-`：`build-final.log`、`alltests-final.log`、`delivery-final.log`、`projects-final.log`、`e2e.log`、`lint.log`、`cpp-format.log` 与 `protocol.log`。依赖继续位于用户 `~/.local`。未运行 GitHub Actions 或 Windows 构建，未推送、发布、部署或修改生产状态。本阶段是计量预算及行为验证，不代表整机 RSS 配额或完整 R4 验收；审批集合、Web 队列、其余管理资源、真实旧程序升级及最终 0.6.0 切换仍待完成。
+
 ## 项目执行端永久身份与资源预算（2026-11-01，仅本机，未部署）
 
 - 本机原生 / 网页构建、TypeScript、5 项 CTest、26 文件 / 398 项 Vitest、ESLint / Prettier、clang-format 和生成协议检查通过。最终 CTest 79.64 秒，项目专项 14.64 秒。项目原请求按执行端选择的 local 主体或已验证的远程主体与 requestId 绑定；旧项目配置保留，旧业务 receipts 不用于新版原请求恢复。

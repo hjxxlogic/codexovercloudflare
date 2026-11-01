@@ -3,6 +3,8 @@
 
 项目执行端资源已加入独立固定预算：整个 Agent 的项目目录、按主体 / requestId 绑定的永久身份、短结果尾部、已移除项目 ID、原子替换副本和结果预留共用 16 MiB。永久身份 / 已移除 ID 各最多 1024，结果最多 16 项 / 4 MiB；保守计量同时预留原文件与一次原子替换，Linux 在下一次写入前清理并同步旧的未发布临时文件。目录创建前检查包含 available 字段的目录响应上限，先持久保存 started 与结果空间。结果尾部淘汰后返回 RESULT_UNAVAILABLE，原编号仍拒绝重开；执行中退出变为 RESULT_UNKNOWN。旧项目配置保留，旧业务 receipts 不导入新版 journal。其它运行时和管理资源仍需完整审计，不据此完成 R4。
 
+Agent 的 Codex 子进程分为最多 16 个会话进程与独立 4 个临时历史读取进程，在创建子进程和保存新会话之前预留；关闭中的对象及异步 I/O 未释放前继续计数。普通未完成 RPC 每进程最多 64 条 / 2 MiB、全局 512 条 / 16 MiB；中断独立每进程 8 条 / 512 KiB、全局 128 条 / 2 MiB。输入队列（含正在写入的帧）普通每进程 128 条 / 2 MiB、全局 1024 条 / 16 MiB；中断及审批回复独立每进程 32 条 / 512 KiB、全局 256 条 / 2 MiB，不打断已开始写入的帧，随后优先发送。字节计量包括固定元数据开销，未完成 RPC 另按参数编码的四倍加 16 KiB 预留闭包与定时器空间；条数和字节任一满即 BACKPRESSURE，不借用另一类容量。CLI 请求使用不复用的内部安全整数 ID，返回时恢复原客户端字符串 / 数字 ID；超时或进程退出后未确认结果保持 RESULT_UNKNOWN，迟到内部回复丢弃，不映射给新的请求。任务先取得请求与输入两项预留，随后才更新运行状态、记录用户事件并发送。此项只收口 Codex 进程及其 RPC / 输入资源，审批集合、Web 排队及其它管理资源仍需验收。
+
 ## 开发中的执行端业务回执
 
 A 的 transport2_operations 在执行前提交主体 / 原 requestId / Agent instance 与 action / data 摘要，重复请求返回原结果或执行中状态，进程重启后的执行中项固定为 RESULT_UNKNOWN。终态先持久化再回复，C 确认后释放正文并保留有界拒绝身份；预算为全局 128 MiB、主体 32 MiB、1024 项总身份，独立于会话窗口。Worker 为携带可信 intent 的写请求提供共享有界内存转发，owner 由鉴权绑定，结果仅携带匹配的执行端证明；停止及确认保留会话模式检查。
@@ -464,7 +466,7 @@ C++ 使用 2 空格、clang-format 和 snake_case；类名 PascalCase。TypeScri
 
 顶部功能菜单由 React 管理 CW / 管理员模式及当前功能页，两种模式只渲染对应功能入口，底部按钮切换，列表独立滚动。默认 CW，设备授权 hash 直接选择管理员模式；管理员认证仍由服务端 Cookie / API 校验。切换页面或模式保留当前会话连接与草稿，只有选择其他会话或主机才断开；异步登录 / 配对完成时仅在对应模式导航，避免覆盖用户已切换的模式。会话状态、输入可用性与审批仍由已有 Agent / WebSocket 协议控制。
 
-`GET /api/v1/hosts/:hostId/threads?projectId=...&cursor=...` 仅接受目标 A 的网页凭证。Agent 使用相同运行用户、Codex 配置和 home 启动短期 app-server，通过 `thread/list` 以注册项目 cwd 和更新时间查询非归档交互线程，每页 50 条；返回前再次校验 cwd，只转发摘要元数据与分页游标。Agent 同时只接受一个历史查询，独立于最多四个任务 runtime。
+`GET /api/v1/hosts/:hostId/threads?projectId=...&cursor=...` 仅接受目标 A 的网页凭证。Agent 使用相同运行用户、Codex 配置和 home 启动短期 app-server，通过 `thread/list` 以注册项目 cwd 和更新时间查询非归档交互线程，每页 50 条；返回前再次校验 cwd，只转发摘要元数据与分页游标。Agent 同时只接受一个历史查询，计入独立 4 个临时历史读取进程预算；最多 16 个任务 runtime。
 
 `POST /api/v1/sessions` 新增可选 `threadId`（仅 web 模式）。Agent 先检查项目、线程 ID 和活动 runtime，初始化 app-server 后用 `thread/read` 的元数据核对原 cwd，然后以固定项目目录、服务器 sandbox、`on-request` 和 `approvalsReviewer=user` 调用 `thread/resume`。恢复时使用 `excludeTurns=true` 跳过完整历史，用户 / 助手消息和工具结果随后按需分页导入本地日志，重连使用消息版本排序与去重。恢复不自动执行新轮次；错误会关闭新 runtime。CLI RPC 白名单与原有线程隔离不放宽。
 
@@ -505,7 +507,7 @@ CW 在 IndexedDB 中保存带身份范围的消息、版本同步位置、历史
 - 请求日志分 received/submitted/completed/failed；旧格式或丢确认保守视为 unknown。具体请求与结果永久保留以免长延迟重试重复执行。创建键包含凭证 hash；任务结果查询校验主机与模式。
 - 流式消息继续保留原始事件作为事实日志。小投影内联有界正文，大流使用 bodies/chunks 追加；seq 稳定，revision 递增，按字符偏移有界读取。原始事件、分块和投影同一事务提交。历史迁移按需导入旧投影。存储和业务状态运行在独立串行 Asio 执行线程；网络与心跳使用独立事件循环，跨线程入站/出站各限 8 MiB，存储故障停止接受副作用并关闭 Agent。
 - 原生 HTTP 使用统一 deadline；DNS 在独立 getent 进程执行，取消时 kill/reap，不依赖不能中断的 Asio getaddrinfo 工作线程。TLS 验证仍检查 CA 与主机名。
-- 连接入站队列按连接 8 MiB、主机 16 MiB；HTTP pending 最多 64；连接、任务 runtime 及临时归档实例无固定数量配额。历史/网页出站通过 receiptId 回执限制累计 8 MiB/1000 帧，慢端单独关闭。原生 CLI RPC 仍受平台没有通用 bufferedAmount 的限制，不宣称已测得整个平台出站内存上限。
+- 连接入站队列按连接 8 MiB、主机 16 MiB；HTTP pending 最多 64；连接数量仍受平台资源约束；任务 runtime 与临时归档进程现分别按 16 / 4 个独立预留，取代原无固定数量配额。历史/网页出站通过 receiptId 回执限制累计 8 MiB/1000 帧，慢端单独关闭。原生 CLI RPC 仍受平台没有通用 bufferedAmount 的限制，不宣称已测得整个平台出站内存上限。
 - Registry 鉴权缓存最长 5 秒/128 项，显式撤销清缓存并关闭连接，alarm 保持复核。缓存不延长凭证有效期。
 - Agent hello 报告 build/protocol/capabilities，显式不支持的 v 被拒绝；存储 schema、业务协议 1 和认证 version 2 独立。共享 JSON 样例由 C++/Zod 双方验证。
 - CW 拆出 WorkspaceHeader、ApprovalQueue、ConversationView；消息按相邻工具活动分组且默认关闭。IndexedDB v2 保留旧库，连接显式 close/versionchange；缓存以身份/主机/会话隔离；已读取历史和正文保留到用户显式清理或浏览器配额处理，不按条数/字节自动修剪。草稿和待确认身份属于操作状态。
@@ -570,6 +572,8 @@ Agent 的 Projects 组件统一处理本机和远程目录操作。dataDir/proje
 Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。管理员邮箱同时获得实例访问资格，但独立于 accessEmails。验证基于服务端邮箱与 issuer/accountId。CC login --manager 请求明确目标，经 /api/v1/auth/manager-device/:id 由已验证邮箱管理员或平台管理员核对配对码，颁发 30 天、限定实例的 CLI 身份。普通批准路径拒绝这种请求；拒绝申请可沿用原入口。每次认证重新检查当前邮箱关联或平台管理员版本；普通 CC 无法通过自报邮箱获得权限。目录管理不提权，不新增机器级文件系统隔离承诺。
 
 ### 数量配额调整（2026-10-30）
+
+此节记录旧配额移除；2026-11-01 新传输资源预算已改为最多 16 个会话 Codex 进程，另留 4 个临时历史进程，以下旧 runtime 数量规则不再作为现行容量承诺。
 
 取消 Agent 登记 5 个、runtime 4 个、runtime 与临时历史读取合计 6 个、项目和关联邮箱各 20 个、主机连接 40 条、Registry 通知连接 240 条及待处理登录申请 200 个的固定配额。Registry 与邮箱授权的完整目录扫描通过有界分页读取，兼容 D1 默认页上限；对外原有分页接口保持分页。实际容量仍受平台、内存与协议帧大小约束，并非无限资源保证。同一 dataDir 单实例、同一 Agent 身份单连接、会话控制权互斥、单个查询防重复、背压和防滥用限流保持有效。
 

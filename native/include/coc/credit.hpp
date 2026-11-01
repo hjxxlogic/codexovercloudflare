@@ -3,6 +3,24 @@
 namespace coc::credit {
 // Budgets charge payload plus conservative record/index overhead. Filesystem
 // exhaustion is still a storage fault, never a reason to acknowledge a write.
+constexpr int64_t runtime_processes = 16;
+constexpr int64_t reader_processes = 4;
+constexpr int64_t process_pending = 64;
+constexpr int64_t process_priority_pending = 8;
+constexpr int64_t process_pending_global = 512;
+constexpr int64_t process_priority_pending_global = 128;
+constexpr int64_t process_pending_bytes = 2 * 1024 * 1024;
+constexpr int64_t process_priority_pending_bytes = 512 * 1024;
+constexpr int64_t process_pending_global_bytes = 16 * 1024 * 1024;
+constexpr int64_t process_priority_pending_global_bytes = 2 * 1024 * 1024;
+constexpr int64_t process_queue_records = 128;
+constexpr int64_t process_priority_queue_records = 32;
+constexpr int64_t process_queue_global_records = 1024;
+constexpr int64_t process_priority_queue_global_records = 256;
+constexpr int64_t process_queue_bytes = 2 * 1024 * 1024;
+constexpr int64_t process_priority_queue_bytes = 512 * 1024;
+constexpr int64_t process_queue_global_bytes = 16 * 1024 * 1024;
+constexpr int64_t process_priority_queue_global_bytes = 2 * 1024 * 1024;
 constexpr int64_t record_limit = 1024;
 constexpr int64_t record_bytes = 8192;
 constexpr int64_t flow_limit = 1024;

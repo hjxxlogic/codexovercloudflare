@@ -80,6 +80,7 @@ const restoredItems = [
     status: 'completed',
   },
 ];
+const budgetHeld = [];
 let nextApproval = 100,
   turn = 0,
   approval;
@@ -200,6 +201,15 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     ['turn/start', 'turn/interrupt'].includes(m.method)
   )
     throw new Error('External writer must never be controlled');
+  if (m.method === 'model/list' && m.params?.cursor === 'runtime-budget-hold') {
+    budgetHeld.push(m);
+    return;
+  }
+  if (m.method === 'turn/interrupt' && budgetHeld.length) {
+    for (const held of budgetHeld)
+      send({ id: held.id, result: { original: held.params.marker } });
+    budgetHeld.length = 0;
+  }
   if (m.method === 'model/list') {
     result = {
       data: [

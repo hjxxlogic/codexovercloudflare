@@ -1,7 +1,10 @@
 #include "coc/process.hpp"
+#include "coc/credit.hpp"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <iostream>
+#include <mutex>
 #ifndef _WIN32
 #include <fcntl.h>
 #include <poll.h>
@@ -13,6 +16,34 @@
 #endif
 namespace coc {
 namespace {
+struct ResourceCounter {
+  size_t records = 0, bytes = 0;
+};
+struct ProcessTotals {
+  std::mutex mutex;
+  size_t runtimes = 0, readers = 0;
+  std::array<ResourceCounter, 4> used;
+};
+ProcessTotals &process_totals() {
+  static ProcessTotals totals;
+  return totals;
+}
+const std::array<size_t, 4> local_records = {
+    credit::process_pending, credit::process_priority_pending, credit::process_queue_records,
+    credit::process_priority_queue_records};
+const std::array<size_t, 4> global_records = {
+    credit::process_pending_global, credit::process_priority_pending_global,
+    credit::process_queue_global_records, credit::process_priority_queue_global_records};
+const std::array<size_t, 4> local_bytes = {
+    credit::process_pending_bytes, credit::process_priority_pending_bytes,
+    credit::process_queue_bytes, credit::process_priority_queue_bytes};
+const std::array<size_t, 4> global_bytes = {
+    credit::process_pending_global_bytes, credit::process_priority_pending_global_bytes,
+    credit::process_queue_global_bytes, credit::process_priority_queue_global_bytes};
+bool priority_message(const Json &message) {
+  return message.value("method", "") == "turn/interrupt" ||
+         (!message.contains("method") && message.contains("id"));
+}
 Json codex_environment(const Json &config) {
   Json environment = Json::object();
   const auto proxy = config.value("codexUseProxy", false) ? config.value("proxy", "") : "";
@@ -46,6 +77,73 @@ std::vector<std::string> child_environment(const Json &changes) {
 }
 #endif
 } // namespace
+struct CodexProcess::Resources : std::enable_shared_from_this<Resources> {
+  CodexProcessRole role;
+  bool active = true;
+  std::array<ResourceCounter, 4> used;
+  explicit Resources(CodexProcessRole value) : role(value) {
+    auto &totals = process_totals();
+    std::lock_guard<std::mutex> lock(totals.mutex);
+    auto &count = role == CodexProcessRole::reader ? totals.readers : totals.runtimes;
+    const auto limit =
+        role == CodexProcessRole::reader ? credit::reader_processes : credit::runtime_processes;
+    if (count >= static_cast<size_t>(limit))
+      throw Error("BACKPRESSURE", "Codex process budget exhausted");
+    ++count;
+  }
+  void release_process() {
+    auto &totals = process_totals();
+    std::lock_guard<std::mutex> lock(totals.mutex);
+    if (active) {
+      --(role == CodexProcessRole::reader ? totals.readers : totals.runtimes);
+      active = false;
+    }
+  }
+  ~Resources() { release_process(); }
+  struct Lease {
+    std::shared_ptr<Resources> owner;
+    size_t kind, bytes;
+    Lease(std::shared_ptr<Resources> value, size_t category, size_t charge)
+        : owner(std::move(value)), kind(category), bytes(charge) {
+      auto &totals = process_totals();
+      std::lock_guard<std::mutex> lock(totals.mutex);
+      auto &local = owner->used[kind];
+      auto &global = totals.used[kind];
+      if (local.records >= local_records[kind] || global.records >= global_records[kind] ||
+          bytes > local_bytes[kind] - local.bytes || bytes > global_bytes[kind] - global.bytes)
+        throw Error("BACKPRESSURE", "Codex pending or input budget exhausted");
+      ++local.records;
+      local.bytes += bytes;
+      ++global.records;
+      global.bytes += bytes;
+    }
+    ~Lease() {
+      auto &totals = process_totals();
+      std::lock_guard<std::mutex> lock(totals.mutex);
+      --owner->used[kind].records;
+      owner->used[kind].bytes -= bytes;
+      --totals.used[kind].records;
+      totals.used[kind].bytes -= bytes;
+    }
+  };
+  std::shared_ptr<void> take(size_t kind, size_t bytes) {
+    return std::make_shared<Lease>(shared_from_this(), kind, bytes);
+  }
+};
+Json CodexProcess::usage() {
+  auto &totals = process_totals();
+  std::lock_guard<std::mutex> lock(totals.mutex);
+  return {{"runtimes", totals.runtimes},
+          {"readers", totals.readers},
+          {"normalPending", totals.used[0].records},
+          {"normalPendingBytes", totals.used[0].bytes},
+          {"priorityPending", totals.used[1].records},
+          {"priorityPendingBytes", totals.used[1].bytes},
+          {"normalQueued", totals.used[2].records},
+          {"normalQueuedBytes", totals.used[2].bytes},
+          {"priorityQueued", totals.used[3].records},
+          {"priorityQueuedBytes", totals.used[3].bytes}};
+}
 #ifndef _WIN32
 std::string verify_codex(const Json &c) {
   std::vector<std::string> args = {c.at("codexPath")};
@@ -124,9 +222,10 @@ std::string verify_codex(const Json &c) {
 }
 
 CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::string &cwd,
-                           std::function<void(Json)> msg, std::function<void()> ex)
-    : io_(io), input_(io), output_(io), poll_(io), kill_(io), message_(std::move(msg)),
-      exit_(std::move(ex)) {
+                           std::function<void(Json)> msg, std::function<void()> ex,
+                           CodexProcessRole role)
+    : resources_(std::make_shared<Resources>(role)), io_(io), input_(io), output_(io), poll_(io),
+      kill_(io), message_(std::move(msg)), exit_(std::move(ex)) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
@@ -177,8 +276,19 @@ CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::strin
     throw Error("SPAWN_FAILED", "Cannot start Codex");
   }
   setpgid(pid_, pid_);
-  input_.assign(in[1]);
-  output_.assign(out[0]);
+  try {
+    input_.assign(in[1]);
+    output_.assign(out[0]);
+  } catch (...) {
+    if (!input_.is_open())
+      ::close(in[1]);
+    if (!output_.is_open())
+      ::close(out[0]);
+    ::kill(-pid_, SIGKILL);
+    while (waitpid(pid_, nullptr, 0) < 0 && errno == EINTR) {
+    }
+    throw;
+  }
 }
 CodexProcess::~CodexProcess() {
   if (pid_ > 0 && !exited_) {
@@ -204,9 +314,10 @@ std::string verify_codex(const Json &c) {
   return text;
 }
 CodexProcess::CodexProcess(asio::io_context &io, const Json &c, const std::string &cwd,
-                           std::function<void(Json)> msg, std::function<void()> ex)
-    : io_(io), input_(io), output_(io), poll_(io), kill_(io), message_(std::move(msg)),
-      exit_(std::move(ex)) {
+                           std::function<void(Json)> msg, std::function<void()> ex,
+                           CodexProcessRole role)
+    : resources_(std::make_shared<Resources>(role)), io_(io), input_(io), output_(io), poll_(io),
+      kill_(io), message_(std::move(msg)), exit_(std::move(ex)) {
   std::vector<std::string> args = {c.at("codexPath")};
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
@@ -240,64 +351,99 @@ void CodexProcess::read() {
       if (!m.is_object())
         throw Error("INVALID_FRAME", "Expected RPC object");
       if (m.contains("id") && m["id"].is_number_integer() && !m.contains("method") &&
-          self->pending_.count(m["id"].get<int>())) {
-        auto p = self->pending_.extract(m["id"].get<int>()).mapped();
+          m["id"] >= 1 && m["id"] <= 9007199254740991LL &&
+          self->pending_.count(m["id"].get<int64_t>())) {
+        auto p = self->pending_.extract(m["id"].get<int64_t>()).mapped();
         p.timer->cancel();
+        p.reservation.reset();
         if (m.contains("error"))
           p.done(nullptr, {{"code", "CODEX_ERROR"},
-                           {"message", m["error"].value("message", "Codex error")}});
+                           {"message", m["error"].value("message", "Codex error")},
+                           {"rpc", m["error"]}});
         else
           p.done(m.value("result", Json::object()), nullptr);
-      } else
-        self->message_(m);
+      } else if (m.contains("method"))
+        self->message_(m); // Late replies carry internal IDs and must never reach the client.
       self->read();
     } catch (...) {
       self->close();
     }
   });
 }
-void CodexProcess::send(const Json &m) {
-  auto s = m.dump() + "\n";
+std::shared_ptr<CodexProcess::Write> CodexProcess::prepare(const Json &message) {
   if (exited_ || closing_)
     throw Error("CODEX_EXITED", "Codex exited");
-  if (s.size() > max_frame || queued_ + s.size() > max_queue)
-    throw Error("BACKPRESSURE", "Codex input limit reached");
-  bool idle = writes_.empty();
-  queued_ += s.size();
-  writes_.push_back(std::move(s));
-  if (idle)
-    write();
+  auto body = message.dump() + "\n";
+  if (body.size() > max_frame)
+    throw Error("BACKPRESSURE", "Codex input frame limit reached");
+  const bool priority = priority_message(message);
+  auto reservation = resources_->take(priority ? 3 : 2, body.size() + 1024);
+  return std::make_shared<Write>(Write{std::move(body), std::move(reservation), priority});
 }
+void CodexProcess::enqueue(std::shared_ptr<Write> frame) {
+  (frame->priority ? priority_writes_ : writes_).push_back(std::move(frame));
+  write();
+}
+void CodexProcess::send(const Json &message) { enqueue(prepare(message)); }
 void CodexProcess::write() {
-  auto self = shared_from_this();
-  asio::async_write(input_, asio::buffer(writes_.front()), [self](auto ec, size_t) {
-    if (ec) {
-      self->close();
-      return;
-    }
-    self->queued_ -= self->writes_.front().size();
-    self->writes_.pop_front();
-    if (!self->writes_.empty())
-      self->write();
-  });
-}
-void CodexProcess::request(const std::string &m, const Json &p, Completion done) {
-  int id = ++next_;
-  auto t = std::make_shared<asio::steady_timer>(io_, std::chrono::seconds(20));
-  pending_[id] = {done, t};
-  auto self = shared_from_this();
-  t->async_wait([self, id](auto ec) {
-    if (!ec && self->pending_.count(id)) {
-      auto p = self->pending_.extract(id).mapped();
-      p.done(nullptr, {{"code", "RESULT_UNKNOWN"}, {"message", "Codex response timed out"}});
-    }
-  });
+  if (writing_ || exited_ || closing_)
+    return;
+  auto &queue = priority_writes_.empty() ? writes_ : priority_writes_;
+  if (queue.empty())
+    return;
+  auto frame = queue.front();
+  queue.pop_front();
+  writing_ = frame;
   try {
-    send({{"id", id}, {"method", m}, {"params", p}});
-  } catch (const std::exception &e) {
+    asio::async_write(input_, asio::buffer(frame->body),
+                      [self = shared_from_this(), frame](auto ec, size_t) {
+                        self->writing_.reset();
+                        frame->reservation.reset();
+                        if (ec) {
+                          self->close();
+                          return;
+                        }
+                        self->write();
+                      });
+  } catch (...) {
+    writing_.reset();
+    close();
+    throw;
+  }
+}
+void CodexProcess::request(const std::string &method, const Json &params, Completion done,
+                           const std::function<void()> &before_send) {
+  int64_t id = 0;
+  std::shared_ptr<asio::steady_timer> timer;
+  bool admitted = false;
+  try {
+    const auto bytes = params.dump().size();
+    if (bytes > max_frame || next_ >= 9007199254740991LL)
+      throw Error("BACKPRESSURE", "Codex request budget or sequence exhausted");
+    auto reservation = resources_->take(method == "turn/interrupt" ? 1 : 0, 4 * bytes + 16384);
+    id = ++next_;
+    auto frame = prepare({{"id", id}, {"method", method}, {"params", params}});
+    timer = std::make_shared<asio::steady_timer>(io_, std::chrono::seconds(20));
+    pending_[id] = {done, timer, std::move(reservation)};
+    timer->async_wait([self = shared_from_this(), id](auto ec) {
+      if (!ec && self->pending_.count(id)) {
+        auto pending = self->pending_.extract(id).mapped();
+        pending.reservation.reset();
+        pending.done(nullptr,
+                     {{"code", "RESULT_UNKNOWN"}, {"message", "Codex response timed out"}});
+      }
+    });
+    if (before_send)
+      before_send();
+    admitted = true;
+    enqueue(std::move(frame));
+  } catch (const std::exception &error) {
     pending_.erase(id);
-    t->cancel();
-    done(nullptr, error_data(e));
+    if (timer)
+      timer->cancel();
+    done(nullptr, admitted ? Json{{"code", "RESULT_UNKNOWN"},
+                                  {"message", "Codex input failed after request admission"}}
+                           : error_data(error));
   }
 }
 void CodexProcess::initialize(Completion done) {
@@ -354,11 +500,15 @@ void CodexProcess::exit() {
   boost::system::error_code ec;
   input_.close(ec);
   output_.close(ec);
+  writes_.clear();
+  priority_writes_.clear();
   auto pending = std::move(pending_);
   pending_.clear();
   for (auto &[id, p] : pending) {
     p.timer->cancel();
-    p.done(nullptr, {{"code", "CODEX_EXITED"}, {"message", "Codex process exited"}});
+    p.reservation.reset();
+    p.done(nullptr,
+           {{"code", "RESULT_UNKNOWN"}, {"message", "Codex exited before confirming the result"}});
   }
   exit_();
 }
@@ -366,6 +516,8 @@ void CodexProcess::close() {
   if (exited_ || closing_)
     return;
   closing_ = true;
+  writes_.clear();
+  priority_writes_.clear();
 #ifdef _WIN32
   child_->terminate();
 #else
