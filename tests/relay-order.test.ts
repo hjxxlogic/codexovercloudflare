@@ -1365,7 +1365,20 @@ describe('reliable session streams', () => {
   }
   it.each([
     ['web', { action: 'prompt', requestId: 'raw', text: 'must not run' }],
-    ['web', { action: 'interrupt', requestId: 'raw' }],
+    [
+      'web',
+      {
+        action: 'interrupt',
+        requestId: 'raw',
+        target: {
+          controlEpoch: 1,
+          instance: 'journal',
+          owner: 'client',
+          requestId: 'web:original',
+          stream: 'normal',
+        },
+      },
+    ],
     ['web', { action: 'autoApproval', requestId: 'raw', enabled: true }],
     [
       'web',
@@ -1426,6 +1439,47 @@ describe('reliable session streams', () => {
     );
     expect(h.client.close).not.toHaveBeenCalled();
   });
+  it.each(['raw', 'delivery'])(
+    'rejects an unbound %s interruption without forwarding or cloud writes',
+    async (mode) => {
+      const h = await connected();
+      const payload = { action: 'interrupt', requestId: 'unbound' };
+      const body = JSON.stringify(payload);
+      h.agent.send.mockClear();
+      h.client.send.mockClear();
+      const put = vi.spyOn(h.storage, 'put');
+      const remove = vi.spyOn(h.storage, 'delete');
+      await h.current.webSocketMessage(
+        h.client as unknown as WebSocket,
+        JSON.stringify(
+          mode === 'raw'
+            ? payload
+            : {
+                type: 'delivery-command',
+                instance: 'journal',
+                streamSerial: 1,
+                creditGeneration: 'generation',
+                stream: 'browser',
+                lane: 'priority',
+                seq: 1,
+                end: Buffer.byteLength(body),
+                body,
+              },
+        ),
+      );
+      expect(h.agent.send).not.toHaveBeenCalled();
+      expect(
+        h.client.send.mock.calls.map(([raw]) => JSON.parse(raw)),
+      ).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          error: expect.objectContaining({ code: 'INVALID_REQUEST' }),
+        }),
+      );
+      expect(put).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+    },
+  );
   it('rejects late CONTROL_READY after another takeover reserved and after DO reconstruction', async () => {
     const h = await connected();
     const accepted = await h.request({
@@ -1809,7 +1863,17 @@ describe('reliable session streams', () => {
   });
   it('forwards commands and reads across reconstruction without any cloud transport progress', async () => {
     const h = await connected();
-    const body = JSON.stringify({ action: 'interrupt', requestId: 'cancel' });
+    const body = JSON.stringify({
+      action: 'interrupt',
+      requestId: 'cancel',
+      target: {
+        controlEpoch: 1,
+        instance: 'journal',
+        owner: 'client',
+        requestId: 'web:original',
+        stream: 'normal',
+      },
+    });
     await h.current.webSocketMessage(
       h.client as unknown as WebSocket,
       JSON.stringify({

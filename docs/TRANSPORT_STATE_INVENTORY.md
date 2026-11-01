@@ -59,7 +59,7 @@ Worker 只接受仍匹配当前权限记录、Agent 连接及实例的 CONTROL_R
 
 A 增加 transport2_flow_owner、transport2_command_keys 和 transport2_cancel，取消验证原存储实例 / 主体 / controlEpoch / 流 / 原请求；web:<requestId>、rpc:<JSON id> 与 reply:<JSON id> 分开记录。未知目标的取消先持久保留；迟到原命令依旧推进连续接收位置，同事务生成 CANCELLED_BEFORE_START 结果，禁止派发。已开始命令只返回 started，不能由取消回执声称停止。标记每流 4 条、全局 128 条 / 64 KiB（含开销），满时明确背压；退役控制流先隔离，再释放不再可能到达的标记。
 
-网页使用 Agent 发布的 activeTask / turnId 发停止命令。CW / CC sender 的未发布取消与序号发布串行提交，已发布项不删除；诊断尾部 64 条 / 512 KiB。原生 CLI 已保存并附加中断目标，传输元数据在转交 TUI 前移除。TUI $/cancelRequest 已接入本地原子取消；已发布目标以 priority coc/cancel 提交，先到的标记阻止迟到启动。取消接收回执不伪造 turn/completed。审批现在绑定 runtime / version；CW 使用原事件证明，CLI 在输出确认前保存原证明、答复时附加，显式 HTTP / CLI 命令要求提供原证明。重复使用的 server request ID 以版本区分。R4 全局资源预留仍未完成，本段不表示完整架构已验收。
+网页使用 Agent 发布的 activeTask / turnId 发停止命令。Web interrupt.target 现在是唯一必填格式；CW 入队、Worker 转发、A 记录接收之前均校验，已移除无目标中断与任意下一 turn 的延迟中断回退。CW / CC sender 的未发布取消与序号发布串行提交，已发布项不删除；诊断尾部 64 条 / 512 KiB。原生 CLI 已保存并附加中断目标，传输元数据在转交 TUI 前移除。TUI $/cancelRequest 已接入本地原子取消；已发布目标以 priority coc/cancel 提交，先到的标记阻止迟到启动。取消接收回执不伪造 turn/completed。审批现在绑定 runtime / version；CW 使用原事件证明，CLI 在输出确认前保存原证明、答复时附加，显式 HTTP / CLI 命令要求提供原证明。重复使用的 server request ID 以版本区分。R4 全局资源预留仍未完成，本段不表示完整架构已验收。
 
 ## 资源与切换待办
 

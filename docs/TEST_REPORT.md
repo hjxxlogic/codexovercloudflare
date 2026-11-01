@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## Web 中断强制绑定原任务（2026-11-01，仅本机，未部署）
+
+- 完整 `npm run build`（本机原生 / 网页、TypeScript 与 Worker dry-run）、5 项 CTest、26 文件 / 398 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。C++ / Zod 共用中断格式样例，覆盖合法原任务、有 / 无 turnId、缺失目标及目标必要字段、非法类型和代际。
+- CW 发送器在入队前拒绝不完整目标，不改变持久队列或发送帧；Worker 对裸帧与 delivery-command 的缺失目标均拒绝，不转发或写云端状态。删除 Agent 任意当前任务 / 下一 turn 的旧中断分支及已无生产调用的旧 web fingerprint 格式化器。
+- 完整 `test:e2e` 通过真实 Worker / Agent / CLI / Chromium 的控制接管、重复命令、审批、断线恢复、上传与权限撤销；外部只读会话的中断拒绝夹具使用完整目标，没有绕过新校验。
+- `test:delivery` 通过真实 Agent / SQLite：运行中的原任务收到错误或缺少 turnId 的中断仍继续执行，准确目标可停止；缺失整个 target 的帧在接收前按 INVALID_REQUEST 拒绝并关闭无效上游连接，命令数、取消标记与接收序号 / 字节水位保持不变。首次新增测试因额外等待 WebSocket 关闭握手超时；改为等待实际格式拒绝，再直接比较持久状态后重跑通过，未改业务实现或降低状态断言。
+
+日志共同前缀 `/tmp/coc-exact-interrupt-`；依赖继续位于用户 `~/.local`。未运行 GitHub Actions、Windows 构建，未推送、发布、部署或修改生产状态。统一资源预算、真实旧程序升级及最终 0.6.0 切换仍待完成。
+
 ## 上传强制原摘要与实例（2026-11-01，仅本机，未部署）
 
 - 完整 `npm run build`（本机原生 / 网页、TypeScript 与 Worker dry-run）、5 项 CTest、26 文件 / 383 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。C++ / Zod 共用 29 项上传格式样例，覆盖 begin / finish 摘要和后续操作实例的必填、类型、长度及小写十六进制格式。

@@ -36,7 +36,7 @@ struct Runtime {
   std::string observer_error;
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
   int64_t published_revision = 0;
-  bool submitted = false, busy = false, interrupt_pending = false;
+  bool submitted = false, busy = false;
   size_t priority = 0;
   std::map<std::string, Approval> approvals;
   std::map<std::string, std::string> requests;
@@ -1835,15 +1835,6 @@ public:
                                {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
                                [](Json, Json) {});
       }
-      if (rt->interrupt_pending) {
-        rt->interrupt_pending = false;
-        rt->process->request("turn/interrupt",
-                             {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
-                             [this, id](Json, Json error) {
-                               if (!error.is_null())
-                                 notice(id, {{"type", "error"}, {"error", error}});
-                             });
-      }
     }
     if (method == "turn/completed") {
       s["running"] = false;
@@ -2069,7 +2060,7 @@ public:
       });
       return;
     }
-    if (action == "interrupt" && cmd.contains("target")) {
+    if (action == "interrupt") {
       try {
         const auto target = command_target(cmd.at("target"));
         auto original = target;
@@ -2105,13 +2096,6 @@ public:
       }
       return;
     }
-    if (action == "interrupt" && s.contains("turnId")) {
-      rt->process->request("turn/interrupt",
-                           {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}}, complete);
-      return;
-    }
-    if (action == "interrupt" && s.value("running", false))
-      rt->interrupt_pending = true;
     if (action == "approval") {
       try {
         validate_approval(rt, cmd);

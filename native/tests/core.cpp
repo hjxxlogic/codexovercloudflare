@@ -322,9 +322,17 @@ void core() {
 
   {
     Temp dir;
-    const std::string body = "{\"action\":\"interrupt\",\"requestId\":\"one\"}";
-    const auto body2 = Json{{"action", "interrupt"}, {"requestId", "two"}}.dump();
-    const auto body3 = Json{{"action", "interrupt"}, {"requestId", "six"}}.dump();
+    const Json target = {{"controlEpoch", 1},
+                         {"instance", "journal"},
+                         {"owner", "client"},
+                         {"requestId", "web:original"},
+                         {"stream", "normal"}};
+    const auto body =
+        Json{{"action", "interrupt"}, {"requestId", "one"}, {"target", target}}.dump();
+    const auto body2 =
+        Json{{"action", "interrupt"}, {"requestId", "two"}, {"target", target}}.dump();
+    const auto body3 =
+        Json{{"action", "interrupt"}, {"requestId", "six"}, {"target", target}}.dump();
     {
       Store journal(dir.path);
       check(journal.delivery_open("stream", "session", 2, max_frame)["credit"] == 2,
@@ -1254,11 +1262,6 @@ void core() {
                           true);
       },
       "UNSUPPORTED_APPROVAL");
-  check(web_fingerprint(web_command(
-            {{"action", "autoApproval"}, {"requestId", "policy"}, {"enabled", true}})) !=
-            web_fingerprint(web_command(
-                {{"action", "autoApproval"}, {"requestId", "policy"}, {"enabled", false}})),
-        "Policy deduplication distinguishes enabling from disabling");
   for (auto &fixture :
        read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/protocol-fixtures.json")) {
     if (fixture.value("error", false))
@@ -1315,21 +1318,6 @@ void core() {
                  {{"api_key", "secret"}, {"env", {{"TOKEN", "secret"}}}, {"model", "x"}}}}) ==
             Json{{"nested", {{"api_key", "[redacted]"}, {"env", Json::object()}, {"model", "x"}}}},
         "Nested credential redaction");
-  check(web_fingerprint({{"action", "approval"},
-                         {"requestId", "r"},
-                         {"approvalId", "1"},
-                         {"runtimeId", "rt"},
-                         {"approvalVersion", "v"},
-                         {"allow", false}}) ==
-            "{\"action\":\"approval\",\"requestId\":\"r\",\"approvalId\":\"1\",\"runtimeId\":"
-            "\"rt\",\"approvalVersion\":\"v\",\"allow\":false}",
-        "Approval fingerprint binds runtime and version");
-  check(
-      web_fingerprint(
-          {{"action", "prompt"}, {"requestId", "r"}, {"text", "hello"}, {"model", "model-a"}}) !=
-          web_fingerprint(
-              {{"action", "prompt"}, {"requestId", "r"}, {"text", "hello"}, {"model", "model-b"}}),
-      "Model changes must not share a prompt fingerprint");
   Temp t;
   {
     Store s(t.path);

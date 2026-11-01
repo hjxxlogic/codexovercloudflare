@@ -572,29 +572,11 @@ Json web_command(Json v) {
     out["allow"] = v["allow"];
   } else if (a != "interrupt")
     throw Error("INVALID_REQUEST", "Unknown web command");
-  if (a == "interrupt" && v.contains("target"))
+  if (a == "interrupt") {
+    if (!v.contains("target"))
+      throw Error("INVALID_REQUEST", "Interruption requires the original task identity");
     out["target"] = command_target(v.at("target"));
+  }
   return out;
-}
-std::string web_fingerprint(const Json &c) {
-  // Preserve Zod/JSON.stringify field order from the original journal.
-  std::string out =
-      "{\"action\":" + c.at("action").dump() + ",\"requestId\":" + c.at("requestId").dump();
-  if (c.at("action") == "prompt")
-    out += ",\"text\":" + c.at("text").dump();
-  if (c.at("action") == "prompt" && c.contains("model"))
-    out += ",\"model\":" + c.at("model").dump();
-  if (c.at("action") == "models" && c.contains("cursor"))
-    out += ",\"cursor\":" + c.at("cursor").dump();
-  if (c.at("action") == "approval")
-    out += ",\"approvalId\":" + c.at("approvalId").dump() +
-           ",\"runtimeId\":" + c.at("runtimeId").dump() +
-           ",\"approvalVersion\":" + c.at("approvalVersion").dump() +
-           ",\"allow\":" + c.at("allow").dump();
-  if (c.at("action") == "autoApproval")
-    out += ",\"enabled\":" + c.at("enabled").dump();
-  if (c.at("action") == "interrupt" && c.contains("target"))
-    out += ",\"target\":" + c.at("target").dump();
-  return out + "}";
 }
 } // namespace coc

@@ -381,6 +381,8 @@ export class CommandDelivery {
   }) {
     return this.enqueue(async () => {
       if (this.fatal) throw this.fatal;
+      if (command.action === 'interrupt')
+        commandTargetSchema.parse(command.target);
       if (
         this.state.cancelled?.some((v) => v.requestId === command.requestId) ||
         (command.requestId &&

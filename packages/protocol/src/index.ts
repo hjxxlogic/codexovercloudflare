@@ -216,7 +216,7 @@ export const webCommandSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('interrupt'),
     requestId: idSchema,
-    target: commandTargetSchema.optional(),
+    target: commandTargetSchema,
   }),
   z.object({
     action: z.literal('autoApproval'),

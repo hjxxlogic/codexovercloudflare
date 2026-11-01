@@ -948,7 +948,8 @@
         },
         "required": [
           "action",
-          "requestId"
+          "requestId",
+          "target"
         ],
         "additionalProperties": false
       },

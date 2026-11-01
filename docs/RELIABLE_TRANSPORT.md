@@ -28,7 +28,7 @@ CW / CC 有待办时在快速重试后持续以 30–60 秒抖动恢复，推进
 
 控制权接管已使用持久 controlEpoch、原 claim 身份与双 lane CONTROL_READY。Worker 分配 pending 时阻止旧写入，Agent 同事务隔离旧 received 命令后确认；已 started 的副作用仍保留真实结果。
 
-网页与原生 CLI 的中断绑定原任务 / turn；取消先到时保存有界标记，迟到原命令补齐序号但不执行。CLI 的 $/cancelRequest 可原子移除本机未发布项，已发布目标通过 priority coc/cancel 提交；取消回执不代表任务停止。审批绑定 runtime、原 ID 和版本，CLI 输出元数据先保存再确认，转交 TUI 前移除；显式审批参数见用户手册。
+网页 interrupt.target 必填，CW 入队前、Worker 转发前与 Agent 接收日志前校验原主体 / 控制代际 / 实例 / 流 / 请求；已知 turn 必须精确匹配。缺失目标返回 INVALID_REQUEST，不会中断当前任意任务或下一 turn。网页与原生 CLI 的中断绑定原任务 / turn；取消先到时保存有界标记，迟到原命令补齐序号但不执行。CLI 的 $/cancelRequest 可原子移除本机未发布项，已发布目标通过 priority coc/cancel 提交；取消回执不代表任务停止。审批绑定 runtime、原 ID 和版本，CLI 输出元数据先保存再确认，转交 TUI 前移除；显式审批参数见用户手册。
 
 这些新传输表、CW outbox 与 CC 接收缓存使用独立 transport2 / v2 命名空间，未导入旧传输日志。此处不代表 delivery:2 或完整 0.6.0 已实现；全局信用 / 流退役及 Worker 剩余业务去状态仍按 [盘点清单](TRANSPORT_STATE_INVENTORY.md) 推进，下文保留旧协议基线。
 历史直读和订阅已改为 Worker 纯内存关联，云端不再登记历史进度。Agent 为每个 C 保存独立订阅确认和分配身份；CW 提交本地事件 / 游标后才 ACK，恢复校验 exchange / 存储实例 / serial / generation。Agent 对未确认尾部持续重试有界 dirty 提示，C 按原 revision 补取；确认追平后停止。普通读页不增加执行身份，历史正文不按订阅复制。其它业务 Operation 及归档字段仍待迁移，完整唯一新版通道未完成。

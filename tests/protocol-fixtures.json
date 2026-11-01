@@ -81,10 +81,182 @@
       "action": "interrupt",
       "requestId": "r4"
     },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
+    },
     "output": {
       "action": "interrupt",
-      "requestId": "r4"
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
     }
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal",
+        "turnId": "turn-1"
+      }
+    },
+    "output": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal",
+        "turnId": "turn-1"
+      }
+    }
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "stream": "normal"
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original"
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": null
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {}
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal",
+        "turnId": ""
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 1,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal",
+        "turnId": 1
+      }
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "interrupt",
+      "requestId": "r4",
+      "target": {
+        "controlEpoch": 0,
+        "instance": "journal",
+        "owner": "client",
+        "requestId": "web:original",
+        "stream": "normal"
+      }
+    },
+    "error": true
   },
   {
     "input": {

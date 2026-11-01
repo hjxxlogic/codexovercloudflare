@@ -236,12 +236,33 @@ it('rolls back sequence allocation when publication cannot be committed', async 
   });
   expect(h.frames('delivery-command')[0].seq).toBe(1);
 });
+it('rejects an unbound interruption before storing or publishing it', async () => {
+  const h = harness();
+  await h.connect();
+  const before = structuredClone(h.saved());
+  for (const target of [undefined, null, {}, { turnId: 'current' }])
+    await expect(
+      h.sender.submit({ action: 'interrupt', requestId: 'unbound', target }),
+    ).rejects.toThrow();
+  expect(h.saved()).toEqual(before);
+  expect(h.frames('delivery-command')).toHaveLength(0);
+});
 it('keeps priority capacity when the normal outbox is full and has no credit', async () => {
   const h = harness();
   await h.connect(window(0, 0));
   for (let i = 0; i < 96; i++) await h.sender.submit(command('queued-' + i));
   await expect(h.sender.submit(command('overflow'))).rejects.toThrow('full');
-  await h.sender.submit({ action: 'interrupt', requestId: 'cancel' });
+  await h.sender.submit({
+    action: 'interrupt',
+    requestId: 'cancel',
+    target: {
+      controlEpoch: 1,
+      instance: 'journal',
+      owner: 'client',
+      requestId: 'web:original',
+      stream: 'normal',
+    },
+  });
   expect(h.frames('delivery-command')).toHaveLength(1);
   expect(h.frames('delivery-command')[0].lane).toBe('priority');
   expect(h.saved().normal.next).toBe(0);

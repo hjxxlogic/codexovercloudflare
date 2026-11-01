@@ -1112,7 +1112,17 @@ try {
     assert(updated.revision > changed.revision);
     const interruptId = randomUUID();
     connection.send(
-      JSON.stringify({ action: 'interrupt', requestId: interruptId }),
+      JSON.stringify({
+        action: 'interrupt',
+        requestId: interruptId,
+        target: {
+          controlEpoch: 1,
+          instance: 'journal',
+          owner: 'client',
+          requestId: 'web:original',
+          stream: 'normal',
+        },
+      }),
     );
     await wait(
       () => connection.messages.some((m) => m.requestId === interruptId),

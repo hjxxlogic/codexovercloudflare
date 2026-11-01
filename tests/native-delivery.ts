@@ -203,7 +203,17 @@ try {
     .get()!.n;
   for (const payload of [
     { action: 'prompt', requestId: 'raw-prompt', text: 'must not execute' },
-    { action: 'interrupt', requestId: 'raw-interrupt' },
+    {
+      action: 'interrupt',
+      requestId: 'raw-interrupt',
+      target: {
+        controlEpoch: 1,
+        instance: 'journal',
+        owner: 'client',
+        requestId: 'web:original',
+        stream: 'normal',
+      },
+    },
     { action: 'autoApproval', requestId: 'raw-policy', enabled: true },
     {
       action: 'approval',
@@ -528,36 +538,53 @@ try {
     runningSnapshot.session.activeTask.turnId,
     runningSnapshot.session.turnId,
   );
+  const { turnId: _turnId, ...missingTurn } =
+    runningSnapshot.session.activeTask;
+  let prioritySeq = 2;
+  for (const invalidTarget of [
+    { ...runningSnapshot.session.activeTask, turnId: 'wrong-turn' },
+    missingTurn,
+  ]) {
+    priorityEnd = mutation(
+      cancellable.id,
+      'cancel-priority',
+      'priority',
+      prioritySeq,
+      priorityEnd,
+      {
+        action: 'interrupt',
+        requestId: 'wrong-turn-' + prioritySeq,
+        target: invalidTarget,
+      },
+    );
+    await until(
+      () =>
+        database!
+          .prepare(
+            'SELECT phase FROM transport2_commands WHERE stream=? AND seq=?',
+          )
+          .get('cancel-priority', prioritySeq)?.phase === 'finished',
+    );
+    assert.equal(
+      (await control('snapshot', { sessionId: cancellable.id, mode: 'web' }))
+        .session.running,
+      true,
+      'A wrong or missing turn identity cannot interrupt the active task',
+    );
+    prioritySeq++;
+  }
   priorityEnd = mutation(
     cancellable.id,
     'cancel-priority',
     'priority',
-    2,
+    prioritySeq,
     priorityEnd,
     {
       action: 'interrupt',
-      requestId: 'wrong-turn',
-      target: { ...runningSnapshot.session.activeTask, turnId: 'wrong-turn' },
+      requestId: 'exact-stop',
+      target: runningSnapshot.session.activeTask,
     },
   );
-  await until(
-    () =>
-      database!
-        .prepare(
-          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=2',
-        )
-        .get('cancel-priority')?.phase === 'finished',
-  );
-  assert.equal(
-    (await control('snapshot', { sessionId: cancellable.id, mode: 'web' }))
-      .session.running,
-    true,
-  );
-  mutation(cancellable.id, 'cancel-priority', 'priority', 3, priorityEnd, {
-    action: 'interrupt',
-    requestId: 'exact-stop',
-    target: runningSnapshot.session.activeTask,
-  });
   await until(() =>
     frames.some(
       (frame) =>
@@ -1097,6 +1124,43 @@ try {
     abandonedCount(),
     beforeDetach,
     'Disconnected readers pause retries without deleting durable history',
+  );
+  const beforeUnbound = {
+    commands: database
+      .prepare('SELECT COUNT(*) AS n FROM transport2_commands')
+      .get()!.n,
+    cancels: database
+      .prepare('SELECT COUNT(*) AS n FROM transport2_cancel')
+      .get()!.n,
+    stream: database
+      .prepare(
+        'SELECT received, received_bytes FROM transport2_streams WHERE stream=?',
+      )
+      .get('cancel-priority'),
+  };
+  mutation(cancellable.id, 'cancel-priority', 'priority', 5, priorityEnd, {
+    action: 'interrupt',
+    requestId: 'missing-target',
+  });
+  await until(() =>
+    log.includes('Interruption requires the original task identity'),
+  );
+  assert.deepEqual(
+    {
+      commands: database
+        .prepare('SELECT COUNT(*) AS n FROM transport2_commands')
+        .get()!.n,
+      cancels: database
+        .prepare('SELECT COUNT(*) AS n FROM transport2_cancel')
+        .get()!.n,
+      stream: database
+        .prepare(
+          'SELECT received, received_bytes FROM transport2_streams WHERE stream=?',
+        )
+        .get('cancel-priority'),
+    },
+    beforeUnbound,
+    'A malformed interruption cannot consume sequence, persist a command or create a cancellation marker',
   );
   console.log(
     'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery and end-to-end history tail recovery',
