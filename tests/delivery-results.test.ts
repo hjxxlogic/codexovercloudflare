@@ -27,6 +27,8 @@ function completion(command: number, resultSeq: number, prior = 0) {
 const window = {
   stream: 'receiver',
   instance: 'journal',
+  streamSerial: 1,
+  creditGeneration: 'generation',
   received: 2,
   receivedBytes: 40,
   sent: 2,

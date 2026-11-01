@@ -1164,6 +1164,23 @@ export default {
                 ...(u.searchParams.has('instance')
                   ? { instance: idSchema.parse(u.searchParams.get('instance')) }
                   : {}),
+                ...(u.searchParams.has('streamSerial')
+                  ? {
+                      streamSerial: z.coerce
+                        .number()
+                        .int()
+                        .positive()
+                        .max(Number.MAX_SAFE_INTEGER)
+                        .parse(u.searchParams.get('streamSerial')),
+                    }
+                  : {}),
+                ...(u.searchParams.has('creditGeneration')
+                  ? {
+                      creditGeneration: idSchema.parse(
+                        u.searchParams.get('creditGeneration'),
+                      ),
+                    }
+                  : {}),
                 ...(u.searchParams.has('resultReceived')
                   ? {
                       resultReceived: z.coerce

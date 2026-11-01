@@ -11,6 +11,7 @@ import {
   webDeliveryLane,
   type DeliveryLane,
   type DeliveryWindow,
+  type DeliveryAllocation,
 } from '../../../packages/protocol/src/delivery.ts';
 
 import {
@@ -124,13 +125,16 @@ export class CommandDelivery {
         lane: DeliveryLane,
         seq?: number,
         exchangeId?: string,
-        receipt?: { instance?: string; received: number; bytes: number },
+        receipt?: Partial<DeliveryAllocation> & {
+          received: number;
+          bytes: number;
+        },
       ) => Promise<any>;
       send: (frame: unknown) => Promise<void>;
       content?: (
         stream: string,
         lane: DeliveryLane,
-        instance: string,
+        allocation: DeliveryAllocation,
         resultSeq: number,
         offset: number,
       ) => Promise<any>;
@@ -160,6 +164,23 @@ export class CommandDelivery {
       exchangeId: this.exchangeId,
       stream: this.state.stream,
       instance: this.state.normal.receiver ?? this.state.priority.receiver,
+      allocations: Object.fromEntries(
+        (['normal', 'priority'] as const).flatMap((lane) => {
+          const state = this.state[lane];
+          return state.receiver && state.streamSerial && state.creditGeneration
+            ? [
+                [
+                  lane,
+                  {
+                    instance: state.receiver,
+                    streamSerial: state.streamSerial,
+                    creditGeneration: state.creditGeneration,
+                  },
+                ],
+              ]
+            : [];
+        }),
+      ),
       receivedBytes: {
         normal: this.state.normal.results.bytes,
         priority: this.state.priority.results.bytes,
@@ -523,7 +544,7 @@ export class CommandDelivery {
                 const result = await this.transport!.content!(
                   this.state.stream,
                   lane,
-                  window.instance,
+                  window,
                   resultSeq,
                   offset,
                 );
@@ -533,6 +554,8 @@ export class CommandDelivery {
                 if (
                   result.window?.instance !== window.instance ||
                   result.window?.stream !== window.stream ||
+                  result.window?.streamSerial !== window.streamSerial ||
+                  result.window?.creditGeneration !== window.creditGeneration ||
                   chunk?.resultSeq !== resultSeq ||
                   chunk?.offset !== offset ||
                   chunk?.length !== descriptor.length ||
@@ -596,6 +619,8 @@ export class CommandDelivery {
           stream: this.state.stream,
           lane,
           instance: window.instance,
+          streamSerial: window.streamSerial,
+          creditGeneration: window.creditGeneration,
           received: state.results.received,
           receivedBytes: state.results.bytes,
         };
@@ -646,6 +671,8 @@ export class CommandDelivery {
               exchangeId,
               {
                 instance: this.state[lane].receiver,
+                streamSerial: this.state[lane].streamSerial,
+                creditGeneration: this.state[lane].creditGeneration,
                 received: this.state[lane].results.received,
                 bytes: this.state[lane].results.bytes,
               },
@@ -766,12 +793,18 @@ export class CommandDelivery {
               type: 'delivery-query',
               stream: this.state.stream,
               lane,
+              instance: window.instance,
+              streamSerial: window.streamSerial,
+              creditGeneration: window.creditGeneration,
               seq: entry.seq,
             }
           : {
               type: 'delivery-command',
               stream: this.state.stream,
               lane,
+              instance: window.instance,
+              streamSerial: window.streamSerial,
+              creditGeneration: window.creditGeneration,
               ...entry,
             };
         if (!query && this.transport) {

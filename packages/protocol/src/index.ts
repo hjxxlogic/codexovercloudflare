@@ -352,20 +352,36 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
   control('probe', z.object({})),
   control(
     'delivery',
-    z.object({
-      sessionId: sessionIdSchema,
-      mode: z.enum(['web', 'cli']),
-      stream: idSchema,
-      lane: z.enum(['normal', 'priority']),
-      exchangeId: idSchema.optional(),
-      control: controlProofSchema.optional(),
-      instance: idSchema.optional(),
-      resultReceived: sequenceSchema.nonnegative().optional(),
-      resultBytes: sequenceSchema.nonnegative().optional(),
-      contentSeq: sequenceSchema.positive().optional(),
-      offset: sequenceSchema.nonnegative().optional(),
-      seq: sequenceSchema.positive().optional(),
-    }),
+    z
+      .object({
+        sessionId: sessionIdSchema,
+        mode: z.enum(['web', 'cli']),
+        stream: idSchema,
+        lane: z.enum(['normal', 'priority']),
+        exchangeId: idSchema.optional(),
+        control: controlProofSchema.optional(),
+        instance: idSchema.optional(),
+        streamSerial: sequenceSchema.positive().optional(),
+        creditGeneration: idSchema.optional(),
+        resultReceived: sequenceSchema.nonnegative().optional(),
+        resultBytes: sequenceSchema.nonnegative().optional(),
+        contentSeq: sequenceSchema.positive().optional(),
+        offset: sequenceSchema.nonnegative().optional(),
+        seq: sequenceSchema.positive().optional(),
+      })
+      .refine(
+        (d) =>
+          d.instance && d.streamSerial && d.creditGeneration
+            ? true
+            : !!d.exchangeId &&
+              d.streamSerial === undefined &&
+              d.creditGeneration === undefined &&
+              d.seq === undefined &&
+              d.contentSeq === undefined &&
+              (d.resultReceived ?? 0) === 0 &&
+              (d.resultBytes ?? 0) === 0,
+        'Original receiver credit allocation is required',
+      ),
   ),
   control('projects', z.object({})),
   control('projectManage', projectManagementSchema),

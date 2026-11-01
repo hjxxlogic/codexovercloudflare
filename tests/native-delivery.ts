@@ -70,11 +70,40 @@ async function until(predicate: () => any, timeout = 15000) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
-function send(frame: unknown) {
+function allocation(stream: string) {
+  const window = frames
+    .map((frame) => frame.data?.window ?? frame.payload?.window)
+    .reverse()
+    .find((window: any) => window?.stream === stream);
+  assert(window, 'An original receiver allocation must exist before sending');
+  return {
+    instance: window.instance,
+    streamSerial: window.streamSerial,
+    creditGeneration: window.creditGeneration,
+  };
+}
+function send(frame: any) {
   assert(peer);
+  if (frame.delivery)
+    frame = {
+      ...frame,
+      delivery: { ...allocation(frame.delivery.stream), ...frame.delivery },
+    };
+  if (frame.type === 'delivery-receipt')
+    frame = { ...allocation(frame.stream), ...frame };
   peer.send(JSON.stringify(frame));
 }
 async function control(action: string, data: unknown = {}) {
+  if (action === 'delivery') {
+    const command = data as any;
+    const known = frames.some(
+      (frame) =>
+        (frame.data?.window ?? frame.payload?.window)?.stream ===
+        command.stream,
+    );
+    if (!command.exchangeId || known)
+      data = { ...allocation(command.stream), ...command };
+  }
   const requestId = randomUUID();
   send({ type: 'control', requestId, action, data });
   await until(() =>
@@ -156,6 +185,86 @@ try {
   assert.equal(allocation.streamSerial, 1);
   assert.equal(typeof allocation.creditGeneration, 'string');
   assert(allocation.creditGeneration.length > 0);
+  const allocationsBefore = database
+    .prepare('SELECT COUNT(*) AS count FROM transport2_credit')
+    .get()?.count;
+  for (const unsafe of [
+    { resultReceived: 1 },
+    { resultBytes: 1 },
+    { seq: 1 },
+    { contentSeq: 1, offset: 0 },
+  ]) {
+    const requestId = randomUUID();
+    send({
+      type: 'control',
+      requestId,
+      action: 'delivery',
+      data: {
+        sessionId: web.id,
+        mode: 'web',
+        stream: 'unallocated-query',
+        lane: 'normal',
+        exchangeId: randomUUID(),
+        ...unsafe,
+      },
+    });
+    await until(() =>
+      frames.some(
+        (frame) => frame.type === 'result' && frame.requestId === requestId,
+      ),
+    );
+    assert.equal(
+      frames.find((frame) => frame.requestId === requestId).error?.code,
+      'INVALID_REQUEST',
+    );
+  }
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS count FROM transport2_credit').get()
+      ?.count,
+    allocationsBefore,
+    'An unbound query or ACK cannot allocate a new receiver stream',
+  );
+  for (const field of ['instance', 'streamSerial', 'creditGeneration']) {
+    const payload = {
+      action: 'prompt',
+      requestId: 'wrong-allocation-' + field,
+      text: 'must not execute',
+    };
+    const body = JSON.stringify(payload);
+    const bad = {
+      ...allocation,
+      [field]: field === 'streamSerial' ? 999 : 'replaced',
+    };
+    const before = frames.length;
+    send({
+      type: 'web',
+      sessionId: web.id,
+      epoch: 1,
+      payload,
+      delivery: {
+        ...bad,
+        stream: 'web-normal',
+        lane: 'normal',
+        seq: 1,
+        end: Buffer.byteLength(body),
+        body,
+      },
+    });
+    await until(() =>
+      frames
+        .slice(before)
+        .some(
+          (frame) =>
+            frame.payload?.type === 'delivery-rejected' &&
+            frame.payload.error.code === 'DELIVERY_STATE_MISMATCH',
+        ),
+    );
+    assert.equal(
+      (await open(web.id, 'web', 'web-normal')).window.received,
+      0,
+      'A stale credit proof must not consume the original command slot',
+    );
+  }
   const repeatedAllocation = (await open(web.id, 'web', 'web-normal')).window;
   assert.equal(repeatedAllocation.streamSerial, allocation.streamSerial);
   assert.equal(

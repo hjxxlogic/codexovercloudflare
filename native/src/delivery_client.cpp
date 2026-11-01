@@ -38,6 +38,7 @@ Json CommandDelivery::opening() const {
       {"type", "delivery-open"},
       {"stream", stream()},
       {"exchangeId", exchange_id_},
+      {"allocations", Json::object()},
       {"received",
        {{"normal", received_results("normal")}, {"priority", received_results("priority")}}},
       {"receivedBytes",
@@ -47,6 +48,12 @@ Json CommandDelivery::opening() const {
     open["instance"] = state_["normal"]["receiver"];
   else if (state_["priority"].contains("receiver"))
     open["instance"] = state_["priority"]["receiver"];
+  for (const auto &lane : {"normal", "priority"})
+    if (state_[lane].contains("receiver")) {
+      auto allocation = state_[lane];
+      allocation["instance"] = state_[lane].at("receiver");
+      open["allocations"][lane] = delivery_allocation(allocation);
+    }
   return open;
 }
 void CommandDelivery::begin_recovery() {
@@ -338,6 +345,8 @@ Json CommandDelivery::receive_result(const std::string &lane, const Json &frame,
                {"stream", stream()},
                {"lane", lane},
                {"instance", window.at("instance")},
+               {"streamSerial", window.at("streamSerial")},
+               {"creditGeneration", window.at("creditGeneration")},
                {"resultSeq", result_seq},
                {"offset", 0}});
       }
@@ -430,6 +439,7 @@ bool CommandDelivery::receive(const Json &frame) {
         throw Error("STALE_CONTROLLER", "Agent control confirmation identity changed");
   }
   auto window = frame.at("window");
+  const auto allocation = delivery_allocation(window);
   if (frame.contains("content")) {
     const auto &chunk = frame.at("content");
     const auto result_seq = chunk.at("resultSeq").get<int64_t>();
@@ -442,6 +452,7 @@ bool CommandDelivery::receive(const Json &frame) {
     const auto part = chunk.at("body").get<std::string>();
     if (window.at("stream") != transfer.at("window").at("stream") ||
         window.at("instance") != transfer.at("window").at("instance") ||
+        delivery_allocation(window) != delivery_allocation(transfer.at("window")) ||
         chunk.at("length") != descriptor.at("length") || chunk.at("offset") != content.size() ||
         part.empty() || chunk.at("next") != content.size() + part.size() ||
         content.size() + part.size() > descriptor.at("length").get<size_t>())
@@ -466,6 +477,8 @@ bool CommandDelivery::receive(const Json &frame) {
            {"stream", stream()},
            {"lane", lane},
            {"instance", window.at("instance")},
+           {"streamSerial", window.at("streamSerial")},
+           {"creditGeneration", window.at("creditGeneration")},
            {"resultSeq", result_seq},
            {"offset", content.size()}});
     return true;
@@ -532,16 +545,8 @@ bool CommandDelivery::receive(const Json &frame) {
     }
     state["receiver"] = window.at("instance");
     state["receiverStream"] = window.at("stream");
-    if (window.contains("streamSerial")) {
-      if (!window.at("streamSerial").is_number_integer() ||
-          window.at("streamSerial").get<int64_t>() <= 0 ||
-          window.at("streamSerial").get<int64_t>() > 9007199254740991LL ||
-          !window.contains("creditGeneration") || !window.at("creditGeneration").is_string() ||
-          !valid_id(window.at("creditGeneration")))
-        throw Error("INVALID_REQUEST", "Invalid receiver credit allocation");
-      state["streamSerial"] = window.at("streamSerial");
-      state["creditGeneration"] = window.at("creditGeneration");
-    }
+    state["streamSerial"] = allocation.at("streamSerial");
+    state["creditGeneration"] = allocation.at("creditGeneration");
     state["receivedBytes"] =
         std::max(state.value("receivedBytes", int64_t(0)), window["receivedBytes"].get<int64_t>());
     if (windows_.contains(lane)) {
@@ -571,6 +576,8 @@ bool CommandDelivery::receive(const Json &frame) {
            {"stream", stream()},
            {"lane", lane},
            {"instance", window.at("instance")},
+           {"streamSerial", window.at("streamSerial")},
+           {"creditGeneration", window.at("creditGeneration")},
            {"received", received_results(lane)},
            {"receivedBytes", state_[lane]["results"]["bytes"]}});
   for (const auto &completion : completions)
@@ -628,6 +635,9 @@ void CommandDelivery::flush() {
       Json frame = {{"type", query ? "delivery-query" : "delivery-command"},
                     {"stream", stream()},
                     {"lane", lane},
+                    {"instance", window.at("instance")},
+                    {"streamSerial", window.at("streamSerial")},
+                    {"creditGeneration", window.at("creditGeneration")},
                     {"seq", entry["seq"]}};
       if (!query) {
         frame["end"] = entry["end"];

@@ -614,6 +614,7 @@ public:
     if (type == "delivery-receipt") {
       const auto stream = d.at("stream").get<std::string>();
       store_.delivery_scope(stream, id);
+      store_.delivery_verify(stream, d);
       if (d.at("instance") != store_.delivery_instance() ||
           store_.get(id).at("mode") != d.at("mode"))
         throw Error("FORBIDDEN", "Wrong result receipt scope");
@@ -669,6 +670,7 @@ public:
         throw Error("IDEMPOTENCY_CONFLICT", "Delivery body does not match forwarded command");
       Json accepted;
       try {
+        store_.delivery_verify(stream, delivery);
         accepted = store_.delivery_receive(stream, delivery.at("seq"), delivery.at("end"), body);
       } catch (const std::exception &error) {
         const auto info = error_data(error);
@@ -783,6 +785,13 @@ public:
       const bool priority = d.at("lane") == "priority";
       if (d.contains("instance") && d.at("instance") != store_.delivery_instance())
         throw Error("DELIVERY_STATE_MISMATCH", "Agent result storage instance changed");
+      if (!d.contains("exchangeId") || d.contains("seq") || d.contains("contentSeq") ||
+          d.contains("streamSerial") || d.contains("creditGeneration"))
+        store_.delivery_verify(stream, d);
+      else if (d.value("resultReceived", int64_t(0)) != 0 ||
+               d.value("resultBytes", int64_t(0)) != 0)
+        throw Error("INVALID_REQUEST",
+                    "Result acknowledgement requires the original credit allocation");
       Json control_ready;
       if (d.contains("exchangeId") && d.contains("control")) {
         const auto &proof = d.at("control");

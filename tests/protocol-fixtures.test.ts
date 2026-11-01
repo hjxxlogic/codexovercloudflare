@@ -2,13 +2,92 @@ import { describe, expect, it } from 'vitest';
 import fixtures from './protocol-fixtures.json';
 import emailFixtures from './access-email-fixtures.json';
 import operationFixtures from './operation-intent-fixtures.json';
+import allocationFixtures from './delivery-allocation-fixtures.json';
+import {
+  deliveryAllocationSchema,
+  deliveryFrameSchema,
+} from '../packages/protocol/src/delivery.ts';
 import {
   agentConfigSchema,
   accessEmailsSchema,
   webCommandSchema,
   operationIntentSchema,
+  controlCommandSchema,
 } from '../packages/protocol/src/index.ts';
 describe('shared C++/Zod protocol examples', () => {
+  it('requires the same receiver allocation identity as native validation', () => {
+    for (const fixture of allocationFixtures) {
+      const parsed = deliveryAllocationSchema.safeParse(fixture.input);
+      expect(parsed.success).toBe(!fixture.error);
+      if (parsed.success) expect(parsed.data).toEqual(fixture.output);
+    }
+    const initial = {
+      sessionId: 'host~session',
+      mode: 'web',
+      stream: 'stream',
+      lane: 'normal',
+      exchangeId: 'exchange',
+      resultReceived: 0,
+      resultBytes: 0,
+    };
+    expect(
+      controlCommandSchema.safeParse({ action: 'delivery', data: initial })
+        .success,
+    ).toBe(true);
+    for (const unsafe of [
+      { resultReceived: 1 },
+      { resultBytes: 1 },
+      { seq: 1 },
+      { contentSeq: 1, offset: 0 },
+    ]) {
+      expect(
+        controlCommandSchema.safeParse({
+          action: 'delivery',
+          data: { ...initial, ...unsafe },
+        }).success,
+      ).toBe(false);
+      expect(
+        controlCommandSchema.safeParse({
+          action: 'delivery',
+          data: {
+            ...initial,
+            ...unsafe,
+            instance: 'agent-storage',
+            streamSerial: 1,
+            creditGeneration: 'credit-generation',
+          },
+        }).success,
+      ).toBe(true);
+    }
+    for (const type of [
+      'delivery-command',
+      'delivery-query',
+      'delivery-content',
+      'delivery-receipt',
+    ]) {
+      const frame = {
+        type,
+        stream: 'stream',
+        lane: 'normal',
+        instance: 'agent-storage',
+        streamSerial: 1,
+        creditGeneration: 'credit-generation',
+        seq: 1,
+        end: 10,
+        body: '{}',
+        received: 0,
+        receivedBytes: 0,
+        resultSeq: 1,
+        offset: 0,
+      };
+      expect(deliveryFrameSchema.safeParse(frame).success).toBe(true);
+      for (const field of ['instance', 'streamSerial', 'creditGeneration']) {
+        const missing = { ...frame } as Record<string, unknown>;
+        delete missing[field];
+        expect(deliveryFrameSchema.safeParse(missing).success).toBe(false);
+      }
+    }
+  });
   it('validates original operation identities and confirmations consistently with native', () => {
     for (const fixture of operationFixtures) {
       const result = operationIntentSchema.safeParse(fixture.input);

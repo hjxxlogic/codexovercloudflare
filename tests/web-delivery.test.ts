@@ -12,6 +12,8 @@ const command = (id: string) => ({ action: 'prompt', requestId: id, text: id });
 const window = (received = 0, credit = 16, receivedBytes = 0) => ({
   stream: 'receiver',
   instance: 'journal',
+  streamSerial: 1,
+  creditGeneration: 'generation',
   received,
   receivedBytes,
   sent: 100,
@@ -105,6 +107,11 @@ it('persists unpublished commands without sequence numbers until both recovery s
   await h.snapshot('priority', { ...window(), stream: 'priority-receiver' });
   expect(h.frames('delivery-command')).toHaveLength(1);
   const first = h.frames('delivery-command')[0];
+  expect(first).toMatchObject({
+    instance: 'journal',
+    streamSerial: 1,
+    creditGeneration: 'generation',
+  });
   expect(h.saved().normal.next).toBe(1);
   await h.sender.receive({
     type: 'delivery-window',
@@ -120,6 +127,18 @@ it('persists unpublished commands without sequence numbers until both recovery s
   });
   expect(h.frames('delivery-command')).toHaveLength(2);
   expect(h.result).toHaveBeenCalledOnce();
+});
+it('rejects a window without an allocation before publishing any command', async () => {
+  for (const field of ['streamSerial', 'creditGeneration']) {
+    const h = harness();
+    await h.sender.connect(h.wire);
+    await h.sender.submit(command('held'));
+    const incomplete = { ...window() } as any;
+    delete incomplete[field];
+    await expect(h.snapshot('normal', incomplete)).rejects.toThrow();
+    expect(h.frames('delivery-command')).toHaveLength(0);
+    expect(h.saved().normal.next).toBe(0);
+  }
 });
 it('reconnects using original identities and queries accepted commands', async () => {
   const h = harness();

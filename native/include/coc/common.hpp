@@ -45,6 +45,7 @@ Json guard_cli(Json message, const std::string &cwd, const std::string &sandbox,
                const std::string &thread = "");
 Json redact(Json value);
 Json command_target(const Json &);
+Json delivery_allocation(const Json &);
 Json operation_intent(const Json &);
 Json web_command(Json value);
 std::string web_fingerprint(const Json &command);

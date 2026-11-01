@@ -3,11 +3,15 @@ import { idSchema, MAX_FRAME } from './index.ts';
 const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const deliveryLaneSchema = z.enum(['normal', 'priority']);
 export type DeliveryLane = z.infer<typeof deliveryLaneSchema>;
+export const deliveryAllocationSchema = z.object({
+  instance: idSchema,
+  streamSerial: counter.positive(),
+  creditGeneration: idSchema,
+});
+export type DeliveryAllocation = z.infer<typeof deliveryAllocationSchema>;
 export const deliveryWindowSchema = z.object({
   stream: idSchema,
-  instance: idSchema,
-  streamSerial: counter.positive().optional(),
-  creditGeneration: idSchema.optional(),
+  ...deliveryAllocationSchema.shape,
   closed: z.boolean().optional(),
   exhausted: z.boolean().optional(),
   received: counter,
@@ -24,6 +28,12 @@ export const deliveryFrameSchema = z.discriminatedUnion('type', [
     stream: idSchema,
     exchangeId: idSchema,
     instance: idSchema.optional(),
+    allocations: z
+      .object({
+        normal: deliveryAllocationSchema.optional(),
+        priority: deliveryAllocationSchema.optional(),
+      })
+      .default({}),
     received: z.object({ normal: counter, priority: counter }),
     receivedBytes: z.object({ normal: counter, priority: counter }),
   }),
@@ -31,7 +41,7 @@ export const deliveryFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('delivery-receipt'),
     stream: idSchema,
     lane: deliveryLaneSchema,
-    instance: idSchema,
+    ...deliveryAllocationSchema.shape,
     received: counter,
     receivedBytes: counter,
   }),
@@ -39,6 +49,7 @@ export const deliveryFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('delivery-command'),
     stream: idSchema,
     lane: deliveryLaneSchema,
+    ...deliveryAllocationSchema.shape,
     seq: counter.positive(),
     end: counter.positive(),
     body: z
@@ -53,7 +64,7 @@ export const deliveryFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('delivery-content'),
     stream: idSchema,
     lane: deliveryLaneSchema,
-    instance: idSchema,
+    ...deliveryAllocationSchema.shape,
     resultSeq: counter.positive(),
     offset: counter,
   }),
@@ -61,6 +72,7 @@ export const deliveryFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('delivery-query'),
     stream: idSchema,
     lane: deliveryLaneSchema,
+    ...deliveryAllocationSchema.shape,
     seq: counter.positive(),
   }),
 ]);

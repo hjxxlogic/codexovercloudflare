@@ -22,6 +22,7 @@ import {
 import {
   deliveryFrameSchema,
   deliveryWindowSchema,
+  deliveryAllocationSchema,
   deliveryResultSchema,
   transferDescriptorSchema,
   deliveryResetSchema,
@@ -32,6 +33,7 @@ const schemas = {
   managementMetadata: managementMetadataSchema,
   deliveryFrame: deliveryFrameSchema,
   deliveryWindow: deliveryWindowSchema,
+  deliveryAllocation: deliveryAllocationSchema,
   deliveryResult: deliveryResultSchema,
   transferDescriptor: transferDescriptorSchema,
   deliveryReset: deliveryResetSchema,

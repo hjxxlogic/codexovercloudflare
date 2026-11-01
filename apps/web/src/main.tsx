@@ -1667,14 +1667,14 @@ function App() {
             },
             {
               heads: observeHeads,
-              content: async (stream, lane, instance, resultSeq, offset) =>
+              content: async (stream, lane, allocation, resultSeq, offset) =>
                 readApi(
-                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}&instance=${instance}&contentSeq=${resultSeq}&offset=${offset}`,
+                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}&instance=${allocation.instance}&streamSerial=${allocation.streamSerial}&creditGeneration=${allocation.creditGeneration}&contentSeq=${resultSeq}&offset=${offset}`,
                   controller.signal,
                 ),
               read: async (stream, lane, seq, exchangeId, receipt) =>
                 readApi(
-                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}${exchangeId ? `&exchangeId=${exchangeId}` : ''}${seq === undefined ? '' : `&seq=${seq}`}${receipt ? `&resultReceived=${receipt.received}&resultBytes=${receipt.bytes}${receipt.instance ? `&instance=${receipt.instance}` : ''}` : ''}`,
+                  `/sessions/${selected.id}/delivery?stream=${stream}&lane=${lane}${exchangeId ? `&exchangeId=${exchangeId}` : ''}${seq === undefined ? '' : `&seq=${seq}`}${receipt ? `&resultReceived=${receipt.received}&resultBytes=${receipt.bytes}${receipt.instance ? `&instance=${receipt.instance}&streamSerial=${receipt.streamSerial}&creditGeneration=${receipt.creditGeneration}` : ''}` : ''}`,
                   controller.signal,
                   commandController
                     ? { 'X-CoC-Controller': commandController }

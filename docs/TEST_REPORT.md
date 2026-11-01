@@ -1,5 +1,15 @@
 # 本机测试记录
 
+## 接收端信用代际强制绑定（2026-11-01，仅本机，未部署）
+
+- `npm run build`、5 项 CTest、26 文件 / 359 项 Vitest，以及 TypeScript、ESLint / Prettier、clang-format 和生成协议检查通过。真实 `coc-agent --version` / `coc-client --version` 声明 `delivery-v2`，发行 `protocol` 仍为 1，当前是未发布开发构建。
+- 新增 19 项共享 C++ / Zod 分配证明样例，覆盖实例、正安全整数 serial、generation、缺失字段、错误类型及未知字段规范化。命令、查询、正文及结果确认缺少任一字段均拒绝；CW 在窗口不完整时不发布序号。
+- 执行端 Store 验证错误 / 跨流 / 未知流证明不修改接收位置或预留；首次 OPEN 只能使用零结果确认，不得借 exchangeId 绕过原分配查询。
+- `npm run test:delivery` 使用真实 Agent，分别伪造 instance / serial / generation，验证拒绝后原槽位仍为零；未分配查询 / 非零结果确认不生成新信用记录。其余命令、取消、分块结果、输出背压、退休流结果和历史尾部恢复回归同时通过。
+- `npm run test:ui` 与完整 `npm run test:e2e` 通过，包含真实 CC 恢复、上传故障及网页控制 / 历史 / 审批路径。首次构造 C++ 新用例时窗口小于现有 256 KiB 最小值，已修正并强制重编该测试后重新跑完整 CTest，未放宽生产约束。
+
+日志位于 `/tmp/coc-allocation-final-build.log`、`fulltests4.log`、`final-unit.log`、`native2.log`、`ui.log` 和 `e2e.log`（共同前缀 `/tmp/coc-allocation-`）。依赖仍位于用户 `~/.local`，未运行 GitHub Actions，未发布或部署；Windows 构建不在本轮范围。服务端旧写入路径与云端 Operation 业务回执清理、完整资源验收及真实旧程序升级仍未完成。
+
 ## delivery:2 准入与跨端缓存清理检查点（2026-11-01，仅本机，未部署）
 
 范围为本机源码与 Linux 构建，依赖位于用户 `~/.local`。未运行 GitHub Actions，Windows 不在本轮验收范围。以下是阶段性结果，完整 0.6.0 架构、真实旧发行程序升级及最终发行切换尚未完成。

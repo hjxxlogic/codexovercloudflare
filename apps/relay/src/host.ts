@@ -533,6 +533,8 @@ export class HostRelayDO extends DurableObject<Env> {
     instance: string,
     received: number,
     receivedBytes: number,
+    streamSerial: number,
+    creditGeneration: string,
   ) {
     const agent = this.agent();
     if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline', 503);
@@ -546,6 +548,8 @@ export class HostRelayDO extends DurableObject<Env> {
       stream,
       mode,
       instance,
+      streamSerial,
+      creditGeneration,
       received,
       receivedBytes,
     });
@@ -1513,6 +1517,12 @@ export class HostRelayDO extends DurableObject<Env> {
                 ? { exchangeId: d.exchangeId, control: proof }
                 : {}),
               ...(d.instance ? { instance: d.instance } : {}),
+              ...(d.streamSerial === undefined
+                ? {}
+                : { streamSerial: d.streamSerial }),
+              ...(d.creditGeneration === undefined
+                ? {}
+                : { creditGeneration: d.creditGeneration }),
               ...(d.contentSeq === undefined
                 ? {}
                 : { contentSeq: d.contentSeq, offset: d.offset }),
@@ -1547,6 +1557,8 @@ export class HostRelayDO extends DurableObject<Env> {
             frame.instance,
             frame.received,
             frame.receivedBytes,
+            frame.streamSerial,
+            frame.creditGeneration,
           );
           return json({ ok: true });
         }
@@ -1616,6 +1628,9 @@ export class HostRelayDO extends DurableObject<Env> {
           delivery: {
             stream,
             lane,
+            instance: frame.instance,
+            streamSerial: frame.streamSerial,
+            creditGeneration: frame.creditGeneration,
             seq: frame.seq,
             end: frame.end,
             body: frame.body,
@@ -2391,6 +2406,7 @@ export class HostRelayDO extends DurableObject<Env> {
                 exchangeId: frame.exchangeId,
                 control: this.proof(lease!),
                 instance: frame.instance,
+                ...frame.allocations[lane],
                 resultReceived: frame.received[lane],
                 resultBytes: frame.receivedBytes[lane],
                 stream: a.delivery[lane],
@@ -2413,6 +2429,8 @@ export class HostRelayDO extends DurableObject<Env> {
             frame.instance,
             frame.received,
             frame.receivedBytes,
+            frame.streamSerial,
+            frame.creditGeneration,
           );
           return;
         }
@@ -2432,12 +2450,14 @@ export class HostRelayDO extends DurableObject<Env> {
               mode: a.role,
               lane: frame.lane,
               stream,
+              instance: frame.instance,
+              streamSerial: frame.streamSerial,
+              creditGeneration: frame.creditGeneration,
               ...(frame.type === 'delivery-query'
                 ? { seq: frame.seq }
                 : {
                     contentSeq: frame.resultSeq,
                     offset: frame.offset,
-                    instance: frame.instance,
                   }),
             },
           });
@@ -2467,6 +2487,9 @@ export class HostRelayDO extends DurableObject<Env> {
           delivery: {
             stream,
             lane: frame.lane,
+            instance: frame.instance,
+            streamSerial: frame.streamSerial,
+            creditGeneration: frame.creditGeneration,
             seq: frame.seq,
             end: frame.end,
             body: frame.body,

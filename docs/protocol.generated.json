@@ -266,6 +266,61 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,100}$"
           },
+          "allocations": {
+            "default": {},
+            "type": "object",
+            "properties": {
+              "normal": {
+                "type": "object",
+                "properties": {
+                  "instance": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "streamSerial": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "creditGeneration": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  }
+                },
+                "required": [
+                  "instance",
+                  "streamSerial",
+                  "creditGeneration"
+                ],
+                "additionalProperties": false
+              },
+              "priority": {
+                "type": "object",
+                "properties": {
+                  "instance": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "streamSerial": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "creditGeneration": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  }
+                },
+                "required": [
+                  "instance",
+                  "streamSerial",
+                  "creditGeneration"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "received": {
             "type": "object",
             "properties": {
@@ -311,6 +366,7 @@
           "type",
           "stream",
           "exchangeId",
+          "allocations",
           "received",
           "receivedBytes"
         ],
@@ -338,6 +394,15 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,100}$"
           },
+          "streamSerial": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "creditGeneration": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
           "received": {
             "type": "integer",
             "minimum": 0,
@@ -354,6 +419,8 @@
           "stream",
           "lane",
           "instance",
+          "streamSerial",
+          "creditGeneration",
           "received",
           "receivedBytes"
         ],
@@ -377,6 +444,19 @@
               "priority"
             ]
           },
+          "instance": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "streamSerial": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "creditGeneration": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
           "seq": {
             "type": "integer",
             "exclusiveMinimum": 0,
@@ -397,6 +477,9 @@
           "type",
           "stream",
           "lane",
+          "instance",
+          "streamSerial",
+          "creditGeneration",
           "seq",
           "end",
           "body"
@@ -425,6 +508,15 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,100}$"
           },
+          "streamSerial": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "creditGeneration": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
           "resultSeq": {
             "type": "integer",
             "exclusiveMinimum": 0,
@@ -441,6 +533,8 @@
           "stream",
           "lane",
           "instance",
+          "streamSerial",
+          "creditGeneration",
           "resultSeq",
           "offset"
         ],
@@ -464,6 +558,19 @@
               "priority"
             ]
           },
+          "instance": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "streamSerial": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "creditGeneration": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
           "seq": {
             "type": "integer",
             "exclusiveMinimum": 0,
@@ -474,6 +581,9 @@
           "type",
           "stream",
           "lane",
+          "instance",
+          "streamSerial",
+          "creditGeneration",
           "seq"
         ],
         "additionalProperties": false
@@ -541,10 +651,37 @@
     "required": [
       "stream",
       "instance",
+      "streamSerial",
+      "creditGeneration",
       "received",
       "receivedBytes",
       "credit",
       "byteCredit"
+    ],
+    "additionalProperties": false
+  },
+  "deliveryAllocation": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "instance": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      },
+      "streamSerial": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "creditGeneration": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+      }
+    },
+    "required": [
+      "instance",
+      "streamSerial",
+      "creditGeneration"
     ],
     "additionalProperties": false
   },
@@ -1563,6 +1700,15 @@
                 "additionalProperties": false
               },
               "instance": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "streamSerial": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "creditGeneration": {
                 "type": "string",
                 "pattern": "^[a-zA-Z0-9_-]{1,100}$"
               },

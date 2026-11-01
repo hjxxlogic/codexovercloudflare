@@ -479,6 +479,22 @@ Json redact(Json v) {
     }
   return v;
 }
+Json delivery_allocation(const Json &value) {
+  if (!value.is_object())
+    throw Error("INVALID_REQUEST", "Missing receiver credit allocation");
+  Json result;
+  for (const auto &key : {"instance", "creditGeneration"}) {
+    if (!value.contains(key) || !value.at(key).is_string() || !valid_id(value.at(key)))
+      throw Error("INVALID_REQUEST", "Invalid receiver credit allocation identity");
+    result[key] = value.at(key);
+  }
+  if (!value.contains("streamSerial") || !value.at("streamSerial").is_number_integer() ||
+      value.at("streamSerial").get<int64_t>() <= 0 ||
+      value.at("streamSerial").get<int64_t>() > 9007199254740991LL)
+    throw Error("INVALID_REQUEST", "Invalid receiver allocation serial");
+  result["streamSerial"] = value.at("streamSerial");
+  return result;
+}
 Json command_target(const Json &value) {
   if (!value.is_object())
     throw Error("INVALID_REQUEST", "Invalid command target");

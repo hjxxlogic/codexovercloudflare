@@ -93,6 +93,7 @@ public:
   Json delivery_open(const std::string &stream, const std::string &session, int64_t slots,
                      int64_t bytes, const std::string &lane = "normal");
   Json delivery_window(const std::string &stream);
+  void delivery_verify(const std::string &stream, const Json &allocation);
   void delivery_close(const std::string &stream);
   void delivery_retire_session(const std::string &session);
   Json delivery_budget();

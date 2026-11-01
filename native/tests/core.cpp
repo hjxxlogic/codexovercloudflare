@@ -67,6 +67,35 @@ struct Environment {
   }
 };
 void core() {
+  for (const auto &fixture : read_json(std::filesystem::path(COC_SOURCE_DIR) /
+                                       "tests/delivery-allocation-fixtures.json")) {
+    if (fixture.value("error", false))
+      rejects([&] { delivery_allocation(fixture.at("input")); }, "INVALID_REQUEST");
+    else
+      check(delivery_allocation(fixture.at("input")) == fixture.at("output"),
+            "Shared native/Zod credit allocation identity");
+  }
+  {
+    Temp dir;
+    Store journal(dir.path);
+    journal.save({{"id", "allocation"}});
+    const auto first = journal.delivery_open("first", "allocation", 1, max_frame);
+    const auto second = journal.delivery_open("second", "allocation", 1, max_frame);
+    const auto before = journal.delivery_budget();
+    journal.delivery_verify("first", first);
+    for (const auto &field : {"instance", "streamSerial", "creditGeneration"}) {
+      auto changed = first;
+      changed[field] = std::string(field) == "streamSerial" ? Json(999) : Json("replaced");
+      rejects([&] { journal.delivery_verify("first", changed); }, "DELIVERY_STATE_MISMATCH");
+      changed.erase(field);
+      rejects([&] { journal.delivery_verify("first", changed); }, "INVALID_REQUEST");
+    }
+    rejects([&] { journal.delivery_verify("first", second); }, "DELIVERY_STATE_MISMATCH");
+    rejects([&] { journal.delivery_verify("missing", first); }, "DELIVERY_STATE_MISMATCH");
+    check(journal.delivery_budget() == before &&
+              journal.delivery_window("first").at("received") == 0,
+          "Invalid allocation proofs cannot change receiver progress or reserve new credit");
+  }
   {
     Temp dir;
     Store journal(dir.path);
@@ -86,6 +115,8 @@ void core() {
                     {"window",
                      {{"stream", "priority"},
                       {"instance", "journal"},
+                      {"streamSerial", 1},
+                      {"creditGeneration", "generation"},
                       {"received", 0},
                       {"receivedBytes", 0},
                       {"credit", 4},
@@ -96,6 +127,8 @@ void core() {
                     {"window",
                      {{"stream", "receiver"},
                       {"instance", "journal"},
+                      {"streamSerial", 1},
+                      {"creditGeneration", "generation"},
                       {"received", 0},
                       {"receivedBytes", 0},
                       {"credit", 1},
@@ -114,6 +147,8 @@ void core() {
                     {"window",
                      {{"stream", "receiver"},
                       {"instance", "journal"},
+                      {"streamSerial", 1},
+                      {"creditGeneration", "generation"},
                       {"received", 1},
                       {"receivedBytes", frame["end"]},
                       {"sent", 1},
@@ -132,6 +167,8 @@ void core() {
               .dump();
       Json result_window = {{"stream", "receiver"},
                             {"instance", "journal"},
+                            {"streamSerial", 1},
+                            {"creditGeneration", "generation"},
                             {"received", 2},
                             {"receivedBytes", command_frame.at("end")},
                             {"sent", 2},
@@ -188,6 +225,8 @@ void core() {
                                    {"window",
                                     {{"stream", lane},
                                      {"instance", "journal"},
+                                     {"streamSerial", 1},
+                                     {"creditGeneration", "generation"},
                                      {"received", received},
                                      {"receivedBytes", bytes},
                                      {"credit", credit},
@@ -209,6 +248,8 @@ void core() {
                       {"window",
                        {{"stream", "normal"},
                         {"instance", "journal"},
+                        {"streamSerial", 1},
+                        {"creditGeneration", "generation"},
                         {"received", 1},
                         {"receivedBytes", published["end"]},
                         {"credit", 3},
@@ -235,6 +276,8 @@ void core() {
                                 {"window",
                                  {{"stream", "foreign"},
                                   {"instance", "journal"},
+                                  {"streamSerial", 1},
+                                  {"creditGeneration", "generation"},
                                   {"received", 1},
                                   {"receivedBytes", published["end"]},
                                   {"credit", 3},
@@ -554,6 +597,8 @@ void core() {
                          {"window",
                           {{"stream", "normal"},
                            {"instance", "journal"},
+                           {"streamSerial", 1},
+                           {"creditGeneration", "generation"},
                            {"received", 0},
                            {"receivedBytes", 0},
                            {"credit", 2},
@@ -647,6 +692,8 @@ void core() {
                         {"window",
                          {{"stream", lane},
                           {"instance", "journal"},
+                          {"streamSerial", 1},
+                          {"creditGeneration", "generation"},
                           {"received", state.at("received")},
                           {"receivedBytes", state.value("receivedBytes", int64_t(0))},
                           {"credit", 1},
@@ -658,6 +705,7 @@ void core() {
     sender.submit({{"id", 1}, {"method", "turn/start"}});
     const auto published = frames.back();
     auto window = Json{{"stream", "normal"}, {"instance", "journal"},
+                       {"streamSerial", 1},  {"creditGeneration", "generation"},
                        {"received", 1},      {"receivedBytes", published.at("end")},
                        {"credit", 1},        {"byteCredit", 262144},
                        {"sent", 1},          {"resultBytes", 4096},

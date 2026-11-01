@@ -258,6 +258,15 @@ void Store::delivery_scope(const std::string &stream, const std::string &session
   if (rows.empty() || rows.at(0).at("session") != session)
     throw Error("FORBIDDEN", "Wrong delivery stream scope");
 }
+void Store::delivery_verify(const std::string &stream, const Json &allocation) {
+  const auto proof = delivery_allocation(allocation);
+  const auto rows =
+      query("SELECT serial,generation FROM transport2_credit WHERE stream=?", {stream});
+  if (proof.at("instance") != delivery_instance_ || rows.empty() ||
+      rows.at(0).at("serial") != proof.at("streamSerial") ||
+      rows.at(0).at("generation") != proof.at("creditGeneration"))
+    throw Error("DELIVERY_STATE_MISMATCH", "Receiver credit allocation changed");
+}
 Json Store::delivery_window(const std::string &stream) {
   const bool transaction = sqlite3_get_autocommit(db_) != 0;
   if (transaction)

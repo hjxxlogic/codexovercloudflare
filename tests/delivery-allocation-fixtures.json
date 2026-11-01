@@ -1,0 +1,160 @@
+[
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "output": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    }
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation",
+      "ignored": "removed"
+    },
+    "output": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    }
+  },
+  {
+    "input": {
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 0,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": -1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 9007199254740992,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": "1",
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": true,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": null,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "bad/id",
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": null,
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": true,
+      "streamSerial": 1,
+      "creditGeneration": "credit-generation"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": ""
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": "bad/id"
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": null
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "instance": "agent-storage",
+      "streamSerial": 1,
+      "creditGeneration": true
+    },
+    "error": true
+  }
+]

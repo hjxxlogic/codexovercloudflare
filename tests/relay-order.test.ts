@@ -1165,6 +1165,9 @@ describe('reliable session streams', () => {
     const h = await connected();
     const accepted = await h.request({
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
       controller: 'controller',
@@ -1209,6 +1212,9 @@ describe('reliable session streams', () => {
     h.storage.values.get('lease:host~reliable').active = false;
     const accepted = await h.request({
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
       controller: 'controller',
@@ -1241,6 +1247,9 @@ describe('reliable session streams', () => {
     );
     const accepted = await h.request({
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
       controller: 'controller',
@@ -1276,6 +1285,8 @@ describe('reliable session streams', () => {
       const writes = vi.spyOn(h.storage, 'put');
       const result = await h.request({
         type: 'delivery-receipt',
+        streamSerial: 1,
+        creditGeneration: 'generation',
         stream: 'browser',
         lane: 'normal',
         instance: 'journal',
@@ -1285,6 +1296,8 @@ describe('reliable session streams', () => {
       expect(result.status).toBe(200);
       expect(h.frames().at(-1)).toMatchObject({
         type: 'delivery-receipt',
+        streamSerial: 1,
+        creditGeneration: 'generation',
         sessionId: 'host~reliable',
         instance: 'journal',
         mode: 'web',
@@ -1307,6 +1320,8 @@ describe('reliable session streams', () => {
       h.client as unknown as WebSocket,
       JSON.stringify({
         type: 'delivery-content',
+        streamSerial: 1,
+        creditGeneration: 'generation',
         stream: 'browser',
         lane: 'normal',
         instance: 'journal',
@@ -1319,16 +1334,17 @@ describe('reliable session streams', () => {
     expect(frame.data).toMatchObject({
       mode: 'web',
       sessionId: 'host~reliable',
-      instance: 'journal',
       contentSeq: 2,
       offset: 16384,
     });
     expect(frame.data.stream).not.toBe('browser');
     const read = await h.request({
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
-      instance: 'journal',
       contentSeq: 2,
       offset: 16384,
     });
@@ -1340,9 +1356,11 @@ describe('reliable session streams', () => {
       (
         await h.request({
           operation: 'read',
+          instance: 'journal',
+          streamSerial: 1,
+          creditGeneration: 'generation',
           stream: 'browser',
           lane: 'normal',
-          instance: 'journal',
           contentSeq: 2,
           offset: -1,
         })
@@ -1354,9 +1372,11 @@ describe('reliable session streams', () => {
     const writes = vi.spyOn(h.storage, 'put');
     const query = {
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
-      instance: 'journal',
       resultReceived: 0,
       resultBytes: 0,
     };
@@ -1529,6 +1549,9 @@ describe('reliable session streams', () => {
       h.client as unknown as WebSocket,
       JSON.stringify({
         type: 'delivery-command',
+        streamSerial: 1,
+        creditGeneration: 'generation',
+        instance: 'journal',
         stream: 'browser',
         lane: 'priority',
         seq: 1,
@@ -1586,6 +1609,9 @@ describe('reliable session streams', () => {
     });
     const frame = {
       type: 'delivery-command',
+      streamSerial: 1,
+      creditGeneration: 'generation',
+      instance: 'journal',
       stream: 'browser',
       lane: 'normal',
       seq: 1,
@@ -1612,6 +1638,9 @@ describe('reliable session streams', () => {
     expect((await h.request(frame)).status).toBe(409);
     const read = await h.request({
       operation: 'read',
+      instance: 'journal',
+      streamSerial: 1,
+      creditGeneration: 'generation',
       stream: 'browser',
       lane: 'normal',
       seq: 1,
@@ -1627,6 +1656,9 @@ describe('reliable session streams', () => {
       (
         await h.request({
           type: 'delivery-command',
+          streamSerial: 1,
+          creditGeneration: 'generation',
+          instance: 'journal',
           stream: 'browser',
           lane: 'normal',
           seq: 1,
@@ -1640,6 +1672,8 @@ describe('reliable session streams', () => {
       (
         await h.request({
           type: 'delivery-receipt',
+          streamSerial: 1,
+          creditGeneration: 'generation',
           stream: 'browser',
           lane: 'normal',
           received: 100,
