@@ -1,5 +1,9 @@
 # 本机测试记录
 
+## 原生恢复策略验证（2026-11-01，第五批）
+
+原生构建、7 项 CTest、27 文件/414 项 Vitest、真实 Agent/CLI 原请求测试及全部静态检查通过。HistorySubscription 接入后再次构建并通过 native-core（含历史订阅测试）。共享延迟样例覆盖两种快速预算、慢速端点和计数上界；原请求测试覆盖结果/确认丢失、重启、实例替换和未知结果不重做。日志 `/tmp/coc-recovery-native-{build,test,operations,lint}.log`、`/tmp/coc-recovery-history-{build,test}.log`。未发布部署。
+
 ## 结果处理重复计算验证（2026-11-01，第四批）
 
 原生构建、7 项 CTest、真实 Agent `test:delivery`、TypeScript、协议生成一致性、C++ 格式及 ESLint/Prettier 通过。新增真实端点断言：结果已确认后，恢复请求报告旧水位 0 仍返回 DELIVERY_STATE_MISMATCH；原有 ACK 回收、transfer 全文、关闭流结果、历史尾部恢复测试通过。日志 `/tmp/coc-result-work-{build,test,delivery,lint}.log`。

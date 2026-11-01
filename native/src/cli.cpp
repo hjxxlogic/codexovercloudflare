@@ -5,6 +5,7 @@
 #include "coc/login.hpp"
 #include "coc/projects.hpp"
 #include "coc/proxy.hpp"
+#include "coc/recovery.hpp"
 #include "coc/remote_config.hpp"
 #include "coc/store.hpp"
 #include "coc/tui_bridge.hpp"
@@ -14,7 +15,6 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <sstream>
 #ifndef _WIN32
@@ -124,7 +124,8 @@ class Cli {
     const auto instance = record.at("instance").get<std::string>();
     std::cerr << "Original operation: " << request << "; recover with coc-client request "
               << request << '\n';
-    for (unsigned attempt = 0; record.at("state") == "pending"; ++attempt) {
+    for (unsigned attempt = 0; record.at("state") == "pending";
+         attempt = std::min(3U, attempt + 1)) {
       HttpIntent intent{instance, false, [&](const Json &envelope, const Json &receipt) {
                           journal->local_operation_finish(request, envelope, receipt);
                         }};
@@ -134,17 +135,12 @@ class Cli {
         record = journal->local_operation(request);
         if (record.at("state") != "pending")
           break;
-        if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK" &&
-            error.code != "RESULT_UNKNOWN" && error.code != "RESULT_PENDING" &&
-            error.code != "HOST_OFFLINE" && error.code != "AGENT_NEGOTIATING" &&
-            error.code != "BACKPRESSURE")
+        if (!retry_original_operation(error.code))
           throw;
-        const auto delay = attempt < 3
-                               ? (1u << attempt)
-                               : 30u + unsigned(std::stoul(uuid().substr(0, 4), nullptr, 16) % 31);
+        const auto delay = recovery_delay(attempt);
         std::cerr << "Waiting to recover original operation " << request << " (" << error.code
-                  << "); retry in " << delay << " seconds\n";
-        std::this_thread::sleep_for(std::chrono::seconds(delay));
+                  << "); retry in " << delay << " ms\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         continue;
       }
       record = journal->local_operation(request);
@@ -162,7 +158,7 @@ class Cli {
               throw Error("DELIVERY_STATE_MISMATCH", "Invalid original result confirmation");
             journal->local_operation_confirm(request);
           }};
-      for (unsigned attempt = 0;; ++attempt) {
+      for (unsigned attempt = 0;; attempt = std::min(3U, attempt + 1)) {
         try {
           http_json(url, "/api/v1" + path, body, token, request, std::chrono::seconds(30),
                     &confirmation);
@@ -170,17 +166,12 @@ class Cli {
         } catch (const Error &error) {
           if (journal->local_operation(request).at("state") == "confirmed")
             break;
-          if (error.code != "HTTP_TIMEOUT" && error.code != "HTTP_NETWORK" &&
-              error.code != "RESULT_UNKNOWN" && error.code != "RESULT_PENDING" &&
-              error.code != "HOST_OFFLINE" && error.code != "AGENT_NEGOTIATING" &&
-              error.code != "BACKPRESSURE")
+          if (!retry_original_operation(error.code))
             throw;
-          const auto delay =
-              attempt < 3 ? (1u << attempt)
-                          : 30u + unsigned(std::stoul(uuid().substr(0, 4), nullptr, 16) % 31);
+          const auto delay = recovery_delay(attempt);
           std::cerr << "Original result saved locally; waiting to confirm " << request << " ("
-                    << error.code << "); retry in " << delay << " seconds\n";
-          std::this_thread::sleep_for(std::chrono::seconds(delay));
+                    << error.code << "); retry in " << delay << " ms\n";
+          std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         }
       }
     }
@@ -577,10 +568,8 @@ class Cli {
             history_ready = false;
             history_pending = false;
             reconnect_reader = true;
-            unsigned char random = 0;
-            RAND_bytes(&random, 1);
-            reader_retry_at = now() + (reader_attempts < 3 ? (1000 << reader_attempts++)
-                                                           : 30000 + 30000 * random / 255);
+            reader_retry_at = now() + recovery_delay(reader_attempts);
+            reader_attempts = std::min(reader_attempts + 1, 3);
           },
           "/ws/v1/history/" + id);
       reader->start();

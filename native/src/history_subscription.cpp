@@ -1,5 +1,5 @@
 #include "coc/history_subscription.hpp"
-#include <openssl/rand.h>
+#include "coc/recovery.hpp"
 namespace coc {
 namespace {
 bool history_revision(const Json &d, const std::string &field) {
@@ -63,9 +63,8 @@ void HistorySubscription::transmit() {
   frame["receivedRevision"] = pending_;
   published_ = std::max(published_, pending_);
   send_(frame);
-  unsigned char random = 0;
-  RAND_bytes(&random, 1);
-  const auto delay = attempts_ < 3 ? (1000 << attempts_++) : 30000 + 30000 * random / 255;
+  const auto delay = recovery_delay(attempts_);
+  attempts_ = std::min(attempts_ + 1, 3);
   retry_.expires_after(std::chrono::milliseconds(delay));
   retry_.async_wait([this](auto ec) {
     if (ec)

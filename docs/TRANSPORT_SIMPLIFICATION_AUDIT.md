@@ -54,3 +54,9 @@ CW/CC 现在都在连续前缀推进时，将结果从 buffer 移到 cache。操
 审计 Agent.control(delivery)、Store.delivery_results/result_ack/result_state、credit 释放路径及真实端点测试后，保留第一次 delivery_results 的水位回退校验和所读结果页，ACK 后直接移动该页到响应；不再第二次查询并构建同一后缀页。Agent 同步控制段内没有异步让出；ACK 仅回收 resultSeq≤received 的前缀，页查询仅返回 resultSeq>received 的后缀。ACK 校验/提交失败仍不返回成功响应，窗口仍在 ACK 后重新取得。没有删除在线 ACK 与恢复快照的不同规则，新增真实 Agent 断言恢复快照回退仍被拒绝。
 
 transfer 描述符的 contentId/digest 本来由同一个固定 full_body 分别计算 SHA-256；现在仅计算一次供两个字段复用。字段、字节编码、内容校验和保留周期不变；没有为了删除 wire 字段引入版本迁移。每个相关恢复请求减少一次结果头读取/幂等写入及结果页查询/JSON 构建，每个 transfer 结果减少一次全文 SHA-256。未宣称生产延迟或费用收益。
+
+## 第五批：原生恢复策略收敛及跨语言样例
+
+原生 CLI 的原请求发送/确认、历史连接、HistorySubscription、Agent 历史通知与 TUI 信用恢复复用 recovery.hpp 的延迟策略；CLI 两处相同的可恢复错误集合也共用一个判定。三次/五次快速尝试和 30–60 秒慢速区间保留。attempt 达阈值后饱和，避免长期运行计数回绕；延迟为运行时派生状态，不新增持久字段。慢速抖动统一为毫秒级均匀采样，随机数仅用于调度，不用于身份/权限。Agent 连接准入的退避有不同生命周期，未强行改成可靠待办的无限恢复策略。
+
+C++/TS 共用 recovery-delay-fixtures.json，涵盖快速阈值、10 秒快重试上限、慢速区间端点和最大 32 位计数。停止、同伴锁、在途限制、信用查询、对原结果确认等仍由既有适配器负责；公共延迟策略不拥有业务执行资格。CLI 诊断输出改为毫秒。不同业务适配器保留并非未完成的重复调度器重写，不引入通用工作流框架。

@@ -8,6 +8,7 @@
 #include "coc/history_subscription.hpp"
 #include "coc/network.hpp"
 #include "coc/process.hpp"
+#include "coc/recovery.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
 #include "external-approvals.hpp"
@@ -67,6 +68,17 @@ struct Environment {
   }
 };
 void core() {
+  for (const auto &sample :
+       read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/recovery-delay-fixtures.json"))
+    check(recovery_delay(sample.at("attempt"), sample.at("fast"), sample.at("jitter")) ==
+              sample.at("delay"),
+          "Shared recovery timing fixture");
+  for (const auto &code : {"HTTP_TIMEOUT", "HTTP_NETWORK", "RESULT_UNKNOWN", "RESULT_PENDING",
+                           "HOST_OFFLINE", "AGENT_NEGOTIATING", "BACKPRESSURE"})
+    check(retry_original_operation(code), "Original transport uncertainty remains recoverable");
+  for (const auto &code :
+       {"FORBIDDEN", "UNAUTHORIZED", "DELIVERY_STATE_MISMATCH", "RESULT_UNAVAILABLE"})
+    check(!retry_original_operation(code), "Permanent refusal cannot retry the original operation");
   for (const auto &fixture : read_json(std::filesystem::path(COC_SOURCE_DIR) /
                                        "tests/delivery-allocation-fixtures.json")) {
     if (fixture.value("error", false))

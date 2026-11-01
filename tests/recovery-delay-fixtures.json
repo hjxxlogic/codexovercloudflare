@@ -1,0 +1,290 @@
+[
+  {
+    "attempt": 0,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 1000
+  },
+  {
+    "attempt": 0,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 1000
+  },
+  {
+    "attempt": 0,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 1000
+  },
+  {
+    "attempt": 1,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 2000
+  },
+  {
+    "attempt": 1,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 2000
+  },
+  {
+    "attempt": 1,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 2000
+  },
+  {
+    "attempt": 2,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 4000
+  },
+  {
+    "attempt": 2,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 4000
+  },
+  {
+    "attempt": 2,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 4000
+  },
+  {
+    "attempt": 3,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 3,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 3,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 4,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 4,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 4,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 5,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 5,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 5,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 100,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 100,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 100,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 3,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 3,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 3,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 0,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 1000
+  },
+  {
+    "attempt": 0,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 1000
+  },
+  {
+    "attempt": 0,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 1000
+  },
+  {
+    "attempt": 1,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 2000
+  },
+  {
+    "attempt": 1,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 2000
+  },
+  {
+    "attempt": 1,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 2000
+  },
+  {
+    "attempt": 2,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 4000
+  },
+  {
+    "attempt": 2,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 4000
+  },
+  {
+    "attempt": 2,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 4000
+  },
+  {
+    "attempt": 3,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 8000
+  },
+  {
+    "attempt": 3,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 8000
+  },
+  {
+    "attempt": 3,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 8000
+  },
+  {
+    "attempt": 4,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 10000
+  },
+  {
+    "attempt": 4,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 10000
+  },
+  {
+    "attempt": 4,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 10000
+  },
+  {
+    "attempt": 5,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 5,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 5,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 100,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 100,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 100,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 60000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 5,
+    "jitter": 0,
+    "delay": 30000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 5,
+    "jitter": 15000,
+    "delay": 45000
+  },
+  {
+    "attempt": 4294967295,
+    "fast": 5,
+    "jitter": 30000,
+    "delay": 60000
+  }
+]

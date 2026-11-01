@@ -9,6 +9,7 @@
 #include "coc/login.hpp"
 #include "coc/projects.hpp"
 #include "coc/proxy.hpp"
+#include "coc/recovery.hpp"
 #include "coc/remote_config.hpp"
 #include "coc/store.hpp"
 #include "coc/update.hpp"
@@ -411,9 +412,7 @@ public:
           {"route", route.at("route")},
           {"payload", state}});
     const auto attempt = route.value("attempts", 0);
-    unsigned char random = 0;
-    RAND_bytes(&random, 1);
-    route["retryAt"] = now() + (attempt < 3 ? (1000 << attempt) : 30000 + 30000 * random / 255);
+    route["retryAt"] = now() + recovery_delay(attempt);
     route["attempts"] = std::min(attempt + 1, 3);
   }
   void publish(const std::string &id, const Json &event) {

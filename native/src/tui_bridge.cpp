@@ -1,9 +1,9 @@
 #include "coc/tui_bridge.hpp"
 #include "coc/delivery.hpp"
+#include "coc/recovery.hpp"
 #include <boost/asio/thread_pool.hpp>
 #include <boost/beast.hpp>
 #include <iostream>
-#include <random>
 namespace coc {
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -240,10 +240,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
         (!delivery_->pending() && delivery_->ready()))
       return;
     credit_pending_ = true;
-    static thread_local std::mt19937 jitter(std::random_device{}());
-    const auto delay = credit_attempts_ < 5
-                           ? std::min(10000U, 1000U << credit_attempts_)
-                           : 30000U + std::uniform_int_distribution<unsigned>(0, 30000)(jitter);
+    const auto delay = recovery_delay(credit_attempts_, 5);
     credit_timer_.expires_after(std::chrono::milliseconds(delay));
     auto self = shared_from_this();
     credit_timer_.async_wait([self](auto ec) {
