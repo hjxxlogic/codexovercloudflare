@@ -1046,12 +1046,7 @@ export default {
               'Session mode must match credential role',
               403,
             );
-          d.key = z
-            .string()
-            .min(1)
-            .max(100)
-            .parse(req.headers.get('idempotency-key'));
-          d.key = auth.hash + ':' + d.key;
+          idSchema.parse(req.headers.get('idempotency-key'));
         }
         if (req.method === 'GET') d.mode = auth.role;
         return hostStub(env, hostId).fetch(
@@ -1112,28 +1107,6 @@ export default {
           }),
         );
       }
-      const operation = p.match(
-        /^\/api\/v1\/hosts\/([\w-]+)\/requests\/([\w-]+)$/,
-      );
-      if (operation && req.method === 'GET') {
-        const auth = await authenticate(req, env, operation[1]);
-        const sessionId = u.searchParams.get('sessionId');
-        if (sessionId && !sessionId.startsWith(operation[1] + '~'))
-          throw new AppError('FORBIDDEN', 'Wrong host', 403);
-        return hostStub(env, operation[1]).fetch(
-          internal(req, '/control', auth, operation[1], {
-            action: 'request',
-            data: {
-              requestId: sessionId
-                ? operation[2]
-                : auth.hash + ':' + operation[2],
-              mode: auth.role,
-              ...(sessionId ? { sessionId } : {}),
-            },
-          }),
-        );
-      }
-
       const delivery = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/delivery$/);
       if (delivery && ['GET', 'POST'].includes(req.method)) {
         const hostId = idSchema.parse(delivery[1].split('~')[0]);

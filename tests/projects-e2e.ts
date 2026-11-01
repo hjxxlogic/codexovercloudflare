@@ -1,5 +1,7 @@
 // Real Worker, native Agent/CC and Chromium. Temporary state; no model or production calls.
 import assert from 'node:assert/strict';
+import { OriginalHttpRequests } from './helpers/original-http.ts';
+const originals = new OriginalHttpRequests();
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -68,13 +70,14 @@ async function wait(
   throw new Error('Timeout: ' + label);
 }
 async function api(path: string, data?: unknown) {
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-CoC-Async': '1',
     'X-CoC-Delivery': '2',
     Origin: origin,
     Authorization: 'Bearer ' + owner,
   };
+  await originals.prepare(path, data, headers, (probe) => api(probe, {}));
   const res = await fetch(origin + '/api/v1' + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers,

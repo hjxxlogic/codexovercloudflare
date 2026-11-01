@@ -25,6 +25,7 @@ import {
   controlCommandSchema,
   controlProofSchema,
   operationIntentSchema,
+  operationWrite,
   type OperationIntent,
   type ControlProof,
   parseFrame,
@@ -533,7 +534,10 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   async command(action: string, data: any, operation: Operation) {
-    data = controlCommandSchema.parse({ action, data }).data;
+    const parsed = controlCommandSchema.safeParse({ action, data });
+    if (!parsed.success)
+      throw new AppError('INVALID_REQUEST', 'Invalid control command');
+    data = parsed.data.data;
     if (
       action === 'history' &&
       ['subscribe', 'ack', 'retire'].includes(data.operation)
@@ -570,6 +574,12 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.authorized(agent.auth.hash);
     if (agent.epoch !== (await this.storage.get('agentEpoch')))
       throw new AppError('STALE_AGENT', 'Agent replaced', 409);
+    if (operationWrite(action, data) && !operation.intent)
+      throw new AppError(
+        'UPGRADE_REQUIRED',
+        'Write commands require a persisted original operation',
+        409,
+      );
     if (
       operation.intent &&
       operation.intent.instance !== agent.deliveryInstance

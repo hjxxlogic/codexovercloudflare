@@ -22,8 +22,8 @@
 
 | 入口 | 已有执行端机制 | 仍需改造 / 验证 |
 | --- | --- | --- |
-| 会话创建 | Agent `create:<key>` 的 begin / finish 持久记录可返回原 sessionId | C 首发前持久原 key；与主体 / 作用域绑定；去除云端正文与结果回执依赖，验证创建响应丢失后重查 |
-| 停止会话 | Agent 会话状态与 stop 执行 | 引入原请求身份、持久终态和查询；不从传输超时推断已停止 |
+| 会话创建 | transport2_operations 绑定主体 / 原 requestId / Agent 实例，返回原 sessionId | 已强制首发持久意图，删除 create.key 及旧 requests 副本；已验证丢回复、重启重查和实例冲突，仍需完整切换验收 |
+| 停止会话 | Agent 会话状态与 transport2_operations 原结果 | 已强制原请求证明、持久终态和原意图恢复；不从传输超时推断已停止 |
 | 项目修改 | Agent 项目注册表与管理授权 | 为修改保存原请求及固定内容、结果；重试不能变成新的修改；查询保留原授权检查 |
 | 文件上传 | Agent uploadId、版本、偏移、分块重复校验和完成 cache；临时文件 fsync | C 首发身份落盘，故障后查原 uploadId；已发布但回执不明返回未知，不覆盖新版本；Windows 路径同验 |
 | 会话任务 / 写 RPC | A 命令日志、CW/CC 持久 outbox，received / started / finished | 独立结果、控制代际、精确取消、命令 / 结果预留及有界流退役已接入；仍需完整授权生命周期和唯一新版协议 |
@@ -155,3 +155,10 @@ WINDOW 必须包含 Agent instance、streamSerial 和 creditGeneration；CW / CC
 所有非 ticket / attach 请求共用 128 条 / 8 MiB 的内存关联，pending / completed 最多各保留 20 秒。创建、停止、排队、审批、项目修改与读查询均不再写 operation / part / wire 或到期索引；Worker 重建后原临时编号返回 RESULT_UNKNOWN，由端点原请求账本恢复。未删除 Agent 的旧业务分支，此阶段不代表 P1 / P4 全部完成。
 
 权限握手使用 permission_ 编号和独立 permission-operation / permission-wire 命名空间；最多 64 条 pending、256 条总记录，每条 JSON UTF-8 不超过 16 KiB。输入仅保留 sessionId、takeover、claimId、resume、delivery，get 返回仅保存 mode / sandbox，不复制标题、历史或完整会话。权限结果、wire 替换及到期索引同事务保存，重建恢复到期调度，不再拆分正文。D1 只离线读取 / 确认这类权限回执，所有业务查询回到活跃 Host 的有界内存。旧 operation / part / wire 和相应 due 无法再被归档或恢复，租约 / epoch / ticket 保留；未修改线上数据库。
+
+
+## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
+
+Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 begin / finish 强制要求原请求 intent，缺失证明在执行副作用前返回 UPGRADE_REQUIRED。读取、ticket / attach、可靠会话 OPEN 和按原上传编号 / 偏移校验的 chunk / cancel 不进入此 HTTP 原请求账本；读取携带写证明仍拒绝。两端使用同一组 23 项分类样例，Worker 保留会话模式与项目管理授权检查。
+
+会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支尚待移除，完整 P1 / P4 仍未完成。

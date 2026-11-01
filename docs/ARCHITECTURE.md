@@ -12,6 +12,13 @@ CC 的创建 / 观察、停止、排队、审批及项目修改已接入 transpo
 
 Worker 的全部非 ticket / attach 请求现均只使用 128 条 / 8 MiB 的内存关联，pending / completed 各最多 20 秒，不持久保存业务正文或结果。权限事务使用独立 permission-operation / permission-wire，最多 64 条 pending / 256 条总记录，每条 16 KiB；输入仅保留准入字段，get 仅保存 mode / sandbox。记录、wire 和到期索引同事务提交，重建恢复到期调度；D1 离线读取 / 确认仅适用于权限事务。归档与恢复过滤旧业务 operation / part / wire 及对应 due，租约和 epoch 继续保留。执行端旧业务分支和最终资源 / 升级验收仍待完成。
 
+
+## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
+
+Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 begin / finish 强制要求原请求 intent，缺失证明在执行副作用前返回 UPGRADE_REQUIRED。读取、ticket / attach、可靠会话 OPEN 和按原上传编号 / 偏移校验的 chunk / cancel 不进入此 HTTP 原请求账本；读取携带写证明仍拒绝。两端使用同一组 23 项分类样例，Worker 保留会话模式与项目管理授权检查。
+
+会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支尚待移除，完整 P1 / P4 仍未完成。
+
 ## 在线配置管理通道
 
 平台 owner 经 `/admin/hosts/:id/configuration` 读取目标、替换配置和重启；HostRelay 使用不依赖 Storage 的 `ManagementRequests` 将活跃 HTTP 请求关联到实际目标 WebSocket，20 秒超时按原请求编号恢复。配置正文与结果不进入普通持久 Operation、D1、attachment 或业务日志；发送及返回前重新鉴权，目标回复按 socket 绑定。Agent 在 capabilities 上报管理元数据，CLI 使用独立、主机凭据限定的 `/ws/v1/client-management/:hostId` 通道；Agent 重连不会关闭其它机器上的客户端管理通道。

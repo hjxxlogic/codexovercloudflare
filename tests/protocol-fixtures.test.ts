@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fixtures from './protocol-fixtures.json';
 import emailFixtures from './access-email-fixtures.json';
 import operationFixtures from './operation-intent-fixtures.json';
+import writeFixtures from './original-write-fixtures.json';
 import allocationFixtures from './delivery-allocation-fixtures.json';
 import {
   deliveryAllocationSchema,
@@ -12,9 +13,20 @@ import {
   accessEmailsSchema,
   webCommandSchema,
   operationIntentSchema,
+  operationWrite,
   controlCommandSchema,
 } from '../packages/protocol/src/index.ts';
 describe('shared C++/Zod protocol examples', () => {
+  it('requires an original HTTP ledger only for the same writes as native', () => {
+    for (const fixture of writeFixtures)
+      expect(operationWrite(fixture.action, fixture.data)).toBe(fixture.write);
+    expect(
+      controlCommandSchema.safeParse({
+        action: 'request',
+        data: { requestId: 'old', mode: 'web' },
+      }).success,
+    ).toBe(false);
+  });
   it('requires the same receiver allocation identity as native validation', () => {
     for (const fixture of allocationFixtures) {
       const parsed = deliveryAllocationSchema.safeParse(fixture.input);

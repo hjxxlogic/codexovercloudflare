@@ -17,9 +17,9 @@ vi.mock('../apps/relay/src/common.ts', async (original) => ({
 }));
 import { HostRelayDO } from '../apps/relay/src/host.ts';
 import { registryCall, failure, hostStatus } from '../apps/relay/src/common.ts';
-import { AppError } from '../packages/protocol/src/index.ts';
+import { AppError, operationWrite } from '../packages/protocol/src/index.ts';
 const auth = {
-  hash: 'client',
+  hash: 'a'.repeat(64),
   role: 'web',
   hostId: 'host',
   expires: Number.MAX_SAFE_INTEGER,
@@ -84,7 +84,17 @@ function harness() {
     const response = await relay.fetch(
       new Request('https://internal/control', {
         method: 'POST',
-        headers: { ...headers, ...extraHeaders },
+        headers: {
+          ...headers,
+          ...(!operationWrite(action, data) || extraHeaders['x-coc-legacy-test']
+            ? {}
+            : {
+                'idempotency-key':
+                  data.requestId || data.key || crypto.randomUUID(),
+                'x-coc-operation-instance': 'test-agent-store',
+              }),
+          ...extraHeaders,
+        },
         body: JSON.stringify({ action, data }),
       }),
     );
@@ -101,7 +111,12 @@ function harness() {
     );
     return { response, data: (await response.json()) as any };
   };
-  const reply = async (frame: any, data: any, error?: any, intent?: any) =>
+  const reply = async (
+    frame: any,
+    data: any,
+    error?: any,
+    ...receipt: [any?]
+  ) =>
     relay.webSocketMessage(
       agent as unknown as WebSocket,
       JSON.stringify({
@@ -109,7 +124,9 @@ function harness() {
         type: 'result',
         requestId: frame.requestId,
         ...(error ? { error } : { data }),
-        ...(intent ? { intent } : {}),
+        ...((receipt.length ? receipt[0] : frame.intent)
+          ? { intent: receipt.length ? receipt[0] : frame.intent }
+          : {}),
       }),
     );
   const frames = () => agent.send.mock.calls.map(([raw]) => JSON.parse(raw));
@@ -201,6 +218,79 @@ describe('recoverable asynchronous controls', () => {
       true,
     );
     expect(writes).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['create', { projectId: 'demo', mode: 'web' }],
+    ['stop', { sessionId: 'host~session' }],
+    [
+      'queue',
+      {
+        sessionId: 'host~session',
+        mode: 'web',
+        requestId: 'old-queue',
+        text: 'must not execute',
+      },
+    ],
+    [
+      'answer',
+      {
+        sessionId: 'host~session',
+        mode: 'web',
+        requestId: 'old-answer',
+        approvalId: 'old',
+        runtimeId: 'old',
+        approvalVersion: 'old',
+        allow: true,
+      },
+    ],
+    [
+      'files',
+      {
+        projectId: 'demo',
+        owner: 'a'.repeat(64),
+        operation: 'begin',
+        uploadId: 'old',
+        path: 'old.txt',
+        size: 0,
+      },
+    ],
+    [
+      'files',
+      {
+        projectId: 'demo',
+        owner: 'a'.repeat(64),
+        operation: 'finish',
+        uploadId: 'old',
+      },
+    ],
+  ])(
+    'rejects unbound legacy %s writes before forwarding a mutation',
+    async (action, data) => {
+      const h = harness();
+      h.storage.values.set('session-mode:host~session', 'web');
+      const writes = vi.spyOn(h.storage, 'put');
+      const original = await h.start(action, data, {
+        'x-coc-legacy-test': '1',
+      });
+      if (h.frames()[0]?.action === 'get')
+        await h.reply(h.frames()[0], { mode: 'web', state: 'ready' });
+      expect((await h.read(original.data.operationId)).data.error.code).toBe(
+        'UPGRADE_REQUIRED',
+      );
+      expect(h.frames().every((frame) => frame.action === 'get')).toBe(true);
+      expect(writes).not.toHaveBeenCalled();
+    },
+  );
+  it('refuses the removed request lookup without forwarding to the Agent', async () => {
+    const h = harness();
+    const old = await h.start('request', {
+      requestId: 'original',
+      mode: 'web',
+    });
+    expect((await h.read(old.data.operationId)).data.error.code).toBe(
+      'INVALID_REQUEST',
+    );
+    expect(h.agent.send).not.toHaveBeenCalled();
   });
   it('never grants a durable write receipt without a matching endpoint identity', async () => {
     const h = harness();
@@ -708,7 +798,6 @@ describe('recoverable asynchronous controls', () => {
     ['snapshot', { sessionId: 'host~session', mode: 'web' }],
     ['list', {}],
     ['threads', { projectId: 'demo' }],
-    ['request', { requestId: 'original', mode: 'web' }],
     [
       'files',
       {

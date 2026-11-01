@@ -287,6 +287,10 @@ int main() {
         check(operation_intent(fixture.at("input")) == fixture.at("output"),
               "Shared C++/Zod original operation identity example");
     }
+    for (const auto &fixture :
+         read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/original-write-fixtures.json"))
+      check(operation_write(fixture.at("action"), fixture.at("data")) == fixture.at("write"),
+            "Shared C++/Worker write admission classification");
     recovery();
     reservations();
     retirement();

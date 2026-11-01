@@ -1,5 +1,6 @@
 // Two real native Agent processes and both CLIs, using a local simulated relay/Codex.
 import assert from 'node:assert/strict';
+import { operationWrite } from '../packages/protocol/src/index.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
 import {
@@ -17,6 +18,7 @@ const root = mkdtempSync(join(tmpdir(), 'coc-project-integration-'));
 const agentBinary = resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent');
 const clientBinary = resolve(process.env.COC_CLI_BINARY || 'build/coc-client');
 const peers = new Map<string, WebSocket>();
+const instances = new Map<string, string>();
 const pending = new Map<string, (message: any) => void>();
 const receipts = new Map<string, any>();
 const children: ChildProcess[] = [];
@@ -28,6 +30,14 @@ async function control(
   intent?: unknown,
 ) {
   const requestId = randomUUID();
+  const args = data as any;
+  const envelope = !!intent;
+  if (!intent && operationWrite(action, args))
+    intent = {
+      requestId: args.requestId || args.key || requestId,
+      owner: 'a'.repeat(64),
+      instance: instances.get(host),
+    };
   return new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(requestId);
@@ -35,7 +45,7 @@ async function control(
     }, 10000);
     pending.set(requestId, (message) => {
       clearTimeout(timer);
-      if (intent) {
+      if (envelope) {
         resolve({
           state: 'completed',
           ...(message.error
@@ -119,7 +129,10 @@ sockets.on('connection', (ws, req) => {
   );
   ws.on('message', (raw) => {
     const d = JSON.parse(String(raw));
-    if (d.type === 'capabilities') peers.set(host, ws);
+    if (d.type === 'capabilities') {
+      peers.set(host, ws);
+      instances.set(host, d.deliveryInstance);
+    }
     if (d.type === 'projects-changed') changes++;
     if (d.type === 'result') {
       const cb = pending.get(d.requestId);

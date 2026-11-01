@@ -12,6 +12,12 @@ std::string operation_digest(const std::string &action, const Json &data) {
   return delivery_digest(payload);
 }
 } // namespace
+bool operation_write(const std::string &action, const Json &data) {
+  const auto operation = data.is_object() ? data.value("operation", "") : "";
+  return action == "create" || action == "stop" || action == "queue" || action == "answer" ||
+         (action == "projectManage" && operation != "list" && operation != "browse") ||
+         (action == "files" && (operation == "begin" || operation == "finish"));
+}
 Json operation_intent(const Json &intent) {
   if (!intent.is_object())
     throw Error("INVALID_REQUEST", "Missing original operation identity");

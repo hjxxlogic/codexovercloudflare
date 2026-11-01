@@ -308,3 +308,10 @@ WINDOW 必须包含 Agent instance、streamSerial 和 creditGeneration；CW / CC
 ### Worker 业务回执去状态实施记录（2026-11-01，仅本机）
 
 HostRelayDO 的全部非 ticket / attach 请求只使用有界内存转发（128 条 / 8 MiB，pending 与完成结果各最多 20 秒），不再持久写入业务 Operation、拆分正文、wire 或到期索引。重建后临时编号返回 RESULT_UNKNOWN，C 通过持久保存的原请求身份向 A 对账。权限事务使用独立 permission_ 编号及 permission-operation / permission-wire 记录，最多 64 条待定 / 256 条总数，每条 16 KiB；get 只保存 mode / sandbox，完整会话、标题和历史不进入权限回执。权限记录、wire 和到期索引同事务保存，重建恢复到期调度；D1 离线读取 / 确认仅适用于这类权限事务。归档和恢复过滤旧 operation / part / wire 与对应 due，继续保留租约、epoch 和授权。执行端旧业务处理路径、统一资源验收及真实旧更新器验证仍未完成，P1 / P4 不提前勾选。
+
+
+## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
+
+Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 begin / finish 强制要求原请求 intent，缺失证明在执行副作用前返回 UPGRADE_REQUIRED。读取、ticket / attach、可靠会话 OPEN 和按原上传编号 / 偏移校验的 chunk / cancel 不进入此 HTTP 原请求账本；读取携带写证明仍拒绝。两端使用同一组 23 项分类样例，Worker 保留会话模式与项目管理授权检查。
+
+会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支尚待移除，完整 P1 / P4 仍未完成。

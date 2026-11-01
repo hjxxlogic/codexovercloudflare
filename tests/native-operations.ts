@@ -119,6 +119,60 @@ try {
     instance,
     frames.find((frame) => frame.type === 'capabilities').deliveryInstance,
   );
+  for (const [action, args] of [
+    ['create', { projectId: 'project', mode: 'web' }],
+    ['stop', { sessionId: 'host~missing' }],
+    [
+      'queue',
+      {
+        sessionId: 'host~missing',
+        mode: 'web',
+        requestId: 'unbound',
+        text: 'must not run',
+      },
+    ],
+    ['answer', { sessionId: 'host~missing', mode: 'web' }],
+    ['projectManage', { operation: 'add', id: 'must-not-exist', path: root }],
+    [
+      'files',
+      {
+        operation: 'begin',
+        projectId: 'project',
+        owner: 'a'.repeat(64),
+        uploadId: 'must-not-exist',
+        path: 'unbound',
+        size: 0,
+      },
+    ],
+    [
+      'files',
+      {
+        operation: 'finish',
+        projectId: 'project',
+        owner: 'a'.repeat(64),
+        uploadId: 'must-not-exist',
+      },
+    ],
+  ] as const) {
+    const before = count();
+    const refused = await control(action, args);
+    assert.equal(refused.error.code, 'UPGRADE_REQUIRED');
+    assert.equal(refused.intent, undefined);
+    assert.equal(count(), before);
+  }
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS n FROM transport2_operations').get()!
+      .n,
+    0,
+  );
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS n FROM transport2_uploads').get()!.n,
+    0,
+  );
+  assert.equal(
+    (await control('request', { requestId: 'legacy' })).error.code,
+    'UNSUPPORTED_ACTION',
+  );
   const intent = { requestId: randomUUID(), owner: 'a'.repeat(64), instance };
   const data = { key: 'original-create', projectId: 'project', mode: 'web' };
   const created = await control('create', data, intent);
@@ -130,6 +184,11 @@ try {
   assert.deepEqual(repeated.data, created.data);
   assert.deepEqual(repeated.intent, intent);
   assert.equal(count(), originalCount);
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS n FROM requests').get()!.n,
+    0,
+    'Creating sessions uses only the original operation ledger',
+  );
   const conflict = await control(
     'create',
     { ...data, projectId: 'other' },

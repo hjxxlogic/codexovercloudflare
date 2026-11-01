@@ -1,0 +1,141 @@
+[
+  {
+    "action": "create",
+    "data": {},
+    "write": true
+  },
+  {
+    "action": "stop",
+    "data": {},
+    "write": true
+  },
+  {
+    "action": "queue",
+    "data": {},
+    "write": true
+  },
+  {
+    "action": "answer",
+    "data": {},
+    "write": true
+  },
+  {
+    "action": "probe",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "get",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "attach",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "history",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "delivery",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "request",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "unknown",
+    "data": {},
+    "write": false
+  },
+  {
+    "action": "projectManage",
+    "data": {
+      "operation": "list"
+    },
+    "write": false
+  },
+  {
+    "action": "projectManage",
+    "data": {
+      "operation": "browse"
+    },
+    "write": false
+  },
+  {
+    "action": "projectManage",
+    "data": {
+      "operation": "add"
+    },
+    "write": true
+  },
+  {
+    "action": "projectManage",
+    "data": {
+      "operation": "remove"
+    },
+    "write": true
+  },
+  {
+    "action": "projectManage",
+    "data": {
+      "operation": "rename"
+    },
+    "write": true
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "list"
+    },
+    "write": false
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "read"
+    },
+    "write": false
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "status"
+    },
+    "write": false
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "chunk"
+    },
+    "write": false
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "cancel"
+    },
+    "write": false
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "begin"
+    },
+    "write": true
+  },
+  {
+    "action": "files",
+    "data": {
+      "operation": "finish"
+    },
+    "write": true
+  }
+]

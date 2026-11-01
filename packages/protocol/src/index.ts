@@ -11,6 +11,16 @@ export const operationIntentSchema = z.object({
   ack: z.boolean().optional(),
 });
 export type OperationIntent = z.infer<typeof operationIntentSchema>;
+// Chunk retransmission and cancellation use the upload ledger's own immutable
+// identity. Beginning/publishing an upload requires the HTTP original ledger.
+export function operationWrite(action: string, data: { operation?: string }) {
+  return (
+    ['create', 'stop', 'queue', 'answer'].includes(action) ||
+    (action === 'projectManage' &&
+      !['list', 'browse'].includes(data.operation || '')) ||
+    (action === 'files' && ['begin', 'finish'].includes(data.operation || ''))
+  );
+}
 export const controlProofSchema = z.object({
   controlEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   connectionGeneration: z
@@ -417,7 +427,6 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
   control(
     'create',
     z.object({
-      key: z.string().min(1).max(202),
       projectId: idSchema,
       mode: z.enum(['web', 'cli']),
       threadId: idSchema.optional(),
@@ -447,14 +456,6 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       mode: z.enum(['web', 'cli']),
       requestId: idSchema,
       text: z.string().trim().min(1).max(64000),
-    }),
-  ),
-  control(
-    'request',
-    z.object({
-      sessionId: sessionIdSchema.optional(),
-      requestId: z.string().min(1).max(202),
-      mode: z.enum(['web', 'cli']),
     }),
   ),
   control(

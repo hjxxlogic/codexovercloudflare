@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { operationWrite } from '../packages/protocol/src/index.ts';
 import { WebSocketServer, type WebSocket } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-delivery-'));
 const frames: any[] = [];
@@ -105,7 +106,22 @@ async function control(action: string, data: unknown = {}) {
       data = { ...allocation(command.stream), ...command };
   }
   const requestId = randomUUID();
-  send({ type: 'control', requestId, action, data });
+  const args = data as any;
+  const intent = operationWrite(action, args)
+    ? {
+        requestId: args.key || args.requestId || requestId,
+        owner: 'a'.repeat(64),
+        instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
+          .deliveryInstance,
+      }
+    : undefined;
+  send({
+    type: 'control',
+    requestId,
+    action,
+    data,
+    ...(intent ? { intent } : {}),
+  });
   await until(() =>
     frames.some(
       (frame) => frame.type === 'result' && frame.requestId === requestId,

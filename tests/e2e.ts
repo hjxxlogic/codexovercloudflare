@@ -1,4 +1,6 @@
 import { resolveAsync } from './helpers/async-http.ts';
+import { OriginalHttpRequests } from './helpers/original-http.ts';
+const originals = new OriginalHttpRequests();
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { localStateConfig } from '../scripts/state-config.ts';
@@ -135,6 +137,12 @@ async function request(
   if (options.ip) headers['CF-Connecting-IP'] = options.ip;
   if (data !== undefined)
     headers['Idempotency-Key'] = options.key || randomUUID();
+  await originals.prepare(
+    path,
+    data,
+    headers,
+    async (probe) => (await request(probe, {}, options)).b,
+  );
   const response = await fetch(origin + '/api/v1' + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers,
@@ -1007,23 +1015,18 @@ try {
         { key: lostId },
       );
       assert.equal(unconfirmed.b.error.code, 'RESULT_UNKNOWN');
-      const reconciled = await api(
-        `/hosts/${enrolled.hostId}/requests/${lostId}?sessionId=${session.id}`,
-      );
-      assert.equal(reconciled.state, 'completed');
-      assert.equal(reconciled.result.state, 'queued');
-      const recovered = await api(
+      const reconciled = await request(
         `/sessions/${session.id}/queue`,
         { text: 'lost queue reply' },
         { key: lostId },
       );
-      assert.equal(recovered.state, 'queued');
+      assert.equal(reconciled.b.error.code, 'RESULT_UNKNOWN');
       const persisted = JSON.parse(
         readFileSync(join(dir, '.fake-external.json'), 'utf8'),
       );
       assert.equal(
         persisted.queue.filter(
-          (q: any) => q.clientUserMessageId === recovered.clientUserMessageId,
+          (q: any) => q.input?.[0]?.text === 'lost queue reply',
         ).length,
         1,
       );
@@ -1423,10 +1426,10 @@ try {
   assert(cliDirectory.data.every((session: any) => session.mode === 'cli'));
   assert(!cliDirectory.data.some((session: any) => session.id === s.id));
   pass('Agent online, project allowlist and idempotent session creation');
-  assert.equal(
-    (await api(`/hosts/${enrolled.hostId}/requests/${key}`)).result.id,
-    s.id,
+  const legacyReceipt = await request(
+    `/hosts/${enrolled.hostId}/requests/${key}`,
   );
+  assert.equal(legacyReceipt.r.status, 404);
   const tickets = await Promise.all([
     api(`/sessions/${s.id}/attach`, {}),
     api(`/sessions/${s.id}/attach`, {}),

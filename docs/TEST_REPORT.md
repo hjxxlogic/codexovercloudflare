@@ -1,5 +1,14 @@
 # 本机测试记录
 
+## 控制类写入强制原请求证明（2026-11-01，仅本机，未部署）
+
+- 本机原生与网页构建、TypeScript、5 项 CTest、26 文件 / 369 项 Vitest、ESLint / Prettier、clang-format 与生成协议检查通过。Worker / Agent 共享 23 项分类样例，区分原请求账本写入、读取 / 权限事务和上传固有编号 / 偏移操作。
+- 真实 Agent 测试拒绝缺少 intent 的 create / stop / queue / answer / 项目修改 / 上传 begin 与 finish；会话数、operation 表及 upload 表保持不变。创建去重、丢回复重查、重启后的原结果、实例冲突、执行中退出后的未知结果及结果确认通过；创建不写旧 requests 表。Worker 缺失证明的写入只允许必要的模式读取，不转发副作用、不持久写业务回执。
+- `test:operations`、`test:projects`、`test:delivery` 全部通过，包含真实 CC 完整首次意图、丢确认与恢复、本地 / 远程项目修改、控制隔离、取消、结果全文、输出背压及历史尾部恢复。
+- `test:projects:e2e` 通过真实 Worker / Agent / CLI / Chromium 的配置替换重启、项目 CRUD 与管理员绑定。首次并行运行完整 E2E 时 Wrangler 因端口占用在就绪前退出；其它测试结束后单独重跑 `test:e2e` 全部通过，未修改业务断言或绕过准入。外部队列底层丢回复后，重复原意图保持 RESULT_UNKNOWN，实际队列只有一条原提交；旧 requests HTTP 查询返回 404。
+
+日志共同前缀为 `/tmp/coc-original-gate-`：`final-build.log`、`native-build.log`、`web-build.log`、`ctest.log`、`unit3.log`、`operations.log`、`projects.log`、`delivery.log`、`projects-e2e.log`、`e2e2.log`、`types2.log`、`lint.log`、`cpp-format.log` 和 `protocol2.log`。依赖位于用户 `~/.local`，没有 GitHub Actions、Windows 构建、发布、部署或生产状态变更。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支仍待移除；完整资源审计、真实旧程序升级和最终 0.6.0 切换尚未完成。
+
 ## Worker 业务 Operation 去状态（2026-11-01，仅本机，未部署）
 
 - `npm run build` 通过，包含本机原生程序、网页、TypeScript 与 Worker dry-run。5 项 CTest 通过；最终 26 文件 / 362 项 Vitest 通过。ESLint / Prettier 和生成协议检查通过。依赖继续位于用户 `~/.local`，未运行 GitHub Actions，未构建 Windows，未发布或部署。

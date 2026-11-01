@@ -115,3 +115,10 @@ CW 已移除裸 WebSocket 写入和旧 requests 查询回退，CC 附着要求�
 WINDOW 必须包含 Agent instance、streamSerial 和 creditGeneration；CW / CC 在建立窗口及发布序号前验证并持久保存三者。delivery-command、delivery-query、delivery-content 和 delivery-receipt 均必须携带相同分配证明，Worker 只做结构和权限检查后原样转发，由 A 在接收命令、读取结果 / 正文或推进结果 ACK 前核验原分配。错误、缺失或跨流证明不消费原命令序号，也不为未知流分配信用。
 
 首次 OPEN 允许尚无分配证明，但只能确认结果位置 0 / 字节 0，不能夹带结果 / 正文查询；接收后沿原分配恢复。已知窗口的 OPEN 按 lane 附带 allocations，HTTP 恢复读携带相同三元组。transfer 分块响应也须与原窗口的全部分配字段一致。此改动不允许回退旧业务帧；其它旧业务路径和云端 Operation 清理仍待完成，P1 / P4 尚未整体验收。
+
+
+## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
+
+Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 begin / finish 强制要求原请求 intent，缺失证明在执行副作用前返回 UPGRADE_REQUIRED。读取、ticket / attach、可靠会话 OPEN 和按原上传编号 / 偏移校验的 chunk / cancel 不进入此 HTTP 原请求账本；读取携带写证明仍拒绝。两端使用同一组 23 项分类样例，Worker 保留会话模式与项目管理授权检查。
+
+会话创建 / 外部观察不再写 create:<key> 的旧 requests / request_states 副本，成功或失败只由 transport2_operations 返回原结果；create 控制帧移除旧 key 字段。删除 GET /hosts/:id/requests/:id、control request 及相应生成协议，CLI request 只使用此前保存的完整本地原意图。外部队列和审批的 HTTP 路径已通过持久操作账本，不再进入旧网页回执或外部 submission 普通缓存；不确定的队列回复重复查询仍返回原 RESULT_UNKNOWN，不生成新提交。裸会话写入分支、旧 Store API / 表及可选持久化 TUI 分支尚待移除，完整 P1 / P4 仍未完成。
