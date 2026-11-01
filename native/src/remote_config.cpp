@@ -1,15 +1,13 @@
 #include "coc/remote_config.hpp"
 #include "coc/build.hpp"
 #include "coc/credit.hpp"
+#include "coc/delivery.hpp"
 #include "coc/proxy.hpp"
 #include "coc/update.hpp"
 #include <cstdlib>
 #include <fstream>
-#include <iomanip>
-#include <openssl/sha.h>
 #include <regex>
 #include <set>
-#include <sstream>
 #ifdef _WIN32
 #include "coc/windows.hpp"
 #else
@@ -18,14 +16,6 @@
 namespace coc {
 namespace {
 constexpr size_t config_limit = 64 * 1024;
-std::string hash(const std::string &text) {
-  unsigned char bytes[SHA256_DIGEST_LENGTH];
-  SHA256(reinterpret_cast<const unsigned char *>(text.data()), text.size(), bytes);
-  std::ostringstream out;
-  for (auto b : bytes)
-    out << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(b);
-  return out.str();
-}
 std::string contents(const std::filesystem::path &path) {
   if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(path)))
     throw Error("CONFIG_ERROR", "Configuration must be a regular file");
@@ -113,13 +103,13 @@ Json RemoteConfiguration::request(const Json &d, bool busy, bool &restart) {
     throw Error("INVALID_REQUEST", "Invalid configuration revision");
   PrivateLock lock(path_);
   const auto current = contents(path_);
-  const auto revision = hash(current);
+  const auto revision = delivery_digest(current);
   if (action == "read")
     return {{"text", current}, {"revision", revision}, {"metadata", metadata()}, {"busy", busy}};
   const auto id = d.value("requestId", "");
   if (!valid_id(id))
     throw Error("INVALID_REQUEST", "A request ID is required");
-  const auto fingerprint = hash(d.dump());
+  const auto fingerprint = delivery_digest(d.dump());
   const auto receipt_path = receipts_ / (id + ".json");
   if (std::filesystem::exists(receipt_path)) {
     if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(receipt_path)) ||
@@ -171,7 +161,7 @@ Json RemoteConfiguration::request(const Json &d, bool busy, bool &restart) {
   }
   const auto replacement = d.at("text").get<std::string>();
   validate(replacement, agent_);
-  const auto next = hash(replacement);
+  const auto next = delivery_digest(replacement);
   Json result = {{"revision", next}, {"state", "replaced"}, {"requestId", id}};
   Json receipt = {{"fingerprint", fingerprint},
                   {"before", revision},

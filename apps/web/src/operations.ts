@@ -1,3 +1,4 @@
+import { deliveryDigest } from '../../../packages/protocol/src/delivery.ts';
 import { recoveryDelay } from './recovery.ts';
 import { api, ApiError, retryable } from './api.ts';
 import type { HistoryCache } from './history.ts';
@@ -20,15 +21,10 @@ const canonical = (value: any): any =>
             .map((name) => [name, canonical(value[name])]),
         )
       : value;
-async function digest(value: unknown) {
-  const hash = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(JSON.stringify(canonical(value))),
-  );
-  return [...new Uint8Array(hash)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+function digest(value: unknown) {
+  return deliveryDigest(JSON.stringify(canonical(value)));
 }
+
 type Envelope = {
   data?: any;
   error?: { code: string; message: string; status?: number };

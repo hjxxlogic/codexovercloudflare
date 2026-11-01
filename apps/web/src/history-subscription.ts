@@ -1,3 +1,4 @@
+import { recoveryDelay } from './recovery.ts';
 // Only endpoint checkpoints and a bounded notification are retained per reader.
 // A dirty hint never acknowledges data: only a committed cache revision does.
 type Saved = {
@@ -130,10 +131,8 @@ export class HistorySubscription {
           exchangeId: this.exchangeId,
           receivedRevision: this.pending.revision,
         });
-        const delay =
-          this.attempts < 3
-            ? 1000 * 2 ** this.attempts++
-            : 30000 + Math.random() * 30000;
+        const delay = recoveryDelay(this.attempts);
+        this.attempts = Math.min(3, this.attempts + 1);
         this.timer = setTimeout(() => void this.transmit(), delay);
       });
     } catch (error) {
