@@ -40,4 +40,15 @@ with tempfile.TemporaryDirectory(prefix='coc-backup-test-') as directory:
         assert restored.execute('SELECT instance FROM transport2_identity').fetchone()[0] == 'original-instance'
         assert restored.execute('SELECT value FROM transport2_results').fetchone()[0] == 'unacknowledged result'
         assert restored.execute('PRAGMA quick_check').fetchone()[0] == 'ok'
+    fresh = root / 'fresh'
+    fresh.mkdir(mode=0o700)
+    subprocess.run(command + ['restore', '--data-dir', str(fresh), '--file', str(backup)], check=True)
+    assert (fresh / 'agent.db').stat().st_mode & 0o777 == 0o600
+    with sqlite3.connect(fresh / 'agent.db') as restored:
+        assert restored.execute('SELECT value FROM transport2_results').fetchone()[0] == 'unacknowledged result'
+    link = root / 'linked'
+    link.mkdir(mode=0o700)
+    (link / 'agent.db').symlink_to(journal)
+    refused = subprocess.run(command + ['restore', '--data-dir', str(link), '--file', str(backup)], capture_output=True)
+    assert refused.returncode != 0, 'Restore cannot follow a target link'
 print('PASS: online WAL backup, private mode, restore lock, content recovery and integrity')

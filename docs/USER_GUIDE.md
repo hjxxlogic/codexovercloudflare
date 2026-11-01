@@ -758,7 +758,7 @@ python3 scripts/state-backup.py backup --data-dir /path/data --file /safe/snapsh
 python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snapshot.db
 ```
 
-备份使用 SQLite 在线备份 API，包含 WAL 中已提交数据，输出权限为 0600，拒绝覆盖既有备份。恢复使用与 Agent 相同的实例锁；Agent 运行时拒绝恢复。恢复历史不会恢复 Codex 进程或回滚项目文件。秘密配置、Codex home 和工作区需要独立备份；不要只复制活动数据库的 `.db` 文件。
+备份使用 SQLite 在线备份 API，包含 WAL 中已提交数据，备份及全新恢复数据库权限均为 0600，拒绝覆盖既有备份。恢复使用与 Agent 相同的实例锁；Agent 运行时拒绝恢复。恢复历史不会恢复 Codex 进程或回滚项目文件。秘密配置、Codex home 和工作区需要独立备份；不要只复制活动数据库的 `.db` 文件。
 
 0.5.2 同时修复会话刚停止时读取尚未缓存的旧历史页：使用独立只读 Codex 进程，不向正在退出的运行进程发送历史请求。
 

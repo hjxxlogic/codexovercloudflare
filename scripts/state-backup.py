@@ -4,6 +4,7 @@ import fcntl
 import os
 import pathlib
 import sqlite3
+import stat
 import tempfile
 
 
@@ -59,6 +60,15 @@ def main():
         descriptor = os.open(args.data_dir / 'agent.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # A fresh restore must have the same private mode as an Agent DB,
+            # independently of the caller's umask. Never follow a target link.
+            target_fd = os.open(journal, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            try:
+                if not stat.S_ISREG(os.fstat(target_fd).st_mode):
+                    raise RuntimeError('Restore target must be a regular file')
+                os.fchmod(target_fd, 0o600)
+            finally:
+                os.close(target_fd)
             with checked(args.file) as source:
                 with sqlite3.connect(journal) as target:
                     target.execute('PRAGMA busy_timeout=5000')

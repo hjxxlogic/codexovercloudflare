@@ -168,7 +168,19 @@ def initialize_agent(binary, config, state):
         finally:
             if child.poll() is None:
                 child.terminate()
-            child.wait(timeout=10)
+            try:
+                child.wait(timeout=3)
+                forced = False
+            except subprocess.TimeoutExpired:
+                # This isolated initializer has no business tasks and deliberately
+                # no WS peer. Some authentic old builds do not stop a pending
+                # handshake promptly. Always reap them; E2E tests the real peer.
+                child.kill()
+                child.wait(timeout=5)
+                forced = True
+            evidence.setdefault('initializationCleanup', []).append({
+                'version': identity(binary)['version'], 'forced': forced,
+                'scope': 'isolated initialization without WebSocket peer'})
 
 
 try:

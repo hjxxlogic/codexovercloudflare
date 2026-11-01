@@ -1,5 +1,13 @@
 # 本机测试记录
 
+## 0.6.0 干净候选来源与旧更新器初始化（2026-11-01）
+
+提交 54bec5413e4486a26b5100022dc7c960388bd4fe 的干净候选构建、13 个 Worker / 网页 / 下载文件校验及源码归档逐项摘要复算通过；版本 0.6.0，protocol 1，sourceDigest bf493b29f7823ea53874ab5dbf846405ff1bc981b004c57fd97cdf4899fdbb20。证据 `.local/acceptance/candidate-060-1/build.json`、`SHA256SUMS` 和 `/tmp/coc-060-candidate.log`；仅本机 Ubuntu 24.04，不代表其它发行平台。
+
+真实旧 Agent 已通过六种失败保留测试；首次演练在无 WebSocket 对端的隔离初始化结束时，旧进程未及时响应终止而中断测试，尚未进入成功安装或 E2E，不误报 P5 完成。初始化器现会在无任务的隔离目录超时强杀并回收该子进程，记录版本与清理方式；正式业务连通由安装后的完整真实 E2E 验证。真实旧原文件未修改。
+
+备份恢复补充检查：恢复到全新路径也固定 0600，拒绝目标链接，不依赖调用人的 umask；保留新版实例与未确认结果。此修改只强化私有权限，未放宽文件模式。
+
 ## history 不可变引用及 0.6.0 本地候选（2026-11-01）
 
 新增 history_reference.cpp，在有界分块内计算原文 UTF-8 长度 / SHA256，绑定原实例、会话、seq 和 revision；Web 任务终态附带引用。CC / CW 保存引用与业务终态后即可确认，不读取 transfer 正文；历史读取核验原证明，ACK 不删除权威历史，修订变化 / 显式清理返回 CONTENT_UNAVAILABLE。原生 / Zod 共用 22 项格式样例。native-history-reference 通过真实 Store / CC 的提交先于 callback / ACK、结果正文回收但历史保留、修订变化、显式删除及已完成任务不重新入队；网页 7 项结果专项通过；真实 Agent 的 history 读取、结果 ACK 后保留、空路由即时回收与跨会话拒绝通过，并保留既有队列 / 审批压力验证。日志共同前缀 `/tmp/coc-history-ref-`：`native2.log`、`unit3.log`、`web.log`、`runtime.log`、`types.log`。原生测试最初误将 result record 当作含命令 seq，已改为从原命令恢复 seq；第一次文本修正未命中格式化行，直接定位修正后通过，生产格式未放宽。
