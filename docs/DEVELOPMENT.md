@@ -1,104 +1,12 @@
 # 开发与本机测试
 
-`native-operations` CTest 验证执行端原请求回执的实例 / 内容冲突、结果保留、崩溃不重放、确认回收及全局 / 主体 / 退休记录限额。`npm run test:operations` 启动真实 Agent，以临时 SQLite 和确定性 Codex 验证线响应丢失与进程强制退出后的原结果恢复；不触及生产进程。共享 operation-intent-fixtures 同时由 C++ 与 Zod 校验。该基础尚不代表 CW / CC 全部写业务已迁移。
+[文档索引](README.md) · [最新测试结果](TEST_REPORT.md) · [发布流程](RELEASE.md)
 
-CLI 原请求账本同样由 native-operations 验证：共享数据库的并发准备、缓存清理与重启、32 项满额输入 / 终态预留、16 项结果尾部、1024 项退休边界和跨凭据全局上限。test:operations 还运行真实 CLI 的 tests/native-cli-operations.ts，HTTP 服务在首次写入到达时核对 SQLite 已有完整意图，在确认到达时核对完整结果已提交；覆盖进程中断、丢关联 / 确认、实例替换、无证明 / 错证明，以及意图和结果写入故障。仅使用临时目录；未迁移的网页和云端写业务路径仍待完成。
+先完成工具链和本机构建，再按改动范围选择专项回归。本文列出复现方法；测试是否实际通过，以注明源码和环境的测试报告为准。
 
-`npm run test:operations:web` 验证网页原请求账本与 HTTP 证明：首次意图 / 终态提交失败、丢结果 / 确认、关闭页面后恢复、退休身份、实例冲突、容量与原内容冲突。真实 Chromium 在独立 HTTPS 测试来源下使用 Web Locks、BroadcastChannel 和 IndexedDB，验证双标签页同编号只执行一次、先落盘再发送 / 确认、页面关闭、空闲停止和清缓存保留身份。test:cache 另验证双标签页 100 次 read-modify-write 无丢更新、回调失败 / 超额更新整事务回滚。项目管理端到端测试覆盖普通和管理员入口，管理员身份 / 实例查询仍须 owner 权限及有效目标。
+## 快速导航
 
-`native-uploads` 验证相同 uploadId 的原路径 / 大小摘要、主体和根目录隔离、完成 / 取消后拒绝重开、普通缓存清理与超过原 TTL 后保留、重启 unknown、不重复分配、4 个全局 / 2 个主体暂存承诺、1024 / 256 身份上限，以及首发账本写入失败时不存在暂存副作用。Windows 和 Linux 共用持久账本，平台文件同步 / 回收仍走各自实现。
-
-Worker 进度去除回归覆盖业务帧不产生 send-head / receive-head / head-instance / agentInstance 写入、无云端发送头仍转发输出 ACK、替换 Agent 继续拒绝旧连接，以及 DO / D1 归档恢复过滤旧进度并保留权限元数据。
-
-P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重查、审批模式检查、128 并发 / 8 MiB 结果背压及不写云端业务回执；D1 用例验证重建不从数据库恢复读结果。`tests/native-refresh.ts` 通过真实 CLI 验证有限重查、同编号、权限终止与写操作不重试；网页 API 测试覆盖只读 POST。取消测试另验诊断超过 64 项后仍拒绝旧身份、重建、JSON ID 类型、1024 项上限和容量不足保留待办。
-
-新增 `native-history-budget` CTest 对实际全局 / 单会话字节配额写入至背压，验证事件 / 投影 / revision / 账本同事务回滚、存储故障回调、独立终态预留、1024 作用域上限、替换退费、重复轮询、重启和旧大历史首次计量。测试使用临时 SQLite，并明确模拟离线清理验证退费，不接触生产库；原有 native-core 与 native-projects 继续运行。
-
-## 0.6.0 开发中的本地资源回归
-
-本轮按用户要求不使用 GitHub Actions，依赖在 `~/.local` 安装，使用本地工具链构建。`npm run build` 只进行原生 / 网页构建、TypeScript 和 Worker dry-run，不发布。`test:cpp` 覆盖 Agent / CC 的持久预留、全局与单作用域容量、未确认结果、关闭 / 重启及输出消费窗口；`test:cache` 在真实 Chromium IndexedDB 中覆盖双标签页并发额度、事务回滚、缓存限额和清理。`test:delivery` 使用真实 Agent 与确定性 Codex，包含零信用慢客户端的输出耗尽 / runtime 停止；`test:e2e` 覆盖完整 Wrangler / Agent / CLI / 浏览器链路，不调用模型。
-
-开发缓存使用网页 `coc-history-v3` 与 CC 缓存根目录内的 `transport-v3`，旧缓存原样隔离，不导入旧待办。CC 同一根目录按身份前缀隔离正文，但共享总预算；测试须继续使用临时 `COC_HISTORY_DIR`，不要指向生产缓存。配额及其它未完成验收见 TRANSPORT_STATE_INVENTORY，当前版本尚未统一切至 0.6.0。
-
-历史订阅的本地回归：Vitest 覆盖 OPEN / ACK 丢失、持续慢速重试、实例与代际冲突、当前恢复回退、旧 ACK 及空闲停止；test:cache 还使用真实 IndexedDB 验证事件 / checkpoint 提交后才产生 ACK。test:cpp 验证重启、退休拒绝、1024 分配上限；test:delivery 对已结束会话丢弃事件 / 通知，验证 Agent 无新业务仍补发、原确认恢复和关闭路由停止。Worker 回归断言订阅身份由连接绑定，重建丢失的临时关联不生成业务回执。
-
-## 远程配置验证
-
-`npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端管理连接持续超过 30 秒并完成协议 Ping / Pong 后仍能操作、关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。
-
-Linux / Windows 的 CTest 共用 `native/tests/remote-config.hpp`，覆盖配置语义校验、私有备份、文件版本冲突、幂等回执、活动任务确认及重启后去重；Vitest 的 remote-configuration 测试覆盖 owner 权限、主机隔离、在线目标、回复冒充、回包前撤权、原文不落盘及有界超时。`test:ui` 验证编辑、跨 Tab 保留、校验错误保留草稿、重启确认、丢回执沿用原编号、浏览器持久存储不含配置及桌面 / 手机截图。
-
-## Codex 子进程代理验证
-
-`native/tests/process-proxy.hpp` 由 Linux / Windows CTest 共用，启动真实子进程，覆盖默认关闭、显式关闭、开启及开启但代理为空四种配置。分别检查版本探测和 app-server 初始化取得的代理环境、loopback 绕过、其它变量保留与父进程不变；夹具不联网。C++ / Zod 校验拒绝非布尔开关，原生登录测试验证默认保存 false 并保留已有 true。Windows 使用原生测试子程序，Linux 使用确定性 Node 夹具；不调用模型。
-
-## 可靠协议验证（0.5.18）
-
-`npm run test:delivery` 启动真实原生 Agent 与确定性 Codex 夹具，验证持久命令结果、重复补发只产生一次任务、原 CC 的输出条数 / 字节窗口及同 runtime 补发，不调用模型。已加入 regression CI。原生 core 验证接收窗口、确认边界、重启后的待执行 / 结果不明状态，以及输出日志回收。
-
-Vitest 的 delivery、delivery-identity 与 relay-order 用例覆盖两条独立信用通道、本地缓冲保留、存储失败、查询合并、标签页隔离、Worker 重建、双向头、HTTP 控制端证明与 CLI 恢复证明。`test:e2e` 注入 C→A 命令、A→C 结果和 RPC 输出丢失并恢复原 TUI；CW 测试同时验证新协议真实链路。`test:cache` 验证历史清理保留待确认命令、事务提交后才公开接收位置。生成协议文档使用 `npm run protocol:generate`。
-
-## CW 连接恢复回归
-
-运行态回归新增 /hosts 返回 INVALID_REQUEST / 400 与 INTERNAL_ERROR / 500，确认主机、控制连接、历史和草稿保留。Relay 回归覆盖转发故障与真实撤销的不同关闭码、主机状态鉴权故障不踢掉 Agent，以及 Cookie 鉴权的后端错误不伪造成未登录。
-
-`tests/web-notifications.test.ts` 使用假时钟与不回送 close 事件的 socket，验证 CONNECTING / OPEN 握手卡住、有限重试、手动恢复和撤销清理。`tests/web-cache-startup.test.ts` 检查 IndexedDB 静默超时与迟到句柄关闭；`test:cache` 通过真实旧版数据库连接阻塞升级。`tests/relay-order.test.ts` 区分有效 / 关闭中 / 已关闭控制端的票据资格。
-
-`test:ui` 注入四次工作区身份 503 和一次缺失 history-ready，验证有限重试耗尽后手动恢复及历史握手超时恢复，同时运行原有漏消息、失效 OPEN 通道和草稿保留回归。可通过 `COC_WEB_DIR` 指定待测 Vite 构建目录，`COC_ARTIFACT_DIR` 指定截图输出目录；不连接生产服务、不调用模型。
-
-`tests/agent-deploy.py` 的断流故障注入同时覆盖文件续传及文本 stdout 重试丢弃失败片段，包含 Access Header 情况；文本返回值不能包含之前失败尝试的字节。
-
-## CW 底部自动刷新
-
-`bottom-refresh.ts` 仅根据用户向下手势创建短期滚动意图，`onScroll` 不能单独触发请求，避免自动跟随最新消息产生循环。`tests/ui-stability.ts` 验证程序滚动 / 向上滚动不刷新、底部连续滚轮及触摸各只刷新一次，补回漏消息并保留草稿与控制连接。原有手动刷新、失效 OPEN 通道恢复和空闲计费回归继续适用。
-
-## Agent 邮箱关联与更新通知
-
-`tests/access-email-fixtures.json` 同时驱动 C++ / Zod 的邮箱规范化与拒绝样例，`tests/native-login.py` 验证缺省 / 自定义字段以及 `access-emails` 命令只在服务端成功后保存配置。`tests/cloudflare-access.test.ts` 使用合成签名邮箱验证跨浏览器自动授权、不同邮箱隔离、Agent 只能配置自身、管理员覆盖 / 恢复、撤销及独立配对保留；`tests/ui-stability.ts` 覆盖网页更新通知的清单校验、失败重试、发送禁用及邮箱保存 / 清空 / 恢复，生成截图。均不使用生产凭据或模型调用。
-
-## CW 文件预览、工具同步与 Agent 自动批准
-
-聊天链接和工作区文件中的 Markdown / 文本文件单击后在新窗口打开；顶部“下载”保存完整原文件。Markdown 支持表格和代码块，HTML、代码等其他文本按纯文本显示。图片、音频、视频单击在页面内展开，媒体使用浏览器播放控件；再次单击收起，不支持的格式可下载。预览沿用项目授权、路径限制和版本固定的分块读取；文件内容不会作为 HTML 脚本执行。
-
-“自动批准当前会话”由新版 coc-agent 保存和执行，网页关闭或重连后继续有效。只处理当前 web 会话的命令、文件修改和本轮额外权限；其他交互仍需人工处理，不更改 sandbox 或原客户端策略。关闭开关阻止之后的自动批准，已提交决定不撤回；停止会话后关闭，其他会话默认关闭。启用时该会话不因网页离开满 30 分钟而自动停止。旧 Agent 不提供此开关能力，须升级 Agent。
-
-Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
-
-## D1 模式开发
-
-`python3 scripts/d1-usage.py --database coc-relay-state [--period 7d]` 通过 Wrangler 只读读取线上使用数据，原始证据保存在忽略目录 `.local/d1-usage/`。`info` 的 24 小时滚动窗口与 Insights 采集时刻不同，Insights 可能采样且最多保留 100 种 SQL，不能将其总量等同于账单。D1 事务读取缓存仅在单次 CAS 尝试内有效，返回独立对象；相同值 UPSERT 跳过状态行写入，scope 修订仍推进。
-
-`npm run dev:d1` 生成 `.local/wrangler-d1.json`，应用本地 D1 schema 后启动开发服务；需要已有 `.dev.vars`，与原模式共用 `.wrangler/state`。`npm run test:d1:migration` 验证真实旧 DO 迁移及重启，`npm run test:e2e:d1` 运行 D1 的原生 / 浏览器完整回归；CI 两种模式均执行。旧宿主系统使用下文容器及独立原生构建目录。`tests/host-lifecycle.test.ts` 覆盖 DO / D1 权威切换和中断恢复，`tests/d1-state.test.ts` 断言活动并发控制不访问主机会话 D1。迁移集成等待真实 60 秒空闲归档，直接读取临时 D1 检查完成，避免探测请求重新激活 DO。Actions 单独运行迁移和 D1 E2E，保存 `d1-regression-evidence`；schema、并发失败及部署制品测试见 [D1 说明](d1-relay-state.md)。
-
-若本地磁盘造成集成测试超时，Docker 添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，让测试创建的 Wrangler / 原生 SQLite 数据库驻留内存。仍运行真实 D1 SQL、迁移和重启；不替换成放宽持久性或鉴权的假服务，也不改变生产超时策略。单元测试的 SQLite 已使用 `:memory:`。临时数据随测试容器退出丢弃，日志与截图仍保存到忽略目录。
-
-## Cloudflare Access 开发与验证
-
-`config/cloudflare-service-token.json` 是按项目约定随源码保存的共享入口 Token，CMake 的 `coc_access_defaults` 目标生成构建目录下的常量头文件；Worker 直接导入同一配置。无需在 CI 另行注入 Token。运行时覆盖文件通过 `--access-config` / `cloudflareAccessFile` / `COC_ACCESS_CONFIG` 选择；只有可信 HTTPS origin 收到请求头。
-
-生产 `wrangler.jsonc` 已启用 Access 并保存团队域名、AUD 和管理员邮箱（均为非密钥配置）。`npm run dev`、完整 E2E 和原生本地 relay 冒烟启动命令显式覆盖 `ACCESS_ENABLED=false`，保持本地测试不依赖真实邮箱登录。需验证 Worker 配置时，在忽略的 `.dev.vars` 设置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，保留原有 `OWNER_SECRET`，构建网页后直接执行 `npx wrangler dev --ip 127.0.0.1 --port 8787`，避免 `npm run dev` 的关闭覆盖。JWT 测试使用临时 RSA 密钥和模拟 JWKS，不接受线上 JWT。`npm test` 包含邮箱持久授权与管理员来源测试；`npm run test:tls` 额外测试带 Token 的 HTTPS/WSS 和无代理 TUI 桥接；网页构建后运行 `npm run test:access:web` 验证新浏览器、管理入口及真实隔离 Worker 的访客流程；浏览器邮箱部分使用合成身份，均不调用模型。
-
-共享 Token 的所有者明确允许其明文进入项目；用户 CoC Key、OWNER_SECRET、Cookie、真实运行状态和 `.local/` 仍不可进入源码。日志和诊断不打印凭据值。实际 Cloudflare 边缘、Service Auth Header 转发和各发布平台仍需在发布流程验证；本地测试不替代 exact-commit Actions 门禁。详见 [接入说明](cloudflare-access-coc-auth.md)。
-
-## CI 错误与重连同步
-
-`python3 scripts/ci-command.py ...` 保留原命令输出及退出码，失败注释只保留转义后最后 3500 字符，避免 GitHub 截断导致末尾断言丢失。`python3 tests/ci-command.py` 已纳入 CI。E2E 网络故障注入后必须等待 Agent 的协议协商完成（权威主机 online），上游 WebSocket OPEN 不足以证明可接管会话。
-
-## CI 与部署脚本回归
-
-项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证推送前的干净工作区 / 目标仓库、来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。
-
-## Agent 协议心跳回归 · 2026-10-28
-
-`npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。随后模拟连续握手失败：验证五次快速重试耗尽后，真实等待至少 180 秒再自动连接；恢复成功后再次断连须回到快速退避，4001 撤销仍停止 Agent。默认约七分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。
-
-## 0.5.12 通知与计费回归
-
-控制 API 测试须发送 `X-CoC-Async: 1`，处理 202 回执，通过主机订阅收到完成通知后领取结果，不能继续假设 HTTP 等待 Agent。`tests/helpers/async-http.ts` 只为集成测试实现该客户端协议。测试 Relay hello 需要 `demand:1`；新 Agent 拒绝不支持的 Relay。`npm run protocol:generate` 同步 probe 控制 schema。
-
-原生宿主与 Bookworm 测试分别构建，避免 libssl1.1 / 3 混用；本地旧镜像缺 Git 时使用已有 `coc-release-test` 或重建 Dockerfile.test，并在容器中仅为 `/workspace` 设置 Git safe.directory。E2E 指定 `COC_AGENT_BINARY=.local/build-container/coc-agent`、`COC_CLI_BINARY=.local/build-container/coc-client`，挂载匹配 Chromium 缓存。不要并发覆盖正在被集成测试读取的二进制或站点。
-
-新增回归覆盖持久回执、Agent epoch、授权 scope、容量、撤销竞争、跨休眠流控和无连接到期清理；真实平台验收分别记录 A / A–CW / A–CC 的无业务空闲窗口。日志采样不能当完整计数，必须结合官方 DO 请求 / duration / SQLite 指标，未测满 24 小时不得报告为 24 小时节费验收通过。
+[目录与工具](#1-目录与工具) · [常用命令](#2-常用命令) · [Ubuntu 20.04](#3-ubuntu-2004-容器方案) · [风格与迁移](#4-风格配置与迁移) · [部署准备](#5-部署准备) · [可靠传输回归](#可靠传输专项回归)
 
 ## 1. 目录与工具
 
@@ -232,6 +140,110 @@ C++ 使用 2 空格、snake_case 函数、PascalCase 类及 `.clang-format`，�
 `wrangler.jsonc` 已配置 `r.xlogic.cc` 自定义域名及账号，关闭 workers.dev 和预览 URL。生产发布必须携带网页和原生下载包，并使用独立生产密钥；具体步骤见 [发布操作](RELEASE.md)。发布后的 HTTP 冒烟测试不替代跨网络会话、DO 休眠唤醒和长期负载验证。Agent 使用非 root 用户，配置 Codex home、项目权限与持久 dataDir，参见 [systemd 示例](../examples/coc-agent.service)。
 
 TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户隔离。完整目标与验证边界见 README 和测试记录。
+
+## 可靠传输专项回归
+
+`native-operations` CTest 验证执行端原请求回执的实例 / 内容冲突、结果保留、崩溃不重放、确认回收及全局 / 主体 / 退休记录限额。`npm run test:operations` 启动真实 Agent，以临时 SQLite 和确定性 Codex 验证线响应丢失与进程强制退出后的原结果恢复；不触及生产进程。共享 operation-intent-fixtures 同时由 C++ 与 Zod 校验。当前入口迁移范围见 [传输状态盘点](TRANSPORT_STATE_INVENTORY.md)。
+
+CLI 原请求账本同样由 native-operations 验证：共享数据库的并发准备、缓存清理与重启、32 项满额输入 / 终态预留、16 项结果尾部、1024 项退休边界和跨凭据全局上限。test:operations 还运行真实 CLI 的 tests/native-cli-operations.ts，HTTP 服务在首次写入到达时核对 SQLite 已有完整意图，在确认到达时核对完整结果已提交；覆盖进程中断、丢关联 / 确认、实例替换、无证明 / 错证明，以及意图和结果写入故障。仅使用临时目录；网页和 Worker 的配套验证见下文。
+
+`npm run test:operations:web` 验证网页原请求账本与 HTTP 证明：首次意图 / 终态提交失败、丢结果 / 确认、关闭页面后恢复、退休身份、实例冲突、容量与原内容冲突。真实 Chromium 在独立 HTTPS 测试来源下使用 Web Locks、BroadcastChannel 和 IndexedDB，验证双标签页同编号只执行一次、先落盘再发送 / 确认、页面关闭、空闲停止和清缓存保留身份。test:cache 另验证双标签页 100 次 read-modify-write 无丢更新、回调失败 / 超额更新整事务回滚。项目管理端到端测试覆盖普通和管理员入口，管理员身份 / 实例查询仍须 owner 权限及有效目标。
+
+`native-uploads` 验证相同 uploadId 的原路径 / 大小摘要、主体和根目录隔离、完成 / 取消后拒绝重开、普通缓存清理与超过原 TTL 后保留、重启 unknown、不重复分配、4 个全局 / 2 个主体暂存承诺、1024 / 256 身份上限，以及首发账本写入失败时不存在暂存副作用。Windows 和 Linux 共用持久账本，平台文件同步 / 回收仍走各自实现。
+
+Worker 进度去除回归覆盖业务帧不产生 send-head / receive-head / head-instance / agentInstance 写入、无云端发送头仍转发输出 ACK、替换 Agent 继续拒绝旧连接，以及 DO / D1 归档恢复过滤旧进度并保留权限元数据。
+
+P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重查、审批模式检查、128 并发 / 8 MiB 结果背压及不写云端业务回执；D1 用例验证重建不从数据库恢复读结果。`tests/native-refresh.ts` 通过真实 CLI 验证有限重查、同编号、权限终止与写操作不重试；网页 API 测试覆盖只读 POST。取消测试另验诊断超过 64 项后仍拒绝旧身份、重建、JSON ID 类型、1024 项上限和容量不足保留待办。
+
+新增 `native-history-budget` CTest 对实际全局 / 单会话字节配额写入至背压，验证事件 / 投影 / revision / 账本同事务回滚、存储故障回调、独立终态预留、1024 作用域上限、替换退费、重复轮询、重启和旧大历史首次计量。测试使用临时 SQLite，并明确模拟离线清理验证退费，不接触生产库；原有 native-core 与 native-projects 继续运行。
+
+## 0.6.0 本地资源回归
+
+本轮按用户要求不使用 GitHub Actions，依赖在 `~/.local` 安装，使用本地工具链构建。`npm run build` 只进行原生 / 网页构建、TypeScript 和 Worker dry-run，不发布。`test:cpp` 覆盖 Agent / CC 的持久预留、全局与单作用域容量、未确认结果、关闭 / 重启及输出消费窗口；`test:cache` 在真实 Chromium IndexedDB 中覆盖双标签页并发额度、事务回滚、缓存限额和清理。`test:delivery` 使用真实 Agent 与确定性 Codex，包含零信用慢客户端的输出耗尽 / runtime 停止；`test:e2e` 覆盖完整 Wrangler / Agent / CLI / 浏览器链路，不调用模型。
+
+开发缓存使用网页 `coc-history-v3` 与 CC 缓存根目录内的 `transport-v3`，旧缓存原样隔离，不导入旧待办。CC 同一根目录按身份前缀隔离正文，但共享总预算；测试须继续使用临时 `COC_HISTORY_DIR`，不要指向生产缓存。配额见 [传输状态盘点](TRANSPORT_STATE_INVENTORY.md)，0.6.0 本机验收结果见 [测试报告](TEST_REPORT.md)。
+
+历史订阅的本地回归：Vitest 覆盖 OPEN / ACK 丢失、持续慢速重试、实例与代际冲突、当前恢复回退、旧 ACK 及空闲停止；test:cache 还使用真实 IndexedDB 验证事件 / checkpoint 提交后才产生 ACK。test:cpp 验证重启、退休拒绝、1024 分配上限；test:delivery 对已结束会话丢弃事件 / 通知，验证 Agent 无新业务仍补发、原确认恢复和关闭路由停止。Worker 回归断言订阅身份由连接绑定，重建丢失的临时关联不生成业务回执。
+
+## 远程配置验证
+
+`npm run test:configuration` 启动真实 Agent / CLI 和模拟 relay、TUI，验证配置替换、版本冲突、备份、Agent 重执行、客户端管理连接持续超过 30 秒并完成协议 Ping / Pong 后仍能操作、关闭旧 TUI 并重执行原 attach 命令、重启实例标识保留、重复请求不再重启及退出后管理连接消失。测试不联网调用模型，已纳入 regression CI。`test:projects:e2e` 另外通过真实 Worker 验证 Agent 配置读写、原文备份、重启与去重，防止仅验证模拟传输。
+
+Linux / Windows 的 CTest 共用 `native/tests/remote-config.hpp`，覆盖配置语义校验、私有备份、文件版本冲突、幂等回执、活动任务确认及重启后去重；Vitest 的 remote-configuration 测试覆盖 owner 权限、主机隔离、在线目标、回复冒充、回包前撤权、原文不落盘及有界超时。`test:ui` 验证编辑、跨 Tab 保留、校验错误保留草稿、重启确认、丢回执沿用原编号、浏览器持久存储不含配置及桌面 / 手机截图。
+
+## Codex 子进程代理验证
+
+`native/tests/process-proxy.hpp` 由 Linux / Windows CTest 共用，启动真实子进程，覆盖默认关闭、显式关闭、开启及开启但代理为空四种配置。分别检查版本探测和 app-server 初始化取得的代理环境、loopback 绕过、其它变量保留与父进程不变；夹具不联网。C++ / Zod 校验拒绝非布尔开关，原生登录测试验证默认保存 false 并保留已有 true。Windows 使用原生测试子程序，Linux 使用确定性 Node 夹具；不调用模型。
+
+## 可靠协议验证（0.5.18）
+
+本节保留旧版测试基础；其中 Worker 双向头属于历史实现。当前 delivery:2 的端点状态和 Worker 去业务状态验证见上文可靠传输专项回归，完成结果见 [测试报告](TEST_REPORT.md)。
+
+`npm run test:delivery` 启动真实原生 Agent 与确定性 Codex 夹具，验证持久命令结果、重复补发只产生一次任务、原 CC 的输出条数 / 字节窗口及同 runtime 补发，不调用模型。已加入 regression CI。原生 core 验证接收窗口、确认边界、重启后的待执行 / 结果不明状态，以及输出日志回收。
+
+Vitest 的 delivery、delivery-identity 与 relay-order 用例覆盖两条独立信用通道、本地缓冲保留、存储失败、查询合并、标签页隔离、Worker 重建、双向头、HTTP 控制端证明与 CLI 恢复证明。`test:e2e` 注入 C→A 命令、A→C 结果和 RPC 输出丢失并恢复原 TUI；CW 测试同时验证新协议真实链路。`test:cache` 验证历史清理保留待确认命令、事务提交后才公开接收位置。生成协议文档使用 `npm run protocol:generate`。
+
+## CW 连接恢复回归
+
+运行态回归新增 /hosts 返回 INVALID_REQUEST / 400 与 INTERNAL_ERROR / 500，确认主机、控制连接、历史和草稿保留。Relay 回归覆盖转发故障与真实撤销的不同关闭码、主机状态鉴权故障不踢掉 Agent，以及 Cookie 鉴权的后端错误不伪造成未登录。
+
+`tests/web-notifications.test.ts` 使用假时钟与不回送 close 事件的 socket，验证 CONNECTING / OPEN 握手卡住、有限重试、手动恢复和撤销清理。`tests/web-cache-startup.test.ts` 检查 IndexedDB 静默超时与迟到句柄关闭；`test:cache` 通过真实旧版数据库连接阻塞升级。`tests/relay-order.test.ts` 区分有效 / 关闭中 / 已关闭控制端的票据资格。
+
+`test:ui` 注入四次工作区身份 503 和一次缺失 history-ready，验证有限重试耗尽后手动恢复及历史握手超时恢复，同时运行原有漏消息、失效 OPEN 通道和草稿保留回归。可通过 `COC_WEB_DIR` 指定待测 Vite 构建目录，`COC_ARTIFACT_DIR` 指定截图输出目录；不连接生产服务、不调用模型。
+
+`tests/agent-deploy.py` 的断流故障注入同时覆盖文件续传及文本 stdout 重试丢弃失败片段，包含 Access Header 情况；文本返回值不能包含之前失败尝试的字节。
+
+## CW 底部自动刷新
+
+`bottom-refresh.ts` 仅根据用户向下手势创建短期滚动意图，`onScroll` 不能单独触发请求，避免自动跟随最新消息产生循环。`tests/ui-stability.ts` 验证程序滚动 / 向上滚动不刷新、底部连续滚轮及触摸各只刷新一次，补回漏消息并保留草稿与控制连接。原有手动刷新、失效 OPEN 通道恢复和空闲计费回归继续适用。
+
+## Agent 邮箱关联与更新通知
+
+`tests/access-email-fixtures.json` 同时驱动 C++ / Zod 的邮箱规范化与拒绝样例，`tests/native-login.py` 验证缺省 / 自定义字段以及 `access-emails` 命令只在服务端成功后保存配置。`tests/cloudflare-access.test.ts` 使用合成签名邮箱验证跨浏览器自动授权、不同邮箱隔离、Agent 只能配置自身、管理员覆盖 / 恢复、撤销及独立配对保留；`tests/ui-stability.ts` 覆盖网页更新通知的清单校验、失败重试、发送禁用及邮箱保存 / 清空 / 恢复，生成截图。均不使用生产凭据或模型调用。
+
+## CW 文件预览、工具同步与 Agent 自动批准
+
+聊天链接和工作区文件中的 Markdown / 文本文件单击后在新窗口打开；顶部“下载”保存完整原文件。Markdown 支持表格和代码块，HTML、代码等其他文本按纯文本显示。图片、音频、视频单击在页面内展开，媒体使用浏览器播放控件；再次单击收起，不支持的格式可下载。预览沿用项目授权、路径限制和版本固定的分块读取；文件内容不会作为 HTML 脚本执行。
+
+“自动批准当前会话”由新版 coc-agent 保存和执行，网页关闭或重连后继续有效。只处理当前 web 会话的命令、文件修改和本轮额外权限；其他交互仍需人工处理，不更改 sandbox 或原客户端策略。关闭开关阻止之后的自动批准，已提交决定不撤回；停止会话后关闭，其他会话默认关闭。启用时该会话不因网页离开满 30 分钟而自动停止。旧 Agent 不提供此开关能力，须升级 Agent。
+
+Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
+
+## D1 模式开发
+
+`python3 scripts/d1-usage.py --database coc-relay-state [--period 7d]` 通过 Wrangler 只读读取线上使用数据，原始证据保存在忽略目录 `.local/d1-usage/`。`info` 的 24 小时滚动窗口与 Insights 采集时刻不同，Insights 可能采样且最多保留 100 种 SQL，不能将其总量等同于账单。D1 事务读取缓存仅在单次 CAS 尝试内有效，返回独立对象；相同值 UPSERT 跳过状态行写入，scope 修订仍推进。
+
+`npm run dev:d1` 生成 `.local/wrangler-d1.json`，应用本地 D1 schema 后启动开发服务；需要已有 `.dev.vars`，与原模式共用 `.wrangler/state`。`npm run test:d1:migration` 验证真实旧 DO 迁移及重启，`npm run test:e2e:d1` 运行 D1 的原生 / 浏览器完整回归；CI 两种模式均执行。旧宿主系统使用下文容器及独立原生构建目录。`tests/host-lifecycle.test.ts` 覆盖 DO / D1 权威切换和中断恢复，`tests/d1-state.test.ts` 断言活动并发控制不访问主机会话 D1。迁移集成等待真实 60 秒空闲归档，直接读取临时 D1 检查完成，避免探测请求重新激活 DO。Actions 单独运行迁移和 D1 E2E，保存 `d1-regression-evidence`；schema、并发失败及部署制品测试见 [D1 说明](d1-relay-state.md)。
+
+若本地磁盘造成集成测试超时，Docker 添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，让测试创建的 Wrangler / 原生 SQLite 数据库驻留内存。仍运行真实 D1 SQL、迁移和重启；不替换成放宽持久性或鉴权的假服务，也不改变生产超时策略。单元测试的 SQLite 已使用 `:memory:`。临时数据随测试容器退出丢弃，日志与截图仍保存到忽略目录。
+
+## Cloudflare Access 开发与验证
+
+`config/cloudflare-service-token.json` 是按项目约定随源码保存的共享入口 Token，CMake 的 `coc_access_defaults` 目标生成构建目录下的常量头文件；Worker 直接导入同一配置。无需在 CI 另行注入 Token。运行时覆盖文件通过 `--access-config` / `cloudflareAccessFile` / `COC_ACCESS_CONFIG` 选择；只有可信 HTTPS origin 收到请求头。
+
+生产 `wrangler.jsonc` 已启用 Access 并保存团队域名、AUD 和管理员邮箱（均为非密钥配置）。`npm run dev`、完整 E2E 和原生本地 relay 冒烟启动命令显式覆盖 `ACCESS_ENABLED=false`，保持本地测试不依赖真实邮箱登录。需验证 Worker 配置时，在忽略的 `.dev.vars` 设置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`，保留原有 `OWNER_SECRET`，构建网页后直接执行 `npx wrangler dev --ip 127.0.0.1 --port 8787`，避免 `npm run dev` 的关闭覆盖。JWT 测试使用临时 RSA 密钥和模拟 JWKS，不接受线上 JWT。`npm test` 包含邮箱持久授权与管理员来源测试；`npm run test:tls` 额外测试带 Token 的 HTTPS/WSS 和无代理 TUI 桥接；网页构建后运行 `npm run test:access:web` 验证新浏览器、管理入口及真实隔离 Worker 的访客流程；浏览器邮箱部分使用合成身份，均不调用模型。
+
+共享 Token 的所有者明确允许其明文进入项目；用户 CoC Key、OWNER_SECRET、Cookie、真实运行状态和 `.local/` 仍不可进入源码。日志和诊断不打印凭据值。实际 Cloudflare 边缘、Service Auth Header 转发和各发布平台仍需在发布流程验证；本地测试不替代 exact-commit Actions 门禁。详见 [接入说明](cloudflare-access-coc-auth.md)。
+
+## CI 错误与重连同步
+
+`python3 scripts/ci-command.py ...` 保留原命令输出及退出码，失败注释只保留转义后最后 3500 字符，避免 GitHub 截断导致末尾断言丢失。`python3 tests/ci-command.py` 已纳入 CI。E2E 网络故障注入后必须等待 Agent 的协议协商完成（权威主机 online），上游 WebSocket OPEN 不足以证明可接管会话。
+
+## CI 与部署脚本回归
+
+项目规则要求推送源码，由 GitHub Actions 构建和测试部署产物，等待并检查同一提交的所有必要作业。`python3 tests/agent-deploy.py` 验证推送前的干净工作区 / 目标仓库、来源 / 摘要 / 归档路径、运行身份、未知或过期指标不视为空闲、繁忙拒绝及启动失败回滚；该检查已纳入 regression 作业。`scripts/deploy-agent.py` 与 `scripts/deploy-agent-remote.py` 分别执行本机 CI / 产物准备和 SSH 远端服务操作，详细用法见 [发布操作](RELEASE.md)。
+
+## Agent 协议心跳回归 · 2026-10-28
+
+`npx tsx tests/native-demand.ts` 使用真实原生 Agent 与本地 WebSocket：95 秒健康空闲内确认每 30 秒协议 Ping、零周期 JSON / 审批查询及零空闲重连；随后停止回复 Pong，继续发送 JSON pong，确认仍在协议 Pong 期限到达时自动重连并恢复初始同步。随后模拟连续握手失败：验证五次快速重试耗尽后，真实等待至少 180 秒再自动连接；恢复成功后再次断连须回到快速退避，4001 撤销仍停止 Agent。默认约七分钟，无模型或生产请求。`COC_IDLE_MS` 仅控制健康空闲观察窗口，不改变产品 30 / 90 秒参数。心跳在 Agent 网络层显式开启，不影响 CLI、配对及本机 app-server 连接。
+
+## 0.5.12 通知与计费回归
+
+控制 API 测试须发送 `X-CoC-Async: 1`，处理 202 回执，通过主机订阅收到完成通知后领取结果，不能继续假设 HTTP 等待 Agent。`tests/helpers/async-http.ts` 只为集成测试实现该客户端协议。测试 Relay hello 需要 `demand:1`；新 Agent 拒绝不支持的 Relay。`npm run protocol:generate` 同步 probe 控制 schema。
+
+原生宿主与 Bookworm 测试分别构建，避免 libssl1.1 / 3 混用；本地旧镜像缺 Git 时使用已有 `coc-release-test` 或重建 Dockerfile.test，并在容器中仅为 `/workspace` 设置 Git safe.directory。E2E 指定 `COC_AGENT_BINARY=.local/build-container/coc-agent`、`COC_CLI_BINARY=.local/build-container/coc-client`，挂载匹配 Chromium 缓存。不要并发覆盖正在被集成测试读取的二进制或站点。
+
+新增回归覆盖持久回执、Agent epoch、授权 scope、容量、撤销竞争、跨休眠流控和无连接到期清理；真实平台验收分别记录 A / A–CW / A–CC 的无业务空闲窗口。日志采样不能当完整计数，必须结合官方 DO 请求 / duration / SQLite 指标，未测满 24 小时不得报告为 24 小时节费验收通过。
 
 ## 0.3.1 API Key
 

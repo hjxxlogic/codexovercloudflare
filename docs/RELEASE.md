@@ -1,5 +1,9 @@
 # 发布操作
 
+[文档索引](README.md)
+
+本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。当前 0.6.0 本机候选的验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
+
 ## 0.6.0 本地候选（未发布）
 
 Worker / CW / Agent / CLI 及 CMake / 锁文件已统一为 0.6.0，本轮只验证本机 Linux，不运行 GitHub Actions、不部署。P0–P7 已按本机范围完成，真实旧更新器 14 项与安装后完整 E2E 42 项通过；详细故障 / 资源 / 来源证据见 TEST_REPORT。业务要求唯一 delivery:2；发行清单及原生构建 protocol 保持 1，使真实旧 update 下载 / 校验 / 安装通路可用，旧业务仍明确拒绝。

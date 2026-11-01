@@ -244,7 +244,7 @@ DO 实际休眠、平台连接回收和费用需在独立 Cloudflare 测试 name
 
 新协议需协商。旧 Agent/客户端在过渡期可保留原心跳和查询，但不得计入新目标验收；新客户端遇到旧 Relay 应提示升级或明确显示兼容模式，不能静默声称零周期用量。回滚保留可读的授权、票据、lease、请求身份和结果，恢复旧版本后如实标注周期流量恢复。
 
-实现时同步更新 [架构](ARCHITECTURE.md)、[需求](REQUIREMENTS.md)、[用户指南](USER_GUIDE.md)、[开发指南](DEVELOPMENT.md)、[测试记录](TEST_REPORT.md)、[发布说明](RELEASE.md) 受影响部分及 `CHANGELOG.md`，尤其注明 CW 刷新按钮、CC 10 秒刷新、A 无存活探测和静默断链后的未确认状态。本次实施使用既有账号及 DO 绑定，不轮换生产 secrets。
+实现时同步更新 [架构](ARCHITECTURE.md)、[需求](REQUIREMENTS.md)、[用户指南](USER_GUIDE.md)、[开发指南](DEVELOPMENT.md)、[测试记录](history/TEST_REPORT_2026-11-01.md)、[发布说明](RELEASE.md) 受影响部分及 `CHANGELOG.md`，尤其注明 CW 刷新按钮、CC 10 秒刷新、A 无存活探测和静默断链后的未确认状态。本次实施使用既有账号及 DO 绑定，不轮换生产 secrets。
 
 ## 8. 0.5.12 实施说明
 

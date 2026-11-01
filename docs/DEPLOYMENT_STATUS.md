@@ -1,4 +1,8 @@
-# 发布状态：网站 / 原生下载 0.5.20
+# 发布与部署记录
+
+[文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
+
+截至本文件最后一次记录（2026-10-31），Worker / 网站为 0.5.21，原生下载为 0.5.20；以下保留各次发布的提交、CI、制品摘要与验证边界。这是仓库中的发布记录，不是实时线上探测。0.6.0 及协议简化仅完成本机验收，尚无对应生产发布记录。
 
 ## D1 查询与写入优化 · 2026-10-31
 
@@ -152,4 +156,4 @@ Worker 已移除共享 Access Token JSON、两个 Secret 变量和 Client 请求
 
 ## 后续 Access 登录修复验收
 
-公钥获取修复源码 `e717628` 的 [Actions 40805956178](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178) 六项必需作业全部成功。用户手工更新 Worker 后恢复网页入口；随后恢复经过 CI 摘要核验的网页产物，修正旧 `dist/web` 覆盖自动管理员登录界面的问题，并保留已验证的 0.5.14 下载包。用户于 2026-10-29 确认管理员权限已恢复；此项为真实浏览器的用户确认，后续手工发布的 Worker 版本 ID 未另行采集。详见[修复与验收记录](TEST_REPORT.md)和[网页恢复证据](assets/access-jwks-2026-10-29/frontend-restore.json)。
+公钥获取修复源码 `e717628` 的 [Actions 40805956178](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40805956178) 六项必需作业全部成功。用户手工更新 Worker 后恢复网页入口；随后恢复经过 CI 摘要核验的网页产物，修正旧 `dist/web` 覆盖自动管理员登录界面的问题，并保留已验证的 0.5.14 下载包。用户于 2026-10-29 确认管理员权限已恢复；此项为真实浏览器的用户确认，后续手工发布的 Worker 版本 ID 未另行采集。详见[修复与验收记录](history/TEST_REPORT_2026-11-01.md)和[网页恢复证据](assets/access-jwks-2026-10-29/frontend-restore.json)。

@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前为 0.5.10 开发预览版，完整目标和已验证范围见文档。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。当前源码为 0.6.0 本地候选，尚未发布部署；阅读入口见 [文档索引](docs/README.md)，已记录的线上及下载版本见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
 
 ## 本机快速开始
 
@@ -68,12 +68,14 @@ npm run test:native
 
 ## 文档
 
+- [文档索引与阅读路线](docs/README.md)
+
 - [发布操作](docs/RELEASE.md)
 - [用户手册](docs/USER_GUIDE.md)
 - [开发与本机测试](docs/DEVELOPMENT.md)
 - [测试记录](docs/TEST_REPORT.md)
-- [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：完整目标，部分能力尚待实现。
+- [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：需求边界与设计依据，实施状态以当前协议和测试报告为准。
 
-当前稳定化实现与验证边界见 [实施记录](docs/stabilization-2026-10-24.md)。0.5.1 已包含这些整改并发布；发布结果见 [测试记录](docs/TEST_REPORT.md)。
+当前实现与验证见 [现行传输协议](docs/RELIABLE_TRANSPORT.md) 和 [测试报告](docs/TEST_REPORT.md)；历次发布见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
 
 Linux Agent / CLI 从 0.5.2 开始默认自动更新所连接中继的发行版本；配置 `"autoUpdate": false` 可关闭。安装权限、检查间隔及回退方式见 [用户手册](docs/USER_GUIDE.md#原生程序自动更新)。
