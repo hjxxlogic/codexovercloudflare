@@ -161,3 +161,13 @@ CC/CW 复用已有 ACK 与快慢重试，只有持久视图水位才可发送 re
 原生历史预算 16.16 秒、核心 33.37 秒通过；网页订阅/水位 18 项通过，类型及定向 ESLint 通过；Agent/CLI 与所需测试目标构建通过。真实 Agent 专项 `npx tsx tests/native-history-recovery.ts --retention` 通过已有源核验、分页和 SIGKILL 重启，并新增正常维护调度触发退休、旧引用明确过期、缺口快照、旧协议及旧代际拒绝。测试只在临时库增加合成投影，不重放任何业务请求；使用确定性 Codex peer，不等同真实 Codex 或线上整页验收。
 
 日志 `/tmp/coc-history-enable-{final-build,native-test,agent-test,web-test,typecheck,lint}.log`。本批未运行全量回归、推送或部署。仍须完成真实来源/本机网页端到端收尾后进入全量测试；长期压力和遗留订阅治理按文档延期。
+
+### 2026-11-02：真实来源、认证复核与整页缺口验收
+
+新启动真实 Codex 0.166.0 只读进程，重新读取隔离备份中全部 1421 条已淘汰正文；1421 条均与原引用及摘要一致，没有复用上轮来源响应。原库不变，隔离库 integrity_check 为 ok；脱敏证据见 assets/history-storage-2026-11-02/fresh-reader-recovery.json。
+
+按 ONLINE_BROWSER_TESTING 的认证专用 headless Context 验证 Access 邮箱有效；正常重建过期 CoC 管理员会话后只读管理员接口 200。线上仍为旧版本，此项不是新源码上线证明。凭证、截图与机器本地证据仅在忽略目录保存。
+
+当前 Web 构建的 `npm run test:ui` 通过原整页专项及新增缺口场景：HTTP/WS 合成接收端返回版本 2 缺口，旧消息替换为唯一保留消息、过期提示可见，重载后仍只有新视图。测试暴露并修复普通返回最新消息也绕过缓存的问题；原“一次滚动刷新只读一次快照”断言保留并通过。新增测试曾漏协议能力头，被客户端正确拒绝，补齐测试头后通过，未放宽产品校验。
+
+Web 构建、类型及定向 lint 通过，日志 `/tmp/coc-history-ui-{build,test,typecheck,lint}.log`。这是本机真实浏览器加载当前页面、合成接收端控制故障的证据；与真实 Agent 专项分别标注，不声称生产 Worker 已更新。实现阶段专项完成，下一阶段运行全量回归，失败项直接修复；未推送或部署。

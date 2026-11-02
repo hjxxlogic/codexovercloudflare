@@ -1,0 +1,13 @@
+{
+  "candidates": 1421,
+  "errors": {},
+  "processed": 1421,
+  "scope": "isolated database backup; original references and digests checked",
+  "source": "new real Codex read-only process; no saved source responses reused",
+  "verifiedFresh": 1421,
+  "sqliteIntegrity": "ok",
+  "evictedProjectionsRemaining": 1421,
+  "codexVersion": "codex-cli 0.166.0",
+  "sourceCommit": "b4b4a1973fecd6f08660c03972e4253d9a2d7d6d",
+  "productionDatabaseModified": false
+}

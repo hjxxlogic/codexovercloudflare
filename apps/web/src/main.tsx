@@ -1549,7 +1549,7 @@ function App() {
       setHasOlder(page.more);
       finishPage();
     };
-    const requestPage = (before = 0, force = false) => {
+    const requestPage = (before = 0, force = false, bypassCache = false) => {
       if (disposed) return;
       if (force) {
         pageGeneration++;
@@ -1573,7 +1573,7 @@ function App() {
         if (!disposed) setError('历史读取超时，可重试加载更早内容。');
       }, 15000);
       void (async () => {
-        if (cache && !force) {
+        if (cache && !bypassCache) {
           const stored = before
             ? await cache.page(before).catch(() => undefined)
             : await cache.recent().catch(() => undefined);
@@ -1898,7 +1898,7 @@ function App() {
                 typeof requests.get(d.requestId) === 'number'
               ) {
                 historySync.generation = undefined;
-                requestPage(0, true);
+                requestPage(0, true, true);
                 return;
               }
               if (d.requestId === syncRequest) {

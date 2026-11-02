@@ -2717,6 +2717,83 @@ try {
       }
     }
   }
+  // Exercise the built application, not only its cache module, with an explicit retention gap.
+  logged = online = true;
+  admin = false;
+  approvals = [];
+  pagedHistory = undefined;
+  availableProjects = [
+    { id: 'project', name: '示例项目', path: '/workspace/example' },
+  ];
+  const gapContext = await browser.newContext();
+  let gapMode = false;
+  const retained = {
+    seq: 9000000,
+    revision: 9000000,
+    type: 'user',
+    data: { text: '退休后保留的唯一消息' },
+  };
+  const gapPageData = {
+    events: [retained],
+    more: false,
+    cursor: retained.seq,
+    snapshotSeq: retained.revision,
+    direction: 'before',
+    historyVersion: 2,
+    snapshotGeneration: 1,
+    retainedAfter: retained.seq - 1,
+    gap: true,
+  };
+  await gapContext.route('**/api/v1/sessions/**/snapshot*', async (route) => {
+    if (!gapMode) return route.continue();
+    assert.equal(
+      new URL(route.request().url()).searchParams.get('historyVersion'),
+      '2',
+    );
+    await route.fulfill({
+      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+      json: { session, approvals: [], history: gapPageData },
+    });
+  });
+  await gapContext.routeWebSocket('**/ws/v1/history/**', (route) => {
+    const backend = route.connectToServer();
+    route.onMessage((message) => backend.send(message));
+    backend.onMessage((message) => {
+      const frame = JSON.parse(String(message));
+      if (gapMode && frame.type === 'history' && Array.isArray(frame.events))
+        Object.assign(frame, gapPageData);
+      if (gapMode && ['history-window', 'history-dirty'].includes(frame.type))
+        frame.maxRevision = retained.revision;
+      route.send(JSON.stringify(frame));
+    });
+  });
+  const gapPage = await gapContext.newPage();
+  gapPage.on('pageerror', (error) => failures.push(error.message));
+  await gapPage.goto(origin);
+  await openMenu(gapPage);
+  await gapPage.getByRole('button', { name: /^会话记录/ }).click();
+  await gapPage.getByLabel('主机', { exact: true }).selectOption('sample');
+  await openMenu(gapPage);
+  await gapPage.getByRole('button', { name: /^会话记录/ }).click();
+  await gapPage.getByRole('button', { name: /进行中的对话/ }).click();
+  await expect(gapPage.locator('[data-event-seq]').first()).toBeVisible();
+  gapMode = true;
+  await gapPage.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    gapPage.getByText('退休后保留的唯一消息', { exact: true }),
+  ).toBeVisible();
+  await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
+  await expect(
+    gapPage.getByText('部分旧历史已过期，已恢复当前保留快照。', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await gapPage.reload();
+  await expect(
+    gapPage.getByText('退休后保留的唯一消息', { exact: true }),
+  ).toBeVisible();
+  await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
+  await gapContext.close();
   assert.deepEqual(failures, []);
   console.log(
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
