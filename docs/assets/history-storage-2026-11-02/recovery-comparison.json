@@ -1,0 +1,62 @@
+{
+  "sourceBase": "6ebf031",
+  "change": "versioned projection and verified recovery in the commit containing this report",
+  "codexVersion": "0.166.0",
+  "scope": "isolated copy of local Agent history and read-only Codex API; no model calls or production database mutations",
+  "excludedRecords": {
+    "projectNotInCurrentConfiguration": 443
+  },
+  "candidates": 4316,
+  "processed": 4316,
+  "beforeNormalization": {
+    "exactBody": 1289
+  },
+  "afterNormalizationAndVerifiedSpans": {
+    "different_body": 945,
+    "exact_body": 3337,
+    "source_CONTENT_UNAVAILABLE": 4,
+    "verified_registered_span": 28,
+    "verified_source_prefix": 2
+  },
+  "byEventType": {
+    "item/agentMessage/delta": {
+      "exact_body": 471
+    },
+    "item/commandExecution/outputDelta": {
+      "exact_body": 46,
+      "verified_registered_span": 28,
+      "verified_source_prefix": 1
+    },
+    "item/completed": {
+      "different_body": 4,
+      "exact_body": 2222,
+      "source_CONTENT_UNAVAILABLE": 1,
+      "verified_source_prefix": 1
+    },
+    "item/started": {
+      "different_body": 941,
+      "exact_body": 598,
+      "source_CONTENT_UNAVAILABLE": 3
+    }
+  },
+  "logicalContentBytes": {
+    "different_body": 1904494,
+    "exact_body": 5572774,
+    "source_CONTENT_UNAVAILABLE": 3118,
+    "verified_registered_span": 64397,
+    "verified_source_prefix": 287133
+  },
+  "nonStartedCandidates": 2774,
+  "nonStartedVerified": 2769,
+  "remainingNonStarted": {
+    "sourceOutputShorter": 4,
+    "sourceMissing": 1
+  },
+  "limitations": [
+    "Counts cover associated item histories only, not all Agent events or the whole database.",
+    "Logical content bytes count read views, not accounting usage or physical disk savings.",
+    "Source byte offsets were identified while original bodies existed; production persistence is still required.",
+    "Current source/revision matching is not a promise that Codex retains every future or old revision.",
+    "Cache miss routing, source binding and eviction are not yet enabled."
+  ]
+}

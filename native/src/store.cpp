@@ -1,9 +1,9 @@
 #include "coc/store.hpp"
 #include "coc/delivery.hpp"
+#include "coc/history_projection.hpp"
 #include <algorithm>
 #include <fcntl.h>
 #include <memory>
-#include <openssl/sha.h>
 #ifndef _WIN32
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -481,39 +481,19 @@ void Store::archive_page(const std::string &id, const Json &events, const Json &
 Json Store::external_item(const std::string &id, const std::string &turn, Json item,
                           bool historical) {
   get(id);
-  item = redact(std::move(item));
+  const auto projection = project_history_item(std::move(item), turn);
+  item = projection.item;
   const auto item_id = item.at("id").get<std::string>();
-  if (item_id.empty() || item_id.size() > 200 || turn.size() > 200)
-    throw Error("INVALID_FRAME", "Invalid external item identity");
-  auto serialized = item.dump();
-  unsigned char hash[SHA256_DIGEST_LENGTH];
-  SHA256(reinterpret_cast<const unsigned char *>(serialized.data()), serialized.size(), hash);
-  std::string fingerprint;
-  for (auto byte : hash) {
-    fingerprint += "0123456789abcdef"[byte >> 4];
-    fingerprint += "0123456789abcdef"[byte & 15];
-  }
+  const auto &fingerprint = projection.fingerprint;
   auto existing =
       query("SELECT seq,fingerprint FROM external_items WHERE session=? AND turn=? AND item=?",
             {id, turn, item_id});
   if (!existing.empty() && existing[0]["fingerprint"] == fingerprint)
     return nullptr;
   const auto kind = item.value("type", "");
-  std::string type = item.value("status", "") == "inProgress" ? "item/started" : "item/completed";
-  std::string text = serialized;
-  Json data = {{"turnId", turn}, {"itemId", item_id}, {"item", item}};
-  if (kind == "agentMessage") {
-    type = "item/agentMessage/delta";
-    text = item.value("text", "");
-    data = {{"turnId", turn}, {"itemId", item_id}, {"delta", text}};
-  } else if (kind == "userMessage") {
-    type = "user";
-    text.clear();
-    for (auto &part : item.value("content", Json::array()))
-      if (part.value("type", "") == "text")
-        text += part.value("text", "");
-    data = {{"turnId", turn}, {"itemId", item_id}, {"text", text}};
-  }
+  const auto &type = projection.type;
+  const auto &text = projection.text;
+  const auto &data = projection.data;
   run("BEGIN IMMEDIATE");
   try {
     int64_t seq = existing.empty() ? 0 : existing[0]["seq"].get<int64_t>();
