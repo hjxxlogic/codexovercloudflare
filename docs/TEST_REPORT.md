@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+文件开始态恢复：Agent/来源测试构建通过，`native-history-source` 4.09 秒通过，新增未完成源及 diff 变化拒绝。真实本机 Codex 只读核验 106 条文件变更，原先 40 条开始态仅状态不同；按原事件重建状态后，106 条均能登记、淘汰并按原引用/摘要恢复，Store 重开复核通过，两份隔离库完整性均通过。[脱敏前后证据](assets/history-storage-2026-11-02/file-change-recovery.json)。构建/专项日志 `/tmp/coc-file-start-{build,test,audit-build}.log`；私有审计工具及输入在 `.local/history-implementation/{structured-cache-audit,file-start-audit}/`。没有模型调用、正式库替换或全量回归；重开 Store 使用已读取源证据，不证明源进程重启后的恢复，亦不覆盖真实 MCP。
+
 结构化正文缓存：Agent/来源专项构建通过，最终 `native-history-source` 3.99 秒通过，类型检查及定向 ESLint 通过。新增普通和外部 fileChange/MCP 四类案例，验证原正文 JSON、引用、非正文元数据、退款、回滚、重启和源变化拒绝。真实本机 Agent 配合确定性 peer 的 `npx tsx tests/native-history-recovery.ts --file` 通过自动准备/淘汰、原引用 Unicode 多页读取、并发预算及来源替换拒绝。日志 `/tmp/coc-structured-cache-{build,final-build,final-source-test,agent-test,typecheck,lint}.log`。未使用真实 Codex 结构化历史作为该批集成来源，未执行全量回归或正式库迁移；真实来源及浏览器验收仍待完成。
 
 已分类内联正文缓存淘汰：Agent 构建通过；最终来源专项 3.67 秒、历史预算专项 15.85 秒、引用专项 0.14 秒通过，TypeScript 类型及定向 ESLint 通过。C++ 覆盖流式文本、外部文本和工具 aggregatedOutput 的净缩小、原引用/修订稳定、精确退款、工具命令/退出码等非正文元数据保留、凭据恢复失败整批回滚、活动预留跳过、重复转换和重启；迟到 delta 不覆盖原前缀。超限库先跳过转换，日志回收后可继续，未触发全局停写。真实本机 Agent 配合确定性来源 peer，分别通过分块及 `--inline` 自动准备/淘汰、原引用回源、Unicode 多页、并发拒绝和来源替换拒绝；最终内联路径在元数据保留修正后重跑通过。日志 `/tmp/coc-inline-cache-{envelope-build,envelope-test,budget-test,final-agent-test,chunk-test,typecheck,lint}.log`。未执行全量回归、正式库迁移或最终浏览器验收；未知结构化正文和历史索引退休仍未完成。

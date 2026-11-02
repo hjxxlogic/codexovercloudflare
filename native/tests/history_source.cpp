@@ -576,8 +576,8 @@ void over_limit_inline_cache_case() {
     throw std::runtime_error("Journal cleanup did not unblock verified inline eviction");
 }
 void inline_cache_cases() {
-  for (const auto *kind :
-       {"stream", "external", "command", "file", "mcp", "external-file", "external-mcp"}) {
+  for (const auto *kind : {"stream", "external", "command", "file", "file-started", "mcp",
+                           "external-file", "external-mcp"}) {
     const auto root = std::filesystem::temp_directory_path() / ("coc-inline-cache-" + uuid());
     std::filesystem::create_directories(root);
     struct Cleanup {
@@ -593,9 +593,9 @@ void inline_cache_cases() {
       Store store(dir.u8string(), true, "", {{"cacheMaxBytes", 0}});
       const std::string shape = kind;
       const bool external = shape.rfind("external", 0) == 0, command = shape == "command",
-                 file = shape == "file" || shape == "external-file",
+                 file = shape == "file" || shape == "file-started" || shape == "external-file",
                  mcp = shape == "mcp" || shape == "external-mcp";
-      const bool structured = file || mcp;
+      const bool structured = file || mcp, started = shape == "file-started";
       store.save({{"id", session},
                   {"threadId", "thread"},
                   {"projectId", "project"},
@@ -627,19 +627,33 @@ void inline_cache_cases() {
                 {"arguments", {{"query", "original query"}}},
                 {"result", {{"content", Json::array({{{"type", "text"}, {"text", text}}})}}}};
       entry = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
+      if (started)
+        item["status"] = "inProgress";
       const auto event =
-          external
-              ? store.external_item(session, "turn", item)
-              : ((command || structured)
-                     ? store.event(session, "item/completed", {{"turnId", "turn"}, {"item", item}})
-                     : store.event(session, "item/agentMessage/delta",
-                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}}));
+          external ? store.external_item(session, "turn", item)
+                   : ((command || structured)
+                          ? store.event(session, started ? "item/started" : "item/completed",
+                                        {{"turnId", "turn"}, {"item", item}})
+                          : store.event(session, "item/agentMessage/delta",
+                                        {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}}));
       for (int64_t offset = 0;;) {
         const auto page = store.content(session, event.at("seq"), offset);
         original_body += page.at("text").get<std::string>();
         if (!page.at("more").get<bool>())
           break;
         offset = page.at("nextOffset");
+      }
+      if (started) {
+        auto unfinished = entry;
+        unfinished["item"]["status"] = "inProgress";
+        rejects_source(
+            [&] { store.history_source_register(session, event.at("seq"), origin, unfinished); },
+            "CONTENT_UNAVAILABLE");
+        auto changed = entry;
+        changed["item"]["changes"][0]["diff"] = "different executed diff";
+        rejects_source(
+            [&] { store.history_source_register(session, event.at("seq"), origin, changed); },
+            "CONTENT_UNAVAILABLE");
       }
       reference =
           store.history_source_register(session, event.at("seq"), origin, entry).at("reference");

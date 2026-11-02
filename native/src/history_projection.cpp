@@ -78,6 +78,12 @@ std::string recover_history_text(const Json &event, Json item, const std::string
     for (const auto *key : {"startedAtMs", "completedAtMs"})
       if (!original_item.contains(key))
         item.erase(key);
+    // A file-change start event records the proposed diff before execution.
+    // Its lifecycle status is derivable from the retained event type; only a
+    // completed source with exactly the original body digest can replace it.
+    if (kind == "fileChange" && type == "item/started" && item.value("status", "") == "completed" &&
+        original_item.value("status", "inProgress") == "inProgress")
+      item["status"] = "inProgress";
     auto rebuilt = event;
     // contentSeq is a local cache representation marker, never part of the
     // original structured event body produced by Store::event.
