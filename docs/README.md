@@ -33,6 +33,8 @@
 
 ## 待实施优化方案
 
+- [CW 界面美化与工作台功能设计](CW_UX_DESIGN.md)：配色排版、高级 Markdown（公式、Mermaid、脚注、提示块和目录）、文件浏览器、命令输出及交互式 Terminal；网页优先的分阶段实施与验收方案，尚未实现。
+
 - [历史存储与环形缓存优化](HISTORY_STORAGE_OPTIMIZATION.md)：本机容量调查、Codex 回源边界、Agent JSON 配额设计和分批实施门禁；尚未实现。
 
 - [线上浏览器自动化测试](ONLINE_BROWSER_TESTING.md)：远程无图形界面初始化、人工验证码、管理员认证复用及隔离测试分层；真实登录与跨浏览器复用已验证，测试套件待实现。
