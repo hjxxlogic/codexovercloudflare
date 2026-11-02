@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+来源身份适配批次：Agent 构建通过，新增公开 thread 元数据与文件身份校验；最终 `native-history-source` 专项 2.74 秒通过。覆盖读取期间追加、归档移动、替换、预期来源冲突（条目读取前拒绝）及缺失 path，另验证文件缺失、目录、FIFO、越界符号链接。未直接读取 Codex 数据库，未接入 Agent 缓存淘汰；Windows 分支未运行。只运行必要专项，未运行全量回归、线上测试或部署。
+
 持久来源关系批次：Agent 构建通过，历史预算专项 14.47 秒通过；最终来源/投影/持久化专项 2.13 秒通过，新增事务中途故障回滚、幂等与重启、来源重绑/跨会话拒绝、预留和额度隔离、模板正文去重、线性片段查找及 history UPDATE/REPLACE/DELETE 的计量退款。本机隔离副本注册 3367 条关系，逐条恢复并在重新打开 Store 后核对全部原引用；元数据额外计费约 10.80 MiB，正文未删除。[脱敏证据](assets/history-storage-2026-11-02/source-mapping.json) 明确测试来源标记不代表生产身份适配已完成。日志 `/tmp/coc-history-map-test.log`、`/tmp/coc-history-map-linear-test.log`，私有证据 `.local/history-implementation/source-map-{audit,reopen}-result.json`。未运行全量回归、模型任务或部署。
 
 投影与恢复差异批次：Agent 构建通过，历史预算专项 13.70 秒、来源/投影专项 1.89 秒通过；新增原字段形态、不可见元数据变化、旧正文前缀、UTF-8 字节片段、越界/错位、改写及 revision 冲突检查。本机旧库副本 4316 条候选通过真实 Codex API 逐条比较，3337 条规范化后正文精确匹配，2 条前缀及 28 条已登记片段通过恢复接口的原摘要验证；除开始态外 2769/2774 条可精确恢复，4 条源输出截短、1 条终态来源缺失继续保留必要快照。另 443 条项目不在当前配置，未跨项目探查。[脱敏证据](assets/history-storage-2026-11-02/recovery-comparison.json)。未删除正式正文，未启用缓存淘汰；没有全量回归或模型调用。日志 `/tmp/coc-history-recovery-final-test.log`、`/tmp/coc-history-recovery-revision-test.log`，私有比较结果 `.local/history-implementation/recovery-audit-final.json`。

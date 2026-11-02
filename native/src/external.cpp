@@ -63,9 +63,10 @@ void read_history_thread(std::shared_ptr<CodexProcess> process, const std::strin
         done(source, nullptr);
       });
 }
-void read_history_item(std::shared_ptr<CodexProcess> process, const std::string &thread,
-                       const std::string &cwd, const std::string &turn, const std::string &item,
-                       size_t max_bytes, Completion done) {
+static void read_history_entry(std::shared_ptr<CodexProcess> process, const std::string &thread,
+                               const std::string &cwd, const std::string &turn,
+                               const std::string &item, size_t max_bytes, Completion done,
+                               const std::filesystem::path &home, const Json &expected_origin) {
   if (thread.empty() || turn.empty() || item.empty() || thread.size() > 256 || turn.size() > 256 ||
       item.size() > 256 || max_bytes == 0 || max_bytes > 1024 * 1024) {
     done(nullptr, {{"code", "INVALID_REQUEST"}, {"message", "Invalid bounded history read"}});
@@ -73,7 +74,8 @@ void read_history_item(std::shared_ptr<CodexProcess> process, const std::string 
   }
   read_history_thread(
       process, thread, cwd,
-      [process, thread, cwd, turn, item, max_bytes, done](Json source, Json error) {
+      [process, thread, cwd, turn, item, max_bytes, done, home, expected_origin](Json source,
+                                                                                 Json error) {
         if (!error.is_null()) {
           done(nullptr, error);
           return;
@@ -83,10 +85,22 @@ void read_history_item(std::shared_ptr<CodexProcess> process, const std::string 
                          {"message", "Direct item reads require paginated history"}});
           return;
         }
+        Json origin;
+        if (!home.empty()) {
+          try {
+            origin = history_source_origin(source, home, cwd);
+            if (!expected_origin.is_null() && origin != expected_origin)
+              throw Error("DELIVERY_STATE_MISMATCH", "History source identity changed");
+          } catch (const std::exception &failure) {
+            done(nullptr, error_data(failure));
+            return;
+          }
+        }
         process->request(
             "thread/items/read",
             {{"threadId", thread}, {"turnId", turn}, {"itemIds", Json::array({item})}},
-            [process, thread, cwd, turn, item, max_bytes, done](Json result, Json error) {
+            [process, thread, cwd, turn, item, max_bytes, done, home, origin](Json result,
+                                                                              Json error) {
               if (!error.is_null()) {
                 done(nullptr, error);
                 return;
@@ -117,14 +131,45 @@ void read_history_item(std::shared_ptr<CodexProcess> process, const std::string 
                 return;
               }
               const auto entry = data.at(0);
-              read_history_thread(process, thread, cwd, [entry, done](Json source, Json error) {
-                if (error.is_null() && source.value("historyMode", "paginated") != "paginated")
-                  error = {{"code", "CONTENT_CHANGED"},
-                           {"message", "History mode changed during read"}};
-                done(error.is_null() ? entry : Json(), error);
-              });
+              read_history_thread(
+                  process, thread, cwd, [entry, done, home, cwd, origin](Json source, Json error) {
+                    if (error.is_null() && source.value("historyMode", "paginated") != "paginated")
+                      error = {{"code", "CONTENT_CHANGED"},
+                               {"message", "History mode changed during read"}};
+                    if (error.is_null() && !home.empty()) {
+                      try {
+                        if (history_source_origin(source, home, cwd) != origin)
+                          throw Error("DELIVERY_STATE_MISMATCH",
+                                      "History source changed during read");
+                      } catch (const std::exception &failure) {
+                        error = error_data(failure);
+                      }
+                    }
+                    done(error.is_null()
+                             ? (home.empty() ? entry : Json{{"origin", origin}, {"entry", entry}})
+                             : Json(),
+                         error);
+                  });
             });
       });
+}
+void read_history_item(std::shared_ptr<CodexProcess> process, const std::string &thread,
+                       const std::string &cwd, const std::string &turn, const std::string &item,
+                       size_t max_bytes, Completion done) {
+  read_history_entry(std::move(process), thread, cwd, turn, item, max_bytes, std::move(done), {},
+                     nullptr);
+}
+void read_history_source(std::shared_ptr<CodexProcess> process, const std::filesystem::path &home,
+                         const std::string &thread, const std::string &cwd, const std::string &turn,
+                         const std::string &item, size_t max_bytes, Completion done,
+                         const Json &expected_origin) {
+  if (home.empty()) {
+    done(nullptr,
+         {{"code", "CONTENT_UNAVAILABLE"}, {"message", "Codex source home is unavailable"}});
+    return;
+  }
+  read_history_entry(std::move(process), thread, cwd, turn, item, max_bytes, std::move(done), home,
+                     expected_origin);
 }
 void ExternalThread::validate(Completion done) {
   auto self = shared_from_this();

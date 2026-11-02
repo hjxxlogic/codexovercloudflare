@@ -1,7 +1,11 @@
 #include "coc/delivery.hpp"
 #include "coc/external.hpp"
 #include "coc/history_projection.hpp"
+#include <fstream>
 #include <iostream>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 using namespace coc;
 namespace {
 template <class F> void rejects_source(F fn, const std::string &code) {
@@ -13,6 +17,67 @@ template <class F> void rejects_source(F fn, const std::string &code) {
     throw std::runtime_error("Expected " + code + ", got " + error.code);
   }
   throw std::runtime_error("Expected " + code);
+}
+void origin_cases() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-origin-" + uuid());
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  const auto home = root / ".codex";
+  const auto project = root / "project";
+  std::filesystem::create_directories(home / "sessions");
+  std::filesystem::create_directories(project);
+  auto file = home / "sessions" / "thread.jsonl";
+  std::ofstream(file) << "initial";
+  Json thread = {
+      {"id", "thread"}, {"createdAt", 1}, {"cwd", project.u8string()}, {"path", file.u8string()}};
+  const auto origin = history_source_origin(thread, home, project.u8string());
+  if (origin.at("environment").get<std::string>().size() != 64)
+    throw std::runtime_error("Missing source identity digest");
+  std::ofstream(file, std::ios::app) << "append";
+  if (history_source_origin(thread, home, project.u8string()) != origin)
+    throw std::runtime_error("Ordinary source append changed instance identity");
+  std::filesystem::create_directories(home / "archived");
+  const auto archived = home / "archived" / "thread.jsonl";
+  std::filesystem::rename(file, archived);
+  file = archived;
+  thread["path"] = file.u8string();
+  if (history_source_origin(thread, home, project.u8string()) != origin)
+    throw std::runtime_error("Archiving the same source file should retain identity");
+  const auto replacement = home / "replacement.jsonl";
+  std::ofstream(replacement) << "initialappend";
+  std::filesystem::rename(replacement, file);
+  const auto replaced = history_source_origin(thread, home, project.u8string());
+  if (replaced == origin)
+    throw std::runtime_error("Same-path source replacement reused old instance identity");
+  thread["createdAt"] = 2;
+  if (history_source_origin(thread, home, project.u8string()) == replaced)
+    throw std::runtime_error("Changed thread creation identity was ignored");
+  thread["createdAt"] = 1;
+  std::filesystem::remove(file);
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); },
+                 "CONTENT_UNAVAILABLE");
+  std::ofstream(project / "outside.jsonl") << "outside";
+  thread["path"] = (project / "outside.jsonl").u8string();
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); }, "FORBIDDEN");
+  thread["path"] = nullptr;
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); },
+                 "CONTENT_UNAVAILABLE");
+  thread["path"] = (home / "sessions").u8string();
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); },
+                 "CONTENT_UNAVAILABLE");
+#ifndef _WIN32
+  const auto fifo = home / "fifo";
+  if (mkfifo(fifo.c_str(), 0600) != 0)
+    throw std::runtime_error("Create source FIFO fixture");
+  thread["path"] = fifo.u8string();
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); },
+                 "CONTENT_UNAVAILABLE");
+  std::filesystem::create_symlink(project / "outside.jsonl", home / "escape.jsonl");
+  thread["path"] = (home / "escape.jsonl").u8string();
+  rejects_source([&] { history_source_origin(thread, home, project.u8string()); }, "FORBIDDEN");
+#endif
 }
 void durable_source_cases() {
   const auto path = std::filesystem::temp_directory_path() / ("coc-source-map-" + uuid());
@@ -359,9 +424,15 @@ void projection_cases() {
     throw std::runtime_error("An originally retained timestamp must not be silently changed");
 }
 void read_case(const std::string &thread, const std::string &item, size_t limit,
-               const std::string &expected) {
+               const std::string &expected, bool bound = false) {
   asio::io_context io;
-  const auto cwd = std::filesystem::current_path().u8string();
+  const auto root = std::filesystem::temp_directory_path() / ("coc-source-read-" + uuid());
+  const auto cwd = bound ? root.u8string() : std::filesystem::current_path().u8string();
+  const auto home = root / ".codex";
+  if (bound) {
+    std::filesystem::create_directories(home);
+    std::ofstream(home / "session.jsonl") << "initial";
+  }
   bool finished = false;
   int callbacks = 0;
   Json result, failure;
@@ -399,9 +470,21 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
       done(nullptr, error);
       return;
     }
-    read_history_item(process, thread, cwd, "turn", item, limit, done);
+    if (bound)
+      read_history_source(process, home, thread, cwd, "turn", item, limit, done,
+                          thread == "wrong-origin" ? Json{{"environment", "wrong"}} : Json());
+    else
+      read_history_item(process, thread, cwd, "turn", item, limit, done);
   });
   io.run();
+  if (bound) {
+    std::filesystem::remove_all(root);
+    if (failure.is_null()) {
+      if (result.at("origin").at("environment").get<std::string>().size() != 64)
+        throw std::runtime_error("Missing source identity");
+      result = result.at("entry").get<Json>();
+    }
+  }
   const auto code = failure.is_null() ? "" : failure.value("code", "UNKNOWN");
   if (!finished || callbacks != 1 || code != expected)
     throw std::runtime_error("History source case " + thread + "/" + item + ": " + code);
@@ -412,9 +495,15 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
 } // namespace
 int main() {
   try {
+    origin_cases();
     durable_source_cases();
     projection_cases();
     read_case("normal", "ok", 4096, "");
+    for (const auto *thread : {"normal", "source-append", "source-archive"})
+      read_case(thread, "ok", 4096, "", true);
+    read_case("source-replace", "ok", 4096, "DELIVERY_STATE_MISMATCH", true);
+    read_case("wrong-origin", "ok", 4096, "DELIVERY_STATE_MISMATCH", true);
+    read_case("no-path", "ok", 4096, "CONTENT_UNAVAILABLE", true);
     read_case("foreign", "ok", 4096, "FORBIDDEN");
     read_case("wrong-thread", "ok", 4096, "FORBIDDEN");
     read_case("rebound", "ok", 4096, "FORBIDDEN");

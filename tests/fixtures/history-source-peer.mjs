@@ -1,5 +1,8 @@
 // Read-only persisted-item peer. Any business or fallback RPC fails the process.
 import { createInterface } from 'node:readline';
+import { appendFileSync, writeFileSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+let sourcePath = join(process.cwd(), '.codex', 'session.jsonl');
 let reads = 0;
 for await (const line of createInterface({ input: process.stdin })) {
   const m = JSON.parse(line);
@@ -12,6 +15,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     result = {
       thread: {
         id: id === 'wrong-thread' ? 'other' : id,
+        createdAt: 1,
+        path: id === 'no-path' ? null : sourcePath,
         cwd:
           id === 'foreign' || (id === 'rebound' && reads > 1)
             ? '/not-authorized'
@@ -26,6 +31,18 @@ for await (const line of createInterface({ input: process.stdin })) {
     };
     if (id === 'bad-metadata') result = { thread: null };
   } else if (m.method === 'thread/items/read') {
+    if (m.params.threadId === 'wrong-origin')
+      throw new Error('Read before origin validation');
+    if (m.params.threadId === 'source-append')
+      appendFileSync(sourcePath, 'next');
+    if (m.params.threadId === 'source-replace') {
+      writeFileSync(sourcePath + '.new', 'replacement');
+      renameSync(sourcePath + '.new', sourcePath);
+    }
+    if (m.params.threadId === 'source-archive') {
+      renameSync(sourcePath, sourcePath + '.archived');
+      sourcePath += '.archived';
+    }
     if (m.params.itemIds.length !== 1) throw new Error('Unbounded item read');
     const id = m.params.itemIds[0];
     if (id === 'unsupported') {
