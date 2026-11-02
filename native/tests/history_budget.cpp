@@ -227,6 +227,87 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void journal_cleanup() {
+  Temp temp;
+  const std::string session = "host~journal-cleanup";
+  Json reference, snapshot, expected_budget;
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"running", false}, {"state", "closed"}});
+    for (int i = 0; i < 270; ++i)
+      store.event(session, "item/agentMessage/delta",
+                  {{"turnId", "turn"}, {"itemId", "answer"}, {"delta", "你🙂"}});
+    store.archive_event(session, "user", {{"text", "archived"}});
+    store.external_item(session, "external-turn",
+                        {{"id", "tool"}, {"type", "commandExecution"}, {"aggregatedOutput", "old"}},
+                        true);
+    const auto external = store.external_item(
+        session, "external-turn",
+        {{"id", "tool"}, {"type", "commandExecution"}, {"aggregatedOutput", "new"}});
+    reference = store.history_reference(session, external.at("seq"));
+    // This request's unknown execution evidence is unrelated to display logs.
+    const Json intent = {{"requestId", "unknown"},
+                         {"owner", std::string(64, 'a')},
+                         {"instance", store.delivery_instance()}};
+    store.operation_begin(intent, "stop", {{"sessionId", session}});
+    Database fixture(temp.path);
+    fixture.sql("INSERT INTO events(session,value,time) VALUES('" + session +
+                "','{\"type\":\"orphan\",\"data\":{}}',1)");
+    store.event(session, "user", {{"text", "later projected event"}});
+    snapshot = store.history(session);
+    const auto before = store.history_budget();
+    store.history_reserve(session, 65536, 16);
+    check(store.history_journal_compact().at("removedEvents") == 0,
+          "Raw cleanup does not consume or refund active history promises");
+    store.history_release(session);
+    auto state = store.get(session);
+    state["running"] = true;
+    store.save(state);
+    check(store.history_journal_compact().at("removedEvents") == 0,
+          "Raw cleanup skips running sessions");
+    while (store.history_journal_compact().at("scanned") == 128) {
+    }
+    state["running"] = false;
+    store.save(state);
+    fixture.sql("CREATE TRIGGER fail_journal BEFORE DELETE ON events WHEN OLD.seq=2 "
+                "BEGIN SELECT RAISE(ABORT,'injected journal cleanup failure'); END");
+    bool failed = false;
+    for (int i = 0; i < 4 && !failed; ++i) {
+      try {
+        store.history_journal_compact();
+      } catch (const Error &) {
+        failed = true;
+      }
+    }
+    check(failed && store.history_budget() == before && store.history(session) == snapshot,
+          "Raw journal failure rolls back preceding deletes, ledger and scan position");
+    fixture.sql("DROP TRIGGER fail_journal");
+    int64_t removed = 0, reclaimed = 0;
+    for (int i = 0; i < 6; ++i) {
+      const auto batch = store.history_journal_compact();
+      check(batch.at("scanned") <= 128 && batch.at("removedEvents") <= 128,
+            "Raw journal reclamation has a fixed per-transaction bound");
+      removed += batch.at("removedEvents").get<int64_t>();
+      reclaimed += batch.at("reclaimedBytes").get<int64_t>();
+    }
+    check(removed == 275 && store.history(session) == snapshot &&
+              store.history_reference(session, external.at("seq")) == reference &&
+              store.history_budget().at("global").at("bytes").get<int64_t>() ==
+                  before.at("global").at("bytes").get<int64_t>() - reclaimed,
+          "Projected deltas and superseded snapshots are reclaimed with exact accounting");
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=1 FROM events; "
+                "INSERT INTO assertion SELECT json_extract(value,'$.type')='orphan' FROM events; "
+                "INSERT INTO assertion SELECT COUNT(*)=1 FROM transport2_operations "
+                "WHERE request_id='unknown'");
+    expected_budget = store.history_budget();
+  }
+  Store reopened(temp.path, false);
+  check(reopened.history_journal_compact().at("removedEvents") == 0 &&
+            reopened.history(session) == snapshot && reopened.history_budget() == expected_budget &&
+            reopened.history_reference(session, reference.at("seq")) == reference,
+        "Reopening raw journal reclamation is idempotent and retains original projected history");
+}
 void projected_history_heads() {
   Temp temp;
   const std::string session = "host~projected-head";
@@ -615,10 +696,13 @@ void accounting() {
     check(journal.history_budget()["global"]["bytes"] < large["global"]["bytes"],
           "Replacement refunds old chunks while retaining original events");
     saved = journal.history_budget();
+    const auto snapshot = journal.history("session");
     journal.cache_clear();
     journal.cleanup();
-    check(journal.history_budget() == saved,
-          "Ordinary cache cleanup retains authoritative history");
+    check(journal.history("session") == snapshot &&
+              journal.history_budget().at("global").at("bytes") < saved.at("global").at("bytes"),
+          "Maintenance refunds raw journal copies while retaining authoritative history");
+    saved = journal.history_budget();
   }
   {
     Store restored(temp.path);
@@ -734,6 +818,7 @@ int main() {
     legacy_packing();
     legacy_inline_dedup();
     projected_history_heads();
+    journal_cleanup();
     inline_transition();
     external_inline_transition();
     packed_deltas();

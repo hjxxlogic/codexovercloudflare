@@ -113,7 +113,7 @@ try {
     );
     assert.equal(
       database.prepare('SELECT COUNT(*) AS n FROM events').get()?.n,
-      1,
+      0,
     );
   } finally {
     database.close();

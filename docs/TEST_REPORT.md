@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+原始事件分批回收：Agent 构建通过；历史预算专项 15.85 秒、来源专项 3.37 秒、引用专项 0.14 秒通过。覆盖 128 条批次上限、投影见证、孤立记录/活动会话/预留跳过、整批回滚、精确退款、重启和未知请求保留。真实原生交付及 Agent 自动日志/分块回收后的正文回源专项通过，定向 ESLint 通过。旧库隔离副本回收 48224 条事件，计费 175.76 → 35.26 MiB，355 个引用及其余 41 张表摘要不变；[脱敏证据](assets/history-storage-2026-11-02/journal-reclamation.json)。日志 `/tmp/coc-journal-{final-build,test,delivery-test,recovery-test,lint}.log`。未运行全量回归、模型任务、正式库迁移或部署；物理 DB/WAL 回收效果另待最终测量。
+
 历史高水位解耦：Agent 构建通过，历史预算专项 14.60 秒通过，真实原生交付专项通过（确定性 Codex peer，无模型调用）。新增测试在隔离数据库清空 events 后检查历史快照、原引用、订阅高水位、确认与重启恢复，验证负序归档不覆盖历史、正序继续递增，以及投影写入失败不发布新高水位。只读旧库中全部会话的 MAX(events.seq) 与 MAX(history.revision) 一致；[审计结果](assets/history-storage-2026-11-02/event-journal-audit.json)。日志 `/tmp/coc-projected-head-{build,test,delivery-test}.log`。尚未启用自动事件删除；未运行全量回归或修改正式库。
 
 旧库内联去重：Agent 构建通过；历史预算专项 15.06 秒、来源专项 3.38 秒、引用专项 0.14 秒通过。覆盖 Unicode、通用工具 JSON、运行/预留跳过、部分匹配片段可删除、冲突片段保留、后续删除失败的整批回滚、重启幂等与计量退款。日志 `/tmp/coc-inline-migration-{build,test}.log`。旧库隔离副本结合合并及去重后计费 275.20 → 175.76 MiB，355 个引用与 history/events/bodies 摘要不变，完整性检查通过；[脱敏证据](assets/history-storage-2026-11-02/inline-deduplication.json)。不是物理文件缩小证明；未运行全量回归、模型调用、正式库迁移或部署。

@@ -916,7 +916,7 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
 }
 Json Store::replay(const std::string &id, int64_t after) {
   auto page = history(id, 0, after);
-  // Events are retained under the history quota; admission refuses growth before pruning.
+  // The full projected view is retained; raw journal cleanup creates no replay gap.
   page["gap"] = false;
   return page;
 }
@@ -1119,9 +1119,86 @@ Json Store::history_inline_compact() {
     throw;
   }
 }
+Json Store::history_journal_compact() {
+  run("BEGIN IMMEDIATE");
+  try {
+    // Raw events have no replay reader: clients consume durable projections.
+    // Require a matching projection witness nevertheless; orphan evidence stays.
+    const auto rows = query("SELECT e.seq,e.session,s.id IS NOT NULL "
+                            "AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
+                            "AND NOT EXISTS(SELECT 1 FROM transport2_history_entries "
+                            "WHERE key='reservation:'||e.session) AS eligible "
+                            "FROM events e LEFT JOIN sessions s ON s.id=e.session "
+                            "WHERE e.seq>? ORDER BY e.seq LIMIT 128",
+                            {history_journal_seq_});
+    const auto before =
+        query("SELECT bytes,records FROM transport2_history_budget WHERE scope='@global'").at(0);
+    int64_t removed = 0, reclaimed = 0;
+    for (const auto &row : rows) {
+      if (row.at("eligible") != 1)
+        continue;
+      const auto witnessed = query(
+          "SELECT e.seq FROM events e WHERE e.seq=? AND ("
+          // Ordinary and imported archive rows retain the same identity/type.
+          "EXISTS(SELECT 1 FROM history h WHERE h.seq=e.seq AND h.session=e.session "
+          "AND h.revision>=MAX(0,e.seq) "
+          "AND json_extract(h.value,'$.type')=json_extract(e.value,'$.type')) OR "
+          // External snapshots may use a negative display seq and positive revisions.
+          "(json_extract(e.value,'$.type')='external/itemUpdate' AND EXISTS("
+          "SELECT 1 FROM external_items x JOIN history h ON h.seq=x.seq "
+          "WHERE x.session=e.session AND x.turn=json_extract(e.value,'$.data.turnId') "
+          "AND x.item=json_extract(e.value,'$.data.itemId') AND h.session=e.session "
+          "AND h.revision>=e.seq AND json_extract(h.value,'$.data.turnId')=x.turn "
+          "AND json_extract(h.value,'$.data.itemId')=x.item)) OR "
+          "(json_extract(e.value,'$.type')='external/archiveReference' AND e.seq<0 AND EXISTS("
+          "SELECT 1 FROM external_items x JOIN history h ON h.seq=x.seq "
+          "WHERE x.seq=e.seq AND x.session=e.session AND h.session=e.session "
+          "AND h.revision>=json_extract(e.value,'$.data.revision'))) OR "
+          // A stream projection can subsume many deltas. Bound the predecessor
+          // search; an unusually distant witness keeps its raw record for now.
+          "(e.seq>0 AND json_extract(e.value,'$.type') IN ('item/agentMessage/delta',"
+          "'item/commandExecution/outputDelta','item/fileChange/outputDelta') AND EXISTS("
+          "SELECT 1 FROM (SELECT seq,revision,value FROM history WHERE session=? "
+          "AND seq>0 AND seq<=? ORDER BY seq DESC LIMIT 128) h WHERE h.revision>=e.seq "
+          "AND json_extract(h.value,'$.type')=json_extract(e.value,'$.type') "
+          "AND COALESCE(json_extract(h.value,'$.data.turnId'),'')="
+          "COALESCE(json_extract(e.value,'$.data.turnId'),'') "
+          "AND COALESCE(json_extract(h.value,'$.data.itemId'),'')="
+          "COALESCE(json_extract(e.value,'$.data.itemId'),'')))) "
+          "AND NOT EXISTS(SELECT 1 FROM bodies b WHERE b.seq=e.seq AND NOT EXISTS("
+          "SELECT 1 FROM history h WHERE h.seq=b.seq AND h.session=e.session)) "
+          "AND NOT EXISTS(SELECT 1 FROM chunks c WHERE c.seq=e.seq AND NOT EXISTS("
+          "SELECT 1 FROM history h WHERE h.seq=c.seq AND h.session=e.session))",
+          {row.at("seq"), row.at("session"), row.at("seq")});
+      if (witnessed.empty())
+        continue;
+      const auto charge = query("SELECT bytes,records FROM transport2_history_entries "
+                                "WHERE key='events:'||json_array(?) AND session=?",
+                                {row.at("seq"), row.at("session")});
+      if (charge.size() != 1 || charge.at(0).at("records") != 1)
+        throw Error("STORAGE_ERROR", "Raw history event accounting is incomplete");
+      run("DELETE FROM events WHERE seq=?", {row.at("seq")});
+      ++removed;
+      reclaimed += charge.at(0).at("bytes").get<int64_t>();
+    }
+    const auto after =
+        query("SELECT bytes,records FROM transport2_history_budget WHERE scope='@global'").at(0);
+    if (after.at("bytes").get<int64_t>() != before.at("bytes").get<int64_t>() - reclaimed ||
+        after.at("records").get<int64_t>() != before.at("records").get<int64_t>() - removed)
+      throw Error("STORAGE_ERROR", "Raw history cleanup changed unexpected accounting");
+    run("COMMIT");
+    history_journal_seq_ = rows.size() < 128 ? std::numeric_limits<int64_t>::min()
+                                             : rows.back().at("seq").get<int64_t>();
+    return {{"scanned", rows.size()}, {"removedEvents", removed}, {"reclaimedBytes", reclaimed}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 void Store::cleanup() {
   history_compact();
   history_inline_compact();
+  history_journal_compact();
   run("BEGIN IMMEDIATE");
   try {
     for (const auto &record : query("SELECT key FROM cache WHERE key GLOB 'upload:*' AND "

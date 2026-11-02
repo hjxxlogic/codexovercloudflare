@@ -23,6 +23,7 @@ private:
   Json history_policy_;
   int64_t history_pack_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_pack_start_ = -1;
+  int64_t history_journal_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_inline_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_prepare_seq_ = std::numeric_limits<int64_t>::min();
   Lock lock_;
@@ -68,6 +69,7 @@ public:
   Json history_budget();
   Json history_compact();
   Json history_inline_compact();
+  Json history_journal_compact();
   Json history_cache_compact(const Json &verified = nullptr);
   Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
                                const Json &entry, const Json &expected = nullptr);

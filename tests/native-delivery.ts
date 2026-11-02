@@ -1115,7 +1115,7 @@ try {
   const userCount = Number(
     database
       .prepare(
-        "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+        "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='user'",
       )
       .get(bounded.id)!.n,
   );
@@ -1175,7 +1175,7 @@ try {
     Number(
       database
         .prepare(
-          "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+          "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='user'",
         )
         .get(bounded.id)!.n,
     ),
@@ -1236,7 +1236,7 @@ try {
     Number(
       database
         .prepare(
-          "SELECT COUNT(*) AS n FROM events WHERE session=? AND json_extract(value,'$.type')='user'",
+          "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='user'",
         )
         .get(bounded.id)!.n,
     ),
