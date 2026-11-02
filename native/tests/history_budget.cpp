@@ -156,6 +156,98 @@ void history_head_retirement() {
             restarted.delivery_heads(session).at("agent") == next.at("revision"),
         "New projection must advance the retained head");
 }
+void projection_retirement() {
+  Temp temp;
+  const std::string session = "host~retirement";
+  const Json policy = {{"retainedRecords", 2}};
+  Json reference, request = {{"sessionId", session},     {"owner", "reader"},
+                             {"stream", "subscription"}, {"instance", "client-storage"},
+                             {"exchangeId", "exchange"}, {"operation", "subscribe"},
+                             {"receivedRevision", 0},    {"acknowledgedRevision", 0}};
+  int64_t head;
+  const auto rejects = [](auto fn, const std::string &code) {
+    try {
+      fn();
+    } catch (const Error &e) {
+      check(e.code == code, e.what());
+      return;
+    }
+    throw std::runtime_error("Expected " + code);
+  };
+  {
+    Store store(temp.path, true, "", policy);
+    store.save({{"id", session}, {"state", "closed"}, {"external", true}});
+    for (int n = 0; n < 6; ++n) {
+      const auto event = store.external_item(
+          session, "turn",
+          {{"id", "item-" + std::to_string(n)}, {"type", "agentMessage"}, {"text", "body"}}, true);
+      if (n == 0)
+        reference = store.history_reference(session, event.at("seq"));
+    }
+    head = store.history(session).at("snapshotSeq");
+    const auto identity = store.history_subscription(request);
+    for (const auto &field : {"agentInstance", "streamSerial", "creditGeneration"})
+      request[field] = identity.at(field);
+    request["operation"] = "ack";
+    request["receivedRevision"] = head;
+    store.history_subscription(request);
+    check(store.history_retire(session).at("retired") == 0,
+          "Ordinary ACK must not authorize projection retirement");
+    request["releasedRevision"] = head;
+    store.history_subscription(request);
+    Json other = {{"sessionId", session},     {"owner", "reader"},
+                  {"stream", "second-tab"},   {"instance", "second-storage"},
+                  {"exchangeId", "exchange"}, {"operation", "subscribe"},
+                  {"receivedRevision", 0},    {"acknowledgedRevision", 0}};
+    const auto other_identity = store.history_subscription(other);
+    check(store.history_retire(session).at("retired") == 0,
+          "One tab cannot release another tab's reference obligations");
+    for (const auto &field : {"agentInstance", "streamSerial", "creditGeneration"})
+      other[field] = other_identity.at(field);
+    other["operation"] = "retire";
+    other["receivedRevision"] = head;
+    other["releasedRevision"] = head;
+    store.history_subscription(other);
+    store.history_reserve(session, 10000, 2, "pending");
+    check(store.history_retire(session).at("retired") == 0, "Unknown promise pins history");
+    store.history_release(session, "pending");
+    const auto original = store.history(session), budget = store.history_budget();
+    Database fixture(temp.path);
+    fixture.sql(
+        "CREATE TRIGGER reject_retirement BEFORE UPDATE OF generation ON "
+        "transport2_history_heads BEGIN SELECT RAISE(ABORT,'injected retirement failure'); END");
+    bool failed = false;
+    try {
+      store.history_retire(session);
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.history(session) == original && store.history_budget() == budget &&
+              store.history_reference(session, reference.at("seq")) == reference,
+          "Retirement failure restores all indexes, body, coverage and budget");
+    fixture.sql("DROP TRIGGER reject_retirement");
+    check(store.history_retire(session).at("retired") == 4,
+          "Retirement keeps configured recent rows");
+    check(store.history_budget().at("global").at("bytes") < budget.at("global").at("bytes"),
+          "Retirement refunds projection and dependency accounting");
+    rejects([&] { store.history(session); }, "UNSUPPORTED_PROTOCOL_VERSION");
+    const auto snapshot = store.history(session, 0, 0, 2);
+    check(snapshot.at("gap") == true && snapshot.at("events").size() == 2 &&
+              snapshot.at("snapshotSeq") == head && snapshot.at("snapshotGeneration") == 1,
+          "Old checkpoint receives explicit gap and retained snapshot without head rollback");
+    rejects([&] { store.history(session, 0, 0, 2, 0); }, "HISTORY_SNAPSHOT_CHANGED");
+    rejects([&] { store.history_content(session, reference, 0); }, "CONTENT_EXPIRED");
+    check(store.history_retire(session).at("retired") == 0,
+          "Repeated retirement does not churn generation");
+  }
+  Store restarted(temp.path, true, "", policy);
+  const auto snapshot = restarted.history(session, 0, 0, 2, 1);
+  check(snapshot.at("gap") == true && snapshot.at("snapshotSeq") == head &&
+            snapshot.at("events").size() == 2,
+        "Restart retains the exact coverage contract");
+  rejects([&] { restarted.history_content(session, reference, 0); }, "CONTENT_EXPIRED");
+  rejects([&] { restarted.history(session, 0, 0, 99); }, "UNSUPPORTED_PROTOCOL_VERSION");
+}
 void legacy_packing() {
   Temp temp;
   Json reference, snapshot, before;
@@ -1187,6 +1279,7 @@ int main() {
   try {
     archive_allocation_retirement();
     history_head_retirement();
+    projection_retirement();
     legacy_packing();
     legacy_inline_dedup();
     projected_history_heads();

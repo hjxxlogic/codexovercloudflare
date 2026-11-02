@@ -74,7 +74,9 @@ public:
   Json history_turn_admit(const std::string &session, const Json &input, const Json &user,
                           const Json &task, bool start);
   Json replay(const std::string &id, int64_t after);
-  Json history(const std::string &id, int64_t before = 0, int64_t after = -1);
+  Json history(const std::string &id, int64_t before = 0, int64_t after = -1, int version = 1,
+               int64_t generation = -1);
+  Json history_retire(const std::string &session);
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
   Json history_budget();

@@ -60,6 +60,8 @@ describe('protocol boundaries', () => {
     for (const data of [
       { operation: 'page', before: 2, after: 3 },
       { operation: 'page', after: -1 },
+      { operation: 'page', historyVersion: 99 },
+      { operation: 'page', historyVersion: 2, snapshotGeneration: -1 },
       { operation: 'page', before: Number.MAX_SAFE_INTEGER + 1 },
       { operation: 'content', seq: 2, offset: -1 },
       { operation: 'prompt' },

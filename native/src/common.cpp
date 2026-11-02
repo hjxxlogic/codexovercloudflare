@@ -297,13 +297,15 @@ Json history_storage_config(Json value) {
                    {"readPageMaxBytes", 1048576}, {"readConcurrency", 2},
                    {"cacheMaxBytes", 67108864},   {"cacheMaxSessionBytes", 16777216},
                    {"cacheTargetPercent", 80},    {"writeWindowBytes", 1048576},
-                   {"writeWindowRecords", 256}};
+                   {"writeWindowRecords", 256},   {"retainedRecords", 0}};
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "historyStorage must be an object");
   for (auto it = value.begin(); it != value.end(); ++it) {
     if (!defaults.contains(it.key()) || !it.value().is_number_integer() ||
-        it.value() <
-            ((it.key() == "cacheMaxBytes" || it.key() == "cacheMaxSessionBytes") ? 0 : 1) ||
+        it.value() < ((it.key() == "cacheMaxBytes" || it.key() == "cacheMaxSessionBytes" ||
+                       it.key() == "retainedRecords")
+                          ? 0
+                          : 1) ||
         it.value() > 9007199254740991LL)
       throw Error("CONFIG_ERROR", "Invalid historyStorage field: " + it.key());
     defaults[it.key()] = it.value();

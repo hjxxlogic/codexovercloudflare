@@ -119,6 +119,12 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
 ]);
 export const historyStorageSchema = z
   .object({
+    retainedRecords: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(0),
     cacheMaxBytes: z
       .number()
       .int()
@@ -393,6 +399,8 @@ export const historyCommandSchema = z.discriminatedUnion('operation', [
     .object({
       operation: z.literal('page'),
       requestId: idSchema,
+      historyVersion: z.literal(2).optional(),
+      snapshotGeneration: sequenceSchema.nonnegative().optional(),
       before: sequenceSchema.optional(),
       after: sequenceSchema.nonnegative().optional(),
     })

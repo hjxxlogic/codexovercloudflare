@@ -828,8 +828,24 @@ int64_t Store::history_head(const std::string &session) {
       query("SELECT revision FROM transport2_history_heads WHERE session=?", {session});
   return rows.empty() ? 0 : rows.at(0).at("revision").get<int64_t>();
 }
-Json Store::history(const std::string &id, int64_t before, int64_t after) {
+Json Store::history(const std::string &id, int64_t before, int64_t after, int version,
+                    int64_t generation) {
   get(id);
+  const auto coverage = query("SELECT retired_revision,generation FROM transport2_history_heads "
+                              "WHERE session=?",
+                              {id});
+  const int64_t retired =
+      coverage.empty() ? 0 : coverage.at(0).at("retired_revision").get<int64_t>();
+  const int64_t current = coverage.empty() ? 0 : coverage.at(0).at("generation").get<int64_t>();
+  if ((version != 1 && version != 2) || (version != 2 && current > 0))
+    throw Error("UNSUPPORTED_PROTOCOL_VERSION", "History retirement requires protocol version 2");
+  if (generation >= 0 && generation != current)
+    throw Error("HISTORY_SNAPSHOT_CHANGED", "History retention changed; restart the snapshot");
+  const bool gap = current > 0 && after >= 0 && after <= retired;
+  if (gap) {
+    before = 0;
+    after = -1;
+  }
   const bool forward = after >= 0;
   std::string order = "seq<? ORDER BY seq DESC";
   Json arguments = Json::array({id, before});
@@ -880,6 +896,10 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
           {"more", more},
           {"cursor", cursor},
           {"snapshotSeq", history_head(id)},
+          {"historyVersion", 2},
+          {"snapshotGeneration", current},
+          {"retainedAfter", retired},
+          {"gap", gap},
           {"direction", forward ? "after" : "before"}};
 }
 Json Store::history_inline_text(const std::string &id, int64_t seq) {

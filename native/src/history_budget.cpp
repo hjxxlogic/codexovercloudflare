@@ -74,6 +74,17 @@ void Store::history_budget_init(bool authoritative) {
                                  .empty();
   run("CREATE TABLE IF NOT EXISTS transport2_history_heads(session TEXT PRIMARY KEY,"
       "revision INTEGER NOT NULL CHECK(revision BETWEEN 0 AND 9007199254740991))");
+  bool migrate_coverage = false;
+  for (const auto *field : {"retired_revision", "generation"}) {
+    bool exists = false;
+    for (const auto &column : query("PRAGMA table_info(transport2_history_heads)"))
+      exists = exists || column.at("name") == field;
+    if (!exists) {
+      run(std::string("ALTER TABLE transport2_history_heads ADD COLUMN ") + field +
+          " INTEGER NOT NULL DEFAULT 0 CHECK(" + field + " BETWEEN 0 AND 9007199254740991)");
+      migrate_coverage = true;
+    }
+  }
   run("INSERT OR IGNORE INTO transport2_history_budget VALUES('@global',0,0)");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_charge AFTER INSERT ON "
       "transport2_history_entries BEGIN "
@@ -125,7 +136,7 @@ void Store::history_budget_init(bool authoritative) {
   const std::string body_session = "COALESCE((SELECT session FROM history WHERE seq=$seq),"
                                    "(SELECT session FROM events WHERE seq=$seq),'@orphan')";
   const std::vector<HistoryResource> resources = {
-      {"transport2_history_heads", "json_array($session)", "$session", "8"},
+      {"transport2_history_heads", "json_array($session)", "$session", "24"},
       {"events", "json_array($seq)", "$session", "length(CAST($value AS BLOB))"},
       {"history", "json_array($seq)", "$session",
        "length(CAST($value AS BLOB))+COALESCE((SELECT length(CAST(recovery AS BLOB)) FROM history "
@@ -167,8 +178,11 @@ void Store::history_budget_init(bool authoritative) {
           " FROM " + resource.table + " AS t");
   }
   if (migrate_heads)
-    run("INSERT INTO transport2_history_heads SELECT session,MAX(0,MAX(revision)) "
+    run("INSERT INTO transport2_history_heads(session,revision) SELECT "
+        "session,MAX(0,MAX(revision)) "
         "FROM history GROUP BY session");
+  if (migrate_coverage)
+    run("UPDATE transport2_history_heads SET revision=revision");
   for (const auto *action : {"insert", "update"})
     run(std::string("CREATE TRIGGER transport2_history_head_") + action + " AFTER " + action +
         " ON history BEGIN INSERT INTO transport2_history_heads(session,revision) "
@@ -231,6 +245,56 @@ void Store::history_budget_init(bool authoritative) {
   if (bootstrap)
     run("INSERT INTO transport2_history_meta(id,archive_seq) SELECT 1,MIN(0,COALESCE(MIN(seq),0)) "
         "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)");
+}
+Json Store::history_retire(const std::string &session) {
+  const auto keep = history_policy_.value("retainedRecords", int64_t(0));
+  if (keep == 0)
+    return {{"retired", 0}};
+  run("BEGIN IMMEDIATE");
+  try {
+    const auto state = get(session);
+    // Retirement is history-only. Active or uncertain execution promises remain pinned.
+    if (!state.value("external", false) || state.value("running", false) ||
+        state.value("state", "") != "closed" ||
+        !query("SELECT 1 FROM transport2_history_entries WHERE session=? AND "
+               "(key GLOB 'reservation:*' OR key GLOB 'control-reservation:*') LIMIT 1",
+               {session})
+             .empty()) {
+      run("COMMIT");
+      return {{"retired", 0}};
+    }
+    const auto releases = query("SELECT COUNT(*) AS readers,MIN(released) AS released FROM "
+                                "transport2_history_subscriptions WHERE session=?",
+                                {session})
+                              .at(0);
+    if (releases.at("readers") == 0 || releases.at("released") == 0) {
+      run("COMMIT");
+      return {{"retired", 0}};
+    }
+    const auto candidates =
+        query("SELECT seq,revision FROM history WHERE session=? AND revision<=? AND seq NOT IN "
+              "(SELECT seq FROM history WHERE session=? ORDER BY revision DESC,seq DESC LIMIT ?) "
+              "ORDER BY revision,seq LIMIT 128",
+              {session, releases.at("released"), session, keep});
+    int64_t floor = 0;
+    for (const auto &row : candidates) {
+      const auto seq = row.at("seq");
+      floor = std::max(floor, row.at("revision").get<int64_t>());
+      for (const auto *table : {"chunks", "bodies", "streams", "external_items"})
+        run(std::string("DELETE FROM ") + table + " WHERE seq=?", {seq});
+      run("DELETE FROM events WHERE session=? AND seq=?", {session, seq});
+      run("DELETE FROM history WHERE session=? AND seq=?", {session, seq});
+    }
+    if (!candidates.empty())
+      run("UPDATE transport2_history_heads SET retired_revision=MAX(retired_revision,?),"
+          "generation=generation+1 WHERE session=?",
+          {floor, session});
+    run("COMMIT");
+    return {{"retired", candidates.size()}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
 }
 Json Store::history_cache_compact(const Json &verified) {
   const auto policy = history_storage_config(history_policy_);

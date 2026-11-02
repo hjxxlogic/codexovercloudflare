@@ -168,5 +168,26 @@
       "writeWindowRecords": 64001
     },
     "valid": false
+  },
+  {
+    "name": "bounded history retention",
+    "input": {
+      "retainedRecords": 200
+    },
+    "valid": true
+  },
+  {
+    "name": "retention disabled",
+    "input": {
+      "retainedRecords": 0
+    },
+    "valid": true
+  },
+  {
+    "name": "negative retention",
+    "input": {
+      "retainedRecords": -1
+    },
+    "valid": false
   }
 ]

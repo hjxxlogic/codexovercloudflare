@@ -1058,7 +1058,9 @@ public:
         }
         return;
       }
-      auto page = store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)));
+      auto page =
+          store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)),
+                         d.value("historyVersion", 1), d.value("snapshotGeneration", int64_t(-1)));
       if (d.contains("after") || s.value("archiveDone", true)) {
         done(page, nullptr);
         return;
@@ -1073,7 +1075,9 @@ public:
           done(nullptr, error);
           return;
         }
-        auto page = store_.history(id, d.value("before", int64_t(0)));
+        auto page =
+            store_.history(id, d.value("before", int64_t(0)), -1, d.value("historyVersion", 1),
+                           d.value("snapshotGeneration", int64_t(-1)));
         if (!store_.get(id).value("archiveDone", true))
           page["more"] = true;
         done(page, nullptr);

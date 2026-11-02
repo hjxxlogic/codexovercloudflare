@@ -94,6 +94,12 @@ Json Store::history_content(const std::string &id, const Json &input, int64_t of
   try {
     const auto proof =
         query("SELECT recovery FROM history WHERE session=? AND seq=?", {id, reference.at("seq")});
+    if (proof.empty() &&
+        !query("SELECT 1 FROM transport2_history_heads WHERE session=? AND generation>0 "
+               "AND retired_revision>=?",
+               {id, reference.at("revision")})
+             .empty())
+      throw Error("CONTENT_EXPIRED", "Released history reference is outside retained coverage");
     if (!proof.empty() && !proof.at(0).at("recovery").is_null() &&
         history_reference(id, reference.at("seq")) != reference)
       throw Error("CONTENT_UNAVAILABLE", "History reference does not match original durable proof");

@@ -139,3 +139,11 @@ Agent 正文回源批次：Agent 构建通过，历史预算专项 13.72 秒、�
 现有历史 ACK/retire 可携带 releasedRevision，独立于投影 receivedRevision 持久保存；普通 ACK 和不带该字段的关闭不释放正文责任。原生订阅测试验证超过确认位置、非整数、null 拒绝，释放单调，普通后续 ACK 不扩大释放，以及重启后保留原释放位置与分配身份。沿用原事务和订阅数量上限，未增加逐引用映射。
 
 `native-core` 最终 34.08 秒通过，协议 schema 专项 6 项通过，TypeScript、协议生成一致性及定向 ESLint 通过；日志 `/tmp/coc-history-release-{core-test,schema-test,typecheck,protocol,lint}.log`。CC/CW 尚未发送释放字段，尚未启用自动投影删除或证明过期/缺口恢复完成；仅运行相关专项，未运行全量回归、推送或部署。
+
+### 2026-11-02：投影退休事务与版本化缺口快照
+
+本批 Agent 构建通过，`native-history-budget` 16.77 秒通过；共享 JSON 配置/协议专项 33 项、类型检查、协议生成一致性和定向 ESLint 通过。日志 `/tmp/coc-history-retire-{build,test,schema-test,typecheck,protocol,lint}.log`。
+
+隔离真实 SQLite 库验证：普通 ACK 不允许删除；另一个标签页未释放及未决历史预留阻止退休；释放后按配置保留两条最近投影；覆盖更新注入失败时投影、引用、依赖和预算全部回滚；成功退款；旧协议明确拒绝；版本 2 明确返回缺口和保留快照；过期引用拒绝；分页代际改变拒绝；重启后覆盖边界和过期语义一致。无候选重复调用不推进代际。
+
+此证据覆盖 Store 事务与 Agent 编译，不覆盖完整线上恢复。未接通后台退休调度、HTTP 全部包装及 CC/CW 快照替换，默认保留配置为 0；因此未启用自动删除、未运行全量回归或部署。长期压力优化按计划延期，但基本客户端恢复和本机验收仍是启用门禁。
