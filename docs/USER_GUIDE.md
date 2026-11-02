@@ -896,3 +896,7 @@ CC/CW 提交尚未到达 Codex 时仍使用发送前持久化的 requestId。收
 ### 历史确认与卡顿排查
 
 网页或 CLI 收到历史数据确认后，若引用释放尚未确认，会保留原确认请求并按退避重试，不连续生成新请求。看到“历史确认队列已满”时可先刷新恢复连接；刷新不能替代客户端修复。此提示不代表任务失败，不要重复发送同一任务。完整功能测试记录见 [CW 测试与修复记录](CW_FUNCTIONAL_TEST_2026-11-02.md)。
+
+### 显式本地云端部署
+
+仅在明确选择跳过 CI 时，使用 `python3 scripts/deploy-cloud.py --local-build --apply`（现有 D1 部署还须传入原 `--state-db-id`）。脚本要求 clean HEAD，重新构建网页与 Worker、类型检查并记录本地产物摘要；保留原生下载，禁止组合原生发布或更新通知。证据标记 `ciVerified: false`，不作为 CI 验证的发行产物。默认部署仍等待 GitHub Actions。

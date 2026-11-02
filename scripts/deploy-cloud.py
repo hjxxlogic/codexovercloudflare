@@ -202,6 +202,8 @@ def main():
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
     parser.add_argument('--commit', default='HEAD')
     parser.add_argument('--run-id', type=int)
+    parser.add_argument('--local-build', action='store_true',
+                        help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
@@ -215,6 +217,8 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.local_build and (args.run_id or args.cloud_only_after_windows_failure or args.publish_downloads or args.notify_release):
+        parser.error('--local-build forbids CI run selection and native publication/notification')
     if args.cloud_only_after_windows_failure and (args.publish_downloads or args.notify_release or not args.run_id):
         parser.error('Cloud-only exception requires --run-id and forbids native publication/notification')
     if args.notify_release and (not args.publish_downloads or not args.owner_secret_file):
@@ -229,30 +233,58 @@ def main():
         raise RuntimeError('Deployment requires a clean working tree')
     tool_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     subprocess.run(['git', 'merge-base', '--is-ancestor', commit, tool_commit], cwd=ROOT, check=True)
-    run, jobs = (completed_cloud_run(args.repository, commit, args.run_id)
-                 if args.cloud_only_after_windows_failure else
-                 agent.wait_run(args.repository, commit, args.run_id, args.timeout))
-    output = ROOT / '.local/deploy-cloud' / str(run['id'])
-    output.mkdir(parents=True, exist_ok=True)
-    artifacts = agent.api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
-    identities = []
-    selected = []
-    for name, folder in [('verified-web', 'site'), ('verified-worker', 'worker')]:
-        matches = [a for a in artifacts if a['name'] == name and not a['expired']]
-        if len(matches) != 1:
-            raise RuntimeError('Expected exactly one ' + name + ' artifact')
-        artifact = matches[0]
-        archive = output / (name + '.zip')
-        if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
-            agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
-        destination = output / folder
-        if destination.exists():
-            shutil.rmtree(destination)
-        destination.mkdir()
-        identities.append(unpack(archive, artifact['digest'], commit, destination))
-        selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
-    if identities[0]['sourceDigest'] != identities[1]['sourceDigest']:
-        raise RuntimeError('Worker and web source digests differ')
+    if args.local_build:
+        if commit != tool_commit:
+            raise RuntimeError('Local deployment requires --commit HEAD')
+        run, jobs, artifacts = {'id': 'local-' + commit, 'html_url': None}, [], []
+        output = ROOT / '.local/deploy-cloud' / str(run['id'])
+        output.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['npm', 'run', 'build:web'], cwd=ROOT, check=True)
+        subprocess.run(['npm', 'run', 'typecheck'], cwd=ROOT, check=True)
+        worker = output / 'worker'
+        if worker.exists():
+            shutil.rmtree(worker)
+        subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
+                        'deploy', '--dry-run', '--outdir', str(worker)], cwd=ROOT, check=True)
+        site = output / 'site'
+        if site.exists():
+            shutil.rmtree(site)
+        shutil.copytree(ROOT / 'dist/web', site)
+        identity = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
+        if identity['commit'] != commit or identity['dirty']:
+            raise RuntimeError('Local build source changed during compilation')
+        shutil.copyfile(ROOT / 'wrangler.jsonc', worker / 'deploy-config.jsonc')
+        shutil.copytree(ROOT / 'migrations/d1', worker / 'state-migrations')
+        identities = [identity, identity]
+        selected = [{'name': folder + '/' + path.relative_to(output / folder).as_posix(),
+                     'digest': 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()}
+                    for folder in ('site', 'worker') for path in sorted((output / folder).rglob('*'))
+                    if path.is_file() and 'downloads' not in path.relative_to(output / folder).parts]
+    else:
+        run, jobs = (completed_cloud_run(args.repository, commit, args.run_id)
+                     if args.cloud_only_after_windows_failure else
+                     agent.wait_run(args.repository, commit, args.run_id, args.timeout))
+        output = ROOT / '.local/deploy-cloud' / str(run['id'])
+        output.mkdir(parents=True, exist_ok=True)
+        artifacts = agent.api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
+        identities = []
+        selected = []
+        for name, folder in [('verified-web', 'site'), ('verified-worker', 'worker')]:
+            matches = [a for a in artifacts if a['name'] == name and not a['expired']]
+            if len(matches) != 1:
+                raise RuntimeError('Expected exactly one ' + name + ' artifact')
+            artifact = matches[0]
+            archive = output / (name + '.zip')
+            if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
+                agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+            destination = output / folder
+            if destination.exists():
+                shutil.rmtree(destination)
+            destination.mkdir()
+            identities.append(unpack(archive, artifact['digest'], commit, destination))
+            selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
+        if identities[0]['sourceDigest'] != identities[1]['sourceDigest']:
+            raise RuntimeError('Worker and web source digests differ')
     config = json.loads(re.sub(r',(\s*[}\]])', r'\1',
                                (output / 'worker/deploy-config.jsonc').read_text()))
     # The deployment configuration is archived by CI along with the Worker.
@@ -283,6 +315,7 @@ def main():
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
+                'localBuild': args.local_build, 'ciVerified': not args.local_build,
                 'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}

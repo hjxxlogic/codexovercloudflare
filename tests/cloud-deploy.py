@@ -18,6 +18,14 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_local_mode_cannot_publish_native_or_claim_a_ci_run(self):
+        for options in (['--run-id', '1'], ['--cloud-only-after-windows-failure'],
+                        ['--publish-downloads'], ['--notify-release']):
+            with patch('sys.argv', ['deploy-cloud.py', '--local-build', *options]):
+                with self.assertRaises(SystemExit) as error:
+                    cloud.main()
+                self.assertEqual(error.exception.code, 2)
+
     def test_cloud_only_exception_keeps_other_checks_and_identity_required(self):
         run = {'head_sha': COMMIT, 'path': '.github/workflows/checks.yml',
                'event': 'push', 'status': 'completed', 'conclusion': 'failure'}
