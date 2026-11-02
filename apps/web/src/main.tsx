@@ -126,6 +126,8 @@ function App() {
   const currentMode = useRef(mode);
   currentMode.current = mode;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [workbenchMenuTarget, setWorkbenchMenuTarget] =
+    useState<HTMLDivElement | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(false);
@@ -2893,6 +2895,12 @@ function App() {
               </small>
             </div>
             <div className="menu-items">
+              {mode === 'cw' && logged && view === 'chat' && (
+                <div
+                  className="workbench-menu-items"
+                  ref={setWorkbenchMenuTarget}
+                />
+              )}
               {mode === 'cw' && logged && (
                 <>
                   <button
@@ -3642,6 +3650,8 @@ function App() {
         <>
           {view === 'chat' && (
             <Workbench
+              menuTarget={workbenchMenuTarget}
+              closeMenu={() => setMenuOpen(false)}
               host={host}
               project={project}
               root={projects.find((item) => item.id === project)?.path || ''}

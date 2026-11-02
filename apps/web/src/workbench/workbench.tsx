@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import { ResizeHandle } from './resize-handle.tsx';
 import {
   lazy,
   Suspense,
@@ -27,6 +29,8 @@ type Preferences = {
   width: number;
   output: boolean;
   height: number;
+  previewWidth: number;
+  terminalHeight: number;
 };
 const defaults: Preferences = {
   theme: 'system',
@@ -35,6 +39,8 @@ const defaults: Preferences = {
   width: 256,
   output: false,
   height: 240,
+  previewWidth: 420,
+  terminalHeight: 360,
 };
 export function readPreferences(): Preferences {
   try {
@@ -46,8 +52,16 @@ export function readPreferences(): Preferences {
       density: value.density === 'compact' ? 'compact' : 'standard',
       files: value.files === true,
       output: value.output === true,
-      width: Math.min(360, Math.max(220, Number(value.width) || 256)),
-      height: Math.min(500, Math.max(160, Number(value.height) || 240)),
+      width: Math.min(640, Math.max(220, Number(value.width) || 256)),
+      height: Math.min(800, Math.max(160, Number(value.height) || 240)),
+      previewWidth: Math.min(
+        900,
+        Math.max(280, Number(value.previewWidth) || 420),
+      ),
+      terminalHeight: Math.min(
+        900,
+        Math.max(220, Number(value.terminalHeight) || 360),
+      ),
     };
   } catch {
     return defaults;
@@ -55,6 +69,8 @@ export function readPreferences(): Preferences {
 }
 export function Workbench({
   children,
+  menuTarget,
+  closeMenu,
   host,
   project,
   root: projectRoot = '',
@@ -69,6 +85,8 @@ export function Workbench({
   activity,
 }: {
   children: ReactNode;
+  menuTarget: HTMLElement | null;
+  closeMenu: () => void;
   host: string;
   project: string;
   root?: string;
@@ -155,59 +173,81 @@ export function Workbench({
             {
               '--sidebar-width': `${preferences.width}px`,
               '--output-height': `${preferences.height}px`,
+              '--preview-width': `${preferences.previewWidth}px`,
+              '--terminal-height': `${preferences.terminalHeight}px`,
             } as React.CSSProperties
           }
         >
-          <div className="workbench-toolbar" aria-label={t('工作台工具栏')}>
-            <button
-              aria-pressed={preferences.files}
-              onClick={() => update({ files: !preferences.files })}
-            >
-              {t('文件浏览器')}
-            </button>
-            <button
-              aria-pressed={preferences.output}
-              onClick={() => {
-                setTerminalShown(false);
-                update({ output: !preferences.output });
-              }}
-            >
-              {t('命令输出')}
-            </button>
-            <button
-              aria-pressed={terminalShown}
-              onClick={() => {
-                setTerminalLoaded(true);
-                setAppearance(false);
-                update({ output: false });
-                setTerminalShown(!terminalShown);
-              }}
-            >
-              Terminal
-            </button>
-            <button
-              aria-expanded={appearance}
-              onClick={() => setAppearance(!appearance)}
-            >
-              {t('外观')}
-            </button>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                findNext();
-              }}
-            >
-              <input
-                aria-label={t('搜索已加载对话')}
-                placeholder={t('搜索已加载对话')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <button type="submit">{t('查找下一个')}</button>
-            </form>
-          </div>
+          {menuTarget &&
+            createPortal(
+              <>
+                <button
+                  aria-pressed={preferences.files}
+                  onClick={() => {
+                    update({ files: !preferences.files });
+                    closeMenu();
+                  }}
+                >
+                  {t('文件浏览器')}
+                </button>
+                <button
+                  aria-pressed={preferences.output}
+                  onClick={() => {
+                    closeMenu();
+                    setTerminalShown(false);
+                    update({ output: !preferences.output });
+                  }}
+                >
+                  {t('命令输出')}
+                </button>
+                <button
+                  aria-pressed={terminalShown}
+                  onClick={() => {
+                    closeMenu();
+                    setTerminalLoaded(true);
+                    setAppearance(false);
+                    update({ output: false });
+                    setTerminalShown(!terminalShown);
+                  }}
+                >
+                  Terminal
+                </button>
+                <button
+                  aria-expanded={appearance}
+                  onClick={() => {
+                    setAppearance(!appearance);
+                    closeMenu();
+                  }}
+                >
+                  {t('外观')}
+                </button>
+              </>,
+              menuTarget,
+            )}
           {appearance && (
             <div className="appearance-panel">
+              <button
+                onClick={() => setAppearance(false)}
+                aria-label={t('关闭外观')}
+              >
+                {t('关闭')}
+              </button>
+              <form
+                className="workbench-search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  findNext();
+                }}
+              >
+                <input
+                  aria-label={t('搜索已加载对话')}
+                  placeholder={t('搜索已加载对话')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <button type="submit">{t('查找下一个')}</button>
+              </form>
+
               <button
                 type="button"
                 aria-pressed={attention.enabled}
@@ -243,12 +283,16 @@ export function Workbench({
                   },
                   {
                     label: t('搜索已加载对话'),
-                    run: () =>
-                      root.current
-                        ?.querySelector<HTMLInputElement>(
-                          '.workbench-toolbar input',
-                        )
-                        ?.focus(),
+                    run: () => {
+                      setAppearance(true);
+                      requestAnimationFrame(() =>
+                        root.current
+                          ?.querySelector<HTMLInputElement>(
+                            '.workbench-search input',
+                          )
+                          ?.focus(),
+                      );
+                    },
                   },
                   { label: t('上传 / 传输'), run: upload },
                 ]}
@@ -287,7 +331,7 @@ export function Workbench({
                 <input
                   type="range"
                   min="220"
-                  max="360"
+                  max="640"
                   value={preferences.width}
                   onChange={(e) => update({ width: Number(e.target.value) })}
                 />
@@ -297,7 +341,7 @@ export function Workbench({
                 <input
                   type="range"
                   min="160"
-                  max="500"
+                  max="800"
                   value={preferences.height}
                   onChange={(e) => update({ height: Number(e.target.value) })}
                 />
@@ -307,12 +351,26 @@ export function Workbench({
           <div className="workbench-body">
             {preferences.files && (
               <aside className="workbench-sidebar">
+                <ResizeHandle
+                  axis="x"
+                  size={preferences.width}
+                  minimum={220}
+                  maximum={() =>
+                    matchMedia('(max-width: 899px)').matches
+                      ? Math.min(640, (root.current?.clientWidth || 1600) - 16)
+                      : Math.min(640, (root.current?.clientWidth || 1600) * 0.4)
+                  }
+                  initial={256}
+                  label={t('调整文件浏览器宽度')}
+                  change={(width) => update({ width })}
+                />
                 <Explorer
                   key={`${host}:${project}`}
                   host={host}
                   project={project}
                   open={setPath}
                   upload={upload}
+                  close={() => update({ files: false })}
                 />
               </aside>
             )}
@@ -324,6 +382,28 @@ export function Workbench({
                 project={project}
                 path={path}
                 close={() => setPath('')}
+                resize={
+                  <ResizeHandle
+                    axis="x"
+                    reverse
+                    size={preferences.previewWidth}
+                    minimum={280}
+                    maximum={() =>
+                      matchMedia('(max-width: 1279px)').matches
+                        ? Math.min(
+                            900,
+                            (root.current?.clientWidth || 1600) - 16,
+                          )
+                        : Math.min(
+                            900,
+                            (root.current?.clientWidth || 1600) * 0.55,
+                          )
+                    }
+                    initial={420}
+                    label={t('调整文件预览宽度')}
+                    change={(previewWidth) => update({ previewWidth })}
+                  />
+                }
                 reference={(value) => {
                   reference(value);
                   setPath('');
@@ -332,27 +412,65 @@ export function Workbench({
             )}
           </div>
           {terminalLoaded && (
-            <Suspense fallback={<p role="status">{t('正在读取…')}</p>}>
-              <InteractiveTerminal
-                key={`${host}:${project}:${session}`}
-                host={host}
-                project={project}
-                session={session}
-                {...terminal}
-                visible={terminalShown}
-                close={() => setTerminalShown(false)}
+            <div
+              className="workbench-bottom terminal-shell"
+              hidden={!terminalShown}
+            >
+              <ResizeHandle
+                axis="y"
+                reverse
+                size={preferences.terminalHeight}
+                minimum={220}
+                maximum={() =>
+                  Math.min(
+                    900,
+                    (root.current?.clientHeight || 900) -
+                      (matchMedia('(max-width: 899px), (max-height: 600px)')
+                        .matches
+                        ? 8
+                        : 220),
+                  )
+                }
+                initial={360}
+                label={t('调整 Terminal 高度')}
+                change={(terminalHeight) => update({ terminalHeight })}
               />
-            </Suspense>
+              <Suspense fallback={<p role="status">{t('正在读取…')}</p>}>
+                <InteractiveTerminal
+                  key={`${host}:${project}:${session}`}
+                  host={host}
+                  project={project}
+                  session={session}
+                  {...terminal}
+                  visible={terminalShown}
+                  close={() => setTerminalShown(false)}
+                />
+              </Suspense>
+            </div>
           )}
           {preferences.output && (
-            <OutputPanel
-              key={session || ''}
-              events={events}
-              chunks={chunks}
-              reading={reading}
-              read={read}
-              close={() => update({ output: false })}
-            />
+            <div className="workbench-bottom output-shell">
+              <ResizeHandle
+                axis="y"
+                reverse
+                size={preferences.height}
+                minimum={160}
+                maximum={() =>
+                  Math.min(800, (root.current?.clientHeight || 900) - 180)
+                }
+                initial={240}
+                label={t('调整命令输出高度')}
+                change={(height) => update({ height })}
+              />
+              <OutputPanel
+                key={session || ''}
+                events={events}
+                chunks={chunks}
+                reading={reading}
+                read={read}
+                close={() => update({ output: false })}
+              />
+            </div>
           )}
         </div>
       </PreviewContext.Provider>

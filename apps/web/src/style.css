@@ -1380,3 +1380,11 @@ progress {
 .remote-configuration code {
   overflow-wrap: anywhere;
 }
+
+.workbench-menu-items {
+  display: contents;
+}
+.topbar nav .workbench-menu-items button[aria-pressed='true'],
+.topbar nav .workbench-menu-items button[aria-expanded='true'] {
+  background: #353d4c;
+}

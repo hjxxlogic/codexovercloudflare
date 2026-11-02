@@ -673,3 +673,5 @@ CW 遇到 PROJECT_READ_ONLY 停止自动控制重试，展示历史和显式获�
 结束写会话的成功响应（closing/closed/failed）以及 Agent 的 sessionClosed 事件原子撤销 lease 的 active/准备有效期，并仅在项目写指针仍指向该会话时删除指针，随后关闭控制连接。旧 WebSocket 仍处于 closing 不再阻止下一会话；重复关闭事件不能删除后来写者的权限，历史通道及可靠结果日志保留。
 
 任务完成快照与可靠 prompt ACK 可乱序。ACK 引用的原始 user 事件 seq 不高于已确认会话状态水位，且会话已不运行时，不重新进入 waiting；更早快照或缺少事件引用不能据此判完成。此约束保持快照与命令回执解耦，同时避免迟到 ACK 恢复已结束的等待指示。
+
+工作台操作按钮通过 React portal 渲染到 App 的功能菜单容器，偏好与 Terminal runtime 状态仍属于持续挂载的 Workbench。分隔条用 Pointer Capture 管理拖动，丢失捕获或组件卸载后停止；不使用全局鼠标监听，尺寸沿用同一份本地偏好，不写 Relay / Agent。

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readFile, downloadFile } from '../download.ts';
 import { fileType, filePreviewUrl } from '../file-types.ts';
 import { MarkdownRenderer, Copy } from '../markdown/renderer.tsx';
@@ -9,7 +9,9 @@ export function Preview({
   path,
   close,
   reference,
+  resize,
 }: {
+  resize: ReactNode;
   host: string;
   project: string;
   path: string;
@@ -51,6 +53,7 @@ export function Preview({
   }, [host, project, path, type.kind, retry]);
   return (
     <section className="workbench-preview" aria-label={t('文件预览')}>
+      {resize}
       <header className="pane-heading">
         <h2 title={path}>{path}</h2>
         <button onClick={close} aria-label={t('关闭预览')}>

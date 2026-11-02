@@ -1242,22 +1242,53 @@ try {
   previewFiles.set('docs/plain.txt', Buffer.from(plain));
   previewFiles.set('report.md', Buffer.from(markdown));
   await page.setViewportSize({ width: 1440, height: 900 });
-  const workbench = page.getByLabel('工作台工具栏');
-  assert.equal(
-    await workbench
-      .locator('form')
-      .evaluate((element) => getComputedStyle(element).flexDirection),
-    'row',
-  );
-  await workbench.getByRole('button', { name: '外观', exact: true }).click();
+  await expect(page.locator('.workbench-toolbar')).toHaveCount(0);
+  async function workbenchAction(name: string) {
+    await page.getByRole('button', { name: '功能菜单', exact: true }).click();
+    await page
+      .locator('.workbench-menu-items')
+      .getByRole('button', { name, exact: true })
+      .click();
+    await expect(
+      page.getByRole('navigation', { name: '功能菜单', exact: true }),
+    ).not.toBeVisible();
+  }
+  async function dragPane(label: string, dx: number, dy: number) {
+    const handle = page.getByRole('separator', { name: label, exact: true });
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + dx,
+      box.y + box.height / 2 + dy,
+      { steps: 6 },
+    );
+    await page.mouse.up();
+  }
+  await workbenchAction('外观');
   await page.getByLabel('主题', { exact: true }).selectOption('light');
   await expect(page.locator('.cw-workbench')).toHaveAttribute(
     'data-theme',
     'light',
   );
-  await workbench
-    .getByRole('button', { name: '文件浏览器', exact: true })
-    .click();
+  await workbenchAction('文件浏览器');
+  const sidebarBefore = (await page
+    .locator('.workbench-sidebar')
+    .boundingBox())!.width;
+  await dragPane('调整文件浏览器宽度', 64, 0);
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('.workbench-sidebar').boundingBox())!.width,
+    )
+    .toBeGreaterThan(sidebarBefore + 50);
+  await page.getByRole('separator', { name: '调整文件浏览器宽度' }).focus();
+  await page.keyboard.press('ArrowRight');
+  const savedWidth = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('coc-workbench-v1')!).width,
+  );
+  assert(savedWidth > sidebarBefore + 64);
+
   await page
     .getByRole('button', { name: /report.md.*KiB|report.md.*B/ })
     .click();
@@ -1266,21 +1297,29 @@ try {
     sidePreview.getByRole('heading', { name: 'Rendered report' }),
   ).toBeVisible();
   await expect(sidePreview.locator('a[href^="javascript:"]')).toHaveCount(0);
+  const previewBefore = (await sidePreview.boundingBox())!.width;
+  await dragPane('调整文件预览宽度', -64, 0);
+  assert((await sidePreview.boundingBox())!.width > previewBefore + 50);
+
   await sidePreview.getByRole('button', { name: '引用到对话' }).click();
   await expect(page.getByLabel('任务内容')).toHaveValue('report.md');
   await page.getByLabel('任务内容').fill('');
-  await workbench
-    .getByRole('button', { name: '命令输出', exact: true })
-    .click();
+  await workbenchAction('命令输出');
   await expect(page.locator('.command-output')).toBeVisible();
+  const outputBefore = (await page.locator('.command-output').boundingBox())!
+    .height;
+  await dragPane('调整命令输出高度', 0, -60);
+  assert(
+    (await page.locator('.command-output').boundingBox())!.height >
+      outputBefore + 45,
+  );
+
   await page.screenshot({ path: join(artifacts, 'workbench-light-1440.png') });
   await page
     .locator('.command-output')
     .getByRole('button', { name: '收起' })
     .click();
-  await workbench
-    .getByRole('button', { name: '文件浏览器', exact: true })
-    .click();
+  await workbenchAction('文件浏览器');
   await page.getByLabel('主题', { exact: true }).selectOption('dark');
   await page.getByRole('button', { name: '快捷操作', exact: true }).click();
   const quick = page.getByRole('dialog', { name: '快捷操作', exact: true });
@@ -1317,7 +1356,7 @@ try {
     delete (window as any).originalNotification;
   });
 
-  await workbench.getByRole('button', { name: '外观', exact: true }).click();
+  await workbenchAction('外观');
 
   for (const [path, content] of [
     ['docs/report.md', markdown],

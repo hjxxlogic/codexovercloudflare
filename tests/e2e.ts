@@ -2247,7 +2247,10 @@ try {
   await idle(visitorPage);
   if (process.env.COC_TEST_TERMINAL === '1') {
     await visitorPage
-      .getByLabel('工作台工具栏')
+      .getByRole('button', { name: '功能菜单', exact: true })
+      .click();
+    await visitorPage
+      .locator('.workbench-menu-items')
       .getByRole('button', { name: 'Terminal', exact: true })
       .click();
     const terminal = visitorPage.getByLabel('Terminal', { exact: true });
@@ -2280,6 +2283,27 @@ try {
     assert(
       terminalLayout.terminalTop >= terminalLayout.composerBottom,
       JSON.stringify(terminalLayout),
+    );
+    const terminalHeightBefore = (await terminal.boundingBox())!.height;
+    const terminalHandle = visitorPage.getByRole('separator', {
+      name: '调整 Terminal 高度',
+      exact: true,
+    });
+    const handleBounds = (await terminalHandle.boundingBox())!;
+    await visitorPage.mouse.move(
+      handleBounds.x + handleBounds.width / 2,
+      handleBounds.y + handleBounds.height / 2,
+    );
+    await visitorPage.mouse.down();
+    await visitorPage.mouse.move(
+      handleBounds.x + handleBounds.width / 2,
+      handleBounds.y + handleBounds.height / 2 - 48,
+      { steps: 6 },
+    );
+    await visitorPage.mouse.up();
+    assert((await terminal.boundingBox())!.height > terminalHeightBefore + 32);
+    await expect(terminal.locator('.xterm-rows')).toContainText(
+      'BROWSER_TERMINAL_OK',
     );
     const terminalViewport = visitorPage.viewportSize()!;
     await visitorPage.setViewportSize({ width: 390, height: 480 });

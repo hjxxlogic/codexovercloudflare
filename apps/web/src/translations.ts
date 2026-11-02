@@ -713,4 +713,10 @@ export const english: Record<string, string> = {
     'Waiting for the original client to confirm the approval decision…',
   '连接恢复后可提交决定；可在下方停止任务。':
     'Submit after reconnecting; you can stop the task below.',
+  关闭外观: 'Close appearance',
+  关闭文件浏览器: 'Close file browser',
+  调整文件浏览器宽度: 'Resize file browser',
+  调整文件预览宽度: 'Resize file preview',
+  调整命令输出高度: 'Resize command output',
+  '调整 Terminal 高度': 'Resize Terminal',
 };

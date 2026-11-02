@@ -7,11 +7,13 @@ export function Explorer({
   project,
   open,
   upload,
+  close,
 }: {
   host: string;
   project: string;
   open: (path: string) => void;
   upload: () => void;
+  close: () => void;
 }) {
   const [filter, setFilter] = useState('');
   const [generation, setGeneration] = useState(0);
@@ -58,6 +60,9 @@ export function Explorer({
     >
       <header className="pane-heading">
         <h2>{t('文件浏览器')}</h2>
+        <button onClick={close} aria-label={t('关闭文件浏览器')}>
+          {t('关闭')}
+        </button>
         <button onClick={() => setGeneration(generation + 1)}>
           {t('刷新')}
         </button>

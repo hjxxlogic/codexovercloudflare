@@ -83,7 +83,7 @@ describe('workbench boundaries', () => {
     });
     expect(readPreferences()).toMatchObject({
       theme: 'system',
-      width: 360,
+      width: 640,
       height: 160,
       density: 'compact',
     });
