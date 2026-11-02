@@ -1740,6 +1740,62 @@ public:
           done(nullptr, nullptr);
         });
   }
+  void recover_queue_promise() {
+    if (stopped_ || history_readers_ || !archive_loading_.empty())
+      return;
+    const auto candidate = store_.operation_queue_candidate();
+    if (candidate.is_null()) {
+      prepare_history_source();
+      return;
+    }
+    try {
+      const std::string cwd = project(candidate.at("projectId")).at("path");
+      auto process = std::make_shared<CodexProcess>(
+          io_, config_, cwd, [](Json) {}, [] {}, CodexProcessRole::reader);
+      auto reader = std::make_shared<ExternalThread>(
+          io_, process, candidate.at("threadId"), cwd, [](std::string, Json, bool) {}, [](Json) {},
+          [](Json) {});
+      auto finished = std::make_shared<bool>(false);
+      auto complete = [this, candidate, process, reader, finished](Json result, Json error) {
+        if (*finished)
+          return;
+        *finished = true;
+        reader->close();
+        process->close();
+        --history_readers_;
+        if (stopped_)
+          return;
+        try {
+          if (error.is_null()) {
+            const auto event =
+                store_.operation_queue_reconcile(candidate, result.at("queuedSubmission"));
+            publish(candidate.at("session"), event);
+          }
+        } catch (const std::exception &) {
+          // Failure retains the promise and immutable original result. This path
+          // never dispatches queue/add or assumes absence proves non-execution.
+        }
+        prepare_history_source();
+      };
+      ++history_readers_;
+      try {
+        process->start();
+        process->initialize([this, candidate, reader, complete](Json, Json error) {
+          if (!error.is_null()) {
+            complete(nullptr, error);
+            return;
+          }
+          const auto client_id = queue_submission_id(
+              store_.delivery_instance(), candidate.at("session"), candidate.at("owner"));
+          reader->find_queued(client_id, nullptr, complete);
+        });
+      } catch (const std::exception &error) {
+        complete(nullptr, error_data(error));
+      }
+    } catch (const std::exception &) {
+      prepare_history_source();
+    }
+  }
   void prepare_history_source(int remaining = 8) {
     if (stopped_ || !remaining || history_readers_ || !archive_loading_.empty())
       return;
@@ -2833,7 +2889,7 @@ public:
         event_batches_ = event_count_ = 0;
         event_batch_max_us_ = 0;
         store_.cleanup();
-        prepare_history_source();
+        recover_queue_promise();
         if (!file_cleanup_pending_) {
           file_cleanup_pending_ = true;
           auto work = asio::make_work_guard(io_);

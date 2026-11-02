@@ -1996,6 +1996,30 @@ try {
     4,
     'Restarted original-result query cannot execute the queue again',
   );
+  const returnedQueue = JSON.parse(readFileSync(sourceFile, 'utf8'));
+  returnedQueue.revealUnknownQueue = true;
+  writeFileSync(sourceFile, JSON.stringify(returnedQueue));
+  await until(() => queuePromises().length === 0, 70000);
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='queueAccepted' AND json_extract(value,'$.data.requestId')=?",
+      )
+      .get(external.id, lostData.requestId)!.n,
+    1,
+    'Background read-only reconciliation records the original accepted fact',
+  );
+  await assert.rejects(control('queue', lostData), /RESULT_UNKNOWN/);
+  assert.equal(
+    queueRecords().length,
+    4,
+    'Positive recovery never repeats queue/add',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(sourceFile, 'utf8')).queueAdds,
+    4,
+    'Original submission count is unchanged after background recovery',
+  );
   const recoveredWindow = await control('snapshot', {
     sessionId: windowSession.id,
     mode: 'web',

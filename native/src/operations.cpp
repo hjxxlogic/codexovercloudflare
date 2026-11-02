@@ -1,5 +1,6 @@
 #include "coc/credit.hpp"
 #include "coc/delivery.hpp"
+#include "coc/external.hpp"
 #include "coc/store.hpp"
 namespace coc {
 namespace {
@@ -167,6 +168,116 @@ Json Store::operation_ack(const Json &intent, const std::string &action, const J
         {credit::record_bytes, key});
     run("COMMIT");
     return {{"confirmed", true}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+namespace {
+bool uncertain_operation(const Json &operation) {
+  const auto phase = operation.at("phase");
+  if (phase == "unknown" || phase == "acked")
+    return true;
+  if (phase != "completed" || operation.at("result").is_null())
+    return false;
+  const auto result = Json::parse(operation.at("result").get<std::string>());
+  return result.value("error", Json::object()).value("code", "") == "RESULT_UNKNOWN";
+}
+} // namespace
+Json Store::operation_queue_candidate() {
+  // The cursor is a bounded scheduling hint, not a new persistent recovery log.
+  const auto rows = query("SELECT key,session FROM transport2_history_entries "
+                          "WHERE key>? AND key GLOB 'reservation:*' ORDER BY key LIMIT 128",
+                          {queue_recovery_key_});
+  if (rows.empty()) {
+    queue_recovery_key_.clear();
+    return nullptr;
+  }
+  for (const auto &row : rows) {
+    queue_recovery_key_ = row.at("key");
+    const auto identity = Json::parse(queue_recovery_key_.substr(12), nullptr, false);
+    if (!identity.is_array() || identity.size() != 2 || identity.at(0) != row.at("session") ||
+        !identity.at(1).is_string())
+      continue;
+    const auto owner = identity.at(1).get<std::string>();
+    if (owner.size() != 74 || owner.rfind("operation:", 0) != 0)
+      continue;
+    const auto key = owner.substr(10);
+    const auto operations =
+        query("SELECT phase,result,request_id,digest FROM transport2_operations "
+              "WHERE key=?",
+              {key});
+    if (operations.empty() || !uncertain_operation(operations.at(0)))
+      continue;
+    const auto sessions = query("SELECT value FROM sessions WHERE id=?", {row.at("session")});
+    if (sessions.empty())
+      continue;
+    const auto state = Json::parse(sessions.at(0).at("value").get<std::string>());
+    if (!state.value("external", false) || state.value("running", false) ||
+        !state.contains("threadId") || !state.contains("projectId") || !state.contains("mode"))
+      continue;
+    return {{"session", row.at("session")},
+            {"key", key},
+            {"owner", owner},
+            {"requestId", operations.at(0).at("request_id")},
+            {"digest", operations.at(0).at("digest")},
+            {"threadId", state.at("threadId")},
+            {"projectId", state.at("projectId")},
+            {"mode", state.at("mode")}};
+  }
+  return nullptr;
+}
+Json Store::operation_queue_reconcile(const Json &candidate, const Json &queued) {
+  // Caller supplies a freshly and uniquely found queue entry after source/project
+  // validation. Recheck the original durable scope in the same retirement commit.
+  run("BEGIN IMMEDIATE");
+  try {
+    const std::string session = candidate.at("session"), key = candidate.at("key");
+    const auto owner = "operation:" + key;
+    const auto operations = query("SELECT phase,result,owner,request_id,digest FROM "
+                                  "transport2_operations WHERE key=?",
+                                  {key});
+    if (operations.empty() || !uncertain_operation(operations.at(0)))
+      throw Error("RESULT_UNKNOWN", "Original queue operation is not recoverable");
+    const auto &operation = operations.at(0);
+    const auto state = get(session);
+    const Json intent = {{"owner", operation.at("owner")},
+                         {"requestId", operation.at("request_id")},
+                         {"instance", delivery_instance_}};
+    if (operation_key(intent) != key || candidate.at("owner") != owner ||
+        candidate.at("requestId") != operation.at("request_id") ||
+        candidate.at("digest") != operation.at("digest") || !state.value("external", false) ||
+        state.value("running", false) || state.at("threadId") != candidate.at("threadId") ||
+        state.at("projectId") != candidate.at("projectId") ||
+        state.at("mode") != candidate.at("mode"))
+      throw Error("RESULT_UNKNOWN", "Original queue recovery scope changed");
+    const auto input = queued.value("input", Json::array());
+    if (!queued.contains("id") || !queued.at("id").is_string() ||
+        queued.at("id").get_ref<const std::string &>().empty() ||
+        queued.at("id").get_ref<const std::string &>().size() > 200 ||
+        queued.value("clientUserMessageId", "") !=
+            queue_submission_id(delivery_instance_, session, owner) ||
+        !input.is_array() || input.size() != 1 || !input.at(0).is_object() ||
+        input.at(0).value("type", "") != "text" || !input.at(0).contains("text") ||
+        !input.at(0).at("text").is_string() ||
+        input.at(0).value("text_elements", Json::array()) != Json::array())
+      throw Error("RESULT_UNKNOWN", "Source queue entry does not identify the original input");
+    const Json data = {{"sessionId", session},
+                       {"mode", state.at("mode")},
+                       {"requestId", operation.at("request_id")},
+                       {"text", input.at(0).at("text")}};
+    if (operation_digest("queue", data) != operation.at("digest"))
+      throw Error("RESULT_UNKNOWN", "Source queue input differs from the durable request digest");
+    const auto event = history_queue_accept(
+        session, owner,
+        redact(Json{{"requestId", operation.at("request_id")},
+                    {"queueId", queued.at("id")},
+                    {"text", data.at("text")},
+                    {"message", "Original queued message verified after recovery"}}));
+    // Keep every original operation result, including acknowledged unknown results,
+    // unchanged. The independently queryable history fact retires only this promise.
+    run("COMMIT");
+    return event;
   } catch (...) {
     run("ROLLBACK");
     throw;

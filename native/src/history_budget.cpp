@@ -454,7 +454,8 @@ Json Store::history_reserved_event(const std::string &session, const std::string
                                    const std::string &type, const Json &data) {
   if (owner.empty())
     throw Error("INVALID_REQUEST", "History receipt requires its original reservation owner");
-  run("BEGIN IMMEDIATE");
+  const bool outer = sqlite3_get_autocommit(db_) != 0;
+  run(outer ? "BEGIN IMMEDIATE" : "SAVEPOINT history_reserved_receipt");
   try {
     if (query("SELECT key FROM transport2_history_entries WHERE key=? AND session=?",
               {reservation_key(session, owner), session})
@@ -472,10 +473,12 @@ Json Store::history_reserved_event(const std::string &session, const std::string
           "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes,records=excluded.records",
           {reservation_key(session, ""), session, normal.at(0).at("bytes"),
            normal.at(0).at("records")});
-    run("COMMIT");
+    run(outer ? "COMMIT" : "RELEASE history_reserved_receipt");
     return result;
   } catch (...) {
-    run("ROLLBACK");
+    run(outer ? "ROLLBACK" : "ROLLBACK TO history_reserved_receipt");
+    if (!outer)
+      run("RELEASE history_reserved_receipt");
     throw;
   }
 }

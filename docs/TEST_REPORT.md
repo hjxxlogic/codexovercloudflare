@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+未知控制 RPC 队列后台查证：Agent 构建通过；操作专项最终 20.92 秒、公共预留保存点变更后的历史预算专项 15.82 秒通过；队列查询专项、类型和定向 ESLint 通过。新增重启/ACK 后身份恢复、128 行边界、输入/关联/项目拒绝、写入故障回滚、单次事实及原结果不变测试。真实 Agent 交付专项通过强杀重启后保留未知、源项重新可查后的后台退款、唯一原请求历史事实和 queue/add 次数不变。日志 `/tmp/coc-queue-retire-{build,test}.log`、`/tmp/coc-queue-reconcile-{agent-build,final-build,final-test,delivery,source,typecheck,lint}.log`。集成场景使用确定性源，不证明已消费不可见队列可恢复；网页命令未知承诺尚未接入，未运行全量回归或部署。
+
 正文淘汰后强杀恢复：`tests/native-history-recovery.ts --file-started` 与 `--inline` 均通过。真实 Agent 自动淘汰后 SIGKILL，旧连接关闭、新 PID 启动，原引用首尾页及 history value/revision/recovery 不变，chunks 保持 0；来源替换拒绝及恢复原文件后的读取通过。TypeScript 类型与定向 ESLint 通过。日志 `/tmp/coc-history-restart-{agent,inline,typecheck,lint}.log`。该专项使用确定性源 peer，不等于真实 Codex 重启或最终浏览器验收；未运行全量回归。
 
 网页引用段组装：`npx vitest run tests/web-events.test.ts` 14 项通过，TypeScript 类型与定向 ESLint 通过。新增 5 项验证迟到工具输出不隐藏在引用中、文本/工具片段不跨引用错序、旧工具拼接位置失效及无 itemId 片段边界。日志 `/tmp/coc-reference-assembly-{test,typecheck,lint}.log`。该批仅验证事件组装，未替代最终真实浏览器、Agent 重启或全量回归。

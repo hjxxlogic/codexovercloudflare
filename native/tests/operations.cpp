@@ -1,4 +1,5 @@
 #include "coc/credit.hpp"
+#include "coc/external.hpp"
 #include "coc/store.hpp"
 #include <future>
 #include <iostream>
@@ -26,6 +27,99 @@ Json identity(Store &store, const std::string &request, char owner = 'a') {
   return {{"requestId", request},
           {"owner", std::string(64, owner)},
           {"instance", store.delivery_instance()}};
+}
+void queue_recovery_facts() {
+  for (const bool acknowledged : {false, true}) {
+    Temp temp;
+    Json intent, request, candidate, queued, original;
+    {
+      Store store(temp.path);
+      intent = identity(store, "queue-original");
+      const std::string session = "host~queue-original";
+      store.save({{"id", session},
+                  {"mode", "web"},
+                  {"external", true},
+                  {"state", "closed"},
+                  {"threadId", "thread"},
+                  {"projectId", "project"}});
+      request = {{"sessionId", session},
+                 {"mode", "web"},
+                 {"requestId", "queue-original"},
+                 {"text", "original queued input"}};
+      const auto begun = store.operation_begin(intent, "queue", request);
+      const auto owner = "operation:" + begun.at("key").get<std::string>();
+      store.history_reserve(session, 65536, 16, owner);
+      store.history_reserve(session, 65536, 16, "another-unresolved-request");
+      if (!acknowledged)
+        for (int i = 0; i < 128; ++i)
+          store.history_reserve(session, 4096, 1, "a-" + std::to_string(i));
+      check(store.operation_queue_candidate().is_null(), "Live operation must not be reconciled");
+      const Json unknown = {{"error", {{"code", "RESULT_UNKNOWN"}, {"message", "lost reply"}}}};
+      store.operation_finish(begun.at("key"), unknown);
+      if (acknowledged)
+        store.operation_ack(intent, "queue", request);
+      queued = {
+          {"id", "queue-id"},
+          {"clientUserMessageId", queue_submission_id(store.delivery_instance(), session, owner)},
+          {"input", Json::array({{{"type", "text"},
+                                  {"text", request.at("text")},
+                                  {"text_elements", Json::array()}}})}};
+    }
+    Store store(temp.path);
+    if (!acknowledged)
+      check(store.operation_queue_candidate().is_null(), "Recovery scan exceeded 128 reservations");
+    candidate = store.operation_queue_candidate();
+    check(!candidate.is_null(), "Original queue scope survives restart and result acknowledgement");
+    if (!acknowledged)
+      original = store.operation_begin(intent, "queue", request);
+    const auto before = store.history_budget();
+    auto changed = queued;
+    changed["input"][0]["text"] = "another input";
+    rejects([&] { store.operation_queue_reconcile(candidate, changed); }, "RESULT_UNKNOWN");
+    changed = queued;
+    changed["clientUserMessageId"] = "another-correlation";
+    rejects([&] { store.operation_queue_reconcile(candidate, changed); }, "RESULT_UNKNOWN");
+    auto stale = candidate;
+    stale["projectId"] = "another-project";
+    rejects([&] { store.operation_queue_reconcile(stale, queued); }, "RESULT_UNKNOWN");
+    check(store.history_budget() == before, "Rejected recovery changed durable commitments");
+    sqlite3 *db = nullptr;
+    check(sqlite3_open((temp.path + "/agent.db").c_str(), &db) == SQLITE_OK,
+          "Open fault connection");
+    check(sqlite3_exec(db,
+                       "CREATE TRIGGER reject_queue_recovery BEFORE INSERT ON history BEGIN "
+                       "SELECT RAISE(ABORT,'injected recovery fault'); END",
+                       nullptr, nullptr, nullptr) == SQLITE_OK,
+          "Install recovery fault");
+    bool failed = false;
+    try {
+      store.operation_queue_reconcile(candidate, queued);
+    } catch (const std::exception &) {
+      failed = true;
+    }
+    check(failed && store.history_budget() == before, "Receipt failure must roll back retirement");
+    check(sqlite3_exec(db, "DROP TRIGGER reject_queue_recovery", nullptr, nullptr, nullptr) ==
+              SQLITE_OK,
+          "Remove recovery fault");
+    sqlite3_close(db);
+    const auto fact = store.operation_queue_reconcile(candidate, queued);
+    check(fact.at("type") == "queueAccepted" &&
+              fact.at("data").at("requestId") == intent.at("requestId"),
+          "Recovery must retain original request association");
+    check(store.history_budget().at("global").at("bytes") < before.at("global").at("bytes"),
+          "Verified acceptance retires unused promise");
+    rejects([&] { store.operation_queue_reconcile(candidate, queued); }, "DELIVERY_STATE_MISMATCH");
+    check(store.history(request.at("sessionId")).at("events").size() == 1,
+          "Repeated reconciliation cannot append another acceptance");
+    if (acknowledged)
+      rejects([&] { store.operation_begin(intent, "queue", request); }, "RESULT_UNAVAILABLE");
+    else
+      check(store.operation_begin(intent, "queue", request) == original,
+            "Recovery fact must not replace the published unknown result");
+    for (int i = 0; i < 3; ++i)
+      check(store.operation_queue_candidate().is_null(),
+            "Retired queue promise remains a candidate");
+  }
 }
 void recovery() {
   Temp temp;
@@ -369,6 +463,7 @@ int main() {
          read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/original-write-fixtures.json"))
       check(operation_write(fixture.at("action"), fixture.at("data")) == fixture.at("write"),
             "Shared C++/Worker write admission classification");
+    queue_recovery_facts();
     recovery();
     session_recovery();
     creation_capacity_completion();

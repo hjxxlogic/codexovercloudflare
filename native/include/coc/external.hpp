@@ -37,7 +37,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   void forward(Json, const std::string &, Json, Completion);
   void latest(Completion);
   void schedule(int);
-  void queue_page(const std::string &, const std::string &, Completion, Json, int, Json);
+  void queue_page(const std::string &, const Json &, Completion, Json, int, Json);
   void deliver(const Json &, bool, bool);
 
 public:
@@ -48,6 +48,7 @@ public:
   void close();
   void enqueue(const std::string &text, const std::string &client_id,
                std::function<void()> submitted, Completion);
-  void find_queued(const std::string &client_id, const std::string &text, Completion);
+  // Null expected text requires the caller to verify the returned input against its durable digest.
+  void find_queued(const std::string &client_id, const Json &text, Completion);
 };
 } // namespace coc

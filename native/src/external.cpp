@@ -407,8 +407,7 @@ void ExternalThread::enqueue(const std::string &text, const std::string &client_
     }
   });
 }
-void ExternalThread::find_queued(const std::string &client_id, const std::string &text,
-                                 Completion done) {
+void ExternalThread::find_queued(const std::string &client_id, const Json &text, Completion done) {
   auto self = shared_from_this();
   validate([self, client_id, text, done](Json, Json error) {
     if (!error.is_null())
@@ -417,8 +416,8 @@ void ExternalThread::find_queued(const std::string &client_id, const std::string
       self->queue_page(client_id, text, done, nullptr, 20, nullptr);
   });
 }
-void ExternalThread::queue_page(const std::string &client_id, const std::string &text,
-                                Completion done, Json cursor, int pages, Json found) {
+void ExternalThread::queue_page(const std::string &client_id, const Json &text, Completion done,
+                                Json cursor, int pages, Json found) {
   auto self = shared_from_this();
   process_->request(
       "thread/queue/list", {{"threadId", thread_}, {"cursor", cursor}, {"limit", 100}},
@@ -434,7 +433,9 @@ void ExternalThread::queue_page(const std::string &client_id, const std::string 
             throw Error("INVALID_FRAME", "Queue page exceeds its bound");
           for (const auto &entry : data)
             if (entry.value("clientUserMessageId", "") == client_id) {
-              if (!found.is_null() || !queue_matches(entry, client_id, text))
+              const auto expected = text.is_null() ? entry.at("input").at(0).at("text") : text;
+              if (!expected.is_string() || !found.is_null() ||
+                  !queue_matches(entry, client_id, expected.get<std::string>()))
                 throw Error("RESULT_UNKNOWN", "Queue correlation is ambiguous or changed");
               found = entry;
             }

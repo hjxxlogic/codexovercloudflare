@@ -364,7 +364,9 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (m.method === 'thread/queue/list') {
       const state = externalState();
       const entries = state.queue.filter(
-        (q) => q.input?.[0]?.text !== 'lost consumed queue reply',
+        (q) =>
+          state.revealUnknownQueue ||
+          q.input?.[0]?.text !== 'lost consumed queue reply',
       );
       const start = Number(m.params.cursor || 0);
       const size = state.queuePageSize || entries.length || 1;
