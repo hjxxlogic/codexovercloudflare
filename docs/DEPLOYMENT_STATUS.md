@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## CW 刷新、主题与全屏增强 · 2026-11-03
+
+按用户明确要求跳过 Actions，本地构建源码 `aa5df2c` 已部署到 https://r.xlogic.cc，Worker `d21edceb-8060-4361-a16f-6d79f1b613a3`。窗格 / Markdown 元素独立与嵌套全屏、Mermaid 主题跟随、OpenAI 公式语法及刷新减少探测 / 健康通道重连均已上线；健康、73 项资源字节、生产 CSP 下的公式 / 图表 / 全屏浏览器检查通过。现场 Agent 未修改、未重启，D1 / Secret / 原生下载保持原样。
+
+479 项单元测试、类型、lint、整页 UI、Markdown 专项通过；原生 PTY 与 3 / 5 浏览器 E2E 结果和后续增量验证范围在 [部署记录](CW_DEPLOYMENT_2026-11-03.md) 中分别说明。线上按钮三次 3.836–4.857 秒，样本不代表稳定 SLO，进一步减少 HTTP 往返的方案见 [刷新分析](CW_REFRESH_PERFORMANCE_2026-11-03.md)。[产物与部署证据](assets/cw-refresh-2026-11-03/deployment.json)。
+
 ## CW 工作台、本机 Agent 与 Terminal · 2026-11-03
 
 按用户明确要求跳过 Actions，使用本机构建部署网页 / Relay `8e2ae8a`（Worker `f283c218-9d27-4601-8f75-902966955de9`）及本机 Agent `ce22d38`。本机 Agent 已空闲升级、重启并通过 120 秒连接验证；随后按要求启用 Terminal 并再次空闲重启，30 秒验证通过。最终网页包含菜单收纳、可拖动文件树 / 预览 / 输出 / 终端，健康和公共资源字节核验通过。原 D1、Secret、凭据及数据库保留，公开原生包不变，无更新通知。

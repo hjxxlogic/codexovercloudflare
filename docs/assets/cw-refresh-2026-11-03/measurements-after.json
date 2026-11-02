@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-03",
+  "target": "https://r.xlogic.cc",
+  "webCommit": "aa5df2c00581c6a88308cde3af510794d7e5bdcf",
+  "scenario": "same machine and existing ended test session; real email authorization; no model tasks, Shell or takeover",
+  "uiRefreshes": [
+    {
+      "durationMs": 4857.2,
+      "httpStartedDuringButtonWait": 10,
+      "requests": {
+        "GET /api/v1/auth/email": 1,
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "GET /api/v1/hosts/HOST/operations/OP": 2,
+        "GET /api/v1/auth/me": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 2,
+        "GET /api/v1/hosts": 1,
+        "GET /api/v1/hosts/HOST/projects": 1,
+        "GET /api/v1/sessions": 1
+      },
+      "newHostNotificationSockets": 0
+    },
+    {
+      "durationMs": 3835.8,
+      "httpStartedDuringButtonWait": 9,
+      "requests": {
+        "GET /api/v1/auth/email": 1,
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 2,
+        "GET /api/v1/auth/me": 1,
+        "GET /api/v1/hosts/HOST/operations/OP": 1,
+        "GET /api/v1/sessions": 1,
+        "GET /api/v1/hosts/HOST/projects": 1,
+        "GET /api/v1/hosts": 1
+      },
+      "newHostNotificationSockets": 0
+    },
+    {
+      "durationMs": 4848.0,
+      "httpStartedDuringButtonWait": 12,
+      "requests": {
+        "GET /api/v1/hosts/HOST/operations/OP": 5,
+        "GET /api/v1/auth/email": 1,
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "GET /api/v1/auth/me": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 3,
+        "GET /api/v1/hosts": 1
+      },
+      "newHostNotificationSockets": 0
+    }
+  ],
+  "error": null,
+  "measurementNotes": [
+    "Only three samples; no p95 or guaranteed speed claim",
+    "Samples overlap deployment public-asset verification; network and background requests vary",
+    "HTTP counts cover starts during the button wait, including pending background work from earlier clicks; do not imply a full-cycle request count",
+    "Selected-session refreshes send no probe and create no new healthy host notification socket"
+  ]
+}

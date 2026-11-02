@@ -2,6 +2,18 @@
 
 [发布记录](DEPLOYMENT_STATUS.md) · [工作台范围](CW_WORKBENCH.md) · [用户指南](USER_GUIDE.md)
 
+## 刷新、Markdown 与全屏增强（当前线上）
+
+按用户再次明确要求跳过 Actions，通过 `scripts/deploy-cloud.py --local-build --commit HEAD --apply` 部署干净源码 `aa5df2c00581c6a88308cde3af510794d7e5bdcf`。Worker version 为 `d21edceb-8060-4361-a16f-6d79f1b613a3`；健康与 73 项首页、静态资源和下载清单的线上字节核验通过，沿用原 D1、Secret、配置和下载包。本轮只改网页与静态图表资源，没有升级或重启现场 Agent，Terminal 配置保持启用，也没有原生发行或更新通知。
+
+新增功能：文件树 / 预览 / 输出 / Terminal 的窗格全屏；Markdown 表格、代码块、Mermaid 和块公式的元素全屏及嵌套 Esc 退出；Mermaid 深浅 / 系统主题跟随与空间适配；OpenAI `\(...\)` / `\[...\]` 公式。刷新保留健康通知连接，已选会话用新的 Agent 快照取代重复 probe。
+
+类型、lint、33 文件 / 479 项 Vitest、整页 Chromium 与 Markdown 专项通过。终端全屏的原生 PTY E2E 与 3 / 5 浏览器压力通过；后续共享全屏栈和公式扩展通过最终整页 / Markdown 专项，未再次执行整套 PTY。生产真实静态资源和 CSP 检查覆盖公式、主题动态变化、元素全屏、图表焦点内 Esc 与桌面 / 手机边界，API 使用合成只读夹具。
+
+真实邮箱授权的已结束测试会话，三次按钮刷新为 4.857 / 3.836 / 4.848 秒，每次均无 probe、无主机通知重连；仍存在 202 / 结果查询的串行往返。样本很少且与公共资源核验有重叠，不作稳定延迟或 p95 承诺。详见 [性能分析及后续方案](CW_REFRESH_PERFORMANCE_2026-11-03.md)、[产物摘要和部署证据](assets/cw-refresh-2026-11-03/deployment.json)。本轮按用户要求跳过 GitHub Actions，`ciVerified=false`，没有 Actions URL；提交使用 `[skip ci]` 标记。
+
+## 前一轮工作台与本机 Agent 部署
+
 已按用户明确指示使用本机构建、跳过 GitHub Actions，发布网页 / Relay，并升级和重启本机 Agent。随后按用户要求启用本机 Terminal，将四个工作台入口移入功能菜单，并增加拖动分隔条；最终网页更新已直接部署。
 
 | 目标                             | 实际源码 / 结果                                                                             |
