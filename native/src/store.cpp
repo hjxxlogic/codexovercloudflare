@@ -450,7 +450,9 @@ Json Store::event_batch(const Json &entries) {
   Json results = Json::array();
   if (entries.empty())
     return results;
-  run("BEGIN IMMEDIATE");
+  const bool transaction = sqlite3_get_autocommit(db_) != 0;
+  if (transaction)
+    run("BEGIN IMMEDIATE");
   try {
     for (const auto &entry : entries) {
       const auto id = entry.at("session").get<std::string>();
@@ -467,10 +469,12 @@ Json Store::event_batch(const Json &entries) {
             {data.value("text", ""), now(), id});
       results.push_back(project(id, e));
     }
-    run("COMMIT");
+    if (transaction)
+      run("COMMIT");
     return results;
   } catch (...) {
-    run("ROLLBACK");
+    if (transaction)
+      run("ROLLBACK");
     throw;
   }
 }

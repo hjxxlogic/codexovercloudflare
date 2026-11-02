@@ -227,6 +227,71 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void atomic_turn_admission() {
+  Temp temp;
+  const std::string session = "host~atomic-admission";
+  Json committed, snapshot, budget;
+  const Json task = {{"requestId", "original"}, {"stream", "commands"}, {"seq", 1}};
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"state", "ready"}, {"running", false}});
+    const auto original = store.get(session), empty = store.history_budget();
+    Database fixture(temp.path);
+    fixture.sql("CREATE TRIGGER fail_admission BEFORE INSERT ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected user projection failure'); END");
+    bool failed = false;
+    try {
+      store.history_turn_admit(session, {{"text", "input"}}, {{"text", "input"}}, task, true);
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.get(session) == original && store.history_budget() == empty &&
+              store.history(session).at("events").empty(),
+          "Failed user projection rolls back task identity, running state, title and reservation");
+    fixture.sql("DROP TRIGGER fail_admission");
+    const auto event = store.history_turn_admit(
+        session, {{"text", "input"}}, {{"text", "input"}, {"requestId", "original"}}, task, true);
+    check(store.get(session).at("running") == true && store.get(session).at("activeTask") == task &&
+              store.get(session).at("title") == "input" &&
+              event.at("data").at("requestId") == "original",
+          "Successful admission atomically retains task identity and original user history");
+    auto state = store.get(session);
+    state["turnId"] = "active-turn";
+    store.save(state);
+    state = store.get(session);
+    snapshot = store.history(session);
+    budget = store.history_budget();
+    fixture.sql("CREATE TRIGGER fail_steer BEFORE INSERT ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected steer projection failure'); END");
+    failed = false;
+    try {
+      store.history_turn_admit(
+          session, {{"expectedTurnId", "active-turn"}, {"text", std::string(20000, 'x')}},
+          {{"text", "steer"}}, nullptr, false);
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.history_budget() == budget && store.history(session) == snapshot &&
+              store.get(session) == state,
+          "Failed steering restores increased reservations without retiring the active turn");
+    fixture.sql("DROP TRIGGER fail_steer");
+    committed = store.get(session);
+  }
+  Store reopened(temp.path, false);
+  check(reopened.get(session) == committed && reopened.history_budget() == budget &&
+            reopened.history(session) == snapshot,
+        "Atomic admission and original task evidence survive reopening");
+  Temp limited;
+  Store small(limited.path, true, "", {{"maxBytes", 32768}, {"maxSessionBytes", 32768}});
+  small.save({{"id", session}, {"state", "ready"}, {"running", false}});
+  const auto original = small.get(session), empty = small.history_budget();
+  backpressure([&] {
+    small.history_turn_admit(session, {{"text", "input"}}, {{"text", "input"}}, task, true);
+  });
+  check(small.get(session) == original && small.history_budget() == empty &&
+            small.history(session).at("events").empty(),
+        "Capacity rejection cannot leave a submitted task or partial user history");
+}
 void journal_cleanup() {
   Temp temp;
   const std::string session = "host~journal-cleanup";
@@ -819,6 +884,7 @@ int main() {
     legacy_inline_dedup();
     projected_history_heads();
     journal_cleanup();
+    atomic_turn_admission();
     inline_transition();
     external_inline_transition();
     packed_deltas();

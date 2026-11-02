@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+发送前准入原子化：Agent 构建通过，历史预算专项 16.41 秒通过，真实原生交付专项通过。新增 start 用户投影失败与 steer 增长预留后失败，核验任务状态、标题、事件/投影、字节/记录预留完整回滚；成功准入跨 Store 重开一致，容量不足不留下部分任务。网页/CLI 任务、资源背压、精确取消、未知结果和历史尾部恢复仍通过。日志 `/tmp/coc-atomic-admission-{build,test,delivery-test}.log`。未运行全量回归、模型任务或修改正式库。
+
 迟到终态校验：Agent 构建及真实原生交付专项通过，定向 ESLint 通过。确定性 peer 在当前 turn 运行中注入另一 turn 的完成通知，并用后续通知确认处理顺序；验证当前 running/turnId/activeTask 与历史预留保持，实时流及历史页不含错误终态，之后精确中断正常释放预留。日志 `/tmp/coc-terminal-identity-{build,test,lint}.log`。未执行全量回归、模型调用或正式库修改。
 
 原始事件分批回收：Agent 构建通过；历史预算专项 15.85 秒、来源专项 3.37 秒、引用专项 0.14 秒通过。覆盖 128 条批次上限、投影见证、孤立记录/活动会话/预留跳过、整批回滚、精确退款、重启和未知请求保留。真实原生交付及 Agent 自动日志/分块回收后的正文回源专项通过，定向 ESLint 通过。旧库隔离副本回收 48224 条事件，计费 175.76 → 35.26 MiB，355 个引用及其余 41 张表摘要不变；[脱敏证据](assets/history-storage-2026-11-02/journal-reclamation.json)。日志 `/tmp/coc-journal-{final-build,test,delivery-test,recovery-test,lint}.log`。未运行全量回归、模型任务、正式库迁移或部署；物理 DB/WAL 回收效果另待最终测量。

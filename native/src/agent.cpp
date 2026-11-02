@@ -2019,28 +2019,22 @@ public:
         check_busy(s);
       }
       auto before_send = [this, id, rt, m, guarded, method]() {
-        if (method == "turn/start" || method == "turn/steer")
-          reserve_history_turn(id, guarded.value("params", Json::object()));
         if (method == "turn/interrupt")
           store_.delivery_cancel(id, command_target(m.at("coc").at("target")));
-        if (method == "turn/start") {
-          auto current = store_.get(id);
-          rt->submitted = true;
-          current["running"] = true;
-          current.erase("turnId");
-          const auto context = rt->deliveries.find("rpc:" + m.at("id").dump());
-          if (context != rt->deliveries.end())
-            current["activeTask"] =
-                store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
-          else
-            current.erase("activeTask");
-          store_.save(current);
-        }
         if (method == "turn/start" || method == "turn/steer") {
           std::string text;
           for (auto &input : guarded.at("params").value("input", Json::array()))
             text += input.value("text", "");
-          emit(id, "user", {{"text", text}});
+          Json task;
+          const auto context = rt->deliveries.find("rpc:" + m.at("id").dump());
+          if (context != rt->deliveries.end())
+            task = store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
+          flush_events();
+          const auto event = store_.history_turn_admit(
+              id, guarded.at("params"), redact(Json{{"text", text}}), task, method == "turn/start");
+          if (method == "turn/start")
+            rt->submitted = true;
+          publish(id, event);
         }
       };
       if (!m.contains("id")) {
@@ -2087,14 +2081,6 @@ public:
            {"error",
             {{"code", -32001}, {"message", error_data(e)["message"]}, {"data", error_data(e)}}}});
     }
-  }
-  void reserve_history_turn(const std::string &id, const Json &input) {
-    // Reserve the initial input projection and bounded output headroom before
-    // forwarding a side effect. This is not a promise of unlimited model output.
-    const auto encoded = input.dump().size();
-    if (encoded > max_frame)
-      throw Error("MESSAGE_TOO_LARGE", "Turn input exceeds history admission bound");
-    store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 64);
   }
   void on_codex(const std::string &id, const Json &m) {
     auto it = runtimes_.find(id);
@@ -2366,20 +2352,17 @@ public:
             }
           },
           [this, id, rt, cmd, user_event]() {
-            reserve_history_turn(id, cmd);
-            auto s = store_.get(id);
-            s["running"] = true;
+            Json task;
             const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());
             if (context != rt->deliveries.end())
-              s["activeTask"] =
+              task =
                   store_.delivery_target(context->second.at("stream"), context->second.at("seq"));
-            else
-              s.erase("activeTask");
-            s.erase("turnId");
-            store_.save(s);
-            const auto event =
-                emit(id, "user", {{"text", cmd["text"]}, {"requestId", cmd["requestId"]}});
+            flush_events();
+            const auto event = store_.history_turn_admit(
+                id, cmd, redact(Json{{"text", cmd["text"]}, {"requestId", cmd["requestId"]}}), task,
+                true);
             *user_event = store_.history_reference(id, event.at("seq"));
+            publish(id, event);
           });
       return;
     }

@@ -259,6 +259,39 @@ Json Store::history_cache_compact(const Json &verified) {
     throw;
   }
 }
+Json Store::history_turn_admit(const std::string &session, const Json &input, const Json &user,
+                               const Json &task, bool start) {
+  const auto encoded = input.dump().size();
+  if (encoded > max_frame)
+    throw Error("MESSAGE_TOO_LARGE", "Turn input exceeds history admission bound");
+  run("BEGIN IMMEDIATE");
+  try {
+    auto state = get(session);
+    if (start && state.value("running", false))
+      throw Error("TURN_BUSY", "A turn is already running");
+    if (!start && (!state.value("running", false) || !state.contains("turnId") ||
+                   input.value("expectedTurnId", "") != state.at("turnId")))
+      throw Error("TARGET_NOT_FOUND", "Steering must name the original active turn");
+    // Admission, task identity and user history either all commit or all roll
+    // back. The caller may publish and send to Codex only after this returns.
+    history_reserve(session, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 64);
+    if (start) {
+      state["running"] = true;
+      state.erase("turnId");
+      if (task.is_null())
+        state.erase("activeTask");
+      else
+        state["activeTask"] = task;
+      save(state);
+    }
+    auto result = event(session, "user", user);
+    run("COMMIT");
+    return result;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 // Reservations share the authoritative history ledger and its SQL quota checks.
 // Their charged bytes include bookkeeping overhead; no second credit pool exists.
 void Store::history_reserve(const std::string &session, int64_t bytes, int64_t records) {
