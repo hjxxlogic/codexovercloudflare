@@ -1847,10 +1847,14 @@ try {
   const exitedAgent = new Promise((resolve) =>
     stoppedAgent.once('close', resolve),
   );
-  stoppedAgent.kill('SIGTERM');
-  const stopDeadline = setTimeout(() => stoppedAgent.kill('SIGKILL'), 10000);
+  assert(
+    database
+      .prepare('SELECT key FROM transport2_history_entries WHERE key=?')
+      .get('control-reservation:' + external.id),
+    'Live observer still owns its terminal slot',
+  );
+  stoppedAgent.kill('SIGKILL');
   await exitedAgent;
-  clearTimeout(stopDeadline);
   await until(() => !peer);
   child = spawn(
     resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
@@ -1864,6 +1868,28 @@ try {
     queuePromises(),
     pendingPromise,
     'Agent restart retains unknown queue capacity',
+  );
+  assert.equal(
+    database
+      .prepare(
+        'SELECT COUNT(*) AS n FROM transport2_history_entries WHERE key=?',
+      )
+      .get('control-reservation:' + external.id)!.n,
+    0,
+    'Crash recovery consumes the old runtime terminal slot',
+  );
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='sessionClosed'",
+      )
+      .get(external.id)!.n,
+    1,
+    'Crash recovery materializes one observer runtime closure',
+  );
+  assert.equal(
+    (await control('get', { sessionId: external.id })).state,
+    'failed',
   );
   const afterRestart = randomUUID();
   send({

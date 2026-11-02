@@ -142,8 +142,10 @@ void session_recovery() {
           "Original request recovers the session identity across the initialization crash gap");
     check(journal.get("host~allocated").at("state") == "failed",
           "Recovering the identity does not claim that its runtime survived restart");
-    check(journal.history_budget()["global"]["bytes"] == 80 * 1024,
-          "Unknown creation retains unconsumed capacity across restart");
+    const auto bytes = journal.history_budget()["global"]["bytes"].get<int64_t>();
+    check(bytes > 64 * 1024 && bytes < 80 * 1024 &&
+              journal.history("host~allocated").at("events").at(0).at("type") == "sessionClosed",
+          "Restart converts only runtime terminal capacity and retains unknown creation capacity");
     journal.operation_ack(request, "create", input);
     rejects([&] { journal.operation_begin(request, "create", input); }, "RESULT_UNAVAILABLE");
   }

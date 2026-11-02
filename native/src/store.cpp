@@ -372,6 +372,25 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         s["running"] = false;
         save(s);
       }
+    if (authoritative)
+      for (const auto &row :
+           query("SELECT s.id FROM sessions s JOIN transport2_history_entries e "
+                 "ON e.session=s.id AND e.key='control-reservation:'||s.id "
+                 "WHERE json_extract(s.value,'$.state') IN('closed','failed') ORDER BY s.id")) {
+        const auto id = row.at("id").get<std::string>();
+        const auto s = get(id);
+        Json closed = {{"state", s.at("state")},
+                       {"message", "Agent runtime ended before its terminal history committed; "
+                                   "original business outcomes remain unchanged."}};
+        if (s.contains("historyError")) {
+          closed["error"] = s.at("historyError");
+          closed["message"] = s.at("historyError").at("message");
+        }
+        // The slot is the unfinished closure obligation, not evidence about
+        // business execution. Its atomic conversion is restart-idempotent;
+        // ordinary and per-request unknown promises remain untouched.
+        history_runtime_close(id, closed);
+      }
   } catch (...) {
     clear_statements();
     sqlite3_close(db_);

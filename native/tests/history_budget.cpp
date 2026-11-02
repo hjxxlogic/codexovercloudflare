@@ -227,6 +227,75 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void runtime_terminal_recovery() {
+  Temp temp;
+  const Json policy = {{"maxBytes", 131072}, {"maxSessionBytes", 131072}, {"minFreeDiskBytes", 1}};
+  Json before, recovered, final_budget, intent;
+  {
+    Store store(temp.path, true, "", policy);
+    intent = {{"owner", std::string(64, 'a')},
+              {"requestId", "original-create"},
+              {"instance", store.delivery_instance()}};
+    const auto key = store.operation_begin(intent, "create", Json::object()).at("key");
+    store.operation_session(key,
+                            {{"id", "host~runtime"}, {"state", "starting"}, {"running", false}});
+    store.history_reserve("host~runtime", 32768, 8, "unresolved-queue");
+    Database fixture(temp.path);
+    fixture.sql("INSERT INTO transport2_history_entries(key,session,bytes,records) "
+                "SELECT 'reservation:fill','host~runtime',131072-bytes,1 "
+                "FROM transport2_history_budget WHERE scope='@global'; "
+                "CREATE TABLE test_promises AS SELECT * FROM transport2_history_entries "
+                "WHERE key GLOB 'reservation:*'; "
+                "CREATE TRIGGER fail_terminal BEFORE INSERT ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected terminal failure'); END");
+    before = store.history_budget();
+    Store secondary(temp.path, false);
+    check(secondary.history("host~runtime").at("events").empty() &&
+              secondary.get("host~runtime").at("state") == "starting",
+          "Secondary connections cannot retire the active runtime slot");
+  }
+  bool failed = false;
+  try {
+    Store interrupted(temp.path, true, "", policy);
+  } catch (const Error &error) {
+    failed = error.code == "STORAGE_ERROR";
+  }
+  check(failed, "Injected restart terminal write must fail");
+  {
+    Store inspect(temp.path, false);
+    check(inspect.history_budget() == before &&
+              inspect.history("host~runtime").at("events").empty(),
+          "Failed closure restores its capacity and every unknown promise");
+    check(inspect.get("host~runtime").at("state") == "failed",
+          "Recovery must also handle a crash after runtime state already became failed");
+    Database fixture(temp.path);
+    fixture.sql("DROP TRIGGER fail_terminal");
+  }
+  {
+    Store restarted(temp.path, true, "", policy);
+    recovered = restarted.history("host~runtime");
+    check(recovered.at("events").size() == 1 &&
+              recovered.at("events").at(0).at("type") == "sessionClosed",
+          "Restart materializes exactly one durable runtime closure");
+    check(restarted.operation_begin(intent, "create", Json::object())
+                  .at("result")
+                  .at("error")
+                  .at("code") == "RESULT_UNKNOWN",
+          "Runtime closure cannot infer a business outcome");
+    Database fixture(temp.path);
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=0 FROM (SELECT * FROM test_promises "
+                "EXCEPT SELECT * FROM transport2_history_entries); "
+                "INSERT INTO assertion SELECT COUNT(*)=0 FROM transport2_history_entries "
+                "WHERE key='control-reservation:host~runtime'");
+    final_budget = restarted.history_budget();
+    check(final_budget.at("global").at("bytes") < before.at("global").at("bytes"),
+          "Terminal conversion refunds unused capacity even when original quota was full");
+  }
+  Store again(temp.path, true, "", policy);
+  check(again.history("host~runtime") == recovered && again.history_budget() == final_budget,
+        "Further restarts cannot duplicate terminal history or refund another promise");
+}
 void external_import_capacity() {
   Temp temp;
   const Json policy = {{"maxBytes", 131072}, {"maxSessionBytes", 131072}, {"minFreeDiskBytes", 1}};
@@ -1010,6 +1079,7 @@ int main() {
     atomic_turn_admission();
     scoped_queue_reservations();
     external_import_capacity();
+    runtime_terminal_recovery();
     inline_transition();
     external_inline_transition();
     packed_deltas();
