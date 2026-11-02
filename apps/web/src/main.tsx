@@ -1018,6 +1018,7 @@ function App() {
     setHasOlder(false);
     setLoadingHistory(false);
     setHistoryNotice('');
+    setProjectReadOnly(false);
     messageScrollTop.current = 0;
     historyAnchor.current = null;
     setContentChunks({});
@@ -1092,7 +1093,6 @@ function App() {
     after.current = 0;
     setEvents([]);
     setApprovals([]);
-    setProjectReadOnly(false);
     setReady(false);
     setPending(false);
     let running = selected.state === 'ready' && selected.running;
@@ -3025,7 +3025,7 @@ function App() {
           status={
             !online
               ? t('服务器离线 · 只读缓存')
-              : projectReadOnly
+              : selected && projectReadOnly
                 ? t('只读会话 · 同项目已有写会话')
                 : selected?.external
                   ? t('外部会话 · 只读同步') +
