@@ -1613,9 +1613,115 @@ try {
     }),
     /BACKPRESSURE/,
   );
+  const sourceFile = join(projectRoot, '.fake-external.json');
+  const sourceState = JSON.parse(readFileSync(sourceFile, 'utf8'));
+  const observedItem = () =>
+    database!
+      .prepare(
+        'SELECT seq,fingerprint FROM external_items WHERE session=? AND item=?',
+      )
+      .get(external.id, 'external-10');
+  const originalItem = observedItem();
+  assert(originalItem, 'The item is already part of the observed live turn');
+  const originalHistoryUsage = database
+    .prepare(
+      'SELECT bytes,records FROM transport2_history_budget WHERE scope=?',
+    )
+    .get(external.id);
+  sourceState.items[10].text = 'recovered external output '.repeat(1000);
+  sourceState.items.push({
+    id: 'external-after-capacity',
+    type: 'agentMessage',
+    text: 'new tail',
+  });
+  writeFileSync(sourceFile, JSON.stringify(sourceState));
+  const syncPending = () =>
+    JSON.parse(
+      String(
+        database!
+          .prepare('SELECT value FROM sessions WHERE id=?')
+          .get(external.id)!.value,
+      ),
+    ).historySyncPending;
+  await until(() => syncPending() === true);
+  assert.deepEqual(
+    observedItem(),
+    originalItem,
+    'Quota rollback preserves the original item fingerprint',
+  );
+  assert.deepEqual(
+    database
+      .prepare(
+        'SELECT bytes,records FROM transport2_history_budget WHERE scope=?',
+      )
+      .get(external.id),
+    originalHistoryUsage,
+    'Refused observation cannot partially consume history capacity',
+  );
+  assert.equal(
+    (await control('get', { sessionId: external.id })).state,
+    'ready',
+  );
+  assert.equal(
+    child.exitCode,
+    null,
+    'External import backpressure leaves Agent and source writer alone',
+  );
+  const archiveBefore = database
+    .prepare('SELECT MIN(seq) AS seq FROM history WHERE session=?')
+    .get(external.id)!.seq;
+  const archiveQuery = {
+    sessionId: external.id,
+    mode: 'web',
+    before: archiveBefore,
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(
+      control('history', archiveQuery),
+      /Authoritative history budget exhausted/,
+    );
+  }
+  assert.equal(
+    (await control('get', { sessionId: external.id })).state,
+    'ready',
+    'Archive quota error returns to caller without closing its reader',
+  );
   database
     .prepare('DELETE FROM transport2_history_entries WHERE key=?')
     .run(fillKey);
+  const archiveRecovered = await control('history', archiveQuery);
+  assert(
+    archiveRecovered.events.length > 0,
+    'Archive load marker and cursor recover after quota refusal',
+  );
+  await until(
+    () =>
+      !syncPending() &&
+      observedItem()?.fingerprint !== originalItem.fingerprint,
+    25000,
+  );
+  assert.equal(
+    observedItem()!.seq,
+    originalItem.seq,
+    'Recovered output keeps its original native item projection',
+  );
+  assert.equal(
+    database
+      .prepare('SELECT bytes FROM bodies WHERE seq=?')
+      .get(originalItem.seq)!.bytes,
+    Buffer.byteLength(sourceState.items[10].text),
+  );
+  assert(
+    database
+      .prepare('SELECT seq FROM external_items WHERE session=? AND item=?')
+      .get(external.id, 'external-after-capacity'),
+    'Reader retries the original cursor and also imports the new tail',
+  );
+  assert.deepEqual(
+    JSON.parse(readFileSync(sourceFile, 'utf8')),
+    sourceState,
+    'Read-only recovery does not change the original writer or queue',
+  );
   assert.equal(
     queueRecords().length,
     3,

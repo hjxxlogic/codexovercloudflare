@@ -1380,6 +1380,33 @@ public:
                            });
     });
   }
+  void external_history_failure(const std::string &id, Json error) {
+    auto it = runtimes_.find(id);
+    if (it == runtimes_.end() || stopped_)
+      return;
+    if (error.value("code", "") != "BACKPRESSURE" && it->second->observer_error != error.dump()) {
+      try {
+        const auto event = store_.observation_event(
+            id, "warning",
+            redact(Json{{"message", "External history refresh failed: " +
+                                        error.value("message", "Read failed")}}));
+        publish(id, event);
+        it->second->observer_error = error.dump();
+        return;
+      } catch (const Error &failure) {
+        if (failure.code != "BACKPRESSURE")
+          throw;
+        error = error_data(failure);
+      }
+    }
+    if (error.value("code", "") == "BACKPRESSURE") {
+      auto s = store_.get(id);
+      if (!s.value("historySyncPending", false)) {
+        s["historySyncPending"] = true;
+        store_.save(s);
+      }
+    }
+  }
   void observe_external(const std::string &id, std::shared_ptr<Runtime> rt, Completion done) {
     auto s = store_.get(id);
     s["external"] = true;
@@ -1411,6 +1438,24 @@ public:
           if (s["state"] != "ready" && s["state"] != "starting")
             return;
           if (metadata.contains("seed")) {
+            if (s.value("historySyncPending", false)) {
+              try {
+                const auto event = store_.observation_event(
+                    id, "externalState",
+                    {{"running", s.value("running", false)},
+                     {"externalStatus", s.value("externalStatus", "unknown")},
+                     {"historySyncPending", false}});
+                s.erase("historySyncPending");
+                store_.save(s);
+                publish(id, event);
+              } catch (const Error &error) {
+                if (error.code != "BACKPRESSURE")
+                  throw;
+                external_history_failure(id, error_data(error));
+                return;
+              }
+            }
+            runtimes_.at(id)->observer_error.clear();
             if (!s.value("externalSeeded", false) && metadata["seed"].value("seeded", false)) {
               s["externalSeeded"] = true;
               s["archiveCursor"] = metadata["seed"]["archiveCursor"];
@@ -1423,20 +1468,14 @@ public:
                          metadata.value("externalStatus", "unknown")) {
             s["running"] = metadata["running"];
             s["externalStatus"] = metadata["externalStatus"];
+            const auto event = store_.observation_event(
+                id, "externalState",
+                {{"running", s["running"]}, {"externalStatus", s["externalStatus"]}});
             store_.save(s);
-            emit(id, "externalState",
-                 {{"running", s["running"]}, {"externalStatus", s["externalStatus"]}});
+            publish(id, event);
           }
         },
-        [this, id](Json error) {
-          auto it = runtimes_.find(id);
-          if (it != runtimes_.end() && it->second->observer_error != error.dump()) {
-            it->second->observer_error = error.dump();
-            emit(id, "warning",
-                 {{"message",
-                   "External history refresh failed: " + error.value("message", "Read failed")}});
-          }
-        });
+        [this, id](Json error) { external_history_failure(id, std::move(error)); });
     rt->reader->bootstrap([this, id, done](Json result, Json error) {
       if (!runtimes_.count(id) || store_.get(id)["state"] != "starting") {
         done(nullptr, {{"code", "SESSION_CLOSED"}, {"message", "Reader closed during connection"}});
@@ -1626,53 +1665,61 @@ public:
             done(nullptr, error);
             return;
           }
-          Json events = Json::array(), entries = Json::array();
-          if (legacy) {
-            for (auto &turn : result.value("data", Json::array())) {
-              auto items = turn.value("items", Json::array());
-              std::reverse(items.begin(), items.end());
-              for (auto &item : items)
-                entries.push_back({{"turnId", turn.at("id")}, {"item", item}});
+          try {
+            Json events = Json::array(), entries = Json::array();
+            if (legacy) {
+              for (auto &turn : result.value("data", Json::array())) {
+                auto items = turn.value("items", Json::array());
+                std::reverse(items.begin(), items.end());
+                for (auto &item : items)
+                  entries.push_back({{"turnId", turn.at("id")}, {"item", item}});
+              }
+            } else
+              entries = result.value("data", Json::array());
+            const bool external = store_.get(id).value("external", false);
+            for (auto &entry : entries) {
+              if (external) {
+                auto event = store_.external_item(id, entry.at("turnId"), entry.at("item"), true);
+                if (!event.is_null())
+                  publish(id, event);
+                continue;
+              }
+              auto item = entry.at("item");
+              auto type = item.value("type", "");
+              auto turn = entry.value("turnId", "");
+              if (type == "userMessage") {
+                std::string text;
+                for (auto &content : item.value("content", Json::array()))
+                  if (content.value("type", "") == "text")
+                    text += content.value("text", "");
+                events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
+              } else if (type == "agentMessage")
+                events.push_back({{"type", "item/agentMessage/delta"},
+                                  {"data",
+                                   {{"itemId", item.value("id", "")},
+                                    {"turnId", turn},
+                                    {"delta", item.value("text", "")}}}});
+              else
+                events.push_back(
+                    {{"type", "item/completed"}, {"data", {{"item", item}, {"turnId", turn}}}});
             }
-          } else
-            entries = result.value("data", Json::array());
-          const bool external = store_.get(id).value("external", false);
-          for (auto &entry : entries) {
+            auto cursor = result.value("nextCursor", Json());
             if (external) {
-              auto event = store_.external_item(id, entry.at("turnId"), entry.at("item"), true);
-              if (!event.is_null())
-                publish(id, event);
-              continue;
+              auto current = store_.get(id);
+              current["archiveCursor"] = cursor;
+              current["archiveDone"] = cursor.is_null();
+              store_.save(current);
+            } else
+              store_.archive_page(id, events, cursor);
+            if (!cursor.is_null() && remaining > 1) {
+              read_archive(id, process, temporary, remaining - 1, done);
+              return;
             }
-            auto item = entry.at("item");
-            auto type = item.value("type", "");
-            auto turn = entry.value("turnId", "");
-            if (type == "userMessage") {
-              std::string text;
-              for (auto &content : item.value("content", Json::array()))
-                if (content.value("type", "") == "text")
-                  text += content.value("text", "");
-              events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
-            } else if (type == "agentMessage")
-              events.push_back({{"type", "item/agentMessage/delta"},
-                                {"data",
-                                 {{"itemId", item.value("id", "")},
-                                  {"turnId", turn},
-                                  {"delta", item.value("text", "")}}}});
-            else
-              events.push_back(
-                  {{"type", "item/completed"}, {"data", {{"item", item}, {"turnId", turn}}}});
-          }
-          auto cursor = result.value("nextCursor", Json());
-          if (external) {
-            auto current = store_.get(id);
-            current["archiveCursor"] = cursor;
-            current["archiveDone"] = cursor.is_null();
-            store_.save(current);
-          } else
-            store_.archive_page(id, events, cursor);
-          if (!cursor.is_null() && remaining > 1) {
-            read_archive(id, process, temporary, remaining - 1, done);
+          } catch (const std::exception &failure) {
+            archive_loading_.erase(id);
+            if (temporary)
+              process->close();
+            done(nullptr, error_data(failure));
             return;
           }
           archive_loading_.erase(id);

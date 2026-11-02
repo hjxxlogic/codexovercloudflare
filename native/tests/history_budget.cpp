@@ -227,6 +227,68 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void external_import_capacity() {
+  Temp temp;
+  const Json policy = {{"maxBytes", 131072}, {"maxSessionBytes", 131072}, {"minFreeDiskBytes", 1}};
+  Store store(temp.path, true, "", policy);
+  store.save({{"id", "external"}, {"state", "ready"}, {"external", true}});
+  const auto first = store.external_item(
+      "external", "turn", {{"id", "item"}, {"type", "agentMessage"}, {"text", "prefix"}});
+  Database fixture(temp.path);
+  fixture.sql("INSERT INTO transport2_history_entries(key,session,bytes,records) "
+              "SELECT 'reservation:fill','external',131072-bytes,1 "
+              "FROM transport2_history_budget WHERE scope='@global'");
+  bool stopped = false;
+  store.on_failure([&] { stopped = true; });
+  const auto budget = store.history_budget(), history = store.history("external");
+  const Json update = {{"id", "item"}, {"type", "agentMessage"}, {"text", std::string(20000, 'x')}};
+  backpressure([&] { store.external_item("external", "turn", update); });
+  backpressure([&] { store.observation_event("external", "externalState", {{"running", false}}); });
+  const auto session_before = store.get("external");
+  backpressure([&] {
+    store.archive_page("external",
+                       Json::array({{{"type", "user"}, {"data", {{"text", "archive input"}}}}}),
+                       "next");
+  });
+  check(store.get("external") == session_before,
+        "Rejected archive page cannot advance cursor or title");
+  check(!stopped && store.history_budget() == budget && store.history("external") == history,
+        "Unaccepted external import quota rolls back without stopping the Agent");
+  check(store
+            .external_item("external", "turn",
+                           {{"id", "item"}, {"type", "agentMessage"}, {"text", "prefix"}})
+            .is_null(),
+        "Refused import does not advance its durable fingerprint");
+  fixture.sql("DELETE FROM transport2_history_entries WHERE key='reservation:fill'");
+  const auto recovered = store.external_item("external", "turn", update);
+  std::string recovered_text;
+  for (int64_t offset = 0;;) {
+    const auto page = store.content("external", first.at("seq"), offset);
+    recovered_text += page.at("text").get<std::string>();
+    if (!page.at("more").get<bool>())
+      break;
+    offset = page.at("nextOffset");
+  }
+  check(recovered.at("seq") == first.at("seq") && recovered_text == std::string(20000, 'x'),
+        "Retry imports the original item identity after capacity recovers");
+  fixture.sql("CREATE TRIGGER fail_import BEFORE INSERT ON history BEGIN "
+              "SELECT RAISE(ABORT,'injected non-quota failure'); END");
+  bool failed = false;
+  try {
+    store.external_item("external", "turn",
+                        {{"id", "new"}, {"type", "agentMessage"}, {"text", "new"}});
+  } catch (const Error &error) {
+    failed = error.code == "STORAGE_ERROR";
+  }
+  check(failed && stopped, "Real storage errors in imports still stop side effects");
+  fixture.sql("DROP TRIGGER fail_import");
+  stopped = false;
+  fixture.sql("INSERT INTO transport2_history_entries(key,session,bytes,records) "
+              "SELECT 'reservation:fill','external',131072-bytes,1 "
+              "FROM transport2_history_budget WHERE scope='@global'");
+  backpressure([&] { store.event("external", "record", {{"text", "ordinary write"}}); });
+  check(stopped, "Import failure restores normal accepted-write failure handling");
+}
 void scoped_queue_reservations() {
   Temp temp;
   const std::string session = "host~queue-reservation";
@@ -947,6 +1009,7 @@ int main() {
     journal_cleanup();
     atomic_turn_admission();
     scoped_queue_reservations();
+    external_import_capacity();
     inline_transition();
     external_inline_transition();
     packed_deltas();

@@ -12,10 +12,18 @@
 #include "coc/windows.hpp"
 #endif
 namespace coc {
+namespace {
+struct HistoryImport {
+  bool &active;
+  bool previous;
+  explicit HistoryImport(bool &flag) : active(flag), previous(flag) { active = true; }
+  ~HistoryImport() { active = previous; }
+};
+} // namespace
 void Store::fail(int code) {
   const bool history_capacity =
       std::string(sqlite3_errmsg(db_)).find("COC_HISTORY_CAPACITY") != std::string::npos;
-  if (storage_failure_)
+  if (storage_failure_ && !(history_capacity && history_import_))
     storage_failure_();
   if (history_capacity)
     throw Error("BACKPRESSURE", "Authoritative history budget exhausted; new writes stopped");
@@ -441,6 +449,10 @@ Json Store::get(const std::string &id) {
     throw Error("SESSION_NOT_FOUND", "Unknown session");
   return Json::parse(r[0]["value"].get<std::string>());
 }
+Json Store::observation_event(const std::string &id, const std::string &type, const Json &data) {
+  HistoryImport admission(history_import_);
+  return event(id, type, data);
+}
 Json Store::event(const std::string &id, const std::string &type, const Json &data) {
   return event_batch(Json::array({{{"session", id}, {"type", type}, {"data", data}}}))[0];
 }
@@ -480,6 +492,7 @@ Json Store::event_batch(const Json &entries) {
 }
 void Store::archive_page(const std::string &id, const Json &events, const Json &cursor) {
   run("BEGIN IMMEDIATE");
+  HistoryImport admission(history_import_);
   try {
     for (auto &e : events)
       archive_event(id, e.at("type"), e.at("data"));
@@ -510,6 +523,10 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
   const auto &text = projection.text;
   const auto &data = projection.data;
   run("BEGIN IMMEDIATE");
+  // No delivery has been acknowledged and the reader retains its original cursor.
+  // Quota refusal is safe only after this transaction rolls back; real I/O errors
+  // still invoke the global failure callback.
+  HistoryImport admission(history_import_);
   try {
     int64_t seq = existing.empty() ? 0 : existing[0]["seq"].get<int64_t>();
     std::string previous;

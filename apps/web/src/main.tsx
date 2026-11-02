@@ -1139,6 +1139,9 @@ function App() {
                 ...(d.approvalForwarding !== undefined
                   ? { approvalForwarding: d.approvalForwarding }
                   : {}),
+                ...(d.historySyncPending !== undefined
+                  ? { historySyncPending: d.historySyncPending }
+                  : {}),
               }
             : current,
         );
@@ -2873,7 +2876,10 @@ function App() {
                   (selected.approvalForwarding
                     ? t(' · 可远程审批')
                     : t(' · 审批在原客户端')) +
-                  (busy ? t(' · 原客户端执行中') : '')
+                  (busy ? t(' · 原客户端执行中') : '') +
+                  (selected.historySyncPending
+                    ? t(' · 历史容量不足，等待同步')
+                    : '')
                 : approvals.length
                   ? t('等待你的确认')
                   : status

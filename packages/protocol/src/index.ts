@@ -282,6 +282,7 @@ export const sessionSchema = z.object({
   externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
   activeTask: commandTargetSchema.optional(),
+  historySyncPending: z.boolean().optional(),
   historyError: z
     .object({
       code: z.literal('BACKPRESSURE'),

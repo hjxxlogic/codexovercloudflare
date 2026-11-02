@@ -44,6 +44,8 @@ private:
   void delivery_reserve(const std::string &stream, const std::string &session,
                         const std::string &lane, int64_t slots, int64_t bytes);
   void delivery_release(const std::string &stream);
+  // Only unaccepted, replayable imports may reject quota inside a rollbackable transaction.
+  bool history_import_ = false;
   std::function<void()> storage_failure_;
   [[noreturn]] void fail(int code);
   Json project(const std::string &id, Json event);
@@ -63,6 +65,7 @@ public:
   Json session_page(const Json &filters);
   Json get(const std::string &id);
   Json event(const std::string &id, const std::string &type, const Json &data);
+  Json observation_event(const std::string &id, const std::string &type, const Json &data);
   Json event_batch(const Json &entries);
   Json history_turn_admit(const std::string &session, const Json &input, const Json &user,
                           const Json &task, bool start);
