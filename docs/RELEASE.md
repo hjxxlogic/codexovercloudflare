@@ -268,3 +268,5 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 用户明确要求先发布上一轮云端、等待 Windows 修复后再发布完整包时，可使用 `--cloud-only-after-windows-failure --run-id ID --commit SHA`。只接受已完成、身份匹配且 Windows 唯一必需失败项的检查运行，其余五项必须成功；禁止与 publish-downloads、notify-release 同用。仍核验 Worker/web 制品 GitHub 摘要与来源，保留原生下载，并记录例外。默认路径仍要求六项全绿。该参数不能用于一般跳过检查。
 
 部署工具可在干净的新提交中发布其祖先提交的 CI 制品，便于用修复后的工具发布既有验证产物。线上代码身份来自制品，部署记录另记 deploymentToolCommit；不得用本机重新构建替换祖先制品。
+
+部署脚本读取 GitHub Actions 元数据时优先复用本机已登录的 `gh`（固定 github.com），避免多次完整检查导致匿名 API 限流；没有 gh 或没有登录时沿用公共接口。令牌由 gh 管理，不放入命令参数，不转发到制品镜像；认证请求失败不静默降级。所有 CI、来源和 SHA256 校验仍必须通过。

@@ -224,3 +224,5 @@ Actions 41417410092 的三套 Linux 与 sanitizers 通过；Windows 构建成功
 ### 2026-11-02：Windows 绝对 peer 路径和测试时间预算
 
 Actions 41423136328 的 Windows 来源测试从扩展名校验推进到 CreateProcessW，但显式 applicationName 不搜索 PATH，node.exe 短名仍无法启动；现由 CMake 查找并传入绝对路径，工作流固定测试 Node 版本。该轮 native-operations 60 秒超时，前两轮分别 56.68、53.05 秒通过；Windows 项目/操作测试使用与 sanitizers 相同的 240 秒上限，不改变业务重试、存储持久性或断言。完整发行仍等待新准确提交通过，首阶段云端及已授权本机测试继续运行。
+
+部署等待的公共 API 在多轮运行后触及匿名限流；改用已有 gh 认证读取元数据。新增已登录、未登录/未安装、认证请求失败不得退回公共接口的测试；云端和 Agent 部署边界测试一起复测。制品下载凭据与 Cloudflare 入口凭据仍隔离，不向公共下载代理传递 GitHub 令牌。

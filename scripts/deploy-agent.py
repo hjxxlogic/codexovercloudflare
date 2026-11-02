@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -73,6 +74,14 @@ def curl(url, output=None):
 
 
 def api(repository, path):
+    gh = shutil.which('gh')
+    if gh and subprocess.run([gh, 'auth', 'status', '--hostname', 'github.com'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             timeout=20).returncode == 0:
+        # gh owns credentials; never put tokens in argv or forward them to artifact mirrors.
+        return json.loads(subprocess.check_output(
+            [gh, 'api', '--hostname', 'github.com',
+             'repos/' + repository + '/actions/' + path], timeout=60))
     return json.loads(curl('https://api.github.com/repos/' + repository + '/actions/' + path))
 
 

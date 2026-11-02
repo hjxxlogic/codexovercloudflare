@@ -31,6 +31,28 @@ BUILD = {'commit': COMMIT, 'sourceDigest': DIGEST, 'dirty': False,
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_authenticated_metadata_uses_gh_without_public_fallback(self):
+        with patch.object(deploy.shutil, 'which', return_value='/tools/gh'), \
+                patch.object(deploy.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0)), \
+                patch.object(deploy.subprocess, 'check_output', return_value=b'{"id":42}') as request, \
+                patch.object(deploy, 'curl') as public:
+            self.assertEqual(deploy.api('owner/repo', 'runs/42'), {'id': 42})
+            self.assertEqual(request.call_args.args[0], [
+                '/tools/gh', 'api', '--hostname', 'github.com', 'repos/owner/repo/actions/runs/42'])
+            public.assert_not_called()
+            request.side_effect = deploy.subprocess.CalledProcessError(1, ['gh', 'api'])
+            with self.assertRaises(deploy.subprocess.CalledProcessError):
+                deploy.api('owner/repo', 'runs/42')
+            public.assert_not_called()
+
+    def test_metadata_without_gh_login_keeps_public_api(self):
+        for executable in (None, '/tools/gh'):
+            with patch.object(deploy.shutil, 'which', return_value=executable), \
+                    patch.object(deploy.subprocess, 'run', return_value=types.SimpleNamespace(returncode=1)), \
+                    patch.object(deploy, 'curl', return_value=b'{"id":42}') as public:
+                self.assertEqual(deploy.api('owner/repo', 'runs/42'), {'id': 42})
+                public.assert_called_once_with('https://api.github.com/repos/owner/repo/actions/runs/42')
+
     def test_text_response_retries_discard_partial_stdout(self):
         for headers in (None, b'X-Test-Access: synthetic\n'):
             failed = types.SimpleNamespace(returncode=28, stdout=b'partial response', stderr=b'timeout')
