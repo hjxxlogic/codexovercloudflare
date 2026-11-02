@@ -2,7 +2,7 @@
 
 [文档索引](README.md) · [设计目标](CW_UX_DESIGN.md) · [使用指南](USER_GUIDE.md)
 
-2026-11-02，独立 worktree 分支 `feat/cw-workbench`，起点 `3da79b5`。用户已授权实施网页设计及 P4a 交互终端所需的原生、协议、Relay 改动。本记录只代表开发实现与本机证据，不表示已通过全部跨平台 Actions 或已部署。
+2026-11-02，独立 worktree 分支 `feat/cw-workbench`，起点 `3da79b5`。用户已授权实施网页设计及 P4a 交互终端所需的原生、协议、Relay 改动。2026-11-03 已按用户明确要求使用本机构建部署网页及本机 Agent，并启用本机 Terminal；未运行这些提交的跨平台 Actions，准确来源与边界见[部署记录](CW_DEPLOYMENT_2026-11-03.md)。
 
 ## 实现范围
 
@@ -17,7 +17,7 @@
 | P4a 真实 Terminal   | xterm 按需加载、Linux PTY + bubblewrap、项目 Web writer 验证、可靠创建/关闭、内存输入序号去重、4 KiB 输入、256 KiB 输出环、缩放/Ctrl+C、粘贴确认、断线及进程清理 |
 | P4b                 | Windows / macOS 等平台未实现隔离；能力明确禁用                                                                                                                   |
 
-多数改动在 `apps/web/`；P4a 扩展 `packages/protocol/`、`apps/relay/`、`native/` 和 CMake/测试。未引入独立后端服务、任意 RPC 转发或第二套浏览器历史库。没有数据库迁移、自动部署或现场 Agent 配置修改。
+多数改动在 `apps/web/`；P4a 扩展 `packages/protocol/`、`apps/relay/`、`native/` 和 CMake/测试。未引入独立后端服务、任意 RPC 转发或第二套浏览器历史库。实现没有新增数据库 schema；现场部署及本机 Terminal 的显式启用另见部署记录。
 
 ## 实施取舍与剩余建议
 
@@ -74,7 +74,7 @@
 
 ## 发布边界
 
-本轮只生成可审阅代码、文档和本机测试证据。未推送、未发布 Worker、未更新线上 Agent、未重启现场任务。实际发布仍需明确授权，按仓库流程等待同一源码提交全部必需 Actions 成功并验证制品身份；不能把本机 build 当作经过验证的发行制品。
+已合并 master，并按后续明确授权直接部署本机构建，跳过本次 Actions；原生公开发行包和其他机器 Agent 未更新。本机 Agent 仅在空闲时升级 / 重启，随后启用 Terminal。此次本地构建不作为经过 CI 验证的发行制品，来源、摘要与实际验证见本次部署记录。
 
 ### 生产静态资源兼容修正
 

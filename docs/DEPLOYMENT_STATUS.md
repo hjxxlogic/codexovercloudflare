@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## CW 工作台、本机 Agent 与 Terminal · 2026-11-03
+
+按用户明确要求跳过 Actions，使用本机构建部署网页 / Relay `8e2ae8a`（Worker `f283c218-9d27-4601-8f75-902966955de9`）及本机 Agent `ce22d38`。本机 Agent 已空闲升级、重启并通过 120 秒连接验证；随后按要求启用 Terminal 并再次空闲重启，30 秒验证通过。最终网页包含菜单收纳、可拖动文件树 / 预览 / 输出 / 终端，健康和公共资源字节核验通过。原 D1、Secret、凭据及数据库保留，公开原生包不变，无更新通知。
+
+手动 Wrangler 部署造成的 STATE_MIGRATED 已恢复原 D1 绑定，并将绑定 / 模式 / Cron 固定到根配置，避免重现。477 项单元测试、整页 UI、实际 PTY 和完整 Chromium / Worker / Agent E2E 通过；本次不是 CI 制品发行。详细源码、摘要、保全及验证边界见 [本次部署记录](CW_DEPLOYMENT_2026-11-03.md) 与 [脱敏证据](assets/cw-workbench-2026-11-03/deployment.json)。刷新网页加载新版本，无需清理历史缓存。
+
 ## CW 缓存及重连续修本地部署 · 2026-11-02
 
 按用户明确要求“直接部署本地代码，无需 github action”，通过 `scripts/deploy-cloud.py --local-build --state-db-id UUID --apply` 发布干净源码 `33a0d5e18a0cc95128670ab382c0e48a05c8450e`，未等待或使用该提交的 Actions 制品。本地构建、类型检查及 Worker dry-run 成功；此前 466 项 Vitest、完整 UI / 普通 Worker E2E、3 / 5 浏览器压力与双标签页 IndexedDB 专项通过，不将这些描述为完整 CI 验证。
