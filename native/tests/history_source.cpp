@@ -607,6 +607,77 @@ void over_limit_inline_cache_case() {
       lowered.history_cache_compact(witness).at("reclaimedBytes") <= 0 || failed)
     throw std::runtime_error("Journal cleanup did not unblock verified inline eviction");
 }
+void bounded_recovery_metadata_case() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-metadata-bound-" + uuid());
+  std::filesystem::create_directories(root);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  const auto dir = (root / "state").u8string();
+  const std::string session = "host~metadata";
+  const Json policy = {{"maxRecords", 64}, {"maxSessionRecords", 64}, {"cacheMaxBytes", 0}};
+  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  Json witnesses = Json::array(), budget, history;
+  bool rejected = false, failed_storage = false;
+  {
+    Store store(dir, true, "", policy);
+    store.on_failure([&] { failed_storage = true; });
+    store.save({{"id", session},
+                {"threadId", "thread"},
+                {"projectId", "project"},
+                {"external", true},
+                {"state", "closed"}});
+    for (int i = 0; i < 100; ++i) {
+      const Json item = {
+          {"id", "item-" + std::to_string(i)},
+          {"type", "fileChange"},
+          {"status", "completed"},
+          {"changes", Json::array({{{"path", "file.txt"}, {"diff", std::string(4000, 'x')}}})}};
+      budget = store.history_budget();
+      history = store.history(session);
+      Json event;
+      try {
+        event = store.external_item(session, "turn", item);
+      } catch (const Error &error) {
+        if (error.code != "BACKPRESSURE")
+          throw;
+        rejected = true;
+        if (store.history_budget() != budget || store.history(session) != history)
+          throw std::runtime_error("Metadata exhaustion changed accepted history or accounting");
+        rejects_source([&] { store.external_item(session, "turn", item); }, "BACKPRESSURE");
+        break;
+      }
+      const Json entry = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
+      const auto reference =
+          store.history_source_register(session, event.at("seq"), origin, entry).at("reference");
+      const auto reclaimed = store.history_cache_compact(
+          {{"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}});
+      if (reclaimed.at("reclaimedBytes") <= 0)
+        throw std::runtime_error("Metadata-bound fixture failed to evict its verified body");
+      store.history_journal_compact();
+      witnesses.push_back({{"entry", entry}, {"reference", reference}});
+      if (store.history_budget().at("global").at("records") > 64)
+        throw std::runtime_error("Recovery metadata escaped the configured record budget");
+    }
+    if (!rejected || witnesses.size() < 3 || failed_storage)
+      throw std::runtime_error(
+          "Metadata limit must backpressure replayable imports, not stop storage");
+    budget = store.history_budget();
+    history = store.history(session);
+  }
+  Store reopened(dir, true, "", policy);
+  if (reopened.history_budget() != budget || reopened.history(session) != history)
+    throw std::runtime_error("Metadata exhaustion did not survive restart consistently");
+  for (const auto &witness : witnesses) {
+    const auto &reference = witness.at("reference");
+    if (reopened.history_reference(session, reference.at("seq")) != reference ||
+        !history_text_matches(reopened.history_source_recover(session, reference.at("seq"), origin,
+                                                              witness.at("entry")),
+                              reference))
+      throw std::runtime_error("Metadata exhaustion lost an accepted immutable reference");
+  }
+}
 void inline_cache_cases() {
   for (const auto *kind : {"stream", "external", "command", "file", "file-started", "mcp",
                            "external-file", "external-mcp"}) {
@@ -1008,6 +1079,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     over_limit_inline_cache_case();
+    bounded_recovery_metadata_case();
     inline_cache_cases();
     evicted_prefix_cases();
     cache_fifo_cases();

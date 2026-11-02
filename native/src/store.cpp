@@ -596,11 +596,7 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
     run("INSERT INTO events(session,value,time) VALUES(?,?,?)", {id, raw.dump(), raw["time"]});
     const int64_t revision = sqlite3_last_insert_rowid(db_);
     if (existing.empty()) {
-      seq = historical
-                ? query("SELECT MIN(0,COALESCE(MIN(seq),0))-1 AS seq FROM "
-                        "(SELECT seq FROM history UNION ALL SELECT seq FROM events)")[0]["seq"]
-                      .get<int64_t>()
-                : revision;
+      seq = historical ? archive_sequence() : revision;
       if (historical)
         run("INSERT INTO events(seq,session,value,time) VALUES(?,?,?,?)",
             {seq, id,
@@ -655,15 +651,26 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
     throw;
   }
 }
+int64_t Store::archive_sequence() {
+  // Allocation shares the caller's history write transaction. Published negative
+  // identities remain consumed even after all corresponding projections retire.
+  const auto previous = query("SELECT archive_seq FROM transport2_history_meta WHERE id=1")
+                            .at(0)
+                            .at("archive_seq")
+                            .get<int64_t>();
+  if (previous <= -9007199254740991LL)
+    throw Error("BACKPRESSURE", "Archive sequence space exhausted");
+  run("UPDATE transport2_history_meta SET archive_seq=? WHERE id=1", {previous - 1});
+  return previous - 1;
+}
 Json Store::archive_event(const std::string &id, const std::string &type, const Json &data) {
   const bool transaction = sqlite3_get_autocommit(db_) != 0;
   if (transaction)
     run("BEGIN IMMEDIATE");
   try {
     Json e = {{"type", type}, {"data", data}, {"time", now()}};
-    run("INSERT INTO events(seq,session,value,time) SELECT MIN(0,COALESCE(MIN(seq),0))-1,?,?,? "
-        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)",
-        {id, e.dump(), e["time"]});
+    run("INSERT INTO events(seq,session,value,time) VALUES(?,?,?,?)",
+        {archive_sequence(), id, e.dump(), e["time"]});
     e["seq"] = sqlite3_last_insert_rowid(db_);
     auto result = project(id, e);
     if (transaction)

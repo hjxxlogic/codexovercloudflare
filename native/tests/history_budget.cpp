@@ -47,6 +47,65 @@ struct Database {
     sql("DROP TABLE transport2_history_meta");
   }
 };
+void archive_allocation_retirement() {
+  Temp temp;
+  const std::string session = "host~archive-retirement";
+  int64_t last;
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"state", "closed"}});
+    store.archive_event(session, "user", {{"text", "first"}});
+    last = store
+               .external_item(
+                   session, "turn",
+                   {{"id", "first-native"}, {"type", "agentMessage"}, {"text", "second"}}, true)
+               .at("seq");
+    Database legacy(temp.path);
+    legacy.sql("DROP TABLE transport2_history_meta");
+    legacy.sql("CREATE TABLE transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1))");
+    legacy.sql("INSERT INTO transport2_history_meta VALUES(1)");
+  }
+  const auto clear = [](Database &db) {
+    // Simulate future authorized projection retirement only in this isolated fixture.
+    for (const auto *table : {"chunks", "bodies", "streams", "external_items", "events", "history"})
+      db.sql(std::string("DELETE FROM ") + table);
+  };
+  {
+    Store store(temp.path);
+    const auto migrated = store.archive_event(session, "user", {{"text", "after migration"}});
+    check(migrated.at("seq") == last - 1,
+          "Legacy allocator migration lost the lowest issued identity");
+    last = migrated.at("seq");
+    Database fixture(temp.path);
+    clear(fixture);
+    fixture.sql("CREATE TRIGGER reject_archive BEFORE INSERT ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected archive failure'); END");
+    bool failed = false;
+    try {
+      store.archive_event(session, "user", {{"text", "uncommitted"}});
+    } catch (const std::exception &) {
+      failed = true;
+    }
+    check(failed, "Archive failure was not injected");
+    fixture.sql("DROP TRIGGER reject_archive");
+    const auto next = store.external_item(
+        session, "turn",
+        {{"id", "next-native"}, {"type", "agentMessage"}, {"text", "after deletion"}}, true);
+    check(next.at("seq") == last - 1,
+          "Deleted projections reused an identity or failed write consumed allocation");
+    last = next.at("seq");
+    clear(fixture);
+  }
+  Store restarted(temp.path);
+  check(restarted.archive_event(session, "user", {{"text", "after restart"}}).at("seq") == last - 1,
+        "Empty history restart reset the durable archive allocator");
+  const auto retained = restarted.history(session), budget = restarted.history_budget();
+  Database exhausted(temp.path);
+  exhausted.sql("UPDATE transport2_history_meta SET archive_seq=-9007199254740991 WHERE id=1");
+  backpressure([&] { restarted.archive_event(session, "user", {{"text", "outside wire range"}}); });
+  check(restarted.history(session) == retained && restarted.history_budget() == budget,
+        "Archive identity exhaustion changed accepted history");
+}
 void legacy_packing() {
   Temp temp;
   Json reference, snapshot, before;
@@ -1072,6 +1131,7 @@ void oversized_legacy() {
 } // namespace
 int main() {
   try {
+    archive_allocation_retirement();
     legacy_packing();
     legacy_inline_dedup();
     projected_history_heads();

@@ -58,7 +58,17 @@ void Store::history_budget_init(bool authoritative) {
       throw Error("STORAGE_ERROR", "Invalid history trigger identifier");
     run("DROP TRIGGER " + name);
   }
-  run("CREATE TABLE IF NOT EXISTS transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1))");
+  run("CREATE TABLE IF NOT EXISTS transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1),"
+      "archive_seq INTEGER NOT NULL DEFAULT 0 CHECK(archive_seq BETWEEN -9007199254740991 AND 0))");
+  bool has_archive_sequence = false;
+  for (const auto &column : query("PRAGMA table_info(transport2_history_meta)"))
+    has_archive_sequence = has_archive_sequence || column.at("name") == "archive_seq";
+  if (!has_archive_sequence) {
+    run("ALTER TABLE transport2_history_meta ADD COLUMN archive_seq INTEGER NOT NULL DEFAULT 0 "
+        "CHECK(archive_seq BETWEEN -9007199254740991 AND 0)");
+    run("UPDATE transport2_history_meta SET archive_seq=(SELECT MIN(0,COALESCE(MIN(seq),0)) "
+        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events))");
+  }
   run("INSERT OR IGNORE INTO transport2_history_budget VALUES('@global',0,0)");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_charge AFTER INSERT ON "
       "transport2_history_entries BEGIN "
@@ -204,7 +214,9 @@ void Store::history_budget_init(bool authoritative) {
       "SELECT CASE WHEN (SELECT COUNT(*) FROM transport2_history_budget WHERE "
       "scope!='@global')>=" +
       limit("maxSessions") + " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
-  run("INSERT OR IGNORE INTO transport2_history_meta VALUES(1)");
+  if (bootstrap)
+    run("INSERT INTO transport2_history_meta(id,archive_seq) SELECT 1,MIN(0,COALESCE(MIN(seq),0)) "
+        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)");
 }
 Json Store::history_cache_compact(const Json &verified) {
   const auto policy = history_storage_config(history_policy_);
