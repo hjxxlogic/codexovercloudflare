@@ -1,0 +1,10 @@
+body {
+  margin: 12px;
+  font: 14px system-ui;
+  color: #182230;
+  background: white;
+}
+svg {
+  max-width: 100%;
+  height: auto;
+}

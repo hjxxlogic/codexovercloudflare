@@ -1744,6 +1744,120 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "terminal"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "open",
+                  "read",
+                  "input",
+                  "resize",
+                  "close"
+                ]
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$"
+              },
+              "control": {
+                "type": "object",
+                "properties": {
+                  "controlEpoch": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "connectionGeneration": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "controlId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  }
+                },
+                "required": [
+                  "controlEpoch",
+                  "connectionGeneration",
+                  "controlId",
+                  "owner"
+                ],
+                "additionalProperties": false
+              },
+              "terminalId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "seq": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "data": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 5464,
+                "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+              },
+              "offset": {
+                "default": 0,
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cols": {
+                "default": 80,
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 500
+              },
+              "rows": {
+                "default": 24,
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 500
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "operation",
+              "projectId",
+              "offset",
+              "cols",
+              "rows",
+              "owner"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "delivery"
           },
           "data": {

@@ -1,3 +1,4 @@
+import { Workbench } from './workbench/workbench.tsx';
 import { promptAcknowledged } from './prompt-state.ts';
 import { boundedRefresh, requestErrorMessage } from './refresh.ts';
 import { deliveryIdentity } from './delivery-identity.ts';
@@ -24,6 +25,8 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import {
   modelIdSchema,
+  controlProofSchema,
+  type ControlProof,
   type Event,
   type Session,
 } from '../../../packages/protocol/src/index.ts';
@@ -267,6 +270,7 @@ function App() {
   const [notice, setNotice] = useState('');
   const [closingSession, setClosingSession] = useState<string>();
   const [projectReadOnly, setProjectReadOnly] = useState(false);
+  const [terminalControl, setTerminalControl] = useState<ControlProof>();
   const [reconnect, setReconnect] = useState(0);
   const [away, setAway] = useState(false);
   const [sessionCursor, setSessionCursor] = useState<string | null>(null);
@@ -1023,6 +1027,7 @@ function App() {
     setLoadingHistory(false);
     setHistoryNotice('');
     setProjectReadOnly(false);
+    setTerminalControl(undefined);
     messageScrollTop.current = 0;
     historyAnchor.current = null;
     setContentChunks({});
@@ -1387,6 +1392,8 @@ function App() {
               }
               reliableCommands = true;
               commandController = d.controller || '';
+              const proof = controlProofSchema.safeParse(d.control);
+              setTerminalControl(proof.success ? proof.data : undefined);
               controlBinding = {
                 control: d.control,
                 controller: commandController,
@@ -3634,649 +3641,688 @@ function App() {
       {logged && view === 'chat' && (
         <>
           {view === 'chat' && (
-            <div className="chat-layout">
-              <dialog
-                className="chat-panel"
-                ref={panelDialog}
-                aria-labelledby="chat-panel-title"
-                onClose={() => {
-                  setPanel(null);
-                  menu.current
-                    ?.querySelector<HTMLButtonElement>('.menu-toggle')
-                    ?.focus();
-                }}
-                onCancel={(event) => {
-                  event.preventDefault();
-                  closePanel();
-                }}
-                onClick={(e) => {
-                  const bounds = e.currentTarget.getBoundingClientRect();
-                  if (
-                    e.target === e.currentTarget &&
-                    (e.clientX < bounds.left ||
-                      e.clientX > bounds.right ||
-                      e.clientY < bounds.top ||
-                      e.clientY > bounds.bottom)
-                  )
+            <Workbench
+              host={host}
+              project={project}
+              root={projects.find((item) => item.id === project)?.path || ''}
+              activity={{
+                busy,
+                ready: ready && online,
+                approvals: approvals.map((item) => item.approvalId),
+              }}
+              terminal={{
+                control: terminalControl,
+                operations: operations.current,
+                enabled:
+                  !!selected &&
+                  ready &&
+                  online &&
+                  !projectReadOnly &&
+                  !busy &&
+                  !selected.external,
+              }}
+              session={selected?.id}
+              events={events}
+              chunks={contentChunks}
+              reading={readingContent}
+              read={readContent}
+              upload={() => setPanel('files')}
+              reference={(path) =>
+                setText((current) => `${current}${current ? '\n' : ''}${path}`)
+              }
+            >
+              <div className="chat-layout">
+                <dialog
+                  className="chat-panel"
+                  ref={panelDialog}
+                  aria-labelledby="chat-panel-title"
+                  onClose={() => {
+                    setPanel(null);
+                    menu.current
+                      ?.querySelector<HTMLButtonElement>('.menu-toggle')
+                      ?.focus();
+                  }}
+                  onCancel={(event) => {
+                    event.preventDefault();
                     closePanel();
-                }}
-              >
-                <div className="panel-heading">
-                  <h2 id="chat-panel-title">
-                    {panel === 'details'
-                      ? t('会话详情')
-                      : panel === 'files'
-                        ? t('工作区文件')
-                        : panel === 'models'
-                          ? t('选择模型')
-                          : t('会话记录')}
-                  </h2>
-                  <button aria-label={t('关闭面板')} onClick={closePanel}>
-                    {t('关闭')}
-                  </button>
-                </div>
-                {panel === 'models' && (
-                  <ModelPicker
-                    load={loadModels}
-                    current={selectedModel}
-                    disabled={
-                      busy ||
-                      pending ||
-                      !!unconfirmed ||
-                      !!promptProgress ||
-                      !ready ||
-                      !online
-                    }
-                    onChoose={async (model) => {
-                      const cache = localHistory.current;
-                      if (!cache) throw new Error(t('本机存储尚未就绪'));
-                      await cache.record('model', model);
-                      if (localHistory.current !== cache) return;
-                      setSelectedModel(model);
-                      setPanel(null);
-                    }}
-                  />
-                )}
-                {panel === 'files' && (
-                  <WorkspaceFiles
-                    operations={operations.current}
-                    host={host}
-                    project={project}
-                    target={remoteTarget}
-                    onBusy={setFileBusy}
-                    cache={catalog.current}
-                  />
-                )}
-                {panel === 'sessions' && (
-                  <aside className="session-sidebar">
-                    <section
-                      className="connection-settings"
-                      aria-label={t('连接设置')}
-                    >
-                      <h3>{t('连接设置')}</h3>
-                      {error && (
-                        <p className="error" role="alert">
-                          {t(error)}
-                        </p>
-                      )}
-                      {projectPicker}
-                      {emailControls}
-                      {connectionControls}
-                      {loginForm}
-                    </section>
-                    <h3>{t('会话列表')}</h3>
-                    <button
-                      className="new-chat"
-                      disabled={!online || !host || !project || creating}
-                      onClick={() => void create()}
-                    >
-                      {t('＋ 新建对话')}
-                    </button>
-                    <input
-                      className="session-search"
-                      aria-label={t('搜索会话')}
-                      placeholder={t('搜索已加载的会话…')}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <button
-                      disabled={!host || loadingThreads}
-                      onClick={() => {
-                        void loadThreads();
-                        void api('/sessions?paged=true&hostId=' + host)
-                          .then((page) => {
-                            setSessions(page.data);
-                            setSessionCursor(page.nextCursor);
-                          })
-                          .catch(report);
-                      }}
-                    >
-                      {loadingThreads ? t('正在加载…') : t('刷新会话')}
-                    </button>
-                    <p className="sidebar-caption">
-                      {t('与远程 Codex 共用历史 · 当前项目')}
-                    </p>
-                    <SessionHistory
-                      sessions={sessions}
-                      threads={threads}
-                      project={project}
-                      projectName={
-                        projects.find((p) => p.id === project)?.name || project
-                      }
-                      selected={selected}
-                      search={search}
-                      online={online}
-                      loading={loadingThreads}
-                      error={threadError}
-                      creating={creating}
-                      onSelect={(session) => {
-                        setTakeover(false);
-                        setSelected(session);
-                        setPanel(null);
-                      }}
-                      onResume={(threadId) => void create(threadId)}
-                    />
-                    {sessionCursor && (
-                      <button
-                        disabled={!online}
-                        onClick={() =>
-                          void api(
-                            `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
-                          )
-                            .then((page) => {
-                              setSessions((old) => [
-                                ...old,
-                                ...page.data.filter(
-                                  (s: Session) =>
-                                    !old.some((o) => o.id === s.id),
-                                ),
-                              ]);
-                              setSessionCursor(page.nextCursor);
-                            })
-                            .catch(report)
-                        }
-                      >
-                        {t('加载更多会话记录')}
-                      </button>
-                    )}
-                    {cursor && (
-                      <button
-                        disabled={loadingThreads}
-                        onClick={() => void loadThreads(true)}
-                      >
-                        {t('加载更多')}
-                      </button>
-                    )}
-                  </aside>
-                )}
-                {panel === 'details' && selected && (
-                  <section className="session-details">
-                    <p className="status">
-                      {t(status)}
-                      {selected.external
-                        ? t(' · 外部会话 · 只读同步')
-                        : ''} · {busy ? t('执行中') : t('空闲')}{' '}
-                      {t('· 远程项目')} {selected.projectId}
-                    </p>
-                    {selected.state !== 'ready' && selected.threadId && (
-                      <button
-                        disabled={!online || creating}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t('在 {0} 恢复并继续此线程？', remoteTarget),
-                            )
-                          )
-                            void create(selected.threadId);
-                        }}
-                      >
-                        {t('恢复并继续')}
-                      </button>
-                    )}
-                    <p>{remoteTarget}</p>
-                    <p>{projects.find((p) => p.id === project)?.path}</p>
-                    <details>
-                      <summary>{t('会话标识')}</summary>
-                      <p className="id">{selected.id}</p>
-                    </details>
-                    <details>
-                      <summary>{t('本机存储')}</summary>
-                      <p>
-                        {t(
-                          '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
-                        )}
-                      </p>
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                '清理此设备的会话缓存？离线时将无法读取这些副本。',
-                              ),
-                            )
-                          )
-                            void localHistory.current
-                              ?.clear()
-                              .then(() => setNotice('本机会话缓存已清理'))
-                              .catch(report);
-                        }}
-                      >
-                        {t('清理本机会话缓存')}
-                      </button>
-                    </details>
-                    <div className="row">
-                      <button
-                        disabled={
-                          !ready || !online || !busy || selected.external
-                        }
-                        onClick={() => send({ action: 'interrupt' })}
-                      >
-                        {t('停止本轮')}
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              selected.external
-                                ? t('断开此只读连接？原客户端继续运行。')
-                                : t('结束会话？已修改文件不会回滚。'),
-                            )
-                          )
-                            void endSession(selected)
-                              .then((closed: Session) => {
-                                setSessions((v) =>
-                                  v.map((s) =>
-                                    s.id === closed.id ? closed : s,
-                                  ),
-                                );
-                                setClosingSession(
-                                  closed.state === 'closed'
-                                    ? undefined
-                                    : closed.id,
-                                );
-                                setSelected(undefined);
-                                setPanel(null);
-                                setStatus(
-                                  closed.state === 'closed'
-                                    ? '会话已结束'
-                                    : '正在结束会话',
-                                );
-                              })
-                              .catch(report);
-                        }}
-                      >
-                        {t('结束会话')}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setTakeover(false);
-                          setReconnect((n) => n + 1);
-                        }}
-                      >
-                        {t('重新连接')}
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                '接管 {0} 的当前会话会断开其他控制端，继续？',
-                                remoteTarget,
-                              ),
-                            )
-                          )
-                            setTakeover((v) => !v);
-                        }}
-                      >
-                        {t('接管控制权')}
-                      </button>
-                    </div>
-                  </section>
-                )}
-              </dialog>
-              <section className="conversation" aria-label={t('Codex 对话')}>
-                {selected ? (
-                  <>
-                    <div
-                      className="messages"
-                      ref={messageList}
-                      role="log"
-                      aria-label={t('对话消息')}
-                      aria-live="off"
-                      tabIndex={0}
-                      onTouchStart={bottomRefresh.onTouchStart}
-                      onTouchMove={bottomRefresh.onTouchMove}
-                      onTouchEnd={bottomRefresh.onTouchEnd}
-                      onTouchCancel={bottomRefresh.onTouchCancel}
-                      onKeyDown={bottomRefresh.onKeyDown}
-                      onWheel={(e) => {
-                        bottomRefresh.onWheel(e);
-                        if (
-                          e.deltaY < 0 &&
-                          e.currentTarget.scrollTop <= 0 &&
-                          hasOlder &&
-                          !loadingHistory
-                        )
-                          loadHistory.current(olderCursor);
-                      }}
-                      onScroll={(e) => {
-                        bottomRefresh.onScroll(e);
-                        const el = e.currentTarget;
-                        const scrolledUp =
-                          el.scrollTop < messageScrollTop.current;
-                        messageScrollTop.current = el.scrollTop;
-                        followMessages.current =
-                          !olderView.current &&
-                          el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-                        setAway(!followMessages.current);
-                        if (
-                          scrolledUp &&
-                          !followMessages.current &&
-                          el.scrollTop < 160 &&
-                          hasOlder &&
-                          !loadingHistory
-                        )
-                          loadHistory.current(olderCursor);
-                      }}
-                    >
-                      {olderView.current && (
-                        <p className="status">
-                          {t(
-                            '正在浏览较早内容 · 已加载的消息全部保留，优先读取本地历史。',
-                          )}
-                        </p>
-                      )}
-                      <div className="row">
-                        {hasOlder && (
-                          <button
-                            aria-label={t('加载更早内容')}
-                            disabled={loadingHistory}
-                            onClick={() => loadHistory.current(olderCursor)}
-                          >
-                            {loadingHistory
-                              ? t('正在加载更早内容…')
-                              : t('加载更早内容')}
-                          </button>
-                        )}
-                        {(away || olderView.current) && (
-                          <button
-                            disabled={loadingHistory}
-                            onClick={() => {
-                              olderView.current = false;
-                              setAway(false);
-                              loadHistory.current();
-                            }}
-                          >
-                            {t('返回最新内容')}
-                          </button>
-                        )}
-                      </div>
-                      {historyNotice && <p role="status">{t(historyNotice)}</p>}
-                      <FileContext.Provider value={fileContext}>
-                        <ConversationView
-                          events={events}
-                          chunks={contentChunks}
-                          reading={readingContent}
-                          onRead={readContent}
-                        />
-                      </FileContext.Provider>
-                      {(busy || promptProgress) && (
-                        <p className="thinking" role="status">
-                          ●{' '}
-                          {!ready
-                            ? t('连接已断开，等待重新连接确认状态…')
-                            : promptProgress === 'sending'
-                              ? t('正在发送给 Codex…')
-                              : approvals.length
-                                ? t('等待你的确认')
-                                : promptProgress === 'replying'
-                                  ? t('Codex 正在回复…')
-                                  : selected.external
-                                    ? t('Codex 正在处理…')
-                                    : t('已发送，等待 Codex 回复…')}
-                        </p>
-                      )}
-                      {!events.length &&
-                        !unconfirmed &&
-                        !promptProgress &&
-                        !busy && (
-                          <p className="empty-hint">
-                            {t('对话已就绪，发送任务开始。')}
-                          </p>
-                        )}
-                    </div>
-                    <ApprovalQueue
-                      approvals={approvals}
-                      events={events}
-                      target={`${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`}
-                      ready={
-                        ready &&
-                        online &&
-                        (!selected.external || !!selected.approvalForwarding)
-                      }
-                      pending={pending}
-                      onAnswer={(approvalId, allow) => {
-                        const approval = approvals.find(
-                          (item) => item.approvalId === approvalId,
-                        );
-                        if (!approval) return;
-                        send({
-                          action: 'approval',
-                          approvalId,
-                          allow,
-                          runtimeId: approval.runtimeId,
-                          approvalVersion: approval.approvalVersion,
-                        });
-                      }}
-                    />
-                    {unconfirmed && (
-                      <div className="submission-state" role="status">
-                        <strong>
-                          {pending && promptProgress === 'sending'
-                            ? t('正在发送给 Codex…')
-                            : t('任务提交结果待确认')}
-                        </strong>
-                        <p>{unconfirmed.text}</p>
-                        <button
-                          onClick={() => {
-                            setTakeover(false);
-                            setReconnect((n) => n + 1);
-                          }}
-                        >
-                          {t('重新连接并查询结果')}
-                        </button>
-                        <small>
-                          {t('请求')} {unconfirmed.requestId}
-                          {t('；请先核对远程历史，避免重复执行。')}
-                        </small>
-                      </div>
-                    )}
-                    {projectReadOnly ? (
-                      <div className="readonly-hint" role="status">
-                        <p>{t('只读会话 · 同项目已有写会话')}</p>
-                        <p>
-                          {t('可查看历史；请先关闭当前写连接，再获取写权限。')}
-                        </p>
-                        <button
-                          onClick={() => {
-                            setTakeover(false);
-                            setReconnect((n) => n + 1);
-                          }}
-                        >
-                          {t('获取写权限')}
-                        </button>
-                      </div>
-                    ) : selected.state !== 'ready' ? (
-                      <p className="readonly-hint">
-                        {t(
-                          '会话已结束 · 历史只读，请从历史记录显式恢复并继续。',
-                        )}
-                      </p>
-                    ) : (
-                      <form
-                        className="composer"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (text.trim() === '/model') {
-                            openModels();
-                            if (!selected.external) {
-                              setText('');
-                              void localHistory.current
-                                ?.saveDraft('')
-                                .catch(report);
-                            }
-                            return;
-                          }
-                          if (
-                            text.trim() &&
-                            ready &&
-                            !pending &&
-                            (selected.external || !promptProgress) &&
-                            (!busy || selected.external) &&
-                            (!selected.external || selected.queueEnabled) &&
-                            !pendingCommand.current
-                          ) {
-                            send({
-                              action: 'prompt',
-                              text,
-                              ...(!selected.external && selectedModel
-                                ? { model: selectedModel }
-                                : {}),
-                            });
-                          }
-                        }}
-                      >
-                        <label>
-                          {t('任务内容')}
-                          <textarea
-                            aria-label={t('任务内容')}
-                            value={text}
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === 'Enter' &&
-                                !e.shiftKey &&
-                                !e.nativeEvent.isComposing &&
-                                !matchMedia('(pointer: coarse)').matches
-                              ) {
-                                e.preventDefault();
-                                e.currentTarget.form?.requestSubmit();
-                              }
-                            }}
-                            onChange={(e) => {
-                              setText(e.target.value);
-                              void localHistory.current
-                                ?.saveDraft(e.target.value)
-                                .catch(report);
-                            }}
-                            maxLength={64000}
-                            title={t('Enter 发送，Shift + Enter 换行')}
-                            disabled={
-                              selected.external && !selected.queueEnabled
-                            }
-                            placeholder={
-                              selected.external
-                                ? t('加入原客户端队列…')
-                                : busy
-                                  ? t('可编辑下一条草稿，任务结束后发送…')
-                                  : t('发送消息给 Codex…')
-                            }
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="model-toggle"
-                          onClick={openModels}
-                        >
-                          /model · {selectedModel || t('选择模型')}
-                        </button>
-                        {busy && !selected.external ? (
-                          <button
-                            type="button"
-                            disabled={!ready || !online}
-                            onClick={() => send({ action: 'interrupt' })}
-                          >
-                            {t('停止本轮')}
-                          </button>
-                        ) : (
-                          <button
-                            type="submit"
-                            disabled={
-                              !ready ||
-                              !online ||
-                              pending ||
-                              !!unconfirmed ||
-                              (!selected.external && !!promptProgress) ||
-                              (selected.external && !selected.queueEnabled) ||
-                              !text.trim()
-                            }
-                          >
-                            {selected.external ? t('加入队列') : t('发送')}
-                          </button>
-                        )}
-                        <AutoApproval
-                          key={`${host}:${selected.id}`}
-                          enabled={selected.autoApproval}
-                          ready={
-                            ready &&
-                            online &&
-                            (!selected.external ||
-                              !!selected.approvalForwarding ||
-                              selected.autoApproval === true)
-                          }
-                          onChange={setAutoApproval}
-                        />
-                        <small
-                          className={
-                            selected.external
-                              ? 'composer-external-help'
-                              : 'composer-help'
-                          }
-                        >
-                          {selected.external &&
-                            (selected.queueEnabled
-                              ? selected.approvalForwarding
-                                ? t(
-                                    '外部会话：已入队不代表已执行；可在此审批命令与文件操作，执行沿用原客户端策略。 ',
-                                  )
-                                : t(
-                                    '外部会话：已入队不代表已执行；当前审批仍需原客户端处理。 ',
-                                  )
-                              : t(
-                                  '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ',
-                                ))}
-                          {matchMedia('(pointer: coarse)').matches
-                            ? t('Enter 换行，点击发送提交')
-                            : t('Enter 发送 · Shift+Enter 换行')}
-                          {text.length > 60000
-                            ? t(' · 剩余 {0} 字符', 64000 - text.length)
-                            : ''}
-                        </small>
-                        {!ready && <small role="status">{t(status)}</small>}
-                      </form>
-                    )}
-                  </>
-                ) : (
-                  <div className="chat-welcome">
-                    <div className="welcome-icon">
-                      <CodexMark />
-                    </div>
-                    <h2>{t('今天要一起完成什么？')}</h2>
-                    <p>
-                      {t('恢复 Codex 本地会话，或在远程项目中开始新对话。')}
-                    </p>
-                    <button
-                      disabled={creating || (!!host && !online)}
-                      onClick={() => {
-                        if (host && project) void create();
-                        else openSessions();
-                      }}
-                    >
-                      {host && project ? t('＋ 开始新对话') : t('连接远程项目')}
+                  }}
+                  onClick={(e) => {
+                    const bounds = e.currentTarget.getBoundingClientRect();
+                    if (
+                      e.target === e.currentTarget &&
+                      (e.clientX < bounds.left ||
+                        e.clientX > bounds.right ||
+                        e.clientY < bounds.top ||
+                        e.clientY > bounds.bottom)
+                    )
+                      closePanel();
+                  }}
+                >
+                  <div className="panel-heading">
+                    <h2 id="chat-panel-title">
+                      {panel === 'details'
+                        ? t('会话详情')
+                        : panel === 'files'
+                          ? t('工作区文件')
+                          : panel === 'models'
+                            ? t('选择模型')
+                            : t('会话记录')}
+                    </h2>
+                    <button aria-label={t('关闭面板')} onClick={closePanel}>
+                      {t('关闭')}
                     </button>
                   </div>
-                )}
-              </section>
-            </div>
+                  {panel === 'models' && (
+                    <ModelPicker
+                      load={loadModels}
+                      current={selectedModel}
+                      disabled={
+                        busy ||
+                        pending ||
+                        !!unconfirmed ||
+                        !!promptProgress ||
+                        !ready ||
+                        !online
+                      }
+                      onChoose={async (model) => {
+                        const cache = localHistory.current;
+                        if (!cache) throw new Error(t('本机存储尚未就绪'));
+                        await cache.record('model', model);
+                        if (localHistory.current !== cache) return;
+                        setSelectedModel(model);
+                        setPanel(null);
+                      }}
+                    />
+                  )}
+                  {panel === 'files' && (
+                    <WorkspaceFiles
+                      operations={operations.current}
+                      host={host}
+                      project={project}
+                      target={remoteTarget}
+                      onBusy={setFileBusy}
+                      cache={catalog.current}
+                    />
+                  )}
+                  {panel === 'sessions' && (
+                    <aside className="session-sidebar">
+                      <section
+                        className="connection-settings"
+                        aria-label={t('连接设置')}
+                      >
+                        <h3>{t('连接设置')}</h3>
+                        {error && (
+                          <p className="error" role="alert">
+                            {t(error)}
+                          </p>
+                        )}
+                        {projectPicker}
+                        {emailControls}
+                        {connectionControls}
+                        {loginForm}
+                      </section>
+                      <h3>{t('会话列表')}</h3>
+                      <button
+                        className="new-chat"
+                        disabled={!online || !host || !project || creating}
+                        onClick={() => void create()}
+                      >
+                        {t('＋ 新建对话')}
+                      </button>
+                      <input
+                        className="session-search"
+                        aria-label={t('搜索会话')}
+                        placeholder={t('搜索已加载的会话…')}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <button
+                        disabled={!host || loadingThreads}
+                        onClick={() => {
+                          void loadThreads();
+                          void api('/sessions?paged=true&hostId=' + host)
+                            .then((page) => {
+                              setSessions(page.data);
+                              setSessionCursor(page.nextCursor);
+                            })
+                            .catch(report);
+                        }}
+                      >
+                        {loadingThreads ? t('正在加载…') : t('刷新会话')}
+                      </button>
+                      <p className="sidebar-caption">
+                        {t('与远程 Codex 共用历史 · 当前项目')}
+                      </p>
+                      <SessionHistory
+                        sessions={sessions}
+                        threads={threads}
+                        project={project}
+                        projectName={
+                          projects.find((p) => p.id === project)?.name ||
+                          project
+                        }
+                        selected={selected}
+                        search={search}
+                        online={online}
+                        loading={loadingThreads}
+                        error={threadError}
+                        creating={creating}
+                        onSelect={(session) => {
+                          setTakeover(false);
+                          setSelected(session);
+                          setPanel(null);
+                        }}
+                        onResume={(threadId) => void create(threadId)}
+                      />
+                      {sessionCursor && (
+                        <button
+                          disabled={!online}
+                          onClick={() =>
+                            void api(
+                              `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
+                            )
+                              .then((page) => {
+                                setSessions((old) => [
+                                  ...old,
+                                  ...page.data.filter(
+                                    (s: Session) =>
+                                      !old.some((o) => o.id === s.id),
+                                  ),
+                                ]);
+                                setSessionCursor(page.nextCursor);
+                              })
+                              .catch(report)
+                          }
+                        >
+                          {t('加载更多会话记录')}
+                        </button>
+                      )}
+                      {cursor && (
+                        <button
+                          disabled={loadingThreads}
+                          onClick={() => void loadThreads(true)}
+                        >
+                          {t('加载更多')}
+                        </button>
+                      )}
+                    </aside>
+                  )}
+                  {panel === 'details' && selected && (
+                    <section className="session-details">
+                      <p className="status">
+                        {t(status)}
+                        {selected.external
+                          ? t(' · 外部会话 · 只读同步')
+                          : ''} · {busy ? t('执行中') : t('空闲')}{' '}
+                        {t('· 远程项目')} {selected.projectId}
+                      </p>
+                      {selected.state !== 'ready' && selected.threadId && (
+                        <button
+                          disabled={!online || creating}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t('在 {0} 恢复并继续此线程？', remoteTarget),
+                              )
+                            )
+                              void create(selected.threadId);
+                          }}
+                        >
+                          {t('恢复并继续')}
+                        </button>
+                      )}
+                      <p>{remoteTarget}</p>
+                      <p>{projects.find((p) => p.id === project)?.path}</p>
+                      <details>
+                        <summary>{t('会话标识')}</summary>
+                        <p className="id">{selected.id}</p>
+                      </details>
+                      <details>
+                        <summary>{t('本机存储')}</summary>
+                        <p>
+                          {t(
+                            '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
+                          )}
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t(
+                                  '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                                ),
+                              )
+                            )
+                              void localHistory.current
+                                ?.clear()
+                                .then(() => setNotice('本机会话缓存已清理'))
+                                .catch(report);
+                          }}
+                        >
+                          {t('清理本机会话缓存')}
+                        </button>
+                      </details>
+                      <div className="row">
+                        <button
+                          disabled={
+                            !ready || !online || !busy || selected.external
+                          }
+                          onClick={() => send({ action: 'interrupt' })}
+                        >
+                          {t('停止本轮')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                selected.external
+                                  ? t('断开此只读连接？原客户端继续运行。')
+                                  : t('结束会话？已修改文件不会回滚。'),
+                              )
+                            )
+                              void endSession(selected)
+                                .then((closed: Session) => {
+                                  setSessions((v) =>
+                                    v.map((s) =>
+                                      s.id === closed.id ? closed : s,
+                                    ),
+                                  );
+                                  setClosingSession(
+                                    closed.state === 'closed'
+                                      ? undefined
+                                      : closed.id,
+                                  );
+                                  setSelected(undefined);
+                                  setPanel(null);
+                                  setStatus(
+                                    closed.state === 'closed'
+                                      ? '会话已结束'
+                                      : '正在结束会话',
+                                  );
+                                })
+                                .catch(report);
+                          }}
+                        >
+                          {t('结束会话')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setTakeover(false);
+                            setReconnect((n) => n + 1);
+                          }}
+                        >
+                          {t('重新连接')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t(
+                                  '接管 {0} 的当前会话会断开其他控制端，继续？',
+                                  remoteTarget,
+                                ),
+                              )
+                            )
+                              setTakeover((v) => !v);
+                          }}
+                        >
+                          {t('接管控制权')}
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </dialog>
+                <section className="conversation" aria-label={t('Codex 对话')}>
+                  {selected ? (
+                    <>
+                      <div
+                        className="messages"
+                        ref={messageList}
+                        role="log"
+                        aria-label={t('对话消息')}
+                        aria-live="off"
+                        tabIndex={0}
+                        onTouchStart={bottomRefresh.onTouchStart}
+                        onTouchMove={bottomRefresh.onTouchMove}
+                        onTouchEnd={bottomRefresh.onTouchEnd}
+                        onTouchCancel={bottomRefresh.onTouchCancel}
+                        onKeyDown={bottomRefresh.onKeyDown}
+                        onWheel={(e) => {
+                          bottomRefresh.onWheel(e);
+                          if (
+                            e.deltaY < 0 &&
+                            e.currentTarget.scrollTop <= 0 &&
+                            hasOlder &&
+                            !loadingHistory
+                          )
+                            loadHistory.current(olderCursor);
+                        }}
+                        onScroll={(e) => {
+                          bottomRefresh.onScroll(e);
+                          const el = e.currentTarget;
+                          const scrolledUp =
+                            el.scrollTop < messageScrollTop.current;
+                          messageScrollTop.current = el.scrollTop;
+                          followMessages.current =
+                            !olderView.current &&
+                            el.scrollHeight - el.scrollTop - el.clientHeight <
+                              80;
+                          setAway(!followMessages.current);
+                          if (
+                            scrolledUp &&
+                            !followMessages.current &&
+                            el.scrollTop < 160 &&
+                            hasOlder &&
+                            !loadingHistory
+                          )
+                            loadHistory.current(olderCursor);
+                        }}
+                      >
+                        {olderView.current && (
+                          <p className="status">
+                            {t(
+                              '正在浏览较早内容 · 已加载的消息全部保留，优先读取本地历史。',
+                            )}
+                          </p>
+                        )}
+                        <div className="row">
+                          {hasOlder && (
+                            <button
+                              aria-label={t('加载更早内容')}
+                              disabled={loadingHistory}
+                              onClick={() => loadHistory.current(olderCursor)}
+                            >
+                              {loadingHistory
+                                ? t('正在加载更早内容…')
+                                : t('加载更早内容')}
+                            </button>
+                          )}
+                          {(away || olderView.current) && (
+                            <button
+                              disabled={loadingHistory}
+                              onClick={() => {
+                                olderView.current = false;
+                                setAway(false);
+                                loadHistory.current();
+                              }}
+                            >
+                              {t('返回最新内容')}
+                            </button>
+                          )}
+                        </div>
+                        {historyNotice && (
+                          <p role="status">{t(historyNotice)}</p>
+                        )}
+                        <FileContext.Provider value={fileContext}>
+                          <ConversationView
+                            events={events}
+                            chunks={contentChunks}
+                            reading={readingContent}
+                            onRead={readContent}
+                          />
+                        </FileContext.Provider>
+                        {(busy || promptProgress) && (
+                          <p className="thinking" role="status">
+                            ●{' '}
+                            {!ready
+                              ? t('连接已断开，等待重新连接确认状态…')
+                              : promptProgress === 'sending'
+                                ? t('正在发送给 Codex…')
+                                : approvals.length
+                                  ? t('等待你的确认')
+                                  : promptProgress === 'replying'
+                                    ? t('Codex 正在回复…')
+                                    : selected.external
+                                      ? t('Codex 正在处理…')
+                                      : t('已发送，等待 Codex 回复…')}
+                          </p>
+                        )}
+                        {!events.length &&
+                          !unconfirmed &&
+                          !promptProgress &&
+                          !busy && (
+                            <p className="empty-hint">
+                              {t('对话已就绪，发送任务开始。')}
+                            </p>
+                          )}
+                      </div>
+                      <ApprovalQueue
+                        approvals={approvals}
+                        events={events}
+                        target={`${hosts.find((h) => h.id === host)?.name || host} / ${projects.find((p) => p.id === project)?.name || project}`}
+                        ready={
+                          ready &&
+                          online &&
+                          (!selected.external || !!selected.approvalForwarding)
+                        }
+                        pending={pending}
+                        onAnswer={(approvalId, allow) => {
+                          const approval = approvals.find(
+                            (item) => item.approvalId === approvalId,
+                          );
+                          if (!approval) return;
+                          send({
+                            action: 'approval',
+                            approvalId,
+                            allow,
+                            runtimeId: approval.runtimeId,
+                            approvalVersion: approval.approvalVersion,
+                          });
+                        }}
+                      />
+                      {unconfirmed && (
+                        <div className="submission-state" role="status">
+                          <strong>
+                            {pending && promptProgress === 'sending'
+                              ? t('正在发送给 Codex…')
+                              : t('任务提交结果待确认')}
+                          </strong>
+                          <p>{unconfirmed.text}</p>
+                          <button
+                            onClick={() => {
+                              setTakeover(false);
+                              setReconnect((n) => n + 1);
+                            }}
+                          >
+                            {t('重新连接并查询结果')}
+                          </button>
+                          <small>
+                            {t('请求')} {unconfirmed.requestId}
+                            {t('；请先核对远程历史，避免重复执行。')}
+                          </small>
+                        </div>
+                      )}
+                      {projectReadOnly ? (
+                        <div className="readonly-hint" role="status">
+                          <p>{t('只读会话 · 同项目已有写会话')}</p>
+                          <p>
+                            {t(
+                              '可查看历史；请先关闭当前写连接，再获取写权限。',
+                            )}
+                          </p>
+                          <button
+                            onClick={() => {
+                              setTakeover(false);
+                              setReconnect((n) => n + 1);
+                            }}
+                          >
+                            {t('获取写权限')}
+                          </button>
+                        </div>
+                      ) : selected.state !== 'ready' ? (
+                        <p className="readonly-hint">
+                          {t(
+                            '会话已结束 · 历史只读，请从历史记录显式恢复并继续。',
+                          )}
+                        </p>
+                      ) : (
+                        <form
+                          className="composer"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (text.trim() === '/model') {
+                              openModels();
+                              if (!selected.external) {
+                                setText('');
+                                void localHistory.current
+                                  ?.saveDraft('')
+                                  .catch(report);
+                              }
+                              return;
+                            }
+                            if (
+                              text.trim() &&
+                              ready &&
+                              !pending &&
+                              (selected.external || !promptProgress) &&
+                              (!busy || selected.external) &&
+                              (!selected.external || selected.queueEnabled) &&
+                              !pendingCommand.current
+                            ) {
+                              send({
+                                action: 'prompt',
+                                text,
+                                ...(!selected.external && selectedModel
+                                  ? { model: selectedModel }
+                                  : {}),
+                              });
+                            }
+                          }}
+                        >
+                          <label>
+                            {t('任务内容')}
+                            <textarea
+                              aria-label={t('任务内容')}
+                              value={text}
+                              onKeyDown={(e) => {
+                                if (
+                                  e.key === 'Enter' &&
+                                  !e.shiftKey &&
+                                  !e.nativeEvent.isComposing &&
+                                  !matchMedia('(pointer: coarse)').matches
+                                ) {
+                                  e.preventDefault();
+                                  e.currentTarget.form?.requestSubmit();
+                                }
+                              }}
+                              onChange={(e) => {
+                                setText(e.target.value);
+                                void localHistory.current
+                                  ?.saveDraft(e.target.value)
+                                  .catch(report);
+                              }}
+                              maxLength={64000}
+                              title={t('Enter 发送，Shift + Enter 换行')}
+                              disabled={
+                                selected.external && !selected.queueEnabled
+                              }
+                              placeholder={
+                                selected.external
+                                  ? t('加入原客户端队列…')
+                                  : busy
+                                    ? t('可编辑下一条草稿，任务结束后发送…')
+                                    : t('发送消息给 Codex…')
+                              }
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="model-toggle"
+                            onClick={openModels}
+                          >
+                            /model · {selectedModel || t('选择模型')}
+                          </button>
+                          {busy && !selected.external ? (
+                            <button
+                              type="button"
+                              disabled={!ready || !online}
+                              onClick={() => send({ action: 'interrupt' })}
+                            >
+                              {t('停止本轮')}
+                            </button>
+                          ) : (
+                            <button
+                              type="submit"
+                              disabled={
+                                !ready ||
+                                !online ||
+                                pending ||
+                                !!unconfirmed ||
+                                (!selected.external && !!promptProgress) ||
+                                (selected.external && !selected.queueEnabled) ||
+                                !text.trim()
+                              }
+                            >
+                              {selected.external ? t('加入队列') : t('发送')}
+                            </button>
+                          )}
+                          <AutoApproval
+                            key={`${host}:${selected.id}`}
+                            enabled={selected.autoApproval}
+                            ready={
+                              ready &&
+                              online &&
+                              (!selected.external ||
+                                !!selected.approvalForwarding ||
+                                selected.autoApproval === true)
+                            }
+                            onChange={setAutoApproval}
+                          />
+                          <small
+                            className={
+                              selected.external
+                                ? 'composer-external-help'
+                                : 'composer-help'
+                            }
+                          >
+                            {selected.external &&
+                              (selected.queueEnabled
+                                ? selected.approvalForwarding
+                                  ? t(
+                                      '外部会话：已入队不代表已执行；可在此审批命令与文件操作，执行沿用原客户端策略。 ',
+                                    )
+                                  : t(
+                                      '外部会话：已入队不代表已执行；当前审批仍需原客户端处理。 ',
+                                    )
+                                : t(
+                                    '只读同步；Agent 配置 externalSessions.allowQueue=true 且使用 workspace-write 后可加入队列。 ',
+                                  ))}
+                            {matchMedia('(pointer: coarse)').matches
+                              ? t('Enter 换行，点击发送提交')
+                              : t('Enter 发送 · Shift+Enter 换行')}
+                            {text.length > 60000
+                              ? t(' · 剩余 {0} 字符', 64000 - text.length)
+                              : ''}
+                          </small>
+                          {!ready && <small role="status">{t(status)}</small>}
+                        </form>
+                      )}
+                    </>
+                  ) : (
+                    <div className="chat-welcome">
+                      <div className="welcome-icon">
+                        <CodexMark />
+                      </div>
+                      <h2>{t('今天要一起完成什么？')}</h2>
+                      <p>
+                        {t('恢复 Codex 本地会话，或在远程项目中开始新对话。')}
+                      </p>
+                      <button
+                        disabled={creating || (!!host && !online)}
+                        onClick={() => {
+                          if (host && project) void create();
+                          else openSessions();
+                        }}
+                      >
+                        {host && project
+                          ? t('＋ 开始新对话')
+                          : t('连接远程项目')}
+                      </button>
+                    </div>
+                  )}
+                </section>
+              </div>
+            </Workbench>
           )}
         </>
       )}

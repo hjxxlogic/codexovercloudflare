@@ -1,0 +1,31 @@
+{
+  "baseline": [
+    {
+      "file": "assets/index-DJZq5LVy.js",
+      "bytes": 687754,
+      "gzipBytes": 210502
+    },
+    {
+      "file": "assets/index-DdWY9-46.css",
+      "bytes": 18741,
+      "gzipBytes": 4868
+    }
+  ],
+  "current": [
+    {
+      "file": "assets/index-BxKfTkh_.js",
+      "bytes": 721491,
+      "gzipBytes": 221564
+    },
+    {
+      "file": "assets/rolldown-runtime-XKyaHtl9.js",
+      "bytes": 726,
+      "gzipBytes": 431
+    },
+    {
+      "file": "assets/index-TkiNvc9u.css",
+      "bytes": 27457,
+      "gzipBytes": 6599
+    }
+  ]
+}

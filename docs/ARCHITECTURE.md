@@ -12,6 +12,18 @@ Agent 的 Codex 子进程分为最多 16 个会话进程与独立 4 个临时历
 
 Agent 的 Web 待执行队列（含正在处理的项）每会话最多 100 条 / 2 MiB、全局 512 条 / 16 MiB；priority 独立每会话 8 条 / 512 KiB、全局 64 条 / 2 MiB。实际保留的帧与闭包按编码八倍加 16 KiB 计量；取消未开始的原任务立即归还其队列额度。待决审批每会话最多 32 条 / 1 MiB、全局 128 条 / 8 MiB，另限制全部审批的保守线编码为每会话 64 KiB / 全局 1 MiB，保证与历史快照一起可在单帧内返回；条数、内存和线编码任一先满均拒绝。共享审批的原件与镜像持有同一额度，直到最后一份实际引用释放。外部审批连接的内部请求另限每连接 4 条 / 64 KiB、全局 64 条 / 1 MiB。完全相同的待决审批重发沿用原版本；未解决 ID 被用于不同内容时断开对应运行时。普通进程审批超额明确拒绝；外部审批超额断开转发并保留原服务器待决状态，不自动答复。结果路由仅保留执行中或未确认的流，确认及关闭后回收；查询已退休路由不创建持久元数据。probe / metrics 仅报告这些集合的条数与计量字节，不含正文。
 
+## CW 工作台与交互终端（开发分支）
+
+`workbench/` 装配现有会话组件、懒加载目录/预览和共享事件的只读输出面板；`markdown/` 统一对话、侧栏、独立预览的格式化。主题仅作用于 CW 工作台，管理页面保持原有布局。页面标题展示执行/审批状态，后台页面通知由用户单独开启且只含通用提示；不新增服务端通知或页面关闭后的推送通道。预览读取绑定 host/project/session 并可取消，内联限制 1 MiB；布局偏好使用带版本且校验范围的本地配置。文件读写和历史同步继续走原权限及可靠操作路径。
+
+公式、代码高亮、xterm 动态加载。Mermaid 引擎作为本地静态资源按需装入 `/diagram.html`：iframe 只允许脚本且无同源权限，专用 CSP 禁止网络和应用嵌入；父页面只向该 frame 发送源码，不能接受它发起业务请求。普通网页继续禁止内联脚本；允许内联样式以支持 React 尺寸、KaTeX 及 xterm 的定位样式。图表没有任意 HTML/iframe 内容或回调通道。具体限制和未完成项见 [实施记录](CW_WORKBENCH.md)。
+
+`POST /api/v1/hosts/:id/terminal` 只接受 Web 身份和显式的 info/open/read/input/resize/close 契约；非 info 操作由 Relay 事务验证活动项目 writer、完整 control proof、账号及会话归属。Agent 再验证当前持久控制代次、运行时连接代次、会话模式与项目。创建/关闭进入原可靠 operation 账本，输入/缩放按 runtime + 严格递增序号在内存去重，不把按键逐条写入业务数据库；相同上一序号只接受完全相同摘要。写入结果无法确认或部分写入会关闭 runtime 并报告 RESULT_UNKNOWN，不能重新编号重放。
+
+Linux `Terminals` 使用独立 PTY、会话/进程组、bubblewrap user/PID/mount/network 等命名空间，清除 capabilities/环境，只绑定当前 canonical 项目根到 `/workspace`。系统 `/usr`、`/bin`、`/lib`、`/lib64` 只读，HOME 独立，`/tmp` 私有，固定 Bash 参数数组启动，禁止降级到未隔离执行。`prlimit` 在 PID namespace 内施加 NPROC=32，子进程继承 AS=256 MiB、NOFILE=64、CPU=300 秒、CORE=0、FSIZE=64 MiB；均为每进程限制，不承诺 cgroup 总 CPU/内存/磁盘配额。不可验证的平台禁用。
+
+每个 Agent 最多 4 个 runtime，每项目一个活跃终端；退出记录保留至满 60 秒后在下次创建时回收。每终端输出环形缓冲 256 KiB、读取分块 32 KiB、单次输入 4 KiB，偏移以字节计，缺口显式返回 gap；不写入会话历史。每 200 ms 检查退出/心跳，60 秒无授权读取终止进程组。detach、较新控制代次、会话结束和 Agent 断开/退出立即清理；bubblewrap die-with-parent 与 PID namespace 清理子进程。终端与助手项目写任务相互排斥，权限不能由 UI 推导。
+
 ## 执行端业务回执
 
 A 的 transport2_operations 在执行前提交主体 / 原 requestId / Agent instance 与 action / data 摘要，重复请求返回原结果或执行中状态，进程重启后的执行中项固定为 RESULT_UNKNOWN。终态先持久化再回复，C 确认后释放正文并保留有界拒绝身份；预算为全局 128 MiB、主体 32 MiB、1024 项总身份，独立于会话窗口。Worker 为携带可信 intent 的写请求提供共享有界内存转发，owner 由鉴权绑定，结果仅携带匹配的执行端证明；停止及确认保留会话模式检查。

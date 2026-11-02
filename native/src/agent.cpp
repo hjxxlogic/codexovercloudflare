@@ -12,6 +12,7 @@
 #include "coc/recovery.hpp"
 #include "coc/remote_config.hpp"
 #include "coc/store.hpp"
+#include "coc/terminal.hpp"
 #include "coc/update.hpp"
 #include <atomic>
 #include <boost/asio/thread_pool.hpp>
@@ -74,6 +75,7 @@ class Agent {
   std::unique_ptr<ProjectControl> project_control_;
   Store file_store_;
   WorkspaceFiles files_;
+  Terminals terminals_;
   asio::thread_pool file_pool_{1};
   asio::thread_pool approval_pool_{1};
   bool approval_check_pending_ = false, approval_check_failed_ = false,
@@ -104,8 +106,9 @@ public:
         config_file_(std::move(config_file)), remote_config_(config_file_, true),
         remote_restart_timer_(io_), updater_(updater),
         store_(config_["dataDir"], true, "", config_.at("historyStorage")), projects_(config_),
-        file_store_(config_["dataDir"], false), files_(file_store_), retry_(io_), maintenance_(io_),
-        event_timer_(io_), history_retry_(io_), signals_(io_, SIGINT, SIGTERM) {}
+        file_store_(config_["dataDir"], false), files_(file_store_), terminals_(io_, config_),
+        retry_(io_), maintenance_(io_), event_timer_(io_), history_retry_(io_),
+        signals_(io_, SIGINT, SIGTERM) {}
   bool remote_restart() const { return remote_restart_; }
   bool update_restart() const { return update_restart_; }
   ~Agent() {
@@ -182,6 +185,7 @@ public:
     });
   }
   void disconnected(unsigned code) {
+    terminals_.clear();
     history_routes_.clear();
     history_retry_.cancel();
     for (auto &[id, r] : runtimes_)
@@ -497,7 +501,8 @@ public:
     auto result = projects_.request(
         d,
         [this](const std::string &id) {
-          if (file_requests_ || listing_threads_ || history_readers_ || !archive_loading_.empty())
+          if (terminals_.busy(id) || file_requests_ || listing_threads_ || history_readers_ ||
+              !archive_loading_.empty())
             return true;
           for (const auto &s : store_.sessions(true))
             if (s.at("projectId") == id && runtimes_.count(s.at("id").get<std::string>()))
@@ -806,9 +811,10 @@ public:
         rt->deliveries[key] = delivery;
       }
     }
-    if (type == "detach")
+    if (type == "detach") {
+      terminals_.close_session(id);
       rt->detached = now();
-    else if (type == "rpc") {
+    } else if (type == "rpc") {
       if (!delivery.is_null() && delivery.at("lane") == "normal" && rt->cli_delivery_stream.empty())
         rt->cli_delivery_stream = delivery.at("stream").get<std::string>();
       if (!delivery.is_null() && !store_.delivery_start(delivery.at("stream"), delivery.at("seq")))
@@ -921,6 +927,7 @@ public:
               ++entry;
           }
           if (generation != rt->epoch) {
+            terminals_.close_session(id);
             rt->epoch = generation;
             rt->pending_epoch = 0;
             rt->detached = 0;
@@ -1083,6 +1090,35 @@ public:
           page["more"] = true;
         done(page, nullptr);
       });
+      return;
+    }
+    if (action == "terminal") {
+      const auto p = project(d.at("projectId"));
+      if (d.at("operation") == "info") {
+        auto result = terminals_.metadata();
+        result["deliveryInstance"] = store_.delivery_instance();
+        done(result, nullptr);
+        return;
+      }
+      const auto id = d.at("sessionId").get<std::string>();
+      const auto session = store_.get(id);
+      const auto control = store_.control_state(id);
+      const auto rt = runtimes_.find(id);
+      const auto proof = d.at("control");
+      if (session.at("projectId") != p.at("id") || session.at("mode") != "web" ||
+          session.value("external", false) || session.at("state") != "ready" || control.is_null() ||
+          proof.at("controlEpoch") != control.at("controlEpoch") ||
+          proof.at("controlId") != control.at("controlId") ||
+          proof.at("owner") != control.at("owner") || d.at("owner") != control.at("owner") ||
+          rt == runtimes_.end() || proof.at("connectionGeneration") != rt->second->epoch ||
+          rt->second->detached)
+        throw Error("STALE_CONTROLLER", "Terminal requires active web project controller");
+      if (d.at("operation") == "open") {
+        if (session.value("running", false) || rt->second->busy)
+          throw Error("PROJECT_BUSY", "Assistant is executing in this project");
+        check_busy(session);
+      }
+      done(terminals_.request(d, p.at("path")), nullptr);
       return;
     }
     if (action == "files") {
@@ -2009,6 +2045,8 @@ public:
       read();
   }
   void check_busy(const Json &s) {
+    if (terminals_.busy(s.at("projectId")))
+      throw Error("PROJECT_BUSY", "Close project terminal before executing an assistant task");
     for (auto &o : store_.sessions(true))
       if (o["id"] != s["id"] && o["projectId"] == s["projectId"] && o["state"] == "ready" &&
           o["running"] == true)
@@ -2719,6 +2757,7 @@ public:
     runtimes_.erase(id);
   }
   void stop(const std::string &id) {
+    terminals_.close_session(id);
     auto s = store_.get(id);
     auto it = runtimes_.find(id);
     s["state"] = it == runtimes_.end() ? "closed" : "closing";
@@ -2959,6 +2998,7 @@ public:
                 << '\n';
     }
     stopped_ = true;
+    terminals_.clear();
     project_control_.reset();
     event_timer_.cancel();
     remote_restart_timer_.cancel();

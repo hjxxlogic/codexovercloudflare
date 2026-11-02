@@ -7,6 +7,7 @@ export async function readFile(
   remotePath: string,
   signal: AbortSignal,
   onProgress?: (offset: number, size: number) => void,
+  maxBytes = Number.POSITIVE_INFINITY,
 ) {
   const call = (data: object, signal: AbortSignal) =>
     queryApi(`/hosts/${host}/files`, { ...data, projectId: project }, signal);
@@ -19,6 +20,7 @@ export async function readFile(
   const version = first.version as string;
   if (!Number.isSafeInteger(size) || size < 0 || typeof version !== 'string')
     throw new Error('下载内容发生变化或不完整，请重试。');
+  if (size > maxBytes) throw new Error('文件超过预览上限，请下载查看。');
   let offset = 0;
   const append = (result: any, requested: number) => {
     const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));

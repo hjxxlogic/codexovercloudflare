@@ -4,6 +4,14 @@
 
 Worker 持久保存授权、撤销、租约和控制代际；业务正文、结果、发送头、ACK、信用与补发日志由 A / C 保存。Worker 只提供有界尽力转发，重建可丢失全部临时关联。连接成功和 HTTP 成功不能代替端点持久确认。
 
+## 开发中：项目终端通道
+
+`POST /api/v1/hosts/:host/terminal` 的 `info/open/read/input/resize/close` 只开放给 Web 凭据。除 info 外，均绑定 projectId、sessionId 与完整 control proof；read/input/resize/close 还绑定 terminalId。Relay 验证当前项目 writer 及账号，Agent 独立验证持久控制代次、运行时连接代次和归属。
+
+open/close 属于可靠 HTTP 业务写入口，沿用原 requestId、Agent deliveryInstance 和端点操作账本。输入与缩放属于独立易失 PTY runtime 的有序流：正安全整数 seq 从 1 连续递增，只保留最近一项摘要；完全相同的上一项可返回原 next，失序/不同内容拒绝。单次输入最多 4096 解码字节；部分 write 或结果不确定不能换身份重放，runtime 会终止。浏览器错误后冻结输入，显式重新连接只查询尚存 runtime，不恢复旧按键。
+
+read 使用非负字节 offset，返回 base64 data、下一 offset、more、gap、exited/exitCode 与 next。每次最多 32 KiB，保留最近 256 KiB；缺口不重建历史，也不伪造完整日志。输入/输出不注册成 delivery:2 会话正文，不新增 ACK 或持久云端进度。detach、控制代次变化、会话结束或 Agent 断开终止终端，60 秒无授权读取也终止；进程状态不可从浏览器缓存恢复。详见 [工作台实现](CW_WORKBENCH.md)。
+
 ## 原请求与控制权
 
 非会话窗口的创建 / 停止、外部排队 / 审批、项目修改及上传 begin / finish，首次网络发送前保存完整固定意图、原 requestId 和 Agent 存储实例。HTTP 使用 `Idempotency-Key`、`X-CoC-Operation-Instance`，确认另带 `X-CoC-Operation-Ack: 1`；owner 由 Worker 鉴权绑定。A 执行前提交 started，终态先落盘再回复，C 保存原终态后才确认。回包或确认丢失只重查原意图；重启后 started 固定为 RESULT_UNKNOWN，不派发新副作用。已确认正文可回收，永久拒绝身份不重新开放。

@@ -938,6 +938,56 @@ describe('recoverable asynchronous controls', () => {
     ).toBe(202);
     expect(h.frames()).toHaveLength(129);
   });
+  it('fences terminal requests by active project writer and current control proof', async () => {
+    const h = harness();
+    const proof = {
+      controlEpoch: 1,
+      controlId: 'terminal-control',
+      owner: auth.hash,
+      connectionGeneration: 3,
+    };
+    const data = {
+      operation: 'input',
+      projectId: 'project',
+      sessionId: 'host~writer',
+      control: proof,
+      terminalId: 'terminal',
+      owner: auth.hash,
+      seq: 1,
+      data: 'eA==',
+    };
+    await h.storage.put('lease:host~writer', {
+      epoch: 3,
+      active: true,
+      controlEpoch: 1,
+      controlId: proof.controlId,
+      owner: auth.hash,
+      projectId: 'project',
+    });
+    await h.storage.put('project-writer:project', 'host~writer');
+    const accepted = await h.start('terminal', data);
+    expect(accepted.response.status).toBe(202);
+    const forward = JSON.parse(h.agent.send.mock.calls.at(-1)![0]);
+    expect(forward.action).toBe('terminal');
+    expect(forward.data.seq).toBe(1);
+    for (const invalid of [
+      { ...data, control: { ...proof, connectionGeneration: 2 } },
+      { ...data, owner: 'b'.repeat(64) },
+      { ...data, projectId: 'another' },
+    ]) {
+      const calls = h.agent.send.mock.calls.length;
+      const denied = await h.start('terminal', invalid);
+      expect((await h.read(denied.data.operationId)).data.error.code).toBe(
+        'PROJECT_READ_ONLY',
+      );
+      expect(h.agent.send.mock.calls.length).toBe(calls);
+    }
+    await h.storage.put('project-writer:project', 'host~other');
+    const denied = await h.start('terminal', data);
+    expect((await h.read(denied.data.operationId)).data.error.code).toBe(
+      'PROJECT_READ_ONLY',
+    );
+  });
   it('allows one project writer across sessions, reconstruction and explicit takeover', async () => {
     const h = harness();
     await h.relay.reserve(

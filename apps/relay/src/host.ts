@@ -597,6 +597,31 @@ export class HostRelayDO extends DurableObject<Env> {
         );
       data = { ...data, owner: operation.auth.hash, route: operation.socketId };
     }
+    if (action === 'terminal' && data.operation !== 'info') {
+      await this.authorized(operation.auth.hash);
+      await this.storage.transaction(async (tx) => {
+        const lease = await tx.get<Lease>('lease:' + data.sessionId);
+        if (
+          !lease ||
+          !lease.active ||
+          lease.pending ||
+          lease.owner !== operation.auth.hash ||
+          lease.projectId !== data.projectId ||
+          data.owner !== operation.auth.hash ||
+          !data.sessionId.startsWith(operation.hostId + '~') ||
+          Object.entries(data.control).some(
+            ([key, value]) =>
+              this.proof(lease)[key as keyof ControlProof] !== value,
+          ) ||
+          (await tx.get('project-writer:' + data.projectId)) !== data.sessionId
+        )
+          throw new AppError(
+            'PROJECT_READ_ONLY',
+            'Terminal requires current project writer',
+            409,
+          );
+      });
+    }
     if (action === 'projectManage') {
       const current: Auth = await registryCall(this.env, 'authHash', {
         hash: operation.auth.hash,

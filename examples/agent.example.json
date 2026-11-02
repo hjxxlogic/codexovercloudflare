@@ -39,5 +39,8 @@
     "writeWindowBytes": 1048576,
     "writeWindowRecords": 256,
     "minFreeDiskBytes": 536870912
+  },
+  "terminal": {
+    "enabled": false
   }
 }

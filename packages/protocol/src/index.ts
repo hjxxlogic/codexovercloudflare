@@ -18,7 +18,9 @@ export function operationWrite(action: string, data: { operation?: string }) {
     ['create', 'stop', 'queue', 'answer'].includes(action) ||
     (action === 'projectManage' &&
       !['list', 'browse'].includes(data.operation || '')) ||
-    (action === 'files' && ['begin', 'finish'].includes(data.operation || ''))
+    (action === 'files' &&
+      ['begin', 'finish'].includes(data.operation || '')) ||
+    (action === 'terminal' && ['open', 'close'].includes(data.operation || ''))
   );
 }
 export const controlProofSchema = z.object({
@@ -255,6 +257,10 @@ export const agentConfigSchema = z.object({
   codexPath: z.string().default('codex'),
   codexArgs: z.array(z.string()).default([]),
   codexUseProxy: z.boolean().default(false),
+  terminal: z
+    .object({ enabled: z.boolean().default(false) })
+    .strict()
+    .optional(),
   dataDir: z.string().min(1),
   projects: z.array(projectSchema),
   sandbox: z.enum(['read-only', 'workspace-write']).default('workspace-write'),
@@ -493,8 +499,51 @@ export type AgentBuild = z.infer<typeof agentBuildSchema>;
 const sessionIdSchema = sessionSchema.shape.id;
 const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
   z.object({ action: z.literal(action), data });
+export const terminalCommandSchema = z
+  .object({
+    operation: z.enum(['info', 'open', 'read', 'input', 'resize', 'close']),
+    projectId: idSchema,
+    sessionId: sessionIdSchema.optional(),
+    control: controlProofSchema.optional(),
+    terminalId: idSchema.optional(),
+    seq: sequenceSchema.positive().optional(),
+    data: z
+      .string()
+      .min(4)
+      .max(5464)
+      .regex(/^[A-Za-z0-9+/]*={0,2}$/)
+      .optional(),
+    offset: sequenceSchema.nonnegative().default(0),
+    cols: z.number().int().min(2).max(500).default(80),
+    rows: z.number().int().min(2).max(500).default(24),
+  })
+  .superRefine((d, ctx) => {
+    if (
+      d.operation !== 'info' &&
+      (!d.sessionId || !d.control || (d.operation !== 'open' && !d.terminalId))
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Terminal requires current controller and runtime',
+      });
+    if (
+      (['input', 'resize'].includes(d.operation) && !d.seq) ||
+      (d.operation === 'input' && !d.data)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Terminal input requires sequence and data',
+      });
+  });
 export const controlCommandSchema = z.discriminatedUnion('action', [
   control('probe', z.object({})),
+  control(
+    'terminal',
+    z.intersection(
+      terminalCommandSchema,
+      z.object({ owner: z.string().regex(/^[a-f0-9]{64}$/) }),
+    ),
+  ),
   control(
     'delivery',
     z

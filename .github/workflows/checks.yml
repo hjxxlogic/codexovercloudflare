@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22.17.0
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format bubblewrap
       - uses: actions/cache/restore@v4
         id: compiler-cache
         with:
@@ -54,6 +54,7 @@ jobs:
       - run: python3 scripts/ci-command.py npm run test:billing
       - run: python3 scripts/ci-command.py npm run test:projects
       - run: python3 scripts/ci-command.py npm run test:delivery
+      - run: python3 scripts/ci-command.py npm run test:terminal
       - run: python3 scripts/ci-command.py npm run test:configuration
       - run: python3 tests/native-login.py
       - run: npm run test:backup
@@ -64,9 +65,10 @@ jobs:
       - run: python3 tests/ci-command.py
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
-      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
+      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:markdown && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
         env:
           COC_ARTIFACT_DIR: .local/screenshots
+          COC_TEST_TERMINAL: '1'
       - run: python3 scripts/ci-command.py npm run test:projects:e2e
         env:
           COC_ARTIFACT_DIR: .local/screenshots
@@ -83,6 +85,7 @@ jobs:
         run: python3 scripts/ci-command.py npm run test:e2e:d1
         env:
           COC_ARTIFACT_DIR: .local/screenshots-d1
+          COC_TEST_TERMINAL: '1'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

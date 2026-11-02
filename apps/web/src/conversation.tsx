@@ -1,23 +1,7 @@
 import { t, useLanguage } from './i18n.ts';
-import {
-  memo,
-  useState,
-  useEffect,
-  useRef,
-  useContext,
-  Children,
-  isValidElement,
-  type ReactNode,
-} from 'react';
-import Markdown, { defaultUrlTransform } from 'react-markdown';
-import {
-  FileContext,
-  FileLink,
-  FileText,
-  projectFilePath,
-  remarkFileLinks,
-} from './file-links.tsx';
-import remarkGfm from 'remark-gfm';
+import { memo, useState, useEffect, useRef } from 'react';
+import { MarkdownRenderer } from './markdown/renderer.tsx';
+import { FileText } from './file-links.tsx';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
 import { groupToolEvents } from './events.ts';
@@ -40,17 +24,6 @@ export function CopyText({ text }: { text: string }) {
       <small role="status">{t(message)}</small>
     </>
   );
-}
-function plainText(node: ReactNode): string {
-  return Children.toArray(node)
-    .map((child) =>
-      typeof child === 'string' || typeof child === 'number'
-        ? String(child)
-        : isValidElement<{ children?: ReactNode }>(child)
-          ? plainText(child.props.children)
-          : '',
-    )
-    .join('');
 }
 export function Diff({ text }: { text: string }) {
   return (
@@ -99,7 +72,6 @@ const EventView = memo(
   }) {
     useLanguage();
     const [expanded, setExpanded] = useState(false);
-    const fileContext = useContext(FileContext);
     const chat =
       event.type === 'user' || event.type === 'item/agentMessage/delta';
     const chunk =
@@ -142,37 +114,10 @@ const EventView = memo(
             {event.type === 'user' ? (
               <FileText text={content || ''} />
             ) : (
-              <Markdown
-                remarkPlugins={[remarkGfm, remarkFileLinks]}
-                urlTransform={(url) =>
-                  fileContext && projectFilePath(url, fileContext.root)
-                    ? url
-                    : defaultUrlTransform(url)
-                }
-                components={{
-                  code: ({ children, className }) => (
-                    <code className={className}>
-                      <FileText text={plainText(children)} />
-                    </code>
-                  ),
-                  pre: ({ children }) => (
-                    <div className="code-block">
-                      <CopyText text={plainText(children)} />
-                      <pre>{children}</pre>
-                    </div>
-                  ),
-                  a: ({ children, href }) => (
-                    <FileLink href={href}>{children}</FileLink>
-                  ),
-                  img: ({ alt, src }) => (
-                    <FileLink href={typeof src === 'string' ? src : undefined}>
-                      {alt || t('图片')}
-                    </FileLink>
-                  ),
-                }}
-              >
-                {content || ''}
-              </Markdown>
+              <MarkdownRenderer
+                text={content || ''}
+                scope={`message-${event.seq}`}
+              />
             )}
           </div>
         ) : (
@@ -294,7 +239,7 @@ function toolFailed(e: Event) {
     d.item?.status === 'failed'
   );
 }
-function eventTitle(e: Event) {
+export function eventTitle(e: Event) {
   const data = e.data as {
     item?: {
       command?: string;
@@ -338,7 +283,7 @@ function eventTitle(e: Event) {
     )[e.type] || t('任务活动')
   );
 }
-function eventText(e: Event): string {
+export function eventText(e: Event): string {
   const d = e.data as any;
   if (e.type === 'turn/started') return t('任务已开始。');
   if (e.type === 'turn/completed')

@@ -1175,13 +1175,23 @@ try {
   const previewFiles = new Map<string, Buffer>();
   await page.context().route('**/api/v1/hosts/sample/files', async (route) => {
     const data = route.request().postDataJSON();
-    if (data.operation !== 'read') return route.continue();
+    if (!['read', 'list'].includes(data.operation)) return route.continue();
     fileReads.push(data);
     if (data.path === 'docs/missing.txt')
       return route.fulfill({
         headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
         status: 404,
         json: { error: { code: 'NOT_FOUND', message: 'File not found' } },
+      });
+    if (data.operation === 'list')
+      return route.fulfill({
+        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+        json: {
+          entries: [{ name: 'report.md', directory: false, size: 512 }],
+          next: null,
+          writable: true,
+          maxSize: 20971520,
+        },
       });
     const bytes = previewFiles.get(data.path) || downloadBytes;
     const chunk = bytes.subarray(data.offset, data.offset + 65536);
@@ -1198,7 +1208,7 @@ try {
   const missingWindow = page.context().waitForEvent('page');
   await page
     .getByRole('link', { name: '预览 docs/missing.txt', exact: true })
-    .click();
+    .click({ modifiers: ['Control'] });
   const missingPreview = await missingWindow;
   await expect(missingPreview.getByRole('alert')).toContainText('NOT_FOUND');
   await missingPreview.close();
@@ -1230,12 +1240,93 @@ try {
     '<script>window.previewUnsafe = true</script>\n正文 <img src=x onerror=alert(1)>';
   previewFiles.set('docs/report.md', Buffer.from(markdown));
   previewFiles.set('docs/plain.txt', Buffer.from(plain));
+  previewFiles.set('report.md', Buffer.from(markdown));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const workbench = page.getByLabel('工作台工具栏');
+  assert.equal(
+    await workbench
+      .locator('form')
+      .evaluate((element) => getComputedStyle(element).flexDirection),
+    'row',
+  );
+  await workbench.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByLabel('主题', { exact: true }).selectOption('light');
+  await expect(page.locator('.cw-workbench')).toHaveAttribute(
+    'data-theme',
+    'light',
+  );
+  await workbench
+    .getByRole('button', { name: '文件浏览器', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: /report.md.*KiB|report.md.*B/ })
+    .click();
+  const sidePreview = page.locator('.workbench-preview');
+  await expect(
+    sidePreview.getByRole('heading', { name: 'Rendered report' }),
+  ).toBeVisible();
+  await expect(sidePreview.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await sidePreview.getByRole('button', { name: '引用到对话' }).click();
+  await expect(page.getByLabel('任务内容')).toHaveValue('report.md');
+  await page.getByLabel('任务内容').fill('');
+  await workbench
+    .getByRole('button', { name: '命令输出', exact: true })
+    .click();
+  await expect(page.locator('.command-output')).toBeVisible();
+  await page.screenshot({ path: join(artifacts, 'workbench-light-1440.png') });
+  await page
+    .locator('.command-output')
+    .getByRole('button', { name: '收起' })
+    .click();
+  await workbench
+    .getByRole('button', { name: '文件浏览器', exact: true })
+    .click();
+  await page.getByLabel('主题', { exact: true }).selectOption('dark');
+  await page.getByRole('button', { name: '快捷操作', exact: true }).click();
+  const quick = page.getByRole('dialog', { name: '快捷操作', exact: true });
+  await expect(quick).toBeVisible();
+  await quick
+    .getByRole('button', { name: '搜索已加载对话', exact: true })
+    .click();
+  await expect(page.getByLabel('搜索已加载对话')).toBeFocused();
+  await page.getByLabel('启用 Ctrl+Alt+K 快捷操作').check();
+  await page.getByLabel('对话消息', { exact: true }).focus();
+  await page.keyboard.press('Control+Alt+k');
+  await expect(quick).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(quick).not.toBeVisible();
+  await page.getByLabel('启用 Ctrl+Alt+K 快捷操作').uncheck();
+  const loadedExport = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: '导出已加载对话', exact: true })
+    .click();
+  assert.match(
+    readFileSync((await (await loadedExport).path())!, 'utf8'),
+    /仅包含已加载消息，可能不完整/,
+  );
+  await page.evaluate(`window.originalNotification = window.Notification;
+    Object.defineProperty(window, 'Notification', { configurable: true,
+      value: { permission: 'default', requestPermission: () => Promise.resolve('denied') } });`);
+  await page.getByRole('button', { name: '启用页面通知', exact: true }).click();
+  await expect(page.getByText('通知权限未授予', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'Notification', {
+      configurable: true,
+      value: (window as any).originalNotification,
+    });
+    delete (window as any).originalNotification;
+  });
+
+  await workbench.getByRole('button', { name: '外观', exact: true }).click();
+
   for (const [path, content] of [
     ['docs/report.md', markdown],
     ['docs/plain.txt', plain],
   ]) {
     const opened = page.context().waitForEvent('page');
-    await page.getByRole('link', { name: '预览 ' + path, exact: true }).click();
+    await page
+      .getByRole('link', { name: '预览 ' + path, exact: true })
+      .click({ modifiers: ['Control'] });
     const preview = await opened;
     await expect(
       preview.getByRole('button', { name: '下载', exact: true }),
@@ -1377,7 +1468,7 @@ try {
     ).toBeVisible();
   }
   const fullBody = await page
-    .locator('[data-event-seq="6"] .markdown')
+    .locator('[data-event-seq="6"] .markdown p')
     .innerText();
   assert.equal(
     fullBody,
