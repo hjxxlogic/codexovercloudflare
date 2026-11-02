@@ -67,6 +67,9 @@ public:
   Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
                                const Json &entry);
   Json history_source(const std::string &session, int64_t seq, const Json &origin);
+  Json history_source_plan(const std::string &session, int64_t seq);
+  Json history_recovered_content(const std::string &session, const Json &reference,
+                                 const Json &origin, const Json &entry, int64_t offset);
   std::string history_source_recover(const std::string &session, int64_t seq, const Json &origin,
                                      const Json &entry);
 

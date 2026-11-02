@@ -769,6 +769,12 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
                "AS text FROM chunks WHERE seq=? AND start>=? AND start<?+4096 ORDER BY start",
                {offset, offset, offset, seq, start[0]["start"], offset}))
         text += row["text"].get<std::string>();
+    int64_t characters = 0;
+    for (unsigned char c : text)
+      if ((c & 0xc0) != 0x80)
+        ++characters;
+    if (characters != std::min(int64_t(4096), size - offset))
+      throw Error("CONTENT_UNAVAILABLE", "History body chunks are incomplete");
     return {{"seq", seq},
             {"revision", current},
             {"offset", offset},

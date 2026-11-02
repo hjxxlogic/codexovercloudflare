@@ -161,7 +161,7 @@ P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重�
 
 ## 0.6.0 本地资源回归
 
-本轮按用户要求不使用 GitHub Actions，依赖在 `~/.local` 安装，使用本地工具链构建。`npm run build` 只进行原生 / 网页构建、TypeScript 和 Worker dry-run，不发布。`test:cpp` 覆盖 Agent / CC 的持久预留、全局与单作用域容量、未确认结果、关闭 / 重启及输出消费窗口；`test:cache` 在真实 Chromium IndexedDB 中覆盖双标签页并发额度、事务回滚、缓存限额和清理。`test:delivery` 使用真实 Agent 与确定性 Codex，包含零信用慢客户端的输出耗尽 / runtime 停止；`test:e2e` 覆盖完整 Wrangler / Agent / CLI / 浏览器链路，不调用模型。
+本轮按用户要求不使用 GitHub Actions，依赖在 `~/.local` 安装，使用本地工具链构建。`npm run build` 只进行原生 / 网页构建、TypeScript 和 Worker dry-run，不发布。`test:cpp` 覆盖 Agent / CC 的持久预留、全局与单作用域容量、未确认结果、关闭 / 重启及输出消费窗口；`test:cache` 在真实 Chromium IndexedDB 中覆盖双标签页并发额度、事务回滚、缓存限额和清理。`test:delivery` 使用真实 Agent 与确定性 Codex，包含零信用慢客户端的输出耗尽 / runtime 停止，以及隔离正文分块丢失后的只读回源、Unicode 分页、来源替换与并发背压；`test:e2e` 覆盖完整 Wrangler / Agent / CLI / 浏览器链路，不调用模型。
 
 开发缓存使用网页 `coc-history-v3` 与 CC 缓存根目录内的 `transport-v3`，旧缓存原样隔离，不导入旧待办。CC 同一根目录按身份前缀隔离正文，但共享总预算；测试须继续使用临时 `COC_HISTORY_DIR`，不要指向生产缓存。配额见 [传输状态盘点](TRANSPORT_STATE_INVENTORY.md)，0.6.0 本机验收结果见 [测试报告](TEST_REPORT.md)。
 

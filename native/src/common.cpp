@@ -291,9 +291,10 @@ std::string display_name(const Json &value) {
   return name;
 }
 Json history_storage_config(Json value) {
-  Json defaults = {{"maxBytes", 268435456}, {"maxSessionBytes", 67108864},
-                   {"maxRecords", 250000},  {"maxSessionRecords", 64000},
-                   {"maxSessions", 1024},   {"minFreeDiskBytes", 536870912}};
+  Json defaults = {{"maxBytes", 268435456},       {"maxSessionBytes", 67108864},
+                   {"maxRecords", 250000},        {"maxSessionRecords", 64000},
+                   {"maxSessions", 1024},         {"minFreeDiskBytes", 536870912},
+                   {"readPageMaxBytes", 1048576}, {"readConcurrency", 2}};
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "historyStorage must be an object");
   for (auto it = value.begin(); it != value.end(); ++it) {
@@ -305,6 +306,8 @@ Json history_storage_config(Json value) {
   if (defaults["maxSessionBytes"] > defaults["maxBytes"] ||
       defaults["maxSessionRecords"] > defaults["maxRecords"])
     throw Error("CONFIG_ERROR", "Session history limits exceed global limits");
+  if (defaults["readPageMaxBytes"] > 1048576 || defaults["readConcurrency"] > 4)
+    throw Error("CONFIG_ERROR", "History recovery limits exceed bounded reader capacity");
   return defaults;
 }
 Json agent_config(Json c) {

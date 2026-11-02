@@ -93,6 +93,7 @@ class Agent {
   std::atomic<bool> stopped_{false};
   bool listing_threads_ = false, negotiated_ = false;
   std::set<std::string> archive_loading_;
+  size_t history_readers_ = 0;
   int attempts_ = 0;
 
 public:
@@ -493,7 +494,7 @@ public:
     auto result = projects_.request(
         d,
         [this](const std::string &id) {
-          if (file_requests_ || listing_threads_ || !archive_loading_.empty())
+          if (file_requests_ || listing_threads_ || history_readers_ || !archive_loading_.empty())
             return true;
           for (const auto &s : store_.sessions(true))
             if (s.at("projectId") == id && runtimes_.count(s.at("id").get<std::string>()))
@@ -1048,11 +1049,9 @@ public:
           if (d.at("seq") != reference.at("seq") ||
               (d.contains("revision") && d.at("revision") != reference.at("revision")))
             throw Error("INVALID_REQUEST", "History query must match its immutable reference");
-          done(store_.history_content(id, reference, d.value("offset", int64_t(0))), nullptr);
+          read_history_content(id, d, done);
         } else {
-          done(store_.content(id, d.at("seq"), d.value("offset", int64_t(0)),
-                              d.value("revision", int64_t(-1))),
-               nullptr);
+          read_history_content(id, d, done);
         }
         return;
       }
@@ -1664,6 +1663,80 @@ public:
             process->close();
           done(nullptr, nullptr);
         });
+  }
+  void read_history_content(const std::string &id, const Json &query, Completion done) {
+    const auto offset = query.value("offset", int64_t(0));
+    try {
+      auto result =
+          query.contains("reference")
+              ? store_.history_content(id, query.at("reference"), offset)
+              : store_.content(id, query.at("seq"), offset, query.value("revision", int64_t(-1)));
+      done(result, nullptr);
+      return;
+    } catch (const Error &error) {
+      if (error.code != "CONTENT_UNAVAILABLE")
+        throw;
+    }
+    if (offset < 0)
+      throw Error("INVALID_REQUEST", "Invalid content offset");
+    const auto plan = store_.history_source_plan(id, query.at("seq"));
+    const auto reference = plan.at("reference");
+    if ((query.contains("reference") && query.at("reference") != reference) ||
+        (query.contains("revision") && query.at("revision") != reference.at("revision")))
+      throw Error("CONTENT_UNAVAILABLE", "Original history reference is no longer available");
+    const auto policy = config_.at("historyStorage");
+    if (history_readers_ >= policy.at("readConcurrency").get<size_t>())
+      throw Error("BACKPRESSURE", "History recovery reader capacity exhausted");
+    const auto state = store_.get(id);
+    const std::string cwd = project(state.at("projectId")).at("path");
+    const auto home = history_source_home(cwd);
+    auto process = std::make_shared<CodexProcess>(
+        io_, config_, cwd, [](Json) {}, [] {}, CodexProcessRole::reader);
+    auto finished = std::make_shared<bool>(false);
+    auto complete = [this, process, done, finished](Json result, Json error) {
+      if (*finished)
+        return;
+      *finished = true;
+      --history_readers_;
+      process->close();
+      done(result, error);
+    };
+    ++history_readers_;
+    try {
+      process->start();
+      process->initialize([this, id, plan, reference, offset, process, home, cwd, policy,
+                           complete](Json, Json error) {
+        if (!error.is_null()) {
+          complete(nullptr, error);
+          return;
+        }
+        try {
+          read_history_source(
+              process, home, plan.at("threadId"), cwd, plan.at("turnId"), plan.at("itemId"),
+              policy.at("readPageMaxBytes"),
+              [this, id, reference, offset, complete](Json source, Json error) {
+                if (!error.is_null()) {
+                  complete(nullptr, error);
+                  return;
+                }
+                Json page;
+                try {
+                  page = store_.history_recovered_content(id, reference, source.at("origin"),
+                                                          source.at("entry"), offset);
+                } catch (const std::exception &failure) {
+                  complete(nullptr, error_data(failure));
+                  return;
+                }
+                complete(page, nullptr);
+              },
+              plan.at("origin"));
+        } catch (const std::exception &failure) {
+          complete(nullptr, error_data(failure));
+        }
+      });
+    } catch (const std::exception &failure) {
+      complete(nullptr, error_data(failure));
+    }
   }
   void load_archive(const std::string &id, Completion done) {
     auto s = store_.get(id);
@@ -2414,8 +2487,8 @@ public:
       config_["autoUpdate"] =
           read_json(config_file_).value("autoUpdate", Json(UpdateSettings{}.enabled));
       if (updater_.poll(config_, config_.at("relayUrl"),
-                        runtimes_.empty() && archive_loading_.empty() && !listing_threads_ &&
-                            file_requests_ == 0)) {
+                        runtimes_.empty() && archive_loading_.empty() && !history_readers_ &&
+                            !listing_threads_ && file_requests_ == 0)) {
         std::cerr << Json{{"event", "auto_update_restarting"}, {"time", now()}}.dump() << '\n';
         update_restart_ = true;
         close();
@@ -2561,6 +2634,7 @@ public:
                           {"time", now()},
                           {"runtimes", runtimes_.size()},
                           {"archiveReaders", archive_loading_.size()},
+                          {"historyReaders", history_readers_},
                           {"approvals", approvals},
                           {"queuedCommands", commands},
                           {"fileRequests", file_requests_},

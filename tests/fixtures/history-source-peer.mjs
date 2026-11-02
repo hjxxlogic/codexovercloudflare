@@ -2,6 +2,10 @@
 import { createInterface } from 'node:readline';
 import { appendFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+if (process.argv.includes('--version')) {
+  console.log('codex-cli 0.166.0');
+  process.exit(0);
+}
 let sourcePath = join(process.cwd(), '.codex', 'session.jsonl');
 let reads = 0;
 for await (const line of createInterface({ input: process.stdin })) {

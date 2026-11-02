@@ -310,6 +310,61 @@ void durable_source_cases() {
           "Optional mapping capacity refusal caused storage failure or growth");
   }
 }
+Json seed_reader(const std::filesystem::path &root) {
+  const auto home = root / ".codex";
+  std::filesystem::create_directories(home);
+  const auto path = home / "session.jsonl";
+  std::ofstream(path) << "fixture";
+  const Json metadata = {
+      {"id", "normal"}, {"createdAt", 1}, {"cwd", root.u8string()}, {"path", path.u8string()}};
+  const auto origin = history_source_origin(metadata, home, root.u8string());
+  Store store((root / "state").u8string());
+  const std::string session = "host~source";
+  store.save({{"id", session},
+              {"projectId", "project"},
+              {"threadId", "normal"},
+              {"state", "closed"},
+              {"mode", "web"},
+              {"running", false}});
+  const auto event = store.event(session, "item/agentMessage/delta",
+                                 {{"turnId", "turn"}, {"itemId", "ok"}, {"delta", "你好🙂"}});
+  const Json entry = {{"turnId", "turn"},
+                      {"completedAtMs", 1},
+                      {"item", {{"id", "ok"}, {"type", "agentMessage"}, {"text", "你好🙂"}}}};
+  const auto proof = store.history_source_register(session, event.at("seq"), origin, entry);
+  const auto reference = proof.at("reference");
+  sqlite3 *db = nullptr;
+  if (sqlite3_open((root / "state" / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
+    throw std::runtime_error("Open recovery fixture");
+  const auto code = sqlite3_exec(db, "DELETE FROM chunks", nullptr, nullptr, nullptr);
+  sqlite3_close(db);
+  if (code != SQLITE_OK)
+    throw std::runtime_error("Remove recovery fixture body");
+  rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
+  const auto page = store.history_recovered_content(session, reference, origin, entry, 1);
+  if (page.at("text") != "好🙂" || page.at("nextOffset") != 3 || page.at("more") != false)
+    throw std::runtime_error("Recovered page changed Unicode character offsets");
+  rejects_source([&] { store.history_recovered_content(session, reference, origin, entry, -1); },
+                 "INVALID_REQUEST");
+  rejects_source([&] { store.history_recovered_content(session, reference, origin, entry, 4); },
+                 "INVALID_REQUEST");
+  auto altered = reference;
+  altered["digest"] = std::string(64, 'a');
+  altered["contentId"] = altered.at("digest");
+  rejects_source([&] { store.history_recovered_content(session, altered, origin, entry, 0); },
+                 "CONTENT_UNAVAILABLE");
+  if (store.history_source_plan(session, event.at("seq")) != proof)
+    throw std::runtime_error("Recovery plan changed after cache loss");
+  return reference;
+}
+void recovered_page_cases() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-recovered-page-" + uuid());
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  seed_reader(root);
+}
 void projection_cases() {
   const auto path = std::filesystem::temp_directory_path() / ("coc-projection-" + uuid());
   struct Cleanup {
@@ -526,8 +581,13 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
     throw std::runtime_error("Persisted item changed");
 }
 } // namespace
-int main() {
+int main(int argc, char **argv) {
   try {
+    if (argc == 3 && std::string(argv[1]) == "--seed-reader") {
+      std::cout << seed_reader(std::filesystem::canonical(argv[2])).dump() << '\n';
+      return 0;
+    }
+    recovered_page_cases();
     origin_cases();
     durable_source_cases();
     projection_cases();

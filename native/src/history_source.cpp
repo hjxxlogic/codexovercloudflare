@@ -219,6 +219,33 @@ Json Store::history_source(const std::string &session, int64_t seq, const Json &
                                                      {"contentId", value.at("digest")}});
   return value;
 }
+Json Store::history_source_plan(const std::string &session, int64_t seq) {
+  const auto rows = query("SELECT source FROM sessions WHERE id=?", {session});
+  if (rows.empty() || rows.at(0).at("source").is_null())
+    throw Error("CONTENT_UNAVAILABLE", "History has no verified recovery source");
+  // This is only a read plan. The caller must validate this expected identity
+  // against the actual Codex source before obtaining any source content.
+  return history_source(session, seq, Json::parse(rows.at(0).at("source").get<std::string>()));
+}
+Json Store::history_recovered_content(const std::string &session, const Json &input,
+                                      const Json &origin, const Json &entry, int64_t offset) {
+  const auto reference = history_reference_descriptor(input);
+  if (reference.at("sessionId") != session)
+    throw Error("FORBIDDEN", "History reference belongs to another session");
+  const auto plan = history_source(session, reference.at("seq"), origin);
+  if (reference != plan.at("reference"))
+    throw Error("CONTENT_UNAVAILABLE", "Original history reference changed during recovery");
+  const auto text = history_source_recover(session, reference.at("seq"), origin, entry);
+  const auto page =
+      query("SELECT length(?) AS size,substr(?,?+1,4096) AS text", {text, text, offset});
+  const auto size = page.at(0).at("size").get<int64_t>();
+  if (offset < 0 || offset > size)
+    throw Error("INVALID_REQUEST", "Invalid content offset");
+  const auto next = std::min(size, offset + 4096);
+  return {{"seq", reference.at("seq")}, {"revision", reference.at("revision")},
+          {"offset", offset},           {"text", page.at(0).at("text")},
+          {"nextOffset", next},         {"more", next < size}};
+}
 std::string Store::history_source_recover(const std::string &session, int64_t seq,
                                           const Json &origin, const Json &entry) {
   const auto source = history_source(session, seq, origin);

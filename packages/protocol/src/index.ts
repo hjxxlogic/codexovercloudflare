@@ -119,6 +119,8 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
 ]);
 export const historyStorageSchema = z
   .object({
+    readPageMaxBytes: z.number().int().min(1).max(1048576).default(1048576),
+    readConcurrency: z.number().int().min(1).max(4).default(2),
     maxBytes: z
       .number()
       .int()

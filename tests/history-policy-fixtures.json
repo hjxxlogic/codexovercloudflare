@@ -88,5 +88,34 @@
       "cacheMaxBytes": 0
     },
     "valid": false
+  },
+  {
+    "name": "bounded recovery reads",
+    "input": {
+      "readPageMaxBytes": 4096,
+      "readConcurrency": 1
+    },
+    "valid": true
+  },
+  {
+    "name": "oversized recovery reads",
+    "input": {
+      "readPageMaxBytes": 1048577
+    },
+    "valid": false
+  },
+  {
+    "name": "excess recovery concurrency",
+    "input": {
+      "readConcurrency": 5
+    },
+    "valid": false
+  },
+  {
+    "name": "zero recovery concurrency",
+    "input": {
+      "readConcurrency": 0
+    },
+    "valid": false
   }
 ]
