@@ -4,6 +4,10 @@
 
 本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。0.6.0 本机与 CI 验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
 
+## 0.6.1 历史存储优化发布候选
+
+本机全量回归已完成，版本统一为 0.6.1，等待本次准确提交的六项必需 CI 后发布 Worker、网页及四平台原生下载。不得覆盖已有 0.6.0 归档，不直接安装或重启现场 Agent。历史配置、回源边界和缺口恢复见 HISTORY_STORAGE_OPTIMIZATION；retainedRecords 默认 0，发布不自动开启生产退休。线上最终状态以 DEPLOYMENT_STATUS 中的完成记录为准。
+
 ## 0.6.0 发布与原生升级
 
 Worker / CW / Agent / CLI 及 CMake / 锁文件统一为 0.6.0；源码 `4b164c6` 已通过六项必需 Actions，并于 2026-11-01 发布 Worker、网页和四平台下载包，现场原生服务未自动更新。P0–P7 已按本机范围完成，真实旧更新器 14 项与安装后完整 E2E 42 项通过；详细故障 / 资源 / 来源证据见 TEST_REPORT。业务要求唯一 delivery:2；发行清单及原生构建 protocol 保持 1，使真实旧 update 下载 / 校验 / 安装通路可用，旧业务仍明确拒绝。
