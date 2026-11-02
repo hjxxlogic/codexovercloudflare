@@ -75,6 +75,8 @@ const worker = spawn(
     'OWNER_SECRET:' + secret,
     '--var',
     'ACCESS_ENABLED:false',
+    '--var',
+    'STATE_BACKEND:' + (stateConfig ? 'd1' : 'legacy'),
   ],
   {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },

@@ -34,7 +34,7 @@ Agent、CC、CW 和 Relay 配套发布。先部署 Relay / CW，再提供同一�
 
 ## 可选 D1 发布
 
-运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续每次部署继续携带同一 UUID。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。生产已启用，须继续保留同一 UUID。活动 DO / 空闲 D1 分层需要同时保护两种存储；不能回滚到不识别 `@location` 的旧 Worker，不能用旧 D1 快照覆盖活动 DO。完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
+运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续部署默认读取 `wrangler.jsonc` 中已固定的原生产 UUID，`--state-db-id` 仅用于显式覆盖；不得换成新空库。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。生产已启用，须继续保留同一 UUID。活动 DO / 空闲 D1 分层需要同时保护两种存储；不能回滚到不识别 `@location` 的旧 Worker，不能用旧 D1 快照覆盖活动 DO。完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
 
 ## 0.5.14 Cloudflare Access 发布准备
 
@@ -61,6 +61,10 @@ python3 scripts/deploy-agent.py --commit HEAD \
 python3 scripts/deploy-agent.py --push --commit HEAD \
   --ssh ubuntu@server --binary /opt/coc/coc-agent --apply
 ```
+
+仅在用户明确授权跳过 Actions 时，可用 `deploy-agent.py --local --local-build --binary /absolute/path/coc-agent --apply` 从干净 HEAD 本机编译并部署。该模式不访问 Actions，拒绝 `--ssh`、`--push`、`--run-id` 组合，构建前后校验源码摘要与程序身份并运行原生终端专项；仍等待空闲、备份原程序、原子替换、验证与回滚。证据明确 `localBuild=true / ciVerified=false`，不能作为 CI 验证发行包发布。网页/Worker 的对应显式例外为 `deploy-cloud.py --local-build`，仍保留旧原生下载。
+
+本机现有用户服务可用 `--local` 代替 `--ssh`；沿用相同状态检查、CI 制品/来源验证、空闲等待、备份、重启观察与回滚，不需要为本机配置 SSH。若 GitHub 推送 remote 名为 `github`，使用 `--push --push-remote github`；仍核对其 URL 与目标仓库一致，不修改 remote 配置，也不 force-push。
 
 `--push` 要求工作区干净、提交为当前 HEAD、origin 与目标 GitHub 仓库一致，正常推送当前分支，不 force-push。省略时假定源码已推送。`--run-id ID` 可固定一次运行，仍须匹配 `--commit` 的完整来源提交和 checks 工作流。脚本等待完整运行成功，并逐项核对必须检查；通过公开产物解析服务 nightly.link 下载，再对照 GitHub API 独立提供的 artifact SHA256、包内 SHA256SUMS、manifest 提交及远端候选程序的 commit / sourceDigest / protocol / clean 身份验证。凭证不写入命令或证据，TLS 和 SSH 主机校验保持启用。
 
@@ -270,3 +274,7 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 部署工具可在干净的新提交中发布其祖先提交的 CI 制品，便于用修复后的工具发布既有验证产物。线上代码身份来自制品，部署记录另记 deploymentToolCommit；不得用本机重新构建替换祖先制品。
 
 部署脚本读取 GitHub Actions 元数据时优先复用本机已登录的 `gh`（固定 github.com），避免多次完整检查导致匿名 API 限流；没有 gh 或没有登录时沿用公共接口。令牌由 gh 管理，不放入命令参数，不转发到制品镜像；认证请求失败不静默降级。所有 CI、来源和 SHA256 校验仍必须通过。
+
+### 手动部署移除 D1 绑定的恢复
+
+`STATE_MIGRATED: Restore the D1 binding` 表示已迁移对象拒绝读取旧 DO 副本。恢复原 `STATE_DB` UUID、`STATE_BACKEND=d1` 与 Cron，保留所有 Secret 和数据；不要删除 `@d1Migrated`、初始化空库或重置管理员。生产根配置已保存这些非密钥绑定，云端脚本自动沿用并重定位制品中的 schema；本地开发和 DO 回归显式使用 `STATE_BACKEND=legacy`，D1 回归使用独立本地库。手动 Wrangler 命令仍不能替代脚本对下载站和线上字节的保全验证。

@@ -450,3 +450,7 @@ Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路
 `npm run test:cache` 另外在真实 Chromium IndexedDB 中构造 16 份旧固定预留，验证两标签页迁移后 66 份空闲账本正常使用、未决原请求和已确认 HTTP / 上传身份保留、完成后释放余量、全局并发分配不能超额，以及仅回收当前 / 其它作用域分页投影与正文而保留事件、checkpoint、订阅证明和草稿。tests/web-cache-budget.test.ts 验证未决 lane、retired 流、不连续结果和未知旧格式不得提前释放。Relay 单测保持旧 socket 为 OPEN，验证新 epoch 优先、DO 重建后选择一致，旧 epoch 仍受 fencing 阻断。
 
 `npm run test:e2e` 及 `npm run test:e2e:d1` 通过 tests/helpers/browser-session-stress.ts 在真实隔离 Worker、原生 Agent、确定性 Codex peer 上运行 3 / 5 个独立 Chromium context。共享仅限隔离测试授权 Cookie，IndexedDB 与控制身份分离，所有连接握手完成后检查 1 写 N−1 读；覆盖命令审批拒绝、读端并行刷新、读端不提交 prompt、结束写者、显式获取写权限后发送、其它读者仍只读、最终结束状态及无取消弹窗。固定先 3 后 5，失败立即停止递增并清理；JSON 指标及失败截图放入 COC_ARTIFACT_DIR，CI 随现有 browser-evidence / d1-regression-evidence 上传。仅使用模拟 Codex，不访问生产凭据或模型。性能耗时只记录，不以硬件相关毫秒阈值判断正确性。
+
+Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆盖、CI 来源与回滚边界由 `python3 tests/agent-deploy.py` 验证。
+
+生产根 Wrangler 配置保留已迁移的 D1 绑定。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。

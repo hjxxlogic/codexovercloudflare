@@ -945,7 +945,7 @@ CC/CW 提交尚未到达 Codex 时仍使用发送前持久化的 requestId。收
 
 ### 显式本地云端部署
 
-仅在明确选择跳过 CI 时，使用 `python3 scripts/deploy-cloud.py --local-build --apply`（现有 D1 部署还须传入原 `--state-db-id`）。脚本要求 clean HEAD，重新构建网页与 Worker、类型检查并记录本地产物摘要；保留原生下载，禁止组合原生发布或更新通知。证据标记 `ciVerified: false`，不作为 CI 验证的发行产物。默认部署仍等待 GitHub Actions。
+仅在明确选择跳过 CI 时，使用 `python3 scripts/deploy-cloud.py --local-build --apply`（默认沿用生产配置中的原 D1 绑定）。脚本要求 clean HEAD，重新构建网页与 Worker、类型检查并记录本地产物摘要；保留原生下载，禁止组合原生发布或更新通知。证据标记 `ciVerified: false`，不作为 CI 验证的发行产物。默认部署仍等待 GitHub Actions。
 
 ### CW 刷新、缓存及结束状态（2026-11-02）
 
@@ -966,3 +966,9 @@ CW 历史保存在浏览器 IndexedDB，已缓存的旧页再次打开优先本�
 切换会话后，先前会话的 SESSION_CLOSED 连接错误会清除；当前会话连接失败仍会显示提示。
 
 分阶段发布时，下载页会明确标注暂缓的平台及其保留版本。当前 musl 0.6.1 包暂缓，旧版 0.6.0 仍可下载；不会用其他 libc 的包替代 musl，也不会对此次部分原生发行发送自动更新通知。
+
+部署本机现有 systemd 用户服务时，`scripts/deploy-agent.py --push --push-remote github --local --binary /absolute/path/coc-agent --apply` 复用 CI 来源校验、空闲等待、备份、重启验证与回滚；不需要本机 SSH。省略 `--apply` 仅准备，不安装。详见 [发布流程](RELEASE.md)。
+
+仅经明确授权跳过 CI 的本机更新使用 `deploy-agent.py --local --local-build --binary /absolute/path/coc-agent --apply`；本机编译、来源核对、终端专项及备份重启仍执行，记录中注明未验证 CI。默认部署流程继续使用 Actions 制品。
+
+生产部署配置现固定原有 `STATE_DB`、`STATE_BACKEND=d1` 和清理 Cron。若管理员看到 `STATE_MIGRATED: Restore the D1 binding`，须恢复原数据库绑定，不能删除迁移标记或切回旧 DO；不会通过重新配对修复。直接 `npx wrangler deploy` 仍可能遗漏完整下载站，日常部署使用上述脚本。

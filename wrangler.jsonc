@@ -16,6 +16,7 @@
     "ACCESS_AUD": "ae1eaf2eaabc17690f8f7b86fd9f87046c688ab255e2e3883fb74b411d99f87a",
     "ACCESS_ENABLED": "true",
     "ACCESS_TEAM_DOMAIN": "https://x1x3.cloudflareaccess.com",
+    "STATE_BACKEND": "d1",
   },
   "assets": {
     "directory": "./dist/web",
@@ -33,6 +34,17 @@
         "class_name": "HostRelayDO",
       },
     ],
+  },
+  "d1_databases": [
+    {
+      "binding": "STATE_DB",
+      "database_name": "coc-relay-state",
+      "database_id": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+      "migrations_dir": "migrations/d1",
+    },
+  ],
+  "triggers": {
+    "crons": ["17 * * * *"],
   },
   "migrations": [
     {

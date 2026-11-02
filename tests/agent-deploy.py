@@ -76,6 +76,64 @@ class DeploymentTests(unittest.TestCase):
                     deploy.push_source('hjxxlogic/codexovercloudflare', COMMIT)
                 push.assert_not_called()
 
+    def test_local_build_rejects_dirty_or_wrong_source_before_compilation(self):
+        for build in [{**BUILD, 'dirty': True}, {**BUILD, 'commit': 'c' * 40}]:
+            with patch.object(deploy.subprocess, 'check_output', return_value=json.dumps(build)), \
+                    patch.object(deploy.subprocess, 'run') as compile:
+                with self.assertRaisesRegex(RuntimeError, 'clean HEAD'):
+                    deploy.prepare_local_build(COMMIT, pathlib.Path('/unused'))
+                compile.assert_not_called()
+
+    def test_local_build_identity_is_checked_after_compilation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / 'build').mkdir()
+            (root / 'build/coc-agent').write_bytes(b'local-executable')
+            for after in [BUILD, {**BUILD, 'sourceDigest': 'd' * 64}]:
+                with patch.object(deploy, 'ROOT', root), \
+                        patch.object(deploy.subprocess, 'check_output', side_effect=[json.dumps(BUILD), json.dumps(BUILD), json.dumps(after)]), \
+                        patch.object(deploy.subprocess, 'run') as compile:
+                    if after != BUILD:
+                        with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                            deploy.prepare_local_build(COMMIT, root / 'output')
+                    else:
+                        metadata, binary = deploy.prepare_local_build(COMMIT, root / 'output')
+                        self.assertEqual(metadata, BUILD)
+                        self.assertEqual(binary.read_bytes(), b'local-executable')
+                    self.assertEqual(compile.call_count, 3)
+
+    def test_local_target_reuses_helper_without_ssh(self):
+        args = types.SimpleNamespace(local=True, binary='/tmp/coc-agent', service='test.service',
+                                     commit=COMMIT, verify_seconds=120, allow_restart_active=False)
+        with patch.object(deploy.subprocess, 'run', return_value=types.SimpleNamespace(
+                stdout='{"idle":true}', stderr='', returncode=0)) as run:
+            self.assertEqual(deploy.remote(None, 'status', args), {'idle': True})
+            invocation = run.call_args.args[0]
+            self.assertEqual(invocation[1], str(ROOT / 'scripts/deploy-agent-remote.py'))
+            self.assertEqual(invocation[2], 'status')
+            self.assertNotIn('input', run.call_args.kwargs)
+            self.assertNotIn('--allow-restart-active', invocation)
+
+    def test_local_staging_never_overwrites_existing_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = pathlib.Path(temporary) / 'source'
+            target = pathlib.Path(temporary) / 'candidate'
+            source.write_bytes(b'verified-ci-binary')
+            deploy.stage_candidate(types.SimpleNamespace(local=True), source, str(target))
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+            with self.assertRaises(FileExistsError):
+                deploy.stage_candidate(types.SimpleNamespace(local=True), source, str(target))
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+
+    def test_named_push_remote_still_verifies_repository(self):
+        with patch.object(deploy.subprocess, 'check_output', side_effect=[
+                '', COMMIT, 'master', 'git@github.com:hjxxlogic/codexovercloudflare.git']) as git, \
+                patch.object(deploy.subprocess, 'run') as push:
+            deploy.push_source('hjxxlogic/codexovercloudflare', COMMIT, 'github')
+            self.assertEqual(git.call_args.args[0], ['git', 'remote', 'get-url', '--push', 'github'])
+            self.assertEqual(push.call_args.args[0], ['git', 'push', 'github', 'HEAD:refs/heads/master'])
+
     def test_interrupted_download_retries_without_new_curl_options(self):
         failed = types.SimpleNamespace(returncode=56, stdout=b'', stderr=b'reset')
         success = types.SimpleNamespace(returncode=0, stdout=b'', stderr=b'')

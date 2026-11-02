@@ -51,7 +51,7 @@ def identity(build, args):
     if (build.get('commit') != args.commit or build.get('sourceDigest') != args.source_digest
             or build.get('dirty') is not False or build.get('protocol') != 1
             or build.get('target') != 'linux-x86_64'):
-        raise RuntimeError('Candidate build identity does not match the verified Actions artifact')
+        raise RuntimeError('Candidate build identity does not match the requested deployment source')
 
 
 def install(args):

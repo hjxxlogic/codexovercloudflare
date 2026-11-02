@@ -40,6 +40,8 @@ const worker = spawn(
     'OWNER_SECRET:' + secret,
     '--var',
     'ACCESS_ENABLED:false',
+    '--var',
+    'STATE_BACKEND:legacy',
   ],
   {
     detached: true,

@@ -229,7 +229,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
                         help='Explicit staged rollout: require the other five checks to pass; preserve all native downloads')
-    parser.add_argument('--state-db-id', help='Enable D1 using this existing database UUID; required again on subsequent D1 deployments')
+    parser.add_argument('--state-db-id', help='Override the existing production D1 database UUID in the deployment configuration')
     parser.add_argument('--delete-secret', action='append', default=[],
                         help='Remove an obsolete Worker secret after publishing the verified code')
     parser.add_argument('--preserved-downloads', type=pathlib.Path,
@@ -314,6 +314,8 @@ def main():
     # The deployment configuration is archived by CI along with the Worker.
     config['main'] = str(output / 'worker/index.js')
     config['assets']['directory'] = str(output / 'site')
+    args.state_db_id = args.state_db_id or next((entry['database_id'] for entry in
+        config.get('d1_databases', []) if entry['binding'] == 'STATE_DB'), None)
     configure_state_db(config, output / 'worker', args.state_db_id)
     routes = config['routes']
     if len(routes) != 1 or not routes[0].get('custom_domain') or not re.fullmatch(r'[a-zA-Z0-9.-]+', routes[0]['pattern']):

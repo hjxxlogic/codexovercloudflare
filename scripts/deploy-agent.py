@@ -1,10 +1,11 @@
-"""Wait for GitHub Actions, verify its musl artifact, and deploy a Linux user-service Agent."""
+"""Deploy a Linux user-service Agent from verified CI or explicitly requested local builds."""
 import argparse
 import hashlib
 import importlib.util
 import io
 import json
 import pathlib
+import os
 import re
 import shlex
 import shutil
@@ -104,7 +105,7 @@ def check_jobs(jobs):
             raise RuntimeError('Required Actions job did not pass: ' + name)
 
 
-def push_source(repository, commit):
+def push_source(repository, commit, remote_name='origin'):
     def git(*args):
         return subprocess.check_output(['git', *args], cwd=ROOT, text=True).strip()
 
@@ -113,13 +114,13 @@ def push_source(repository, commit):
     if git('rev-parse', 'HEAD') != commit:
         raise RuntimeError('--push requires the current HEAD commit')
     branch = git('symbolic-ref', '--quiet', '--short', 'HEAD')
-    origin = git('remote', 'get-url', '--push', 'origin')
+    origin = git('remote', 'get-url', '--push', remote_name)
     expected = {'git@github.com:' + repository, 'git@github.com:' + repository + '.git',
                 'https://github.com/' + repository, 'https://github.com/' + repository + '.git'}
     if origin not in expected:
-        raise RuntimeError('origin push URL does not match the requested GitHub repository')
+        raise RuntimeError('Push remote URL does not match the requested GitHub repository')
     log('Pushing source commit ' + commit + ' on branch ' + branch)
-    subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/' + branch], cwd=ROOT, check=True)
+    subprocess.run(['git', 'push', remote_name, 'HEAD:refs/heads/' + branch], cwd=ROOT, check=True)
 
 
 def wait_run(repository, commit, run_id, timeout):
@@ -200,10 +201,13 @@ def remote(host, operation, args, candidate='', sha256='', source_digest=''):
                '--source-digest', source_digest, '--verify-seconds', str(args.verify_seconds)]
     if args.allow_restart_active:
         command += ['--allow-restart-active']
-    result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
-                             '-o', 'ServerAliveInterval=15', host, shlex.join(command)],
-                            input=(ROOT / 'scripts/deploy-agent-remote.py').read_text(),
-                            text=True, capture_output=True, timeout=args.verify_seconds + 180)
+    local = getattr(args, 'local', False)
+    invocation = ([sys.executable, str(ROOT / 'scripts/deploy-agent-remote.py'), *command[2:]] if local else
+                  ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
+                   '-o', 'ServerAliveInterval=15', host, shlex.join(command)])
+    result = subprocess.run(invocation, text=True, capture_output=True,
+                            timeout=args.verify_seconds + 180,
+                            **({} if local else {'input': (ROOT / 'scripts/deploy-agent-remote.py').read_text()}))
     if result.stderr:
         log(result.stderr.strip())
     if result.returncode:
@@ -211,13 +215,51 @@ def remote(host, operation, args, candidate='', sha256='', source_digest=''):
     return json.loads(result.stdout)
 
 
+def stage_candidate(args, binary, candidate):
+    if args.local:
+        descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700)
+        with os.fdopen(descriptor, 'wb') as output, binary.open('rb') as source:
+            shutil.copyfileobj(source, output)
+            output.flush()
+            os.fsync(output.fileno())
+    else:
+        subprocess.run(['scp', '-q', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
+                        str(binary), args.ssh + ':' + candidate], check=True)
+
+
+def prepare_local_build(commit, output):
+    metadata = lambda: json.loads(subprocess.check_output(
+        [sys.executable, 'scripts/build-metadata.py'], cwd=ROOT))
+    before = metadata()
+    if before['commit'] != commit or before['dirty']:
+        raise RuntimeError('Local deployment requires clean HEAD matching --commit')
+    output.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['cmake', '-S', '.', '-B', 'build', '-DCMAKE_BUILD_TYPE=Release'], cwd=ROOT, check=True)
+    subprocess.run(['cmake', '--build', 'build', '-j', '2'], cwd=ROOT, check=True)
+    subprocess.run(['ctest', '--test-dir', 'build', '-R', '^native-terminal$', '--output-on-failure'], cwd=ROOT, check=True)
+    source = ROOT / 'build/coc-agent'
+    build = json.loads(subprocess.check_output([str(source), '--version'], cwd=ROOT))
+    after = metadata()
+    if after != before or any(build.get(key) != before[key] for key in
+                             ('commit', 'sourceDigest', 'protocol', 'dirty', 'target')):
+        raise RuntimeError('Local build identity changed or does not match compiled Agent')
+    candidate = output / 'coc-agent'
+    shutil.copyfile(source, candidate)
+    candidate.chmod(0o700)
+    return before, candidate
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
     parser.add_argument('--commit', help='Git revision; defaults to HEAD')
     parser.add_argument('--run-id', type=int)
+    parser.add_argument('--local-build', action='store_true', help='Explicit local compilation without GitHub Actions; requires --local')
     parser.add_argument('--push', action='store_true', help='Push clean HEAD to origin before waiting for CI')
-    parser.add_argument('--ssh', required=True, help='SSH alias or user@host')
+    parser.add_argument('--push-remote', default='origin', help='Git remote for --push; its URL must match --repository')
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument('--ssh', help='SSH alias or user@host')
+    target.add_argument('--local', action='store_true', help='Deploy the current user service on this machine without SSH')
     parser.add_argument('--binary', required=True, help='Absolute path of the existing remote Agent')
     parser.add_argument('--service', default='coc-agent.service', help='Existing systemd user service')
     parser.add_argument('--timeout', type=int, default=2400, help='Seconds to wait for CI')
@@ -228,10 +270,14 @@ def main():
     parser.add_argument('--apply', action='store_true', help='Install; otherwise only prepare and inspect')
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / '.local/deploy-agent')
     args = parser.parse_args()
+    if args.local_build and (not args.local or args.push or args.run_id):
+        parser.error('--local-build requires --local and forbids --push / --run-id')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
         parser.error('Invalid repository')
-    if not re.fullmatch(r'[\w][\w.@-]*', args.ssh):
+    if args.ssh and not re.fullmatch(r'[\w][\w.@-]*', args.ssh):
         parser.error('Invalid SSH target')
+    if not re.fullmatch(r'[\w][\w.-]*', args.push_remote):
+        parser.error('Invalid push remote')
     if not re.fullmatch(r'/[\w./-]+', args.binary) or '..' in pathlib.PurePosixPath(args.binary).parts:
         parser.error('Use a plain absolute binary path without traversal or shell syntax')
     if not re.fullmatch(r'[\w][\w.-]*\.service', args.service):
@@ -243,27 +289,34 @@ def main():
     if not re.fullmatch(r'[0-9a-f]{40}', args.commit):
         parser.error('Expected a full source commit')
     if args.push:
-        push_source(args.repository, args.commit)
-    run, jobs = wait_run(args.repository, args.commit, args.run_id, args.timeout)
-    output = args.output.resolve() / str(run['id'])
-    output.mkdir(parents=True, exist_ok=True)
-    artifacts = api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
-    matches = [a for a in artifacts if a['name'] == 'linux-musl' and not a['expired']]
-    if len(matches) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', matches[0].get('digest') or ''):
-        raise RuntimeError('Expected exactly one unexpired musl artifact with a GitHub SHA256 digest')
-    artifact = matches[0]
-    archive = output / 'linux-musl.zip'
-    if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
-        temporary = archive.with_suffix('.part')
-        # Public artifact resolver; the downloaded bytes must match GitHub's independent digest.
-        curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', temporary)
-        if 'sha256:' + hashlib.sha256(temporary.read_bytes()).hexdigest() != artifact['digest']:
-            raise RuntimeError('Downloaded artifact SHA256 mismatch')
-        temporary.replace(archive)
-    manifest, binary = unpack_artifact(archive, artifact['digest'], args.commit, output)
+        push_source(args.repository, args.commit, args.push_remote)
+    if args.local_build:
+        run, jobs, artifact = None, [], None
+        output = args.output.resolve() / ('local-' + args.commit)
+        manifest, binary = prepare_local_build(args.commit, output)
+    else:
+        run, jobs = wait_run(args.repository, args.commit, args.run_id, args.timeout)
+        output = args.output.resolve() / str(run['id'])
+        output.mkdir(parents=True, exist_ok=True)
+        artifacts = api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
+        matches = [a for a in artifacts if a['name'] == 'linux-musl' and not a['expired']]
+        if len(matches) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', matches[0].get('digest') or ''):
+            raise RuntimeError('Expected exactly one unexpired musl artifact with a GitHub SHA256 digest')
+        artifact = matches[0]
+        archive = output / 'linux-musl.zip'
+        if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
+            temporary = archive.with_suffix('.part')
+            # Public artifact resolver; the downloaded bytes must match GitHub's independent digest.
+            curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', temporary)
+            if 'sha256:' + hashlib.sha256(temporary.read_bytes()).hexdigest() != artifact['digest']:
+                raise RuntimeError('Downloaded artifact SHA256 mismatch')
+            temporary.replace(archive)
+        manifest, binary = unpack_artifact(archive, artifact['digest'], args.commit, output)
     binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
     evidence = {'run': run, 'jobs': jobs, 'artifact': artifact, 'manifest': manifest,
-                'binarySha256': binary_hash, 'ssh': args.ssh, 'binary': args.binary, 'applied': False}
+                'localBuild': args.local_build, 'ciVerified': not args.local_build,
+                'binarySha256': binary_hash, 'ssh': args.ssh, 'local': args.local,
+                'binary': args.binary, 'applied': False}
 
     def save():
         (output / 'deployment.json').write_text(json.dumps(evidence, indent=2) + '\n')
@@ -272,7 +325,8 @@ def main():
     status = remote(args.ssh, 'status', args)
     evidence['before'] = status
     save()
-    log('Verified CI artifact. Target: ' + json.dumps(status))
+    log(('Verified local build (CI skipped by explicit request). Target: ' if args.local_build else
+         'Verified CI artifact. Target: ') + json.dumps(status))
     if not args.apply:
         log('Prepared only; use --apply to install. Evidence: ' + str(output / 'deployment.json'))
         return
@@ -284,8 +338,7 @@ def main():
         time.sleep(20)
         status = remote(args.ssh, 'status', args)
     candidate = args.binary + '.candidate-' + args.commit[:12] + '-' + uuid.uuid4().hex[:8]
-    subprocess.run(['scp', '-q', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
-                    str(binary), args.ssh + ':' + candidate], check=True)
+    stage_candidate(args, binary, candidate)
     log('Installing verified candidate; checking the new service for ' + str(args.verify_seconds) + ' seconds')
     try:
         evidence['installation'] = remote(args.ssh, 'install', args, candidate, binary_hash, manifest['sourceDigest'])

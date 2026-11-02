@@ -100,6 +100,8 @@ async function start(d1: boolean) {
     const legacy = JSON.parse(
       readFileSync('wrangler.jsonc', 'utf8').replace(/,(\s*[}\]])/g, '$1'),
     );
+    legacy.vars.STATE_BACKEND = 'legacy';
+    legacy.d1_databases = [];
     legacy.main = resolve(legacy.main);
     legacy.assets.directory = resolve(legacy.assets.directory);
     writeFileSync(config, JSON.stringify(legacy));
