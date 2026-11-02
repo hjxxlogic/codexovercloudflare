@@ -26,7 +26,7 @@ private:
   int64_t history_journal_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_inline_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_prepare_seq_ = std::numeric_limits<int64_t>::min();
-  std::string queue_recovery_key_, queue_command_stream_;
+  std::string queue_recovery_key_, queue_command_stream_, history_retire_session_;
   int64_t queue_command_seq_ = 0;
   Lock lock_;
   sqlite3 *db_ = nullptr;
@@ -77,6 +77,7 @@ public:
   Json history(const std::string &id, int64_t before = 0, int64_t after = -1, int version = 1,
                int64_t generation = -1);
   Json history_retire(const std::string &session);
+  void history_retire_next();
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
   Json history_budget();

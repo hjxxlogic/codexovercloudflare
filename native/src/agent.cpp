@@ -2905,6 +2905,7 @@ public:
         event_batches_ = event_count_ = 0;
         event_batch_max_us_ = 0;
         store_.cleanup();
+        store_.history_retire_next();
         recover_queue_promise();
         if (!file_cleanup_pending_) {
           file_cleanup_pending_ = true;

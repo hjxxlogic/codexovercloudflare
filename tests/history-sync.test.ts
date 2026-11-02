@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { HistorySync } from '../apps/web/src/history-sync.ts';
 describe('Agent/client revision watermarks', () => {
+  it('retains the latest snapshot generation for older-page requests and clears it on reset', () => {
+    const sync = new HistorySync();
+    sync.snapshot({
+      direction: 'before',
+      more: true,
+      cursor: 1,
+      snapshotSeq: 20,
+      snapshotGeneration: 2,
+    });
+    sync.snapshot({
+      direction: 'before',
+      more: true,
+      cursor: 1,
+      snapshotSeq: 10,
+      snapshotGeneration: 1,
+    });
+    expect(sync.generation).toBe(2);
+    sync.reset();
+    expect(sync.generation).toBeUndefined();
+  });
   it('advances an unbroken live chain without assuming adjacent global sequence numbers', () => {
     const cursor = new HistorySync();
     cursor.restore(8);

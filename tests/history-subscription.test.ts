@@ -36,6 +36,39 @@ function harness() {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 describe('persistent history subscriber', () => {
+  it('releases only durable history and reconciles a previous ACK without adding a request identity', async () => {
+    const h = harness(),
+      c = await h.create();
+    await c.connect(h.send);
+    const open = h.sent.at(-1);
+    expect(open.releasedRevision).toBeUndefined();
+    await c.handle({ ...h.window(open), releasedRevision: 0 });
+    await c.commit();
+    expect(h.sent.at(-1)).toEqual(open);
+    h.cache.durableRevision = 10;
+    await c.commit();
+    const ack = h.sent.at(-1);
+    expect(ack.releasedRevision).toBe(10);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.sent.at(-1)).toEqual(ack);
+    await c.handle({ ...h.window(ack, 10), releasedRevision: 10 });
+    c.disconnect();
+    await c.connect(h.send);
+    const reopened = h.sent.at(-1);
+    expect(reopened.releasedRevision).toBeUndefined();
+    await c.handle({ ...h.window(reopened, 10), releasedRevision: 0 });
+    expect(h.sent.at(-1)).toMatchObject({
+      operation: 'ack',
+      receivedRevision: 10,
+      releasedRevision: 10,
+    });
+    await c.handle({ ...h.window(h.sent.at(-1), 10), releasedRevision: 10 });
+    const count = h.sent.length;
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(h.sent).toHaveLength(count);
+    c.stop();
+  });
+
   it('retries a lost OPEN and ACK indefinitely at a bounded slow rate, then becomes idle', async () => {
     const h = harness(),
       c = await h.create();

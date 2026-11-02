@@ -841,7 +841,7 @@ Json Store::history(const std::string &id, int64_t before, int64_t after, int ve
     throw Error("UNSUPPORTED_PROTOCOL_VERSION", "History retirement requires protocol version 2");
   if (generation >= 0 && generation != current)
     throw Error("HISTORY_SNAPSHOT_CHANGED", "History retention changed; restart the snapshot");
-  const bool gap = current > 0 && after >= 0 && after <= retired;
+  const bool gap = current > 0 && ((after >= 0 && after <= retired) || (after < 0 && before == 0));
   if (gap) {
     before = 0;
     after = -1;

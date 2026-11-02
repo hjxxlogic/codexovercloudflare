@@ -22,6 +22,7 @@ export class HistorySubscription {
   private attempts = 0;
   private maximum = 0;
   private published = 0;
+  private released: number | undefined;
   private opened = false;
   private stopped = false;
   private pending?: { requestId: string; revision: number };
@@ -78,6 +79,7 @@ export class HistorySubscription {
     this.send = undefined;
     this.exchangeId = '';
     this.opened = false;
+    this.released = undefined;
     this.pending = undefined;
   }
   stop() {
@@ -130,6 +132,9 @@ export class HistorySubscription {
           ...this.saved,
           exchangeId: this.exchangeId,
           receivedRevision: this.pending.revision,
+          ...(this.opened && this.released !== undefined
+            ? { releasedRevision: this.pending.revision }
+            : {}),
         });
         const delay = recoveryDelay(this.attempts);
         this.attempts = Math.min(3, this.attempts + 1);
@@ -143,7 +148,8 @@ export class HistorySubscription {
     if (!this.opened || !this.send || this.stopped) return;
     const durable = Math.min(this.cache.durableRevision ?? 0, this.maximum);
     if (
-      durable <= this.saved.acknowledgedRevision ||
+      (durable <= this.saved.acknowledgedRevision &&
+        (this.released === undefined || durable <= this.released)) ||
       durable <= (this.pending?.revision ?? -1)
     )
       return this.checkpointTail;
@@ -230,6 +236,16 @@ export class HistorySubscription {
         ) {
           this.freeze('历史持久水位发生回退，已停止自动恢复。');
           return;
+        }
+        if (frame.releasedRevision !== undefined) {
+          if (
+            !revision(frame.releasedRevision) ||
+            frame.releasedRevision > frame.receivedRevision
+          ) {
+            this.freeze('历史引用释放位置无效，已停止自动恢复。');
+            return;
+          }
+          this.released = Math.max(this.released ?? 0, frame.releasedRevision);
         }
         this.maximum = Math.max(this.maximum, frame.maxRevision);
         const next = {

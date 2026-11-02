@@ -1739,6 +1739,7 @@ void history_subscriber_test() {
     result["creditGeneration"] = "history-credit";
     result["receivedRevision"] = received;
     result["maxRevision"] = maximum;
+    result["releasedRevision"] = received;
     return result;
   };
   const auto failed = [&](const Json &) { throw std::runtime_error("Unexpected history failure"); };
@@ -1758,7 +1759,8 @@ void history_subscriber_test() {
     durable = 10;
     subscriber.commit();
     const auto ack = sent.back();
-    check(ack.at("operation") == "ack" && ack.at("receivedRevision") == durable,
+    check(ack.at("operation") == "ack" && ack.at("receivedRevision") == durable &&
+              ack.at("releasedRevision") == durable,
           "Native history confirms only the committed cache checkpoint");
     io.run_for(std::chrono::milliseconds(1100));
     check(sent.back() == ack && sent.size() == 4,

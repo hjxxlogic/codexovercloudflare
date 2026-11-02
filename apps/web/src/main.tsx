@@ -1534,6 +1534,11 @@ function App() {
       setHistoryNotice('部分旧历史已过期，已恢复当前保留快照。');
     };
     const showPage = (page: HistoryPage) => {
+      if (page.snapshotGeneration !== undefined)
+        historySync.generation = Math.max(
+          historySync.generation ?? 0,
+          page.snapshotGeneration,
+        );
       applyHistoryGap(page);
       if (olderView.current) captureHistoryAnchor();
       setEvents((previous) => {
@@ -1568,7 +1573,7 @@ function App() {
         if (!disposed) setError('历史读取超时，可重试加载更早内容。');
       }, 15000);
       void (async () => {
-        if (cache) {
+        if (cache && !force) {
           const stored = before
             ? await cache.page(before).catch(() => undefined)
             : await cache.recent().catch(() => undefined);
@@ -1615,6 +1620,9 @@ function App() {
           JSON.stringify({
             operation: 'page',
             historyVersion: 2,
+            ...(before && historySync.generation !== undefined
+              ? { snapshotGeneration: historySync.generation }
+              : {}),
             before,
             requestId,
           }),
@@ -1885,6 +1893,14 @@ function App() {
             }
             if (d.type === 'error') {
               void historySubscription?.handle(d);
+              if (
+                d.error?.code === 'HISTORY_SNAPSHOT_CHANGED' &&
+                typeof requests.get(d.requestId) === 'number'
+              ) {
+                historySync.generation = undefined;
+                requestPage(0, true);
+                return;
+              }
               if (d.requestId === syncRequest) {
                 syncRequest = undefined;
                 disconnect();

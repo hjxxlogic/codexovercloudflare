@@ -15,6 +15,7 @@ class HistorySubscription {
   std::function<void()> ready_;
   std::function<void(const Json &)> failed_;
   int64_t maximum_ = 0, pending_ = -1, published_ = 0;
+  int64_t released_ = -1;
   int attempts_ = 0;
   bool opened_ = false, stopped_ = false;
   void transmit();

@@ -34,6 +34,7 @@ void HistorySubscription::disconnect() {
   send_ = {};
   pending_ = -1;
   opened_ = false;
+  released_ = -1;
 }
 void HistorySubscription::stop() {
   stopped_ = true;
@@ -61,6 +62,8 @@ void HistorySubscription::transmit() {
   frame["exchangeId"] = exchange_;
   frame["requestId"] = request_;
   frame["receivedRevision"] = pending_;
+  if (opened_ && released_ >= 0)
+    frame["releasedRevision"] = pending_;
   published_ = std::max(published_, pending_);
   send_(frame);
   const auto delay = recovery_delay(attempts_);
@@ -83,7 +86,9 @@ void HistorySubscription::commit() {
   if (store_.cache_get(key_) != saved_)
     mismatch("History subscription was cleared or changed by another process");
   const auto durable = std::min(std::max(int64_t(0), durable_()), maximum_);
-  if (durable <= saved_.at("acknowledgedRevision").get<int64_t>() || durable <= pending_)
+  if ((durable <= saved_.at("acknowledgedRevision").get<int64_t>() &&
+       (released_ < 0 || durable <= released_)) ||
+      durable <= pending_)
     return;
   pending_ = durable;
   request_ = uuid();
@@ -133,6 +138,11 @@ bool HistorySubscription::receive(const Json &d) {
        (received < saved_.at("acknowledgedRevision").get<int64_t>() || maximum < pending_)) ||
       received > published_ || received > std::max(int64_t(0), durable_()) || received > maximum)
     mismatch("History durable checkpoint rolled back or exceeded its published boundary");
+  if (d.contains("releasedRevision")) {
+    if (!history_revision(d, "releasedRevision") || d.at("releasedRevision") > received)
+      mismatch("Invalid history reference release boundary");
+    released_ = std::max(released_, d.at("releasedRevision").get<int64_t>());
+  }
   auto next = saved_;
   for (const auto &field : {"agentInstance", "streamSerial", "creditGeneration"})
     next[field] = d.at(field);

@@ -246,6 +246,20 @@ void Store::history_budget_init(bool authoritative) {
     run("INSERT INTO transport2_history_meta(id,archive_seq) SELECT 1,MIN(0,COALESCE(MIN(seq),0)) "
         "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)");
 }
+void Store::history_retire_next() {
+  if (history_policy_.value("retainedRecords", int64_t(0)) == 0)
+    return;
+  const auto rows = query("SELECT session FROM transport2_history_heads JOIN sessions ON "
+                          "sessions.id=session WHERE session>? "
+                          "ORDER BY session LIMIT 1",
+                          {history_retire_session_});
+  if (rows.empty()) {
+    history_retire_session_.clear();
+    return;
+  }
+  history_retire_session_ = rows.at(0).at("session").get<std::string>();
+  history_retire(history_retire_session_);
+}
 Json Store::history_retire(const std::string &session) {
   const auto keep = history_policy_.value("retainedRecords", int64_t(0));
   if (keep == 0)

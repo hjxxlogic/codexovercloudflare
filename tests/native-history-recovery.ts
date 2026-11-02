@@ -96,6 +96,7 @@ try {
       codexArgs: [resolve('tests/fixtures/history-source-peer.mjs')],
       historyStorage: {
         cacheMaxBytes: 0,
+        retainedRecords: process.argv.includes('--retention') ? 1 : 0,
         readConcurrency: 1,
         readPageMaxBytes: 65536,
         minFreeDiskBytes: 1,
@@ -241,8 +242,93 @@ try {
   rmSync(path);
   renameSync(path + '.original', path);
   assert.equal((await read()).data.text, characters.slice(0, 4096).join(''));
+  if (process.argv.includes('--retention')) {
+    // Only this isolated fixture receives synthetic extra history; no business request is replayed.
+    const fixture = new DatabaseSync(join(root, 'state', 'agent.db'));
+    const next =
+      Number(
+        fixture
+          .prepare(
+            'SELECT revision FROM transport2_history_heads WHERE session=?',
+          )
+          .get(reference.sessionId)!.revision,
+      ) + 1;
+    fixture
+      .prepare(
+        "UPDATE sessions SET value=json_set(value,'$.external',json('true')) WHERE id=?",
+      )
+      .run(reference.sessionId);
+    fixture
+      .prepare(
+        'INSERT INTO history(seq,session,value,revision) VALUES(?,?,?,?)',
+      )
+      .run(
+        next,
+        reference.sessionId,
+        JSON.stringify({
+          seq: next,
+          revision: next,
+          type: 'user',
+          data: { text: 'retained tail' },
+        }),
+        next,
+      );
+    const subscription = {
+      operation: 'subscribe',
+      owner: 'reader',
+      route: 'retention-route',
+      stream: 'retention-stream',
+      instance: 'retention-client',
+      exchangeId: 'retention-exchange',
+      receivedRevision: 0,
+      acknowledgedRevision: 0,
+    };
+    const opened = await read(subscription);
+    assert.equal(opened.error, undefined, JSON.stringify(opened.error));
+    const ack = {
+      ...subscription,
+      operation: 'ack',
+      receivedRevision: next,
+      releasedRevision: next,
+      agentInstance: opened.data.agentInstance,
+      streamSerial: opened.data.streamSerial,
+      creditGeneration: opened.data.creditGeneration,
+    };
+    assert.equal((await read(ack)).data.releasedRevision, next);
+    await until(
+      () =>
+        Number(
+          fixture
+            .prepare(
+              'SELECT generation FROM transport2_history_heads WHERE session=?',
+            )
+            .get(reference.sessionId)!.generation,
+        ) > 0,
+      70000,
+    );
+    fixture.close();
+    assert.equal((await read()).error.code, 'CONTENT_EXPIRED');
+    const gap = await read({ operation: 'page', historyVersion: 2, after: 0 });
+    assert.equal(gap.data.gap, true);
+    assert.equal(gap.data.events.length, 1);
+    assert.equal(gap.data.snapshotSeq, next);
+    const stale = await read({
+      operation: 'page',
+      historyVersion: 2,
+      after: 0,
+      snapshotGeneration: 0,
+    });
+    assert.equal(stale.error.code, 'HISTORY_SNAPSHOT_CHANGED');
+    assert.equal(
+      (await read({ operation: 'page', after: 0 })).error.code,
+      'UNSUPPORTED_PROTOCOL_VERSION',
+    );
+  }
   console.log(
-    'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement, bounded readers and SIGKILL restart',
+    'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement, bounded readers and SIGKILL restart' +
+      (process.argv.includes('--retention')
+        ? ', scheduled retirement, expired references and versioned gap recovery'
+        : ''),
   );
 } finally {
   if (child && child.exitCode === null && child.signalCode === null) {

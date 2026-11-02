@@ -153,3 +153,11 @@ Agent 正文回源批次：Agent 构建通过，历史预算专项 13.72 秒、�
 `npm run test:cache` 真实无界面 Chromium 通过，新增缺口替换后重开、较新实时尾部/检查点不倒退、草稿/订阅/未决 outbox 保留、旧正文缓存删除、超预算整笔回滚和低代际拒绝。新增用例使用独立 origin，保留原共享身份多标签页 16 个总命令预留的断言；未扩大配额以通过测试。
 
 Agent 与 CLI 构建、TypeScript 和定向 ESLint 通过；日志 `/tmp/coc-history-client-{browser-test,build,typecheck,lint}.log`。HTTP 包装与 CC 仅构建验证，本批浏览器测试直接使用真实缓存模块，不能代替线上页面或真实 CLI 端到端恢复证据。尚未接通自动释放、分页代际重试及后台调度；未运行全量回归、推送或部署。
+
+### 2026-11-02：释放 ACK、分页代际重试和真实 Agent 定时退休
+
+CC/CW 复用已有 ACK 与快慢重试，只有持久视图水位才可发送 releasedRevision；重连可补充此前未完成的释放，不重新执行业务。网页旧页遇到覆盖代际改变重新获取最新快照。JSON retainedRecords 非零时正常维护轮转一个会话并最多退休 128 条，默认关闭。
+
+原生历史预算 16.16 秒、核心 33.37 秒通过；网页订阅/水位 18 项通过，类型及定向 ESLint 通过；Agent/CLI 与所需测试目标构建通过。真实 Agent 专项 `npx tsx tests/native-history-recovery.ts --retention` 通过已有源核验、分页和 SIGKILL 重启，并新增正常维护调度触发退休、旧引用明确过期、缺口快照、旧协议及旧代际拒绝。测试只在临时库增加合成投影，不重放任何业务请求；使用确定性 Codex peer，不等同真实 Codex 或线上整页验收。
+
+日志 `/tmp/coc-history-enable-{final-build,native-test,agent-test,web-test,typecheck,lint}.log`。本批未运行全量回归、推送或部署。仍须完成真实来源/本机网页端到端收尾后进入全量测试；长期压力和遗留订阅治理按文档延期。

@@ -4,9 +4,11 @@
 export class HistorySync {
   received: number | undefined;
   maximum = 0;
+  generation: number | undefined;
   reset() {
     this.received = undefined;
     this.maximum = 0;
+    this.generation = undefined;
   }
   private valid(value: unknown): value is number {
     return (
@@ -31,8 +33,11 @@ export class HistorySync {
     more: boolean;
     cursor: number;
     snapshotSeq: number;
+    snapshotGeneration?: number;
   }) {
     if (!this.valid(page.snapshotSeq)) return;
+    if (this.valid(page.snapshotGeneration))
+      this.generation = Math.max(this.generation ?? 0, page.snapshotGeneration);
     this.maximum = Math.max(this.maximum, page.snapshotSeq);
     const received =
       page.direction === 'after' && page.more ? page.cursor : page.snapshotSeq;
