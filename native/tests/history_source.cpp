@@ -310,8 +310,8 @@ void durable_source_cases() {
           "Optional mapping capacity refusal caused storage failure or growth");
   }
 }
-Json seed_reader(const std::filesystem::path &root, bool prepared = true,
-                 bool inline_body = false) {
+Json seed_reader(const std::filesystem::path &root, bool prepared = true, bool inline_body = false,
+                 bool file_body = false) {
   const auto home = root / ".codex";
   std::filesystem::create_directories(home);
   const auto path = home / "session.jsonl";
@@ -328,15 +328,24 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true,
               {"state", "closed"},
               {"mode", "web"},
               {"running", false}});
-  const std::string item = prepared ? "ok" : (inline_body ? "inline" : "large");
+  const std::string item =
+      prepared ? "ok" : (file_body ? "file" : (inline_body ? "inline" : "large"));
   std::string body = "你好🙂";
   if (!prepared) {
     body.clear();
-    for (int i = 0; i < (inline_body ? 1400 : 2000); ++i)
-      body += inline_body ? "a你🙂" : "你好🙂";
+    for (int i = 0; i < ((inline_body || file_body) ? 1400 : 2000); ++i)
+      body += (inline_body || file_body) ? "a你🙂" : "你好🙂";
   }
-  const auto event = store.event(session, "item/agentMessage/delta",
-                                 {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
+  const Json patch = {
+      {"id", item},
+      {"type", "fileChange"},
+      {"status", "completed"},
+      {"changes",
+       Json::array({{{"path", "original.txt"}, {"kind", {{"type", "update"}}}, {"diff", body}}})}};
+  const auto event =
+      file_body ? store.event(session, "item/completed", {{"turnId", "turn"}, {"item", patch}})
+                : store.event(session, "item/agentMessage/delta",
+                              {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
   const Json entry = {{"turnId", "turn"},
                       {"completedAtMs", 1},
                       {"item", {{"id", item}, {"type", "agentMessage"}, {"text", body}}}};
@@ -567,7 +576,8 @@ void over_limit_inline_cache_case() {
     throw std::runtime_error("Journal cleanup did not unblock verified inline eviction");
 }
 void inline_cache_cases() {
-  for (const auto *kind : {"stream", "external", "command"}) {
+  for (const auto *kind :
+       {"stream", "external", "command", "file", "mcp", "external-file", "external-mcp"}) {
     const auto root = std::filesystem::temp_directory_path() / ("coc-inline-cache-" + uuid());
     std::filesystem::create_directories(root);
     struct Cleanup {
@@ -578,10 +588,14 @@ void inline_cache_cases() {
     const std::string session = "host~inline", text(6000, 'x');
     const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
     Json reference, entry, budget;
+    std::string original_body;
     {
       Store store(dir.u8string(), true, "", {{"cacheMaxBytes", 0}});
-      const bool external = std::string(kind) == "external",
-                 command = std::string(kind) == "command";
+      const std::string shape = kind;
+      const bool external = shape.rfind("external", 0) == 0, command = shape == "command",
+                 file = shape == "file" || shape == "external-file",
+                 mcp = shape == "mcp" || shape == "external-mcp";
+      const bool structured = file || mcp;
       store.save({{"id", session},
                   {"threadId", "thread"},
                   {"projectId", "project"},
@@ -594,19 +608,52 @@ void inline_cache_cases() {
         item["command"] = "printf original";
         item["exitCode"] = 0;
       }
+      if (file)
+        item = {
+            {"id", "item"},
+            {"type", "fileChange"},
+            {"status", "completed"},
+            {"changes", Json::array({{{"path", "original.txt"},
+                                      {"kind", {{"type", "update"}, {"move_path", "renamed.txt"}}},
+                                      {"diff", text}}})}};
+      if (mcp)
+        item = {{"id", "item"},
+                {"type", "mcpToolCall"},
+                {"status", "completed"},
+                {"server", "original-server"},
+                {"tool", "original-tool"},
+                {"durationMs", 5},
+                {"error", nullptr},
+                {"arguments", {{"query", "original query"}}},
+                {"result", {{"content", Json::array({{{"type", "text"}, {"text", text}}})}}}};
       entry = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
       const auto event =
           external
               ? store.external_item(session, "turn", item)
-              : (command
+              : ((command || structured)
                      ? store.event(session, "item/completed", {{"turnId", "turn"}, {"item", item}})
                      : store.event(session, "item/agentMessage/delta",
                                    {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}}));
+      for (int64_t offset = 0;;) {
+        const auto page = store.content(session, event.at("seq"), offset);
+        original_body += page.at("text").get<std::string>();
+        if (!page.at("more").get<bool>())
+          break;
+        offset = page.at("nextOffset");
+      }
       reference =
           store.history_source_register(session, event.at("seq"), origin, entry).at("reference");
       const Json witness = {
           {"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}};
       const auto before = store.history_budget(), history = store.history(session);
+      if (structured) {
+        auto changed = witness;
+        changed["entry"]["item"]["unexpected"] = "changed content";
+        rejects_source([&] { store.history_cache_compact(changed); }, "CONTENT_UNAVAILABLE");
+        if (store.history_budget() != before || store.history(session) != history)
+          throw std::runtime_error("Changed structured source authorized eviction");
+      }
+
       if (store.history_cache_compact().at("reclaimedBytes") != 0)
         throw std::runtime_error("Inline cache eviction requires fresh source verification");
       sqlite3 *db = nullptr;
@@ -637,15 +684,22 @@ void inline_cache_cases() {
           budget.at("global").at("records") != before.at("global").at("records"))
         throw std::runtime_error(
             "Inline descriptor rewrite misaccounted reclaimed bytes or records");
-      if (command) {
+      if (command || structured) {
         auto retained = store.history(session).at("events").at(0).at("data").at("item");
         auto expected = item;
-        expected["aggregatedOutput"] = "";
+        if (command)
+          expected["aggregatedOutput"] = "";
+        if (file)
+          expected["changes"][0]["diff"] = "";
+        if (mcp) {
+          expected["arguments"] = nullptr;
+          expected["result"] = nullptr;
+        }
         if (retained != expected)
           throw std::runtime_error("Inline eviction removed non-body tool metadata");
       }
       rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
-      if (store.history_source_recover(session, event.at("seq"), origin, entry) != text ||
+      if (store.history_source_recover(session, event.at("seq"), origin, entry) != original_body ||
           store.history_reference(session, event.at("seq")) != reference)
         throw std::runtime_error("Inline eviction lost original source content identity");
       if (store.history_cache_compact(witness).at("reclaimedBytes") != 0)
@@ -662,7 +716,8 @@ void inline_cache_cases() {
     Store reopened(dir.u8string(), false);
     if (reopened.history_budget() != budget ||
         reopened.history_reference(session, reference.at("seq")) != reference ||
-        reopened.history_source_recover(session, reference.at("seq"), origin, entry) != text)
+        reopened.history_source_recover(session, reference.at("seq"), origin, entry) !=
+            original_body)
       throw std::runtime_error("Inline eviction did not survive Store restart");
   }
 }
@@ -894,10 +949,11 @@ int main(int argc, char **argv) {
   try {
     if (argc == 3 &&
         (std::string(argv[1]) == "--seed-reader" || std::string(argv[1]) == "--seed-unprepared" ||
-         std::string(argv[1]) == "--seed-inline")) {
+         std::string(argv[1]) == "--seed-inline" || std::string(argv[1]) == "--seed-file")) {
       std::cout << seed_reader(std::filesystem::canonical(argv[2]),
                                std::string(argv[1]) == "--seed-reader",
-                               std::string(argv[1]) == "--seed-inline")
+                               std::string(argv[1]) == "--seed-inline",
+                               std::string(argv[1]) == "--seed-file")
                        .dump()
                 << '\n';
       return 0;

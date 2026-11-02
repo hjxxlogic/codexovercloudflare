@@ -79,6 +79,9 @@ std::string recover_history_text(const Json &event, Json item, const std::string
       if (!original_item.contains(key))
         item.erase(key);
     auto rebuilt = event;
+    // contentSeq is a local cache representation marker, never part of the
+    // original structured event body produced by Store::event.
+    rebuilt.erase("contentSeq");
     rebuilt["data"]["item"] = item;
     return rebuilt.dump();
   }

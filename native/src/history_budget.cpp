@@ -294,6 +294,19 @@ Json Store::history_cache_compact(const Json &verified) {
                  data.at("item").contains("aggregatedOutput") &&
                  data.at("item").at("aggregatedOutput").is_string())
           data["item"]["aggregatedOutput"] = "";
+        else if (data.contains("item") && data.at("item").is_object()) {
+          auto &item = data.at("item");
+          if (item.value("type", "") == "fileChange" && item.contains("changes") &&
+              item.at("changes").is_array()) {
+            for (auto &change : item.at("changes"))
+              if (change.is_object() && change.contains("diff") && change.at("diff").is_string())
+                change["diff"] = ""; // Keep paths, kinds and count for the existing UI.
+          } else if (item.value("type", "") == "mcpToolCall") {
+            for (const auto *field : {"arguments", "result"})
+              if (item.contains(field))
+                item[field] = nullptr;
+          }
+        }
         descriptor["contentSeq"] = verified.at("seq");
         const auto encoded = descriptor.dump();
         const auto savings = int64_t(row.at("value").get_ref<const std::string &>().size()) -

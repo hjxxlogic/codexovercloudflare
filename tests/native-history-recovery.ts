@@ -52,13 +52,27 @@ try {
   const seeded = spawnSync(
     executable('coc-history-source-tests'),
     [
-      process.argv.includes('--inline') ? '--seed-inline' : '--seed-unprepared',
+      process.argv.includes('--file')
+        ? '--seed-file'
+        : process.argv.includes('--inline')
+          ? '--seed-inline'
+          : '--seed-unprepared',
       root,
     ],
     { encoding: 'utf8' },
   );
   assert.equal(seeded.status, 0, seeded.stderr);
   const reference = JSON.parse(seeded.stdout);
+  let fileBody: string | undefined;
+  if (process.argv.includes('--file')) {
+    const fixture = new DatabaseSync(join(root, 'state', 'agent.db'));
+    fileBody = String(
+      fixture
+        .prepare('SELECT value FROM history WHERE seq=?')
+        .get(reference.seq)!.value,
+    );
+    fixture.close();
+  }
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const config = join(root, 'agent.json');
   writeFileSync(
@@ -152,9 +166,10 @@ try {
   const [first, busy] = await Promise.all([read(), read()]);
   assert.equal(first.error, undefined, JSON.stringify(first.error));
   const characters = Array.from(
-    process.argv.includes('--inline')
-      ? 'a你🙂'.repeat(1400)
-      : '你好🙂'.repeat(2000),
+    fileBody ??
+      (process.argv.includes('--inline')
+        ? 'a你🙂'.repeat(1400)
+        : '你好🙂'.repeat(2000)),
   );
   assert.equal(first.data.text, characters.slice(0, 4096).join(''));
   assert.equal(first.data.nextOffset, 4096);

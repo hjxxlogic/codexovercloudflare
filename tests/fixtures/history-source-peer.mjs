@@ -72,6 +72,19 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
       completedAtMs: 1,
     };
+    if (id === 'file')
+      entry.item = {
+        id,
+        type: 'fileChange',
+        status: 'completed',
+        changes: [
+          {
+            path: 'original.txt',
+            kind: { type: 'update' },
+            diff: 'a你🙂'.repeat(1400),
+          },
+        ],
+      };
     result = {
       data:
         id === 'missing' ? [] : id === 'duplicate' ? [entry, entry] : [entry],

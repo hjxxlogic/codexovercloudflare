@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+结构化正文缓存：Agent/来源专项构建通过，最终 `native-history-source` 3.99 秒通过，类型检查及定向 ESLint 通过。新增普通和外部 fileChange/MCP 四类案例，验证原正文 JSON、引用、非正文元数据、退款、回滚、重启和源变化拒绝。真实本机 Agent 配合确定性 peer 的 `npx tsx tests/native-history-recovery.ts --file` 通过自动准备/淘汰、原引用 Unicode 多页读取、并发预算及来源替换拒绝。日志 `/tmp/coc-structured-cache-{build,final-build,final-source-test,agent-test,typecheck,lint}.log`。未使用真实 Codex 结构化历史作为该批集成来源，未执行全量回归或正式库迁移；真实来源及浏览器验收仍待完成。
+
 已分类内联正文缓存淘汰：Agent 构建通过；最终来源专项 3.67 秒、历史预算专项 15.85 秒、引用专项 0.14 秒通过，TypeScript 类型及定向 ESLint 通过。C++ 覆盖流式文本、外部文本和工具 aggregatedOutput 的净缩小、原引用/修订稳定、精确退款、工具命令/退出码等非正文元数据保留、凭据恢复失败整批回滚、活动预留跳过、重复转换和重启；迟到 delta 不覆盖原前缀。超限库先跳过转换，日志回收后可继续，未触发全局停写。真实本机 Agent 配合确定性来源 peer，分别通过分块及 `--inline` 自动准备/淘汰、原引用回源、Unicode 多页、并发拒绝和来源替换拒绝；最终内联路径在元数据保留修正后重跑通过。日志 `/tmp/coc-inline-cache-{envelope-build,envelope-test,budget-test,final-agent-test,chunk-test,typecheck,lint}.log`。未执行全量回归、正式库迁移或最终浏览器验收；未知结构化正文和历史索引退休仍未完成。
 
 外部队列确定性关联与终态前核对：Agent 构建、`build/coc-tests --external-queue`、TypeScript 类型及定向 ESLint 通过。C++ 子进程专项覆盖多页唯一匹配、缺失、输入改写、跨页重复关联、20 页边界、循环游标、超大页面；真实 Agent 交付专项验证丢回复后只读恢复原已入队回执及预留转换，原请求重试不重新派发，已消费不可见项继续未知并跨 SIGKILL 重启保留。夹具分别统计 queue/add 调用次数和唯一队列项，防止源端去重掩盖重复派发。真实本机 Codex 0.166.0 的 `python3 tests/external-codex.py` 通过 paginated/legacy 两种模式：确定性关联与完整输入回显，重建独立 reader 后原项仍可查；隔离 CODEX_HOME 使用关闭的本机模型端口，没有真实模型服务调用。日志 `/tmp/coc-queue-proof-{core-build,core-test,final-delivery-test,real-codex,typecheck,lint}.log`。未运行全量回归、修改正式数据或宣称跨重启未知终态核对已经完成。
