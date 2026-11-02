@@ -51,7 +51,10 @@ let child: ReturnType<typeof spawn> | undefined;
 try {
   const seeded = spawnSync(
     executable('coc-history-source-tests'),
-    ['--seed-unprepared', root],
+    [
+      process.argv.includes('--inline') ? '--seed-inline' : '--seed-unprepared',
+      root,
+    ],
     { encoding: 'utf8' },
   );
   assert.equal(seeded.status, 0, seeded.stderr);
@@ -107,6 +110,14 @@ try {
     await until(
       () => database.prepare('SELECT COUNT(*) AS n FROM chunks').get()?.n === 0,
     );
+    await until(
+      () =>
+        database
+          .prepare(
+            "SELECT json_extract(value,'$.contentSeq') AS seq FROM history WHERE seq=?",
+          )
+          .get(reference.seq)?.seq === reference.seq,
+    );
     assert.equal(
       database.prepare('SELECT COUNT(*) AS n FROM history').get()?.n,
       1,
@@ -140,7 +151,11 @@ try {
   }
   const [first, busy] = await Promise.all([read(), read()]);
   assert.equal(first.error, undefined, JSON.stringify(first.error));
-  const characters = Array.from('你好🙂'.repeat(2000));
+  const characters = Array.from(
+    process.argv.includes('--inline')
+      ? 'a你🙂'.repeat(1400)
+      : '你好🙂'.repeat(2000),
+  );
   assert.equal(first.data.text, characters.slice(0, 4096).join(''));
   assert.equal(first.data.nextOffset, 4096);
   assert.equal(busy.error.code, 'BACKPRESSURE');

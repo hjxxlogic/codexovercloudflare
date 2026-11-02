@@ -930,6 +930,11 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
             {"more", offset + 4096 < size}};
   }
 
+  if (!query("SELECT seq FROM history WHERE session=? AND seq=? "
+             "AND json_extract(value,'$.contentSeq') IS NOT NULL",
+             {id, seq})
+           .empty())
+    throw Error("CONTENT_UNAVAILABLE", "History descriptor requires its original source body");
   auto rows =
       query("WITH content AS (SELECT COALESCE(json_extract(value,'$.data.text'),"
             "json_extract(value,'$.data.delta'),json_extract(value,'$.data.item.aggregatedOutput'),"

@@ -310,7 +310,8 @@ void durable_source_cases() {
           "Optional mapping capacity refusal caused storage failure or growth");
   }
 }
-Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
+Json seed_reader(const std::filesystem::path &root, bool prepared = true,
+                 bool inline_body = false) {
   const auto home = root / ".codex";
   std::filesystem::create_directories(home);
   const auto path = home / "session.jsonl";
@@ -318,7 +319,8 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   const Json metadata = {
       {"id", "normal"}, {"createdAt", 1}, {"cwd", root.u8string()}, {"path", path.u8string()}};
   const auto origin = history_source_origin(metadata, home, root.u8string());
-  Store store((root / "state").u8string(), true, "", {{"cacheMaxBytes", 0}});
+  Store store((root / "state").u8string(), true, "",
+              {{"cacheMaxBytes", prepared ? 10 : 0}, {"cacheTargetPercent", 100}});
   const std::string session = "host~source";
   store.save({{"id", session},
               {"projectId", "project"},
@@ -326,12 +328,12 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
               {"state", "closed"},
               {"mode", "web"},
               {"running", false}});
-  const std::string item = prepared ? "ok" : "large";
+  const std::string item = prepared ? "ok" : (inline_body ? "inline" : "large");
   std::string body = "你好🙂";
   if (!prepared) {
     body.clear();
-    for (int i = 0; i < 2000; ++i)
-      body += "你好🙂";
+    for (int i = 0; i < (inline_body ? 1400 : 2000); ++i)
+      body += inline_body ? "a你🙂" : "你好🙂";
   }
   const auto event = store.event(session, "item/agentMessage/delta",
                                  {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
@@ -380,7 +382,7 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
     throw std::runtime_error("Cache eviction ignored active reservation");
   store.history_release(session);
   const auto reclaimed = store.history_cache_compact(verified);
-  if (reclaimed.at("reclaimedRecords") == 0 || reclaimed.at("cacheBytes") != 0 ||
+  if (reclaimed.at("reclaimedRecords") == 0 || reclaimed.at("cacheBytes") != 10 ||
       store.history_budget().at("global").at("bytes").get<int64_t>() !=
           before.at("global").at("bytes").get<int64_t>() -
               reclaimed.at("reclaimedBytes").get<int64_t>() ||
@@ -524,6 +526,145 @@ void evicted_prefix_cases() {
       store.history_reference(session, event.at("seq")) != proof.at("reference") ||
       store.history_source_recover(session, event.at("seq"), origin, entry) != text)
     throw std::runtime_error("Late delta appended to an evicted prefix or destroyed its proof");
+}
+void over_limit_inline_cache_case() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-inline-limit-" + uuid());
+  std::filesystem::create_directories(root);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  const std::string session = "host~inline", text(6000, 'x');
+  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const Json entry = {{"turnId", "turn"},
+                      {"completedAtMs", 1},
+                      {"item", {{"id", "item"}, {"type", "agentMessage"}, {"text", text}}}};
+  Json witness, reference;
+  int64_t limit;
+  {
+    Store store((root / "state").u8string(), true, "", {{"cacheMaxBytes", 0}});
+    store.save(
+        {{"id", session}, {"threadId", "thread"}, {"projectId", "project"}, {"state", "closed"}});
+    const auto event = store.event(session, "item/agentMessage/delta",
+                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}});
+    reference =
+        store.history_source_register(session, event.at("seq"), origin, entry).at("reference");
+    witness = {
+        {"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}};
+    limit = store.history_budget().at("global").at("bytes").get<int64_t>() - 1;
+  }
+  Store lowered((root / "state").u8string(), true, "",
+                {{"maxBytes", limit}, {"maxSessionBytes", limit}, {"cacheMaxBytes", 0}});
+  bool failed = false;
+  lowered.on_failure([&] { failed = true; });
+  const auto before = lowered.history_budget();
+  if (lowered.history_cache_compact(witness).at("reclaimedBytes") != 0 || failed ||
+      lowered.history_budget() != before ||
+      lowered.history_reference(session, reference.at("seq")) != reference)
+    throw std::runtime_error("Over-limit inline preparation invoked fatal quota handling");
+  if (lowered.history_journal_compact().at("removedEvents") == 0 ||
+      lowered.history_cache_compact(witness).at("reclaimedBytes") <= 0 || failed)
+    throw std::runtime_error("Journal cleanup did not unblock verified inline eviction");
+}
+void inline_cache_cases() {
+  for (const auto *kind : {"stream", "external", "command"}) {
+    const auto root = std::filesystem::temp_directory_path() / ("coc-inline-cache-" + uuid());
+    std::filesystem::create_directories(root);
+    struct Cleanup {
+      std::filesystem::path path;
+      ~Cleanup() { std::filesystem::remove_all(path); }
+    } cleanup{root};
+    const auto dir = root / "state";
+    const std::string session = "host~inline", text(6000, 'x');
+    const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+    Json reference, entry, budget;
+    {
+      Store store(dir.u8string(), true, "", {{"cacheMaxBytes", 0}});
+      const bool external = std::string(kind) == "external",
+                 command = std::string(kind) == "command";
+      store.save({{"id", session},
+                  {"threadId", "thread"},
+                  {"projectId", "project"},
+                  {"external", external},
+                  {"state", "closed"}});
+      Json item = {{"id", "item"}, {"type", command ? "commandExecution" : "agentMessage"}};
+      item[command ? "aggregatedOutput" : "text"] = text;
+      if (command) {
+        item["status"] = "completed";
+        item["command"] = "printf original";
+        item["exitCode"] = 0;
+      }
+      entry = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
+      const auto event =
+          external
+              ? store.external_item(session, "turn", item)
+              : (command
+                     ? store.event(session, "item/completed", {{"turnId", "turn"}, {"item", item}})
+                     : store.event(session, "item/agentMessage/delta",
+                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}}));
+      reference =
+          store.history_source_register(session, event.at("seq"), origin, entry).at("reference");
+      const Json witness = {
+          {"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}};
+      const auto before = store.history_budget(), history = store.history(session);
+      if (store.history_cache_compact().at("reclaimedBytes") != 0)
+        throw std::runtime_error("Inline cache eviction requires fresh source verification");
+      sqlite3 *db = nullptr;
+      if (sqlite3_open((dir / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
+        throw std::runtime_error("Open inline cache fixture");
+      if (sqlite3_exec(db,
+                       "CREATE TRIGGER fail_proof BEFORE UPDATE OF recovery ON history "
+                       "WHEN OLD.recovery IS NULL AND NEW.recovery IS NOT NULL BEGIN "
+                       "SELECT RAISE(ABORT,'injected proof restoration failure'); END",
+                       nullptr, nullptr, nullptr) != SQLITE_OK)
+        throw std::runtime_error("Inject inline cache proof failure");
+      rejects_source([&] { store.history_cache_compact(witness); }, "STORAGE_ERROR");
+      if (store.history_budget() != before || store.history(session) != history ||
+          store.history_reference(session, event.at("seq")) != reference)
+        throw std::runtime_error("Inline eviction failure changed original body, proof or budget");
+      sqlite3_exec(db, "DROP TRIGGER fail_proof", nullptr, nullptr, nullptr);
+      sqlite3_close(db);
+      store.history_reserve(session, 65536, 16);
+      if (store.history_cache_compact(witness).at("reclaimedBytes") != 0)
+        throw std::runtime_error("Inline eviction bypassed a pending promise");
+      store.history_release(session);
+      const auto result = store.history_cache_compact(witness);
+      budget = store.history_budget();
+      if (result.at("reclaimedBytes") <= 0 || result.at("cacheBytes") != 0 ||
+          budget.at("global").at("bytes").get<int64_t>() !=
+              before.at("global").at("bytes").get<int64_t>() -
+                  result.at("reclaimedBytes").get<int64_t>() ||
+          budget.at("global").at("records") != before.at("global").at("records"))
+        throw std::runtime_error(
+            "Inline descriptor rewrite misaccounted reclaimed bytes or records");
+      if (command) {
+        auto retained = store.history(session).at("events").at(0).at("data").at("item");
+        auto expected = item;
+        expected["aggregatedOutput"] = "";
+        if (retained != expected)
+          throw std::runtime_error("Inline eviction removed non-body tool metadata");
+      }
+      rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
+      if (store.history_source_recover(session, event.at("seq"), origin, entry) != text ||
+          store.history_reference(session, event.at("seq")) != reference)
+        throw std::runtime_error("Inline eviction lost original source content identity");
+      if (store.history_cache_compact(witness).at("reclaimedBytes") != 0)
+        throw std::runtime_error("Inline descriptor was evicted twice");
+      if (std::string(kind) == "stream") {
+        const auto late = store.event(session, "item/agentMessage/delta",
+                                      {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "late"}});
+        if (late.at("seq") == event.at("seq") ||
+            store.history_reference(session, event.at("seq")) != reference)
+          throw std::runtime_error("Late delta overwrote the evicted inline prefix");
+        budget = store.history_budget();
+      }
+    }
+    Store reopened(dir.u8string(), false);
+    if (reopened.history_budget() != budget ||
+        reopened.history_reference(session, reference.at("seq")) != reference ||
+        reopened.history_source_recover(session, reference.at("seq"), origin, entry) != text)
+      throw std::runtime_error("Inline eviction did not survive Store restart");
+  }
 }
 void recovered_page_cases() {
   const auto root = std::filesystem::temp_directory_path() / ("coc-recovered-page-" + uuid());
@@ -752,13 +893,17 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
 int main(int argc, char **argv) {
   try {
     if (argc == 3 &&
-        (std::string(argv[1]) == "--seed-reader" || std::string(argv[1]) == "--seed-unprepared")) {
+        (std::string(argv[1]) == "--seed-reader" || std::string(argv[1]) == "--seed-unprepared" ||
+         std::string(argv[1]) == "--seed-inline")) {
       std::cout << seed_reader(std::filesystem::canonical(argv[2]),
-                               std::string(argv[1]) == "--seed-reader")
+                               std::string(argv[1]) == "--seed-reader",
+                               std::string(argv[1]) == "--seed-inline")
                        .dump()
                 << '\n';
       return 0;
     }
+    over_limit_inline_cache_case();
+    inline_cache_cases();
     evicted_prefix_cases();
     cache_fifo_cases();
     candidate_scan_cases();

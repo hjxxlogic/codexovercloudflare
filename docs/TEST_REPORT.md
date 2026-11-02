@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+已分类内联正文缓存淘汰：Agent 构建通过；最终来源专项 3.67 秒、历史预算专项 15.85 秒、引用专项 0.14 秒通过，TypeScript 类型及定向 ESLint 通过。C++ 覆盖流式文本、外部文本和工具 aggregatedOutput 的净缩小、原引用/修订稳定、精确退款、工具命令/退出码等非正文元数据保留、凭据恢复失败整批回滚、活动预留跳过、重复转换和重启；迟到 delta 不覆盖原前缀。超限库先跳过转换，日志回收后可继续，未触发全局停写。真实本机 Agent 配合确定性来源 peer，分别通过分块及 `--inline` 自动准备/淘汰、原引用回源、Unicode 多页、并发拒绝和来源替换拒绝；最终内联路径在元数据保留修正后重跑通过。日志 `/tmp/coc-inline-cache-{envelope-build,envelope-test,budget-test,final-agent-test,chunk-test,typecheck,lint}.log`。未执行全量回归、正式库迁移或最终浏览器验收；未知结构化正文和历史索引退休仍未完成。
+
 外部队列确定性关联与终态前核对：Agent 构建、`build/coc-tests --external-queue`、TypeScript 类型及定向 ESLint 通过。C++ 子进程专项覆盖多页唯一匹配、缺失、输入改写、跨页重复关联、20 页边界、循环游标、超大页面；真实 Agent 交付专项验证丢回复后只读恢复原已入队回执及预留转换，原请求重试不重新派发，已消费不可见项继续未知并跨 SIGKILL 重启保留。夹具分别统计 queue/add 调用次数和唯一队列项，防止源端去重掩盖重复派发。真实本机 Codex 0.166.0 的 `python3 tests/external-codex.py` 通过 paginated/legacy 两种模式：确定性关联与完整输入回显，重建独立 reader 后原项仍可查；隔离 CODEX_HOME 使用关闭的本机模型端口，没有真实模型服务调用。日志 `/tmp/coc-queue-proof-{core-build,core-test,final-delivery-test,real-codex,typecheck,lint}.log`。未运行全量回归、修改正式数据或宣称跨重启未知终态核对已经完成。
 
 运行实例终态崩溃恢复：Agent 构建通过，历史预算专项 15.19 秒、可靠操作专项 20.01 秒及定向 ESLint 通过。底层在全额账本注入终态投影失败，验证原普通/队列承诺及保护容量回滚；再次启动覆盖已为 failed 的状态，恰好补写一次 sessionClosed，后续重启不变，原创建仍返回 RESULT_UNKNOWN；辅助连接不执行恢复。真实 Agent 交付专项将最后一次重启改为 SIGKILL，验证旧外部运行实例保护槽转换、一个持久终态、未知队列容量和原请求结果保留，已有不完整输出历史不变。日志 `/tmp/coc-terminal-recovery-{build,test,delivery-test,lint}.log`。未运行全量回归、模型任务或修改正式库；未知业务承诺核对仍未完成。

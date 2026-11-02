@@ -212,8 +212,9 @@ Json Store::history_cache_compact(const Json &verified) {
   const int64_t percent = policy.at("cacheTargetPercent");
   run("BEGIN IMMEDIATE");
   try {
-    // The existing ledger remains authoritative. Only verified, idle chunk
-    // copies are reclaimable; events, descriptors and delivery evidence stay.
+    // The existing ledger remains authoritative. Verified idle chunk copies
+    // and inline bodies share this cache subset; descriptors and delivery
+    // evidence stay. Inline cache demand counts its original UTF-8 body bytes.
     const std::string eligible =
         " FROM chunks c JOIN history h ON h.seq=c.seq JOIN sessions s ON s.id=h.session "
         "JOIN transport2_history_entries e ON e.key='chunks:'||json_array(c.seq,c.start) "
@@ -221,8 +222,17 @@ Json Store::history_cache_compact(const Json &verified) {
         "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
         "(SELECT 1 FROM transport2_history_entries WHERE session=h.session AND key GLOB "
         "'reservation:*') ";
+    const std::string inline_eligible =
+        " FROM history h JOIN sessions s ON s.id=h.session "
+        "WHERE h.recovery IS NOT NULL AND s.source IS NOT NULL "
+        "AND json_extract(h.value,'$.contentSeq') IS NULL "
+        "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
+        "(SELECT 1 FROM transport2_history_entries WHERE session=h.session "
+        "AND key GLOB 'reservation:*') ";
     const auto usage =
-        query("SELECT h.session,SUM(e.bytes) AS bytes" + eligible + "GROUP BY h.session");
+        query("SELECT session,SUM(bytes) AS bytes FROM (SELECT h.session,e.bytes" + eligible +
+              "UNION ALL SELECT h.session,json_extract(h.recovery,'$.length') AS bytes" +
+              inline_eligible + ") GROUP BY session");
     std::map<std::string, int64_t> bytes, targets;
     Json pressured = Json::array();
     int64_t total = 0;
@@ -262,6 +272,59 @@ Json Store::history_cache_compact(const Json &verified) {
         bytes[session] -= cost;
         reclaimed += cost;
         ++records;
+      }
+      const auto inline_rows =
+          query("SELECT h.value,h.recovery,json_extract(h.recovery,'$.length') AS bytes" +
+                    inline_eligible + "AND h.seq=? AND h.session=?",
+                {verified.at("seq"), verified.at("session")});
+      const std::string session = verified.at("session");
+      if (!inline_rows.empty() &&
+          (total > global_target ||
+           (targets.count(session) && bytes[session] > targets.at(session)))) {
+        const auto &row = inline_rows.at(0);
+        auto descriptor = Json::parse(row.at("value").get<std::string>());
+        auto &data = descriptor.at("data");
+        // Only remove a classified body field. The recovery template is not a
+        // display envelope: command, exit code and other metadata must survive.
+        if (data.contains("delta") && data.at("delta").is_string())
+          data.erase("delta");
+        else if (data.contains("text") && data.at("text").is_string())
+          data.erase("text");
+        else if (data.contains("item") && data.at("item").is_object() &&
+                 data.at("item").contains("aggregatedOutput") &&
+                 data.at("item").at("aggregatedOutput").is_string())
+          data["item"]["aggregatedOutput"] = "";
+        descriptor["contentSeq"] = verified.at("seq");
+        const auto encoded = descriptor.dump();
+        const auto savings = int64_t(row.at("value").get_ref<const std::string &>().size()) -
+                             int64_t(encoded.size());
+        // Reattaching proof grows the row after invalidation. Do not let an
+        // optional rewrite hit the fail-closed quota trigger in an already
+        // over-limit store; chunk/journal reclamation can first restore room.
+        const auto scopes = query("SELECT scope,bytes,records FROM transport2_history_budget "
+                                  "WHERE scope IN('@global',?)",
+                                  {session});
+        bool within_limits = true;
+        for (const auto &scope : scopes) {
+          const bool global = scope.at("scope") == "@global";
+          within_limits =
+              within_limits &&
+              scope.at("bytes") <= policy.at(global ? "maxBytes" : "maxSessionBytes") &&
+              scope.at("records") <= policy.at(global ? "maxRecords" : "maxSessionRecords");
+        }
+        if (savings > 0 && within_limits) {
+          run("UPDATE history SET value=?,recovery=NULL WHERE seq=? AND session=?",
+              {encoded, verified.at("seq"), session});
+          run("UPDATE history SET recovery=? WHERE seq=? AND session=?",
+              {row.at("recovery"), verified.at("seq"), session});
+          // Recheck the new descriptor against the same fresh source before
+          // committing; a changed template must never strand the old reference.
+          history_source_recover(session, verified.at("seq"), verified.at("origin"),
+                                 verified.at("entry"));
+          total -= row.at("bytes").get<int64_t>();
+          bytes[session] -= row.at("bytes").get<int64_t>();
+          reclaimed += savings;
+        }
       }
     }
     run("COMMIT");
