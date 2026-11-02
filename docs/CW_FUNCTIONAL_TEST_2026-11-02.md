@@ -107,3 +107,5 @@ Playwright Chromium 使用已有邮箱登录状态操作真实页面和在线 Ag
 ## Actions 完整回归补充
 
 完整 Actions 在 tests/e2e.ts 的网页会话结束后连接同项目 CLI 场景发现 PROJECT_READ_ONLY：旧浏览器仍保持连接，项目写指针未随结束操作释放。新增结束成功响应及 sessionClosed 事件的原子释放，关闭控制连接但保留历史连接；回归覆盖旧 socket 尚未完成关闭、立即获取新写权限以及重复关闭不能撤销新写者。此次按用户要求等待全部 Actions 作业通过后，使用同一提交 CI 制品完整发布网页、Worker 与四平台下载包，不重启本机 Agent。
+
+完整 E2E 的末尾授权撤销场景原先也同时连接同项目 CW 与 CC 两个写者，已按新规则修订：先断言同项目 CC 返回 PROJECT_READ_ONLY、结束该拒绝会话不影响 CW；再通过真实管理 API 注册独立临时目录，在另一项目连接 CC，继续验证撤销 CC 不影响 CW。临时目录在 finally 清理，不修改线上项目。

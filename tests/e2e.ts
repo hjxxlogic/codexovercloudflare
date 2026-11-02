@@ -27,6 +27,7 @@ import { Agent } from './support/native-agent.ts';
 import { SharedApprovals } from './fixtures/shared-approvals.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
+const revocationDir = mkdtempSync(join(tmpdir(), 'coc-e2e-revocation-'));
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local';
 const secret = randomBytes(32).toString('hex');
 const server = createServer();
@@ -2859,10 +2860,37 @@ try {
       createHash('sha256').update(clientCredentials.token).digest('hex'),
   );
   assert(cc, 'paired CC credential remains independent of API keys');
+  // A live CW writer keeps another session in this project read-only.
   token = clientCredentials.token;
-  const activeCli = await api('/sessions', {
+  const blockedCli = await api('/sessions', {
     hostId: enrolled.hostId,
     projectId: 'test-project',
+    mode: 'cli',
+  });
+  const blockedAttach = await request(`/sessions/${blockedCli.id}/attach`, {});
+  assert.equal(blockedAttach.r.status, 409);
+  assert.equal(blockedAttach.b.error.code, 'PROJECT_READ_ONLY');
+  await api(`/sessions/${blockedCli.id}/stop`, {});
+  assert.equal(restored.ws.readyState, WebSocket.OPEN);
+  pass('live project writer rejects another CLI writer without disrupting CW');
+  // Revocation isolation needs two legitimate writers, hence distinct projects.
+  const projectEndpoint = `/admin/hosts/${enrolled.hostId}/project-management`;
+  const projectState = await api(projectEndpoint, undefined, { admin: true });
+  await api(
+    projectEndpoint,
+    {
+      operation: 'add',
+      requestId: randomUUID(),
+      revision: projectState.revision,
+      id: 'revocation-project',
+      name: 'Revocation project',
+      path: revocationDir,
+    },
+    { admin: true },
+  );
+  const activeCli = await api('/sessions', {
+    hostId: enrolled.hostId,
+    projectId: 'revocation-project',
     mode: 'cli',
   });
   const activeTicket = await api(`/sessions/${activeCli.id}/attach`, {});
@@ -2939,4 +2967,5 @@ try {
   }
   await new Promise((r) => setTimeout(r, 400));
   rmSync(dir, { recursive: true, force: true });
+  rmSync(revocationDir, { recursive: true, force: true });
 }
