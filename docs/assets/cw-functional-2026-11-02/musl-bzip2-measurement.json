@@ -1,0 +1,12 @@
+{
+  "gzipBytes": 26631892,
+  "bzip2Bytes": 24927644,
+  "limitBytes": 26214400,
+  "fits": true,
+  "durationSeconds": 4.88,
+  "sameUncompressedTar": true,
+  "commit": "df4caeacd2fd6d1878d7707ff73cda9f37d72c02",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41458682983",
+  "published": false,
+  "compatibility": "Current updater requires .tar.gz; .tar.bz2 needs a migration and implementation before publication"
+}

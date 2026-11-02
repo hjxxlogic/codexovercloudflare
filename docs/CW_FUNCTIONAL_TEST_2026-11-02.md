@@ -141,3 +141,7 @@ D1 本地完整回归的压力阶段通过，后续恢复历史会话的布局�
 ## 发布阶段的 musl 包限制
 
 完整 CI 成功后，部署脚本在上传前被 Wrangler 拒绝：musl 0.6.1 包约 25.4 MiB，超过单个静态资源 25 MiB。此时 applied=false，线上 Worker 未切换，D1 无待执行迁移。用户随后明确要求“先跳过这个包，继续发布”；据此扩展受检部署脚本，显式暂缓 musl、本次只发布其余三平台，校验并保留旧 0.6.0 musl 下载，同时在清单和下载页标注。不修改或重新编译已通过 CI 的二进制，不发送原生更新通知。新增旧包完整性、默认不得缺平台、部分发行不得通知和超限提前拒绝回归。
+
+用户询问 bzip2 可行性后，直接将该 CI 归档的 tar 字节流重压缩为 bzip2 level 9：gzip 26,631,892 字节（25.40 MiB），bzip2 24,927,644 字节（23.77 MiB），低于 26,214,400 字节上限，余量 1,286,756 字节（1.23 MiB）。对两种压缩包解压后的 tar 流计算 SHA-256，一致。仅为本地格式评估，未发布 bzip2 包；现有 native/src/update.cpp 固定 .tar.gz 文件名和 tar -xOzf，打包与部署 helper 也固定 gzip，改格式须先适配这些入口及旧客户端升级路径。当前继续执行已授权的 musl 暂缓方案。
+
+最终云端发布及验证完成：Worker version 84f23993-3ef8-4605-bd92-e3991d4000dc，应用制品仍来自六项全部成功的 df4caea / Actions 41458682983；部署 helper 为 f9c7864，其新增 14 项专项检查通过。网页、Worker、新 Ubuntu / Debian / Windows 包及源码均发布，旧 musl 0.6.0 保留，下载清单明确标注暂缓平台。健康、网页资源、手册、清单及五个下载归档重新校验通过；本机 Agent PID 3393555 仍 active，未重启或升级，无自动更新通知。[完整部署摘要](assets/cw-functional-2026-11-02/actions-deployment.json)，[bzip2 测量记录](assets/cw-functional-2026-11-02/musl-bzip2-measurement.json)。

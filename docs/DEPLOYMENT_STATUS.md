@@ -2,6 +2,16 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## CW 回归与三平台发布 · 2026-11-02（musl 暂缓）
+
+应用源码 df4caeacd2fd6d1878d7707ff73cda9f37d72c02 的 [Actions 41458682983](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41458682983) 六项必需作业全部成功，含普通 Worker / D1 的完整原生与 Chromium E2E、3 / 5 浏览器压力、UI 与缓存回归。使用同一运行的 CI 制品发布网页、Worker、Ubuntu 20.04、Debian 12 和 Windows x64 下载及源码归档；未使用本地编译二进制。
+
+首次完整发布因 musl 0.6.1 归档 25.40 MiB 超过单个静态资源 25 MiB 被拒绝，Worker 尚未切换。用户明确要求先跳过此包；部署 helper f9c7864 新增显式暂缓选项，14 项专项测试通过，重新校验其余平台 CI 摘要并保留已验证 musl 0.6.0。下载页与清单 deferredPlatforms 明确标注，不发送自动更新通知。该 helper 提交与应用制品的源提交分别记录，未将 helper 的本地检查冒充完整 CI。
+
+Worker version 84f23993-3ef8-4605-bd92-e3991d4000dc 已发布至 https://r.xlogic.cc，健康返回 0.6.1；网页、手册与清单字节一致，新三平台包、源码及保留的旧 musl 包重新下载后 SHA-256 全部匹配。沿用原 D1、配置和 Secret，无待执行迁移。本机 Agent 仍为 PID 3393555、active，未升级或重启。[制品与线上摘要证据](assets/cw-functional-2026-11-02/actions-deployment.json)；[完整测试和限制](CW_FUNCTIONAL_TEST_2026-11-02.md)。
+
+bzip2 本地重压缩评估为 23.77 MiB，解压后的 tar 内容与 CI gzip 包一致，未发布；现有更新器仍只支持 .tar.gz，需适配后才能用于升级。[测量数据](assets/cw-functional-2026-11-02/musl-bzip2-measurement.json)。
+
 截至本文件最后一次记录（2026-11-01），Worker / 网站及四平台原生下载均为 0.6.0；现场 Agent / CLI 仍需手动升级。以下是带日期的发布证据，不是运行实例的实时版本探测。
 
 ## 0.6.1 分阶段发布 · 2026-11-02（配套发行进行中）
