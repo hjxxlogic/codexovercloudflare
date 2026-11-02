@@ -34,13 +34,27 @@ void Store::history_budget_init(bool authoritative) {
       "INTEGER NOT NULL DEFAULT 0,records INTEGER NOT NULL DEFAULT 0)");
   run("CREATE TABLE IF NOT EXISTS transport2_history_entries(key TEXT PRIMARY KEY,session TEXT "
       "NOT NULL,bytes INTEGER NOT NULL)");
+  bool has_records = false;
+  for (const auto &column : query("PRAGMA table_info(transport2_history_entries)"))
+    has_records = has_records || column.at("name") == "records";
+  if (!has_records)
+    run("ALTER TABLE transport2_history_entries ADD COLUMN records INTEGER NOT NULL DEFAULT 1");
+  // Replace old trigger SQL in the enclosing schema transaction, including old
+  // positional INSERTs which would otherwise break after adding the column.
+  for (const auto &trigger : query("SELECT name FROM sqlite_master WHERE type='trigger' "
+                                   "AND name GLOB 'transport2_history_*'")) {
+    const auto name = trigger.at("name").get<std::string>();
+    if (name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
+      throw Error("STORAGE_ERROR", "Invalid history trigger identifier");
+    run("DROP TRIGGER " + name);
+  }
   run("CREATE TABLE IF NOT EXISTS transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1))");
   run("INSERT OR IGNORE INTO transport2_history_budget VALUES('@global',0,0)");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_charge AFTER INSERT ON "
       "transport2_history_entries BEGIN "
       "INSERT INTO transport2_history_budget(scope) SELECT NEW.session WHERE NOT EXISTS "
       "(SELECT 1 FROM transport2_history_budget WHERE scope=NEW.session); "
-      "UPDATE transport2_history_budget SET bytes=bytes+NEW.bytes,records=records+1 "
+      "UPDATE transport2_history_budget SET bytes=bytes+NEW.bytes,records=records+NEW.records "
       "WHERE scope IN('@global',NEW.session); END");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_resize AFTER UPDATE ON "
       "transport2_history_entries BEGIN "
@@ -49,32 +63,37 @@ void Store::history_budget_init(bool authoritative) {
       "UPDATE transport2_history_budget SET bytes=bytes "
       "+CASE WHEN scope IN('@global',NEW.session) THEN NEW.bytes ELSE 0 END "
       "-CASE WHEN scope IN('@global',OLD.session) THEN OLD.bytes ELSE 0 END,"
-      "records=records+CASE WHEN scope IN('@global',NEW.session) THEN 1 ELSE 0 END "
-      "-CASE WHEN scope IN('@global',OLD.session) THEN 1 ELSE 0 END "
+      "records=records+CASE WHEN scope IN('@global',NEW.session) THEN NEW.records ELSE 0 END "
+      "-CASE WHEN scope IN('@global',OLD.session) THEN OLD.records ELSE 0 END "
       "WHERE scope IN('@global',OLD.session,NEW.session); "
-      "DELETE FROM transport2_history_budget WHERE scope!='@global' AND records=0; END");
+      "DELETE FROM transport2_history_budget WHERE scope!='@global' AND records=0 AND bytes=0; "
+      "END");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_refund AFTER DELETE ON "
       "transport2_history_entries BEGIN "
-      "UPDATE transport2_history_budget SET bytes=bytes-OLD.bytes,records=records-1 "
+      "UPDATE transport2_history_budget SET bytes=bytes-OLD.bytes,records=records-OLD.records "
       "WHERE scope IN('@global',OLD.session); "
-      "DELETE FROM transport2_history_budget WHERE scope!='@global' AND records=0; END");
+      "DELETE FROM transport2_history_budget WHERE scope!='@global' AND records=0 AND bytes=0; "
+      "END");
   // Consume the promise before charging actual bytes, inside the caller's write
   // transaction. An UPSERT consumes only its growth, not its full size twice.
-  const auto consume = [](const std::string &amount) {
+  const auto consume = [](const std::string &amount, const std::string &records) {
     return "UPDATE transport2_history_entries SET bytes=MAX(0,bytes-(" + amount +
+           ")),records=MAX(0,records-(" + records +
            ")) WHERE key='reservation:'||NEW.session; "
            "DELETE FROM transport2_history_entries WHERE key='reservation:'||NEW.session "
-           "AND bytes=0; ";
+           "AND bytes=0 AND records=0; ";
   };
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_insert BEFORE INSERT ON "
       "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND NOT EXISTS "
       "(SELECT 1 FROM transport2_history_entries WHERE key=NEW.key) BEGIN " +
-      consume("NEW.bytes") + "END");
+      consume("NEW.bytes", "NEW.records") + "END");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_update BEFORE UPDATE ON "
       "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND "
-      "(NEW.bytes>OLD.bytes OR NEW.session!=OLD.session) BEGIN " +
+      "(NEW.bytes>OLD.bytes OR NEW.records>OLD.records OR NEW.session!=OLD.session) BEGIN " +
       consume(
-          "CASE WHEN NEW.session=OLD.session THEN MAX(0,NEW.bytes-OLD.bytes) ELSE NEW.bytes END") +
+          "CASE WHEN NEW.session=OLD.session THEN MAX(0,NEW.bytes-OLD.bytes) ELSE NEW.bytes END",
+          "CASE WHEN NEW.session=OLD.session THEN MAX(0,NEW.records-OLD.records) ELSE NEW.records "
+          "END") +
       "END");
   const std::string body_session = "COALESCE((SELECT session FROM history WHERE seq=$seq),"
                                    "(SELECT session FROM events WHERE seq=$seq),'@orphan')";
@@ -95,8 +114,8 @@ void Store::history_budget_init(bool authoritative) {
     const auto cost = resource.bytes + "+2048+6*length(CAST((" + key +
                       ") AS BLOB))+6*length(CAST((" + resource.session + ") AS BLOB))";
     const auto insert =
-        "INSERT INTO transport2_history_entries VALUES(" + columns(key, "NEW") + "," +
-        columns(resource.session, "NEW") + "," + columns(cost, "NEW") +
+        "INSERT INTO transport2_history_entries(key,session,bytes) VALUES(" + columns(key, "NEW") +
+        "," + columns(resource.session, "NEW") + "," + columns(cost, "NEW") +
         ") "
         "ON CONFLICT(key) DO UPDATE SET session=excluded.session,bytes=excluded.bytes; ";
     run("CREATE TRIGGER IF NOT EXISTS transport2_history_" + resource.table +
@@ -113,9 +132,9 @@ void Store::history_budget_init(bool authoritative) {
         "DELETE FROM transport2_history_entries WHERE key=" +
         columns(key, "OLD") + "; END");
     if (bootstrap)
-      run("INSERT OR IGNORE INTO transport2_history_entries SELECT " + columns(key, "t") + "," +
-          columns(resource.session, "t") + "," + columns(cost, "t") + " FROM " + resource.table +
-          " AS t");
+      run("INSERT OR IGNORE INTO transport2_history_entries(key,session,bytes) SELECT " +
+          columns(key, "t") + "," + columns(resource.session, "t") + "," + columns(cost, "t") +
+          " FROM " + resource.table + " AS t");
   }
   // Install limits after importing existing authoritative data: a large old
   // history remains readable and can shrink, but cannot acquire more capacity.
@@ -137,21 +156,26 @@ void Store::history_budget_init(bool authoritative) {
 }
 // Reservations share the authoritative history ledger and its SQL quota checks.
 // Their charged bytes include bookkeeping overhead; no second credit pool exists.
-void Store::history_reserve(const std::string &session, int64_t bytes) {
+void Store::history_reserve(const std::string &session, int64_t bytes, int64_t records) {
   if (session.empty() || session == "@global" || session.size() > 201 || bytes < 4096 ||
-      bytes > 9007199254740991LL)
+      bytes > 9007199254740991LL || records < 1 || records > 9007199254740991LL)
     throw Error("INVALID_REQUEST", "Invalid history reservation");
   run("SAVEPOINT history_reservation");
   try {
     const auto key = "reservation:" + session;
-    auto existing = query("SELECT bytes FROM transport2_history_entries WHERE key=?", {key});
+    auto existing =
+        query("SELECT bytes,records FROM transport2_history_entries WHERE key=?", {key});
     const auto previous = existing.empty() ? int64_t(0) : existing.at(0).at("bytes").get<int64_t>();
-    // Repeating an admission never shrinks a previously promised reservation.
-    if (bytes > previous) {
-      history_require_capacity(session, bytes - previous, existing.empty() ? 1 : 0);
-      run("INSERT INTO transport2_history_entries(key,session,bytes) VALUES(?,?,?) "
-          "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes",
-          {key, session, bytes});
+    const auto previous_records =
+        existing.empty() ? int64_t(0) : existing.at(0).at("records").get<int64_t>();
+    bytes = std::max(bytes, previous);
+    records = std::max(records, previous_records);
+    // Repeating admission cannot shrink either dimension of a promise.
+    if (bytes > previous || records > previous_records) {
+      history_require_capacity(session, bytes - previous, records - previous_records);
+      run("INSERT INTO transport2_history_entries(key,session,bytes,records) VALUES(?,?,?,?) "
+          "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes,records=excluded.records",
+          {key, session, bytes, records});
     }
     run("RELEASE history_reservation");
   } catch (...) {

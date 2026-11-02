@@ -60,7 +60,7 @@ public:
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
   Json history_budget();
-  void history_reserve(const std::string &session, int64_t bytes);
+  void history_reserve(const std::string &session, int64_t bytes, int64_t records = 1);
   void history_release(const std::string &session);
   void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);
   Json operation_begin(const Json &intent, const std::string &action, const Json &data);

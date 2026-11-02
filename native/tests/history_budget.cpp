@@ -180,6 +180,39 @@ void reservation_conversion() {
           "Retirement cannot refund body twice");
   }
 }
+void record_reservations() {
+  Temp temp;
+  const Json policy = {{"maxBytes", 65536},
+                       {"maxSessionBytes", 65536},
+                       {"maxRecords", 8},
+                       {"maxSessionRecords", 8},
+                       {"minFreeDiskBytes", 1}};
+  Json saved;
+  {
+    Store journal(temp.path, true, "", policy);
+    journal.save({{"id", "one"}, {"state", "closed"}});
+    journal.history_reserve("one", 40000, 8);
+    saved = journal.history_budget();
+    backpressure([&] { journal.history_reserve("two", 4096, 1); });
+    check(journal.history_budget() == saved, "Record promises prevent another session admission");
+    for (int n = 0; n < 4; ++n) {
+      journal.event("one", "record", "small");
+      check(journal.history_budget()["global"]["records"] == 8,
+            "Each event and projection consume promised record capacity");
+    }
+    saved = journal.history_budget();
+    backpressure([&] { journal.event("one", "record", "overflow"); });
+    check(journal.history_budget() == saved,
+          "Record overflow rolls back byte and record consumption");
+  }
+  {
+    Store journal(temp.path, true, "", policy);
+    check(journal.history_budget() == saved, "Record promises and consumption survive restart");
+    journal.history_release("one");
+    check(journal.history_budget()["global"]["records"] == 8,
+          "Refunding leftover bytes cannot refund already consumed records");
+  }
+}
 void accounting() {
   Temp temp;
   Json saved;
@@ -321,6 +354,7 @@ int main() {
     configurable_policy();
     durable_reservations();
     reservation_conversion();
+    record_reservations();
     accounting();
     capacity();
     namespaces();
