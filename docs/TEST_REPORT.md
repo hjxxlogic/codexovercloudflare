@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+持久来源关系批次：Agent 构建通过，历史预算专项 14.47 秒通过；最终来源/投影/持久化专项 2.13 秒通过，新增事务中途故障回滚、幂等与重启、来源重绑/跨会话拒绝、预留和额度隔离、模板正文去重、线性片段查找及 history UPDATE/REPLACE/DELETE 的计量退款。本机隔离副本注册 3367 条关系，逐条恢复并在重新打开 Store 后核对全部原引用；元数据额外计费约 10.80 MiB，正文未删除。[脱敏证据](assets/history-storage-2026-11-02/source-mapping.json) 明确测试来源标记不代表生产身份适配已完成。日志 `/tmp/coc-history-map-test.log`、`/tmp/coc-history-map-linear-test.log`，私有证据 `.local/history-implementation/source-map-{audit,reopen}-result.json`。未运行全量回归、模型任务或部署。
+
 投影与恢复差异批次：Agent 构建通过，历史预算专项 13.70 秒、来源/投影专项 1.89 秒通过；新增原字段形态、不可见元数据变化、旧正文前缀、UTF-8 字节片段、越界/错位、改写及 revision 冲突检查。本机旧库副本 4316 条候选通过真实 Codex API 逐条比较，3337 条规范化后正文精确匹配，2 条前缀及 28 条已登记片段通过恢复接口的原摘要验证；除开始态外 2769/2774 条可精确恢复，4 条源输出截短、1 条终态来源缺失继续保留必要快照。另 443 条项目不在当前配置，未跨项目探查。[脱敏证据](assets/history-storage-2026-11-02/recovery-comparison.json)。未删除正式正文，未启用缓存淘汰；没有全量回归或模型调用。日志 `/tmp/coc-history-recovery-final-test.log`、`/tmp/coc-history-recovery-revision-test.log`，私有比较结果 `.local/history-implementation/recovery-audit-final.json`。
 
 只读来源基础批次：Agent/专项目标构建通过，新增 `native-history-source` 的 18 个场景通过（1.81 秒），覆盖双重来源校验、身份/模式变化、缺失/重复条目及大小限制。本机 Codex 0.166.0 的 10 类已完成样本通过 C++ 入口在两个独立进程重读，完整条目摘要一致，无模型调用；[脱敏证据](assets/history-storage-2026-11-02/source-read.json)。这尚不证明旧修订、全部条目变体或淘汰安全。日志 `/tmp/coc-history-source-{build,test-final}.log`，私有样本证据在 `.local/history-implementation/source-probe-result.json`。 重建 `coc-tests` 后仅执行 `--external-refresh`，原有活跃外部会话超过 16 个新条目后仍能追踪旧条目终态的专项通过，日志 `/tmp/coc-history-source-refresh-test.log`。

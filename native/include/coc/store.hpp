@@ -64,6 +64,12 @@ public:
   Json history_hint(const Json &request);
   Json history_budget();
   Json history_compact();
+  Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
+                               const Json &entry);
+  Json history_source(const std::string &session, int64_t seq, const Json &origin);
+  std::string history_source_recover(const std::string &session, int64_t seq, const Json &origin,
+                                     const Json &entry);
+
   void history_reserve(const std::string &session, int64_t bytes, int64_t records = 1);
   void history_release(const std::string &session);
   void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);

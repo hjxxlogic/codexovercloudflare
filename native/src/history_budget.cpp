@@ -103,6 +103,8 @@ void Store::history_budget_init(bool authoritative) {
       {"chunks", "json_array($seq,$start)", body_session, "length(CAST($text AS BLOB))"},
       {"bodies", "json_array($seq)", body_session, "0"},
       {"streams", "json_array($session,$key)", "$session", "length(CAST($key AS BLOB))"},
+      {"transport2_history_sources", "json_array($seq)", "$session",
+       "length(CAST($value AS BLOB))"},
       {"external_items", "json_array($session,$turn,$item)", "$session",
        "length(CAST($fingerprint AS BLOB))+length(CAST($turn AS BLOB))+"
        "length(CAST($item AS BLOB))"}};
@@ -136,6 +138,16 @@ void Store::history_budget_init(bool authoritative) {
           columns(key, "t") + "," + columns(resource.session, "t") + "," + columns(cost, "t") +
           " FROM " + resource.table + " AS t");
   }
+  // A mapping belongs to one exact history revision. SQLite REPLACE does not
+  // always fire DELETE triggers, so invalidate on INSERT as well as UPDATE/DELETE.
+  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_insert AFTER INSERT ON history "
+      "BEGIN DELETE FROM transport2_history_sources WHERE seq=NEW.seq; END");
+  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_update AFTER UPDATE ON history "
+      "WHEN NEW.seq!=OLD.seq OR NEW.session!=OLD.session OR NEW.revision!=OLD.revision "
+      "OR NEW.value!=OLD.value BEGIN DELETE FROM transport2_history_sources "
+      "WHERE seq IN(OLD.seq,NEW.seq); END");
+  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_delete AFTER DELETE ON history "
+      "BEGIN DELETE FROM transport2_history_sources WHERE seq=OLD.seq; END");
   // Install limits after importing existing authoritative data: a large old
   // history remains readable and can shrink, but cannot acquire more capacity.
   run("DROP TRIGGER IF EXISTS transport2_history_capacity");

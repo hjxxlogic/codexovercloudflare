@@ -171,6 +171,8 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "KEY(session,key))");
     if (migrate)
       run("INSERT INTO history SELECT seq,session,value,MAX(0,seq) FROM events");
+    run("CREATE TABLE IF NOT EXISTS transport2_history_sources(seq INTEGER PRIMARY KEY,"
+        "session TEXT NOT NULL,revision INTEGER NOT NULL,value TEXT NOT NULL)");
     run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
         "TEXT NOT NULL,"
         "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");

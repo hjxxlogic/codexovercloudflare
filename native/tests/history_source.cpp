@@ -4,6 +4,214 @@
 #include <iostream>
 using namespace coc;
 namespace {
+template <class F> void rejects_source(F fn, const std::string &code) {
+  try {
+    fn();
+  } catch (const Error &error) {
+    if (error.code == code)
+      return;
+    throw std::runtime_error("Expected " + code + ", got " + error.code);
+  }
+  throw std::runtime_error("Expected " + code);
+}
+void durable_source_cases() {
+  const auto path = std::filesystem::temp_directory_path() / ("coc-source-map-" + uuid());
+  std::filesystem::create_directories(path);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{path};
+  const auto sql = [](const std::filesystem::path &dir, const std::string &statement) {
+    sqlite3 *db = nullptr;
+    if (sqlite3_open((dir / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
+      throw std::runtime_error("Open source fixture");
+    const int code = sqlite3_exec(db, statement.c_str(), nullptr, nullptr, nullptr);
+    sqlite3_close(db);
+    if (code != SQLITE_OK)
+      throw std::runtime_error("Source fixture SQL failed");
+  };
+  const Json origin = {{"environment", std::string(64, 'a')},
+                       {"projectPath", std::filesystem::canonical(path).u8string()}};
+  const std::string session = "host~source";
+  const Json entry = {{"turnId", "turn"},
+                      {"completedAtMs", 1},
+                      {"item",
+                       {{"id", "item"},
+                        {"type", "commandExecution"},
+                        {"aggregatedOutput", "before|原输出🙂|after"}}}};
+  int64_t seq = 0;
+  Json registered, budget;
+  {
+    Store store((path / "data").u8string());
+    store.save(
+        {{"id", session}, {"projectId", "project"}, {"threadId", "thread"}, {"state", "closed"}});
+    const auto event = store.event(session, "item/commandExecution/outputDelta",
+                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "原输出🙂"}});
+    seq = event.at("seq");
+    store.history_reserve(session, 65536, 16);
+    budget = store.history_budget();
+    rejects_source([&] { store.history_source_register(session, seq, origin, entry); },
+                   "BACKPRESSURE");
+    if (store.history_budget() != budget)
+      throw std::runtime_error("Source mapping consumed task promise");
+    store.history_release(session);
+    const auto before = store.history_budget();
+    sql(path / "data", "CREATE TRIGGER fail_source BEFORE UPDATE ON transport2_history_budget "
+                       "WHEN NEW.scope='@global' AND NEW.bytes>OLD.bytes "
+                       "BEGIN SELECT RAISE(ABORT,'injected source accounting failure'); END");
+    rejects_source([&] { store.history_source_register(session, seq, origin, entry); },
+                   "STORAGE_ERROR");
+    if (store.history_budget() != before || store.content(session, seq, 0).at("text") != "原输出🙂")
+      throw std::runtime_error("Failed registration changed body or budget");
+    rejects_source([&] { store.history_source(session, seq, origin); }, "CONTENT_UNAVAILABLE");
+    sql(path / "data", "DROP TRIGGER fail_source");
+    registered = store.history_source_register(session, seq, origin, entry);
+    budget = store.history_budget();
+    if (registered.at("offset") != 7 ||
+        registered.at("event").dump().find("原输出") != std::string::npos ||
+        budget.at("global").at("records").get<int64_t>() !=
+            before.at("global").at("records").get<int64_t>() + 1 ||
+        budget.at("global").at("bytes") <= before.at("global").at("bytes"))
+      throw std::runtime_error(
+          "Source mapping must retain only bounded charged metadata and byte offset");
+    if (store.history_source_register(session, seq, origin, entry) != registered ||
+        store.history_budget() != budget)
+      throw std::runtime_error("Repeated source registration is not idempotent");
+    auto changed = entry;
+    changed["item"]["aggregatedOutput"] = "different";
+    rejects_source([&] { store.history_source_register(session, seq, origin, changed); },
+                   "CONTENT_UNAVAILABLE");
+    changed = entry;
+    changed["completedAtMs"] = nullptr;
+    rejects_source([&] { store.history_source_register(session, seq, origin, changed); },
+                   "CONTENT_UNAVAILABLE");
+    changed = entry;
+    changed["item"]["status"] = "inProgress";
+    rejects_source([&] { store.history_source_register(session, seq, origin, changed); },
+                   "CONTENT_UNAVAILABLE");
+    changed = entry;
+    changed["turnId"] = "another";
+    rejects_source([&] { store.history_source_register(session, seq, origin, changed); },
+                   "CONTENT_UNAVAILABLE");
+    if (store.history_budget() != budget)
+      throw std::runtime_error("Rejected registration changed accounting");
+  }
+  {
+    Store store((path / "data").u8string());
+    if (store.history_source(session, seq, origin) != registered ||
+        store.history_budget() != budget ||
+        store.history_source_recover(session, seq, origin, entry) != "原输出🙂")
+      throw std::runtime_error("Restart lost verified source, body span or accounting");
+    auto other = origin;
+    other["environment"] = std::string(64, 'b');
+    rejects_source([&] { store.history_source(session, seq, other); }, "DELIVERY_STATE_MISMATCH");
+    rejects_source([&] { store.history_source_register(session, seq, other, entry); },
+                   "DELIVERY_STATE_MISMATCH");
+    auto state = store.get(session);
+    state["threadId"] = "different";
+    store.save(state);
+    rejects_source([&] { store.history_source(session, seq, origin); }, "DELIVERY_STATE_MISMATCH");
+    state["threadId"] = "thread";
+    store.save(state);
+    const auto next = store.event(session, "item/commandExecution/outputDelta",
+                                  {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "追加"}});
+    if (next.at("seq") != seq)
+      throw std::runtime_error("Fixture changed stable history identity");
+    rejects_source([&] { store.history_source(session, seq, origin); }, "CONTENT_UNAVAILABLE");
+    sql(path / "data", "CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
+                       "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
+                       "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
+                       "WHERE key GLOB 'transport2_history_sources:*'");
+  }
+  {
+    Store store((path / "external").u8string());
+    store.save({{"id", session},
+                {"projectId", "project"},
+                {"threadId", "thread"},
+                {"state", "closed"},
+                {"external", true}});
+    auto item = Json{{"id", "external"}, {"type", "agentMessage"}, {"text", "external body"}};
+    const auto event = store.external_item(session, "turn", item);
+    const Json external = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
+    store.history_source_register(session, event.at("seq"), origin, external);
+    if (store.history_source_recover(session, event.at("seq"), origin, external) != "external body")
+      throw std::runtime_error("External source projection failed");
+    item["text"] = "rewritten";
+    store.external_item(session, "turn", item);
+    rejects_source([&] { store.history_source(session, event.at("seq"), origin); },
+                   "CONTENT_UNAVAILABLE");
+    sql(path / "external",
+        "CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
+        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
+        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
+        "WHERE key GLOB 'transport2_history_sources:*'");
+  }
+  {
+    Store store((path / "envelope").u8string());
+    store.save(
+        {{"id", session}, {"projectId", "project"}, {"threadId", "thread"}, {"state", "closed"}});
+    const std::string diff = "unique-patch-body:" + std::string(20000, '+');
+    Json item = {{"id", "patch"},
+                 {"type", "fileChange"},
+                 {"status", "completed"},
+                 {"changes", Json::array({{{"path", "file"}, {"diff", diff}}})}};
+    const auto event = store.event(session, "item/completed", {{"turnId", "turn"}, {"item", item}});
+    item["startedAtMs"] = 1;
+    item["completedAtMs"] = 2;
+    const Json source_entry = {{"turnId", "turn"}, {"completedAtMs", 2}, {"item", item}};
+    const auto source =
+        store.history_source_register(session, event.at("seq"), origin, source_entry);
+    if (source.at("event").dump().find("unique-patch-body") != std::string::npos ||
+        !history_text_matches(
+            store.history_source_recover(session, event.at("seq"), origin, source_entry),
+            source.at("reference")))
+      throw std::runtime_error("Large envelope source mapping duplicated or changed original body");
+    const auto overlap =
+        store.event(session, "item/commandExecution/outputDelta",
+                    {{"turnId", "overlap"}, {"itemId", "overlap"}, {"delta", "ababaca"}});
+    const Json overlap_entry = {
+        {"turnId", "overlap"},
+        {"completedAtMs", 1},
+        {"item",
+         {{"id", "overlap"}, {"type", "commandExecution"}, {"aggregatedOutput", "ababababacazz"}}}};
+    if (store.history_source_register(session, overlap.at("seq"), origin, overlap_entry)
+                .at("offset") != 4 ||
+        store.history_source_recover(session, overlap.at("seq"), origin, overlap_entry) !=
+            "ababaca")
+      throw std::runtime_error("Repeated-prefix source span search is incorrect");
+    store.save({{"id", "host~other"}, {"projectId", "project"}, {"threadId", "thread"}});
+    rejects_source([&] { store.history_source("host~other", event.at("seq"), origin); },
+                   "CONTENT_UNAVAILABLE");
+    sql(path / "envelope",
+        "DELETE FROM history; CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
+        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
+        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
+        "WHERE key GLOB 'transport2_history_sources:*'");
+  }
+  Json usage;
+  {
+    Store store((path / "limited").u8string());
+    store.save(
+        {{"id", session}, {"projectId", "project"}, {"threadId", "thread"}, {"state", "closed"}});
+    const auto event = store.event(session, "item/commandExecution/outputDelta",
+                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "原输出🙂"}});
+    seq = event.at("seq");
+    usage = store.history_budget().at("global");
+  }
+  {
+    Store store((path / "limited").u8string(), true, "",
+                {{"maxBytes", usage.at("bytes")},
+                 {"maxSessionBytes", usage.at("bytes")},
+                 {"minFreeDiskBytes", 1}});
+    bool failed = false;
+    store.on_failure([&] { failed = true; });
+    rejects_source([&] { store.history_source_register(session, seq, origin, entry); },
+                   "BACKPRESSURE");
+    if (failed || store.history_budget().at("global") != usage)
+      throw std::runtime_error(
+          "Optional mapping capacity refusal caused storage failure or growth");
+  }
+}
 void projection_cases() {
   const auto path = std::filesystem::temp_directory_path() / ("coc-projection-" + uuid());
   struct Cleanup {
@@ -204,6 +412,7 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
 } // namespace
 int main() {
   try {
+    durable_source_cases();
     projection_cases();
     read_case("normal", "ok", 4096, "");
     read_case("foreign", "ok", 4096, "FORBIDDEN");
