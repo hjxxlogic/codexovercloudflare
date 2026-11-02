@@ -1015,6 +1015,9 @@ function App() {
   }, [events]);
   useEffect(() => {
     setReady(false);
+    setError((current) =>
+      current.startsWith('SESSION_CLOSED:') ? '' : current,
+    );
     setEvents([]);
     setHasOlder(false);
     setLoadingHistory(false);

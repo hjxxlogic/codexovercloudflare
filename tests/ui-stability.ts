@@ -2833,6 +2833,10 @@ try {
   ).toBeVisible();
   await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
   await gapContext.close();
+  availableProjects = [
+    { id: 'project', name: '示例项目', path: '/workspace/example' },
+    { id: 'other-project', name: '第二项目', path: '/workspace/other' },
+  ];
   const readerContext = await browser.newContext();
   let denyProjectWrite = true;
   await readerContext.routeWebSocket('**/ws/v1/web/**', (route) => {
@@ -2875,6 +2879,24 @@ try {
   await expect(
     reader.getByRole('button', { name: '发送', exact: true }),
   ).toBeEnabled({ timeout: 20000 });
+  await readerContext.route('**/api/v1/sessions/*/attach', (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        error: { code: 'SESSION_CLOSED', message: 'Session is not active' },
+      },
+    }),
+  );
+  await reader.reload();
+  await expect(reader.locator('.error')).toContainText('SESSION_CLOSED:');
+  await readerContext.unroute('**/api/v1/sessions/*/attach');
+  await openMenu(reader);
+  await reader.getByRole('button', { name: /^会话记录/ }).click();
+  await reader
+    .getByLabel('项目', { exact: true })
+    .selectOption('other-project');
+  await reader.getByRole('button', { name: /第二项目对话/ }).click();
+  await expect(reader.locator('body')).not.toContainText('SESSION_CLOSED:');
   await readerContext.close();
   assert.deepEqual(failures, []);
   console.log(
