@@ -1,6 +1,7 @@
 // Deterministic native wake checks with a local relay peer; no model calls.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,8 @@ let online = false,
   stopCalls = 0;
 const stopKeys: string[] = [];
 let agentUrl = '';
+const receipts = new Map<string, unknown>();
+const instance = 'wake-agent-storage';
 const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('X-CoC-Demand', '1');
@@ -50,16 +53,38 @@ const server = createServer(async (req, res) => {
     online = configured;
     reply({ state: configured ? 'requested' : 'unconfigured' });
   } else if (req.url === '/api/v1/hosts/host/probe') {
-    reply({ online, confirmedAt: Date.now() });
+    reply({ online, confirmedAt: Date.now(), deliveryInstance: instance });
   } else if (req.url === '/api/v1/hosts/host/projects') {
     assert(online);
     reply([{ id: 'project' }]);
+  } else if (req.url?.startsWith('/api/v1/hosts/host/operations/')) {
+    const id = req.url.split('/')[6];
+    if (req.method === 'POST') {
+      receipts.delete(id);
+      reply({ ok: true });
+    } else reply(receipts.get(id));
   } else if (req.url === '/api/v1/sessions/host~session/stop') {
-    stopKeys.push(String(req.headers['idempotency-key']));
-    if (++stopCalls === 1) {
+    const ack = req.headers['x-coc-operation-ack'] === '1';
+    const id = String(req.headers['idempotency-key']);
+    assert.equal(req.headers['x-coc-operation-instance'], instance);
+    if (!ack) stopKeys.push(id);
+    if (!ack && ++stopCalls === 1) {
       online = false;
       reply({ error: { code: 'HOST_OFFLINE', message: 'Offline' } }, 503);
-    } else reply({ ok: true });
+    } else {
+      const wire = 'delivery_' + randomUUID();
+      receipts.set(wire, {
+        state: 'completed',
+        result: ack ? { confirmed: true } : { ok: true },
+        intent: {
+          requestId: id,
+          instance,
+          owner: 'a'.repeat(64),
+          ...(ack ? { ack: true } : {}),
+        },
+      });
+      reply({ accepted: true, hostId: 'host', operationId: wire }, 202);
+    }
   } else reply({ error: { code: 'NOT_FOUND' } }, 404);
 });
 const wss = new WebSocketServer({ server });

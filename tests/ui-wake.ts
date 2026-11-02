@@ -142,6 +142,12 @@ try {
     .getByRole('tab', { name: '已授权设备', exact: true })
     .press('ArrowRight');
   await expect(
+    page.getByRole('tab', { name: 'Agent 运行版本', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await page
+    .getByRole('tab', { name: 'Agent 运行版本', exact: true })
+    .press('ArrowRight');
+  await expect(
     page.getByRole('tab', { name: '服务器唤醒配置', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   const settings = page

@@ -75,7 +75,7 @@ musl 工具链通过 Buildx `type=gha` 缓存 `Dockerfile.musl` 镜像层（scop
 | `npm run test:codex`                              | C++ 进程层连接真实 Codex，初始化只读线程，不提交模型任务。 |
 | `npm run test:native`                             | 原生 Codex TUI 经完整本机中继初始化，不提交模型任务。      |
 
-`test:e2e` 前构建 C++、网页并安装 Playwright Chromium。`test:native` 需要 Python 3、Docker、`coc-local-test` 镜像及宿主 `codex`；中转运行在 Linux host network 容器，C++ Agent / Codex 在宿主运行。旧 `--relay` 参数仍可传入，但不再切换到测试专用 bridge。
+`test:e2e` 前构建 C++、网页并安装 Playwright Chromium。`test:native` 需要 Linux、Python 3、可运行本地 workerd 的 Node.js 环境及宿主 `codex`；Wrangler、原生 Agent / CLI 与真实 Codex TUI 使用隔离目录在宿主运行，不要求 Docker socket 权限。测试 launcher 仅提供原生 CLI 创建的鉴权 loopback bridge 地址，真实 TUI 仍经过当前 C++ 可靠传输；不会直接发送旧版裸 RPC 到 Worker。旧系统不能运行 workerd 时，在下述 Bookworm 容器中运行整项测试。旧 `--relay` 参数仍可传入，但不再切换到测试专用 bridge。
 
 真实模型测试会使用已配置的模型服务：
 
@@ -343,7 +343,7 @@ ctest --test-dir build-windows -C Release --output-on-failure
 .\build-windows\Release\coc-client.exe --help
 ```
 
-Windows CTest 使用原生模拟 Codex 子进程，不调用模型；覆盖 UTF-8 配置、排他锁、SQLite 历史与去重、Windows 路径拒绝规则、分块传输/覆盖、参数引用、stdio RPC 和进程退出。符号链接测试仅在系统允许创建链接时执行。Linux 专用故障注入、Docker TUI 和真实 Codex 验收仍需按对应环境运行；Windows CI 不代替真实 Codex TUI、沙箱及长期压力验证。
+Windows CTest 使用原生模拟 Codex 子进程，不调用模型；覆盖 UTF-8 配置、排他锁、SQLite 历史与去重、Windows 路径拒绝规则、分块传输/覆盖、参数引用、stdio RPC 和进程退出。符号链接测试仅在系统允许创建链接时执行。Linux 专用故障注入、原生 TUI 和真实 Codex 验收仍需按对应环境运行；Windows CI 不代替真实 Codex TUI、沙箱及长期压力验证。
 
 CI 的 `windows-x64` 作业执行 MSVC Release 构建、CTest、启动检查和 ZIP 打包；不部署。Actions 分别缓存 vcpkg 已编译依赖及下载的工具/源码包，主程序编译失败也会保存缓存。缓存键包含依赖清单摘要；清单变化时尝试恢复旧缓存，由 vcpkg 按 ABI 校验后复用兼容包。缓存均位于忽略的 `.local/`，不包含凭据或运行状态；Agent / CLI 自身仍重新编译。正式包需在干净提交上生成：
 

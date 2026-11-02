@@ -4,7 +4,30 @@
 
 0.6.0 源码 `4b164c6` 已通过下述本机回归及全部必需 CI，云端与四平台下载包已发布。现场原生服务未自动更新；准确制品与线上验证见 [发布记录](DEPLOYMENT_STATUS.md)。
 
-## 历史优化阶段验证 · 2026-11-02（开发中）
+## 历史优化最终本机回归 · 2026-11-02
+
+本轮开发源码的本机无模型调用回归已完成，失败项修复并定向复测通过。下方早期记录按发生时间保留，不代表最终未完成状态；本结论不表示新源码已通过跨平台 CI 或部署到线上。
+
+| 检查范围                                     | 最终结果                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 全构建、类型、lint、C++ 格式、协议生成一致性 | 通过；最后 CLI/脚本修复后重跑类型及两类 lint                                                           |
+| 核心                                         | 9 项 CTest；28 个文件、449 项 Vitest 通过                                                              |
+| Sanitizers                                   | 9 项 CTest 全通过，271.50 秒；后续 reader 修复重新编译 sanitizer Agent                                 |
+| 原生集成                                     | TLS/Access、计费/长时重试、项目、交付、历史恢复/退休、操作、配置、运行时、唤醒全部通过                 |
+| 浏览器与 Worker                              | DO/D1 两套完整 E2E、真实 Chromium 缓存、计费、Access、项目、操作、上传、D1 迁移及整页 UI 通过          |
+| 真实 Codex                                   | 协议测试与 0.166.0 TUI initialize/thread/start 成功；未发送模型任务                                    |
+| 维护工具                                     | 登录、Agent/云部署、Access 工具、CI 包装、备份、发行及更新测试通过                                     |
+| 历史来源验收                                 | 新真实只读 Codex reader 恢复 1421/1421 原引用；真实 Agent 强杀重启、定时退休、引用过期及版本化缺口通过 |
+
+回归额外修复 CLI 可靠请求在 HOST_OFFLINE 后遗漏已配置唤醒：原请求及结果确认共用一次唤醒标志，继续使用落盘的原身份。`test:wake` 验证唤醒和重试身份，`native-cli-operations.ts` 复核落盘先于发送、丢失确认、重启恢复、实例隔离及不确定结果，均通过。网页唤醒测试按实际新增的 Agent 版本标签修正键盘次序，保留方向键导航断言。
+
+原生 TUI 旧脚本因 Docker socket 不可用失败；现复用本机 Wrangler，并让生产原生 CLI 创建可靠传输 bridge。测试 launcher 只导出隔离鉴权 loopback 地址供被观察的真实 TUI 连接，保留 initialize/thread/start 成功响应断言。Codex 新增的 command/exec、thread/turns/list 当前被拒绝；此次证明初始化成功，不证明全部可选 RPC 或模型任务兼容。
+
+日志清单 `.local/final-history-regression/`：core/browser/maintenance/sanitize 组及 native 已通过项；唤醒与 TUI 的最终复测分别见 wake-final.log、native-tui-final.log，另有 cli-operations-final.log、retention-final.log、typecheck-final.log、lint-final.log、lint-cpp-final.log。早期失败记录保留，不能仅依据 native.json 的旧失败记录判断最终结果。整页 UI 日志仍为 `/tmp/coc-history-ui-test.log`。
+
+线上仅按 ONLINE_BROWSER_TESTING 完成 Access/管理员认证及只读基线，生产仍是旧版本；新页面缺口显示及重载在本机真实 Chromium、合成接收端验证，真实 Agent 恢复另有专项证据。未修改正式用户库、启用生产退休或调用模型。长期压力、无样本类型、不可查未知请求退休与物理缩库按 HISTORY_STORAGE_OPTIMIZATION §12.4 延期。下一门禁为对应提交六项必需 GitHub Actions，之后才使用其制品发布及进行线上新版本验收。
+
+## 历史优化阶段记录 · 2026-11-02（按时间保留）
 
 索引退休前置条件：Agent 构建通过，历史预算专项最终 16.14 秒、来源专项 4.35 秒通过。新增归档负序分配器的旧布局迁移、两种归档入口、隔离夹具删除全部投影、写入故障回滚、空历史重启和安全整数下界拒绝；已提交身份不重用。新增 64 条记录配额下的持续恢复/淘汰，直到元数据准入背压，再重启核对所有已接纳引用与摘要；拒绝不改变旧历史或触发可重读导入的全局故障回调。日志 `/tmp/coc-archive-floor-{build,test,final-build,final-test}.log`。用户已确认允许已解除交付责任的旧引用明确过期并实现新快照/缺口协议，后续范围见优化方案第 12 节；当前没有自动投影删除、过期响应或新客户端恢复协议，未运行全量回归。
 

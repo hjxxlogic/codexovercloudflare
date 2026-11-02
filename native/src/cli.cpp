@@ -122,6 +122,7 @@ class Cli {
     const auto url = relay_url(credential.at("relay"));
     const auto token = credential.at("token").get<std::string>();
     const auto instance = record.at("instance").get<std::string>();
+    bool woke = false;
     std::cerr << "Original operation: " << request << "; recover with coc-client request "
               << request << '\n';
     for (unsigned attempt = 0; record.at("state") == "pending";
@@ -137,6 +138,11 @@ class Cli {
           break;
         if (!retry_original_operation(error.code))
           throw;
+        if (error.code == "HOST_OFFLINE" && !woke) {
+          woke = true;
+          wait_for_host(credential);
+          continue;
+        }
         const auto delay = recovery_delay(attempt);
         std::cerr << "Waiting to recover original operation " << request << " (" << error.code
                   << "); retry in " << delay << " ms\n";
@@ -168,6 +174,11 @@ class Cli {
             break;
           if (!retry_original_operation(error.code))
             throw;
+          if (error.code == "HOST_OFFLINE" && !woke) {
+            woke = true;
+            wait_for_host(credential);
+            continue;
+          }
           const auto delay = recovery_delay(attempt);
           std::cerr << "Original result saved locally; waiting to confirm " << request << " ("
                     << error.code << "); retry in " << delay << " ms\n";

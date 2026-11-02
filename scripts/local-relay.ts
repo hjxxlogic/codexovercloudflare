@@ -1,33 +1,23 @@
 import { resolveAsync } from '../tests/helpers/async-http.ts';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
+import { join, resolve, delimiter } from 'node:path';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { OriginalHttpRequests } from '../tests/helpers/original-http.ts';
 import { Agent } from '../tests/support/native-agent.ts';
 
-// Full relay smoke uses a local Bookworm container only for workerd. Agent and
-// Codex run on the host with the same configuration as normal usage.
+// Run the same local Wrangler as the end-to-end suite, with isolated state.
 export async function localRelay(dir: string) {
   const server = createServer();
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as any).port;
   await new Promise<void>((r) => server.close(() => r()));
   const origin = `http://127.0.0.1:${port}`,
-    secret = randomBytes(32).toString('hex'),
-    name = 'coc-native-smoke-' + process.pid;
+    secret = randomBytes(32).toString('hex');
   const child = spawn(
-    'docker',
+    process.execPath,
     [
-      'run',
-      '--rm',
-      '--init',
-      '--name',
-      name,
-      '--network',
-      'host',
-      '-v',
-      process.cwd() + ':/workspace',
-      'coc-local-test',
-      'node',
       'node_modules/wrangler/bin/wrangler.js',
       'dev',
       '--ip',
@@ -35,7 +25,7 @@ export async function localRelay(dir: string) {
       '--port',
       String(port),
       '--persist-to',
-      '/tmp/state',
+      join(dir, 'worker'),
       '--var',
       'OWNER_SECRET:' + secret,
       '--var',
@@ -46,23 +36,31 @@ export async function localRelay(dir: string) {
   let logs = '',
     agent: Agent | undefined,
     token = '';
+  let cli: ChildProcess | undefined;
   child.stdout.on('data', (d) => (logs += d));
   child.stderr.on('data', (d) => (logs += d));
   const close = async () => {
+    if (cli?.pid && cli.exitCode === null && cli.signalCode === null) {
+      const exited = new Promise<void>((done) =>
+        cli!.once('exit', () => done()),
+      );
+      process.kill(-cli.pid, 'SIGTERM');
+      await exited;
+    }
     if (agent && !agent.stopped) await agent.close();
-    try {
-      execFileSync('docker', ['stop', '--time', '2', name], {
-        stdio: 'ignore',
-      });
-    } catch {
-      /* Container already stopped. */
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise<void>((resolve) =>
+        child.once('exit', () => resolve()),
+      );
+      child.kill('SIGTERM');
+      await exited;
     }
   };
   try {
     const end = Date.now() + 45000;
     let ready = false;
     while (Date.now() < end) {
-      if (child.exitCode !== null) throw new Error('Relay container exited');
+      if (child.exitCode !== null) throw new Error('Local relay exited');
       try {
         ready = (
           await fetch(origin + '/api/v1/healthz', {
@@ -76,6 +74,7 @@ export async function localRelay(dir: string) {
       await new Promise((r) => setTimeout(r, 100));
     }
     if (!ready) throw new Error('Relay startup timed out');
+    const originals = new OriginalHttpRequests();
     const api = async (path: string, data?: unknown): Promise<any> => {
       const headers = {
         Origin: origin,
@@ -83,7 +82,10 @@ export async function localRelay(dir: string) {
         Authorization: 'Bearer ' + token,
         'Idempotency-Key': crypto.randomUUID(),
         'X-CoC-Async': '1',
+        'X-CoC-Delivery': '2',
+        'X-CoC-Demand': '1',
       };
+      await originals.prepare(path, data, headers, (probe) => api(probe, {}));
       const response = await fetch(origin + '/api/v1' + path, {
         method: data === undefined ? 'GET' : 'POST',
         headers,
@@ -128,16 +130,66 @@ export async function localRelay(dir: string) {
       await new Promise((r) => setTimeout(r, 100));
     }
     const session = await api('/sessions', {
-        hostId: device.hostId,
-        projectId: 'smoke',
-        mode: 'cli',
+      hostId: device.hostId,
+      projectId: 'smoke',
+      mode: 'cli',
+    });
+    // Let the production C++ client own delivery, persistence and the bridge.
+    // A temporary launcher exposes its loopback endpoint to the observed real TUI.
+    const bin = join(dir, 'bin'),
+      endpointFile = join(dir, 'bridge.json');
+    mkdirSync(bin);
+    const version = execFileSync('codex', ['--version'], {
+      encoding: 'utf8',
+    }).trim();
+    writeFileSync(
+      join(bin, 'codex'),
+      `#!${process.execPath}
+import {writeFileSync} from 'node:fs';
+if(process.argv.includes('--version')) { console.log(${JSON.stringify(version)}); }
+else {
+ writeFileSync(${JSON.stringify(endpointFile)},JSON.stringify({endpoint:process.argv[process.argv.indexOf('--remote')+1],ticket:process.env.COC_REMOTE_TICKET}),{mode:0o600});
+ setInterval(()=>{},1000);
+}
+`,
+      { mode: 0o700 },
+    );
+    const config = join(dir, 'client.json');
+    writeFileSync(
+      config,
+      JSON.stringify({
+        version: 2,
+        autoUpdate: false,
+        selected: origin + '~' + device.hostId,
+        entries: [
+          { relay: origin, hostId: device.hostId, token, name: 'native-smoke' },
+        ],
       }),
-      ticket = await api(`/sessions/${session.id}/attach`, {});
-    return {
-      endpoint: origin.replace('http', 'ws') + '/ws/v1/cli/' + session.id,
-      ticket: ticket.ticket,
-      close,
-    };
+      { mode: 0o600 },
+    );
+    cli = spawn(
+      resolve(process.env.COC_CLI_BINARY || 'build/coc-client'),
+      ['attach', session.id, '--config', config, '--proxy', ''],
+      {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PATH: bin + delimiter + process.env.PATH,
+          COC_HISTORY_DIR: join(dir, 'client-history'),
+        },
+      },
+    );
+    cli.stdout!.on('data', (d) => (logs += d));
+    cli.stderr!.on('data', (d) => (logs += d));
+    const bridgeDeadline = Date.now() + 15000;
+    while (!existsSync(endpointFile)) {
+      if (cli.exitCode !== null || Date.now() > bridgeDeadline)
+        throw new Error('Native bridge did not start');
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    const bridge = JSON.parse(readFileSync(endpointFile, 'utf8'));
+    return { endpoint: bridge.endpoint, ticket: bridge.ticket, close };
   } catch (e) {
     console.error(logs.replaceAll(secret, '[test-secret]'));
     await close();

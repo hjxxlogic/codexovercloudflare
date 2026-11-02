@@ -31,7 +31,7 @@ Use two-space indentation. C++ uses snake_case functions, PascalCase classes, RA
 
 ## Testing Guidelines
 
-Cover authentication, isolation, approvals, deduplication, process exit, and reconnects. CTest verifies native behavior; `*.test.ts` uses Vitest. `test:e2e` starts native binaries, Wrangler, simulated Codex, and Chromium. `test:codex` and `test:native` use real Codex without model calls; `test:task` and `test:native -- --task` call the model. TUI tests require the Docker image. No coverage percentage is mandated.
+Cover authentication, isolation, approvals, deduplication, process exit, and reconnects. CTest verifies native behavior; `*.test.ts` uses Vitest. `test:e2e` starts native binaries, Wrangler, simulated Codex, and Chromium. `test:codex` and `test:native` use real Codex without model calls; `test:task` and `test:native -- --task` call the model. TUI tests require Linux, Python 3, real Codex and a working local workerd; older hosts can run the suite inside the Docker image. No coverage percentage is mandated.
 
 ## CI Builds and Deployment
 

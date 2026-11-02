@@ -4,6 +4,10 @@
 
 本手册面向 0.6.0；云端及四平台下载包已于 2026-11-01 发布，现场 Agent / CLI 需要手动升级。准确源码、CI 和线上验证见发布记录，下载包发布不代表运行实例已更新。
 
+## 开发中：CLI 离线唤醒恢复
+
+可靠操作及结果确认遇到 HOST_OFFLINE 时，CLI 每次恢复流程最多触发一次已配置的主机唤醒，并继续使用已落盘的原 requestId、实例及请求正文。唤醒不会创建替代业务请求；没有唤醒配置时仍明确报错，原请求可随后通过 `coc-client request <requestId>` 恢复。此修复尚未发布。
+
 ## 开发中：Agent 历史配额
 
 以下配置已加入当前开发源码，尚未发布；不代表线上 0.6.0 已支持。`agent.json` 的 `historyStorage` 可设置 `maxBytes`（默认 268435456）、`maxSessionBytes`（67108864）、`maxRecords`（250000）、`maxSessionRecords`（64000）、`maxSessions`（1024）和 `minFreeDiskBytes`（536870912）。字节额度按历史记账计算，不能当作 SQLite 文件大小；各值须为正安全整数，单会话额度不能超过全局额度，未知字段会拒绝。
