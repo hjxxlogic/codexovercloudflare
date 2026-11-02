@@ -52,6 +52,90 @@ describe('web reply assembly', () => {
       ]),
     ).toHaveLength(1);
   });
+  it('keeps late output separate from a referenced tool body', () => {
+    const completed: Event = {
+      seq: 10,
+      revision: 12,
+      contentSeq: 10,
+      time: 1,
+      type: 'item/completed',
+      data: {
+        item: { id: 'tool', type: 'commandExecution', aggregatedOutput: '' },
+      },
+    };
+    const tail: Event = {
+      seq: 13,
+      time: 2,
+      type: 'item/commandExecution/outputDelta',
+      data: { itemId: 'tool', delta: 'late tail' },
+    };
+    expect(visibleEvents([completed, tail])).toEqual([completed, tail]);
+  });
+
+  it.each(['item/agentMessage/delta', 'item/commandExecution/outputDelta'])(
+    'does not merge %s fragments across a reference segment',
+    (type) => {
+      const first = { ...delta(1, 'prefix'), type };
+      const middle = { ...delta(2, ''), type, contentSeq: 2, revision: 3 };
+      const last = { ...delta(4, 'suffix'), type };
+      expect(visibleEvents([first, middle, last])).toEqual([
+        first,
+        middle,
+        last,
+      ]);
+    },
+  );
+
+  it('keeps anonymous legacy fragments separate from a reference', () => {
+    const reference: Event = {
+      seq: 1,
+      time: 1,
+      type: 'item/agentMessage/delta',
+      contentSeq: 1,
+      data: { delta: '' },
+    };
+    const tail: Event = {
+      seq: 2,
+      time: 2,
+      type: 'item/agentMessage/delta',
+      data: { delta: 'tail' },
+    };
+    expect(visibleEvents([reference, tail])).toEqual([reference, tail]);
+  });
+
+  it('does not append output after a reference segment to an earlier inline tool', () => {
+    const started: Event = {
+      seq: 1,
+      time: 1,
+      type: 'item/started',
+      data: {
+        item: {
+          id: 'tool',
+          type: 'commandExecution',
+          aggregatedOutput: 'prefix',
+        },
+      },
+    };
+    const middle: Event = {
+      seq: 2,
+      time: 2,
+      contentSeq: 2,
+      type: 'item/commandExecution/outputDelta',
+      data: { itemId: 'tool', delta: '' },
+    };
+    const tail: Event = {
+      seq: 3,
+      time: 3,
+      type: 'item/commandExecution/outputDelta',
+      data: { itemId: 'tool', delta: 'suffix' },
+    };
+    expect(visibleEvents([started, middle, tail])).toEqual([
+      started,
+      middle,
+      tail,
+    ]);
+  });
+
   it('restores a scrambled stream by sequence without mutating stored events', () => {
     const fragments = [
       'Hi',

@@ -98,12 +98,19 @@ export function visibleEvents(events: Event[]) {
       if (data.item?.id) tools.set(data.item.id, result.length);
     }
     if (event.contentSeq !== undefined) {
+      // A reference is an immutable segment, not an inline prefix. Later
+      // fragments must not merge across it or disappear behind its body.
+      fragments.delete(
+        `${event.type}:${data.turnId || ''}:${data.itemId || ''}`,
+      );
+      if (event.type.endsWith('/outputDelta') && data.itemId)
+        tools.delete(data.itemId);
       result.push(event);
       continue;
     }
     if (event.type.endsWith('/outputDelta')) {
       const index = data.itemId ? tools.get(data.itemId) : undefined;
-      if (index !== undefined) {
+      if (index !== undefined && result[index].contentSeq === undefined) {
         const previous = result[index];
         const item = (previous.data as any).item;
         result[index] = {
@@ -123,7 +130,8 @@ export function visibleEvents(events: Event[]) {
       const key = `${event.type}:${data.turnId || ''}:${data.itemId || ''}`;
       const index = data.itemId
         ? fragments.get(key)
-        : result.at(-1)?.type === event.type
+        : result.at(-1)?.type === event.type &&
+            result.at(-1)?.contentSeq === undefined
           ? result.length - 1
           : undefined;
       if (index !== undefined) {
