@@ -23,7 +23,7 @@ import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
-import { chromium, type Page } from '@playwright/test';
+import { chromium, expect, type Page } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
 import { SharedApprovals } from './fixtures/shared-approvals.ts';
 
@@ -291,15 +291,24 @@ async function focusedChat(page: Page) {
       height: innerHeight,
       width: innerWidth,
       chatHeight: chat.height,
+      toolbarHeight:
+        document.querySelector('.workbench-toolbar')?.getBoundingClientRect()
+          .height || 0,
       messageHeight: messages.height,
       composerBottom: composer.bottom,
       scrollWidth: document.documentElement.scrollWidth,
       scrollHeight: document.documentElement.scrollHeight,
     };
   });
-  assert(geometry.chatHeight > geometry.height * 0.85);
+  assert(
+    geometry.chatHeight + geometry.toolbarHeight > geometry.height * 0.85,
+    JSON.stringify(geometry),
+  );
   assert.equal(await page.locator('.workspace-context').isVisible(), true);
-  assert(geometry.messageHeight > geometry.height * 0.65);
+  assert(
+    geometry.messageHeight + geometry.toolbarHeight > geometry.height * 0.65,
+    JSON.stringify(geometry),
+  );
   assert(geometry.composerBottom <= geometry.height);
   assert(geometry.scrollWidth <= geometry.width);
   assert(geometry.scrollHeight <= geometry.height);
@@ -667,6 +676,7 @@ try {
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
     sandbox: 'workspace-write',
+    terminal: { enabled: process.env.COC_TEST_TERMINAL === '1' },
     externalSessions: {
       allowQueue: true,
       allowApprovals: true,
@@ -2233,6 +2243,68 @@ try {
     .getByText('echo: hello 你好，世界！', { exact: true })
     .waitFor();
   await idle(visitorPage);
+  if (process.env.COC_TEST_TERMINAL === '1') {
+    await visitorPage
+      .getByLabel('工作台工具栏')
+      .getByRole('button', { name: 'Terminal', exact: true })
+      .click();
+    const terminal = visitorPage.getByLabel('Terminal', { exact: true });
+    await expect(
+      terminal.getByRole('button', { name: '打开终端' }),
+    ).toBeEnabled();
+    visitorPage.once('dialog', (dialog) => void dialog.accept());
+    await terminal.getByRole('button', { name: '打开终端' }).click();
+    await expect(terminal.getByRole('heading')).toContainText('已连接', {
+      timeout: 15000,
+    });
+    await terminal.locator('.xterm-helper-textarea').focus();
+    await visitorPage.keyboard.type("printf 'BROWSER_%s\\n' TERMINAL_OK");
+    await visitorPage.keyboard.press('Enter');
+    await expect(terminal.locator('.xterm-rows')).toContainText(
+      'BROWSER_TERMINAL_OK',
+      { timeout: 15000 },
+    );
+    await visitorPage.screenshot({
+      path: join(artifacts, 'interactive-terminal.png'),
+    });
+    const terminalLayout = await visitorPage.evaluate(() => ({
+      terminalTop: document
+        .querySelector('.interactive-terminal')!
+        .getBoundingClientRect().top,
+      composerBottom: document
+        .querySelector('.composer')!
+        .getBoundingClientRect().bottom,
+    }));
+    assert(
+      terminalLayout.terminalTop >= terminalLayout.composerBottom,
+      JSON.stringify(terminalLayout),
+    );
+    const terminalViewport = visitorPage.viewportSize()!;
+    await visitorPage.setViewportSize({ width: 390, height: 480 });
+    await expect(
+      terminal.getByRole('button', { name: '终止终端' }),
+    ).toBeVisible();
+    assert(
+      await visitorPage.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight,
+      ),
+    );
+    await visitorPage.screenshot({
+      path: join(artifacts, 'interactive-terminal-mobile.png'),
+    });
+    await visitorPage.setViewportSize(terminalViewport);
+    visitorPage.once('dialog', (dialog) => void dialog.accept());
+    await terminal.getByRole('button', { name: '终止终端' }).click();
+    await expect(
+      terminal.getByRole('button', { name: '打开终端' }),
+    ).toBeEnabled();
+    await terminal.getByRole('button', { name: '收起' }).click();
+    pass(
+      'Chromium to Worker to native sandboxed PTY input/output and explicit close',
+    );
+  }
   const browserSession = await sessionId(visitorPage);
   let stallSessionChannels = false;
   let controlConnections = 0;

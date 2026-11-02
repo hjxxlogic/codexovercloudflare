@@ -4,6 +4,14 @@
 
 先完成工具链和本机构建，再按改动范围选择专项回归。本文列出复现方法；测试是否实际通过，以注明源码和环境的测试报告为准。
 
+## CW 工作台专项验证
+
+`npm run test:markdown` 使用真实 Chromium 验证共享格式化、公式、图表沙箱、危险内容和移动宽度；`npm run test:ui` 覆盖工作台布局、文件预览与旧会话/审批流程。截图保存在 ignored `.local/` 下。
+
+Linux PTY 运行测试需要系统安装 `bubblewrap`、Bash、util-linux (`prlimit`)，且允许相关 namespace。`npm run build:native` 后，`ctest --test-dir build -R native-terminal --output-on-failure` 检查真实 Shell；未安装 bubblewrap / 非 Linux 返回 skip，测试环境有隔离工具但启动失败会报错，不绕过隔离。`npm run test:terminal` 通过实际 Agent 校验控制证明、可靠创建、输入去重与项目互斥，不调用模型；`npm run test:terminal:e2e` 在普通 E2E 中额外启用真实 Chromium → Worker → Agent → PTY。D1 使用 `COC_TEST_TERMINAL=1 npm run test:e2e:d1`。不要在原生集成测试运行中重新链接同一 build 目录中的二进制。
+
+CI regression 安装 bubblewrap 并运行这些专项；Windows / musl 构建保留默认关闭能力。所有平台的编译和 CI 仍须通过后才可发布；本机测试不能替代发行验证。
+
 ## 快速导航
 
 [目录与工具](#1-目录与工具) · [常用命令](#2-常用命令) · [Ubuntu 20.04](#3-ubuntu-2004-容器方案) · [风格与迁移](#4-风格配置与迁移) · [部署准备](#5-部署准备) · [可靠传输回归](#可靠传输专项回归)

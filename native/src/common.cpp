@@ -363,6 +363,11 @@ Json agent_config(Json c) {
     c["accessEmails"] = access_emails(c["accessEmails"]);
   if (c.contains("adminEmail") && c["adminEmail"] != "")
     c["adminEmail"] = access_emails(Json::array({c["adminEmail"]})).at(0);
+  const auto terminal = c.value("terminal", Json::object());
+  if (!terminal.is_object() || !terminal.value("enabled", Json(false)).is_boolean() ||
+      terminal.size() > (terminal.contains("enabled") ? 1 : 0))
+    throw Error("CONFIG_ERROR", "terminal only accepts a boolean enabled field");
+  c["terminal"] = {{"enabled", terminal.value("enabled", false)}};
   auto external = c.value("externalSessions", Json::object());
   if (!external.is_object() || !external.value("allowQueue", Json(false)).is_boolean() ||
       !external.value("allowApprovals", Json(false)).is_boolean())

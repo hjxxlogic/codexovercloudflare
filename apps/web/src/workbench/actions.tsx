@@ -1,0 +1,118 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Event } from '../../../../packages/protocol/src/index.ts';
+import { eventText, eventTitle, type ContentChunk } from '../conversation.tsx';
+import { visibleEvents } from '../events.ts';
+import { saveFile } from '../download.ts';
+import { t } from '../i18n.ts';
+export function WorkbenchActions({
+  scope,
+  events,
+  chunks,
+  actions,
+}: {
+  scope: string;
+  events: Event[];
+  chunks: Record<number, ContentChunk>;
+  actions: { label: string; run: () => void }[];
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [shortcut, setShortcut] = useState(() => {
+    try {
+      return localStorage.getItem('coc-workbench-shortcut') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('coc-workbench-shortcut', String(shortcut));
+    } catch {
+      /* Optional preference. */
+    }
+    if (!shortcut) return;
+    const key = (event: KeyboardEvent) => {
+      if (
+        event.isComposing ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            '.interactive-terminal, input, textarea, [contenteditable]',
+          ))
+      )
+        return;
+      if (event.ctrlKey && event.altKey && event.code === 'KeyK') {
+        event.preventDefault();
+        dialog.current?.showModal();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [shortcut]);
+  useEffect(() => {
+    dialog.current?.close();
+  }, [scope]);
+  function exportLoaded() {
+    const content = visibleEvents(events)
+      .map((event) => {
+        const chunk = chunks[event.contentSeq ?? -1];
+        const body =
+          event.contentSeq === undefined
+            ? eventText(event)
+            : chunk?.revision === (event.revision ?? 0)
+              ? chunk.text
+              : t('正文尚未加载');
+        return `## ${eventTitle(event)}\n\n${body}`;
+      })
+      .join('\n\n');
+    saveFile(
+      new Blob([`${t('仅包含已加载消息，可能不完整。')}\n\n${content}`], {
+        type: 'text/markdown;charset=utf-8',
+      }),
+      'loaded-conversation.md',
+    );
+  }
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        onClick={() => dialog.current?.showModal()}
+      >
+        {t('快捷操作')}
+      </button>
+      <button type="button" onClick={exportLoaded}>
+        {t('导出已加载对话')}
+      </button>
+      <label>
+        <input
+          type="checkbox"
+          checked={shortcut}
+          onChange={(event) => setShortcut(event.target.checked)}
+        />
+        {t('启用 Ctrl+Alt+K 快捷操作')}
+      </label>
+      <dialog
+        className="workbench-actions"
+        ref={dialog}
+        aria-label={t('快捷操作')}
+      >
+        <h2>{t('快捷操作')}</h2>
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={() => {
+              dialog.current?.close();
+              action.run();
+            }}
+          >
+            {action.label}
+          </button>
+        ))}
+        <button type="button" onClick={() => dialog.current?.close()}>
+          {t('关闭')}
+        </button>
+      </dialog>
+    </>
+  );
+}

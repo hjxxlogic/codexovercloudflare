@@ -1,3 +1,4 @@
+import { PreviewContext } from './workbench/context.ts';
 import { t } from './i18n.ts';
 import {
   createContext,
@@ -182,6 +183,7 @@ export function FileResource({
   children: ReactNode;
   disabled?: boolean;
 }) {
+  const openPreview = useContext(PreviewContext);
   const type = fileType(path);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -225,6 +227,17 @@ export function FileResource({
         onClick={(event) => {
           if (disabled || busy) {
             event.preventDefault();
+            return;
+          }
+          if (
+            text &&
+            openPreview &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey
+          ) {
+            event.preventDefault();
+            openPreview(path);
             return;
           }
           if (text) return;

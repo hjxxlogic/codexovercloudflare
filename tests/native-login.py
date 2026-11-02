@@ -80,6 +80,7 @@ class LoginRecovery(unittest.TestCase):
                         'projects': [{'id': 'test', 'name': 'Test', 'path': tmp}],
                         'sandbox': 'read-only', 'codexPath': 'custom-codex',
                         'codexUseProxy': True,
+                        'terminal': {'enabled': True},
                         'wakeUrl': 'http://127.0.0.1:9',
                         'accessEmails': ['User@EXAMPLE.com'],
                         'externalSessions': {'allowQueue': True},
@@ -111,7 +112,7 @@ class LoginRecovery(unittest.TestCase):
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
-                            'displayName', 'proxy', 'accessEmails', 'codexUseProxy', 'historyStorage',
+                            'displayName', 'proxy', 'accessEmails', 'codexUseProxy', 'historyStorage', 'terminal',
                         })
                         self.assertEqual(saved['historyStorage']['retainedRecords'], 0)
                         self.assertLessEqual(saved['historyStorage']['maxSessionBytes'], saved['historyStorage']['maxBytes'])
@@ -121,6 +122,7 @@ class LoginRecovery(unittest.TestCase):
                         })
                         self.assertEqual(saved['accessEmails'], ['User@example.com'] if scenario == 'custom' else [])
                         self.assertEqual(saved['codexUseProxy'], scenario == 'custom')
+                        self.assertEqual(saved['terminal'], {'enabled': scenario == 'custom'})
                         self.assertEqual(saved['autoUpdate'], {
                             'enabled': scenario != 'custom' and os.name != 'nt',
                             'intervalHours': 24 if scenario == 'custom' else 1, 'platform': '',

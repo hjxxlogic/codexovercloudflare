@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MarkdownRenderer } from './markdown/renderer.tsx';
 import { api, setEmailAccount } from './api.ts';
 import { readFile, saveFile } from './download.ts';
 import { fileType } from './file-types.ts';
@@ -63,23 +62,7 @@ export function FilePreview() {
         <p role="status">{t('正在读取…')}</p>
       ) : fileType(path).kind === 'markdown' ? (
         <article className="markdown file-preview-document">
-          <Markdown
-            remarkPlugins={[remarkGfm]}
-            skipHtml
-            components={{
-              a: ({ href, children }) =>
-                href && /^(https?:|mailto:)/i.test(href) ? (
-                  <a href={href} target="_blank" rel="noopener noreferrer">
-                    {children}
-                  </a>
-                ) : (
-                  <span>{children}</span>
-                ),
-              img: ({ alt }) => <span>{alt}</span>,
-            }}
-          >
-            {text}
-          </Markdown>
+          <MarkdownRenderer text={text} />
         </article>
       ) : (
         <pre className="file-preview-text">{text}</pre>

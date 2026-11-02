@@ -18,6 +18,10 @@ try {
     ],
     { stdio: 'inherit' },
   );
+  cpSync(
+    'node_modules/mermaid/dist/mermaid.min.js',
+    'dist/web/diagram-engine.js',
+  );
 } finally {
   if (existsSync(backup)) cpSync(backup, downloads, { recursive: true });
   rmSync(temporary, { recursive: true });
