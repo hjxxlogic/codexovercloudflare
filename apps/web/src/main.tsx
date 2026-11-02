@@ -1110,7 +1110,11 @@ function App() {
       if (e.type === 'sessionClosed') {
         setApprovals([]);
         setReady(false);
-        setStatus('会话已结束');
+        setStatus(
+          d.error?.incomplete
+            ? '历史容量不足，任务已停止；部分输出未保存。'
+            : '会话已结束',
+        );
         setSelected((current) =>
           current?.id === selected.id
             ? { ...current, state: d.state, running: false }

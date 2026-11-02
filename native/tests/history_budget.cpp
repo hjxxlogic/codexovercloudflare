@@ -235,6 +235,13 @@ void scoped_queue_reservations() {
     Store store(temp.path);
     store.save({{"id", session}, {"running", false}});
     store.history_reserve(session, 65536, 16);
+    const auto ordinary = store.history_budget().at("global");
+    store.history_reserve(session, 16384, 8, "runtime-terminal");
+    check(store.history_budget().at("global").at("bytes").get<int64_t>() ==
+                  ordinary.at("bytes").get<int64_t>() + 16384 &&
+              store.history_budget().at("global").at("records").get<int64_t>() ==
+                  ordinary.at("records").get<int64_t>() + 8,
+          "Terminal capacity is independently charged and cannot consume ordinary headroom");
     store.history_reserve(session, 65536, 16, "first");
     store.history_reserve(session, 65536, 16, "second");
     const auto all = store.history_budget();
@@ -320,7 +327,7 @@ void atomic_turn_admission() {
     failed = false;
     try {
       store.history_turn_admit(
-          session, {{"expectedTurnId", "active-turn"}, {"text", std::string(20000, 'x')}},
+          session, {{"expectedTurnId", "active-turn"}, {"text", std::string(260000, 'x')}},
           {{"text", "steer"}}, nullptr, false);
     } catch (const Error &) {
       failed = true;

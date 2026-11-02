@@ -2112,6 +2112,49 @@ public:
               {{"code", -32601}, {"message", "External reader does not handle approvals"}}}});
       return;
     }
+    const bool completed_active_turn =
+        method == "turn/completed" && s.contains("turnId") &&
+        m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==
+            s.at("turnId").get<std::string>();
+    // A late terminal notification cannot retire another task, expose it to
+    // idle maintenance, or tell clients that the active turn has finished.
+    if (method == "turn/completed" && !completed_active_turn)
+      return;
+    if (s.contains("historyError"))
+      return;
+    if (s.value("running", false) || method == "turn/started") {
+      int64_t bytes = 4 * static_cast<int64_t>(redact(m).dump().size()) + 32768;
+      int64_t records = 8;
+      const auto identity_bytes = [](const Json &data) {
+        int64_t bytes = 0;
+        for (const auto *key : {"turnId", "itemId"})
+          if (data.contains(key) && data.at(key).is_string())
+            bytes += static_cast<int64_t>(data.at(key).get_ref<const std::string &>().size());
+        return bytes * 8;
+      };
+      bytes += identity_bytes(m.value("params", Json::object()));
+      for (const auto &entry : buffered_events_)
+        if (entry.at("session") == id) {
+          bytes += 4 * static_cast<int64_t>(entry.dump().size()) + 32768 +
+                   identity_bytes(entry.at("data"));
+          records += 8;
+        }
+      try {
+        store_.history_reserve_output(id, bytes, records);
+      } catch (const Error &error) {
+        if (error.code != "BACKPRESSURE")
+          throw;
+        // No source-side pause contract is assumed. Preserve all admitted
+        // buffered output and stop only this producer before accepting more.
+        s["historyError"] = {
+            {"code", "BACKPRESSURE"},
+            {"message", "History capacity exhausted; task stopped. Some output was not saved."},
+            {"incomplete", true}};
+        store_.save(s);
+        rt->process->close();
+        return;
+      }
+    }
     if (method == "turn/started") {
       s["running"] = true;
       s["turnId"] = m.at("params").at("turn").at("id");
@@ -2129,14 +2172,6 @@ public:
                                [](Json, Json) {});
       }
     }
-    const bool completed_active_turn =
-        method == "turn/completed" && s.contains("turnId") &&
-        m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==
-            s.at("turnId").get<std::string>();
-    // A late terminal notification cannot retire another task, expose it to
-    // idle maintenance, or tell clients that the active turn has finished.
-    if (method == "turn/completed" && !completed_active_turn)
-      return;
     if (completed_active_turn) {
       s["running"] = false;
       s.erase("turnId");
@@ -2529,7 +2564,13 @@ public:
       }
     }
     store_.delivery_retire_session(id);
-    emit(id, "sessionClosed", {{"state", s["state"]}});
+    flush_events();
+    Json closed = {{"state", s["state"]}};
+    if (s.contains("historyError")) {
+      closed["error"] = s.at("historyError");
+      closed["message"] = s.at("historyError").at("message");
+    }
+    publish(id, store_.history_runtime_close(id, closed));
     auto rt = runtimes_.at(id);
     rt->commands.clear();
     rt->approvals.clear();

@@ -36,6 +36,8 @@
     "maxRecords": 250000,
     "maxSessionRecords": 64000,
     "maxSessions": 1024,
+    "writeWindowBytes": 1048576,
+    "writeWindowRecords": 256,
     "minFreeDiskBytes": 536870912
   }
 }

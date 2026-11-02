@@ -134,6 +134,18 @@ export const historyStorageSchema = z
     cacheTargetPercent: z.number().int().min(1).max(100).default(80),
     readPageMaxBytes: z.number().int().min(1).max(1048576).default(1048576),
     readConcurrency: z.number().int().min(1).max(4).default(2),
+    writeWindowBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
+    writeWindowRecords: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
     maxBytes: z
       .number()
       .int()
@@ -183,6 +195,10 @@ export const historyStorageSchema = z
       value.cacheMaxBytes ?? Math.min(67108864, value.maxBytes);
     return {
       ...value,
+      writeWindowBytes:
+        value.writeWindowBytes ?? Math.min(1048576, value.maxSessionBytes),
+      writeWindowRecords:
+        value.writeWindowRecords ?? Math.min(256, value.maxSessionRecords),
       cacheMaxBytes,
       cacheMaxSessionBytes:
         value.cacheMaxSessionBytes ??
@@ -195,6 +211,12 @@ export const historyStorageSchema = z
       value.cacheMaxSessionBytes <= value.maxSessionBytes &&
       value.cacheMaxSessionBytes <= value.cacheMaxBytes,
     'Invalid history cache limits',
+  )
+  .refine(
+    (value) =>
+      value.writeWindowBytes <= value.maxSessionBytes &&
+      value.writeWindowRecords <= value.maxSessionRecords,
+    'History write window exceeds session limits',
   );
 export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),
@@ -260,6 +282,13 @@ export const sessionSchema = z.object({
   externalStatus: z.enum(['active', 'idle', 'unknown']).optional(),
   turnId: z.string().max(200).optional(),
   activeTask: commandTargetSchema.optional(),
+  historyError: z
+    .object({
+      code: z.literal('BACKPRESSURE'),
+      message: z.string().max(1000),
+      incomplete: z.literal(true),
+    })
+    .optional(),
   sandbox: z.enum(['read-only', 'workspace-write']).optional(),
   running: z.boolean(),
   createdAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),

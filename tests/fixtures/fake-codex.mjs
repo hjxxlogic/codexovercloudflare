@@ -243,6 +243,29 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         params: { ...first.params, command: 'Changed unresolved request' },
       });
   }
+  if (
+    m.method === 'model/list' &&
+    m.params?.cursor === 'history-window-overflow'
+  ) {
+    for (let n = 0; n < 8; n++)
+      send({
+        method: 'item/agentMessage/delta',
+        params: {
+          turnId: 'turn-' + turn,
+          itemId: 'window-output',
+          delta: 'saved-prefix',
+        },
+      });
+    send({
+      method: 'item/agentMessage/delta',
+      params: {
+        turnId: 'turn-' + turn,
+        itemId: 'window-output',
+        delta: 'x'.repeat(600000),
+      },
+    });
+    return;
+  }
   if (m.method === 'model/list' && m.params?.cursor === 'runtime-budget-hold') {
     budgetHeld.push(m);
     return;

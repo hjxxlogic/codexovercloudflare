@@ -139,5 +139,34 @@
       "cacheTargetPercent": 101
     },
     "valid": false
+  },
+  {
+    "name": "bounded output windows",
+    "input": {
+      "writeWindowBytes": 65536,
+      "writeWindowRecords": 32
+    },
+    "valid": true
+  },
+  {
+    "name": "zero output window",
+    "input": {
+      "writeWindowBytes": 0
+    },
+    "valid": false
+  },
+  {
+    "name": "output window exceeds session bytes",
+    "input": {
+      "writeWindowBytes": 67108865
+    },
+    "valid": false
+  },
+  {
+    "name": "output window exceeds session records",
+    "input": {
+      "writeWindowRecords": 64001
+    },
+    "valid": false
   }
 ]

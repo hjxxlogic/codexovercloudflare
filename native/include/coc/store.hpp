@@ -34,6 +34,8 @@ private:
   void cache_uncharge(const std::string &physical_key);
   void history_budget_init(bool authoritative);
   Json history_inline_text(const std::string &session, int64_t seq);
+  Json history_reserved_event(const std::string &session, const std::string &owner,
+                              const std::string &type, const Json &data);
   std::string operation_key(const Json &intent);
   void local_operation_save(const std::string &request, const Json &record);
   std::map<std::string, sqlite3_stmt *> statements_;
@@ -87,6 +89,8 @@ public:
                        const std::string &owner = "");
   void history_release(const std::string &session, const std::string &owner = "");
   Json history_queue_accept(const std::string &session, const std::string &owner, const Json &data);
+  Json history_runtime_close(const std::string &session, const Json &data);
+  void history_reserve_output(const std::string &session, int64_t bytes, int64_t records);
   void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);
   Json operation_begin(const Json &intent, const std::string &action, const Json &data);
   void operation_session(const std::string &key, const Json &session);

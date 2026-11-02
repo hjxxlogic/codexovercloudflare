@@ -90,6 +90,7 @@ void Store::operation_session(const std::string &key, const Json &session) {
     if (!rows.at(0).at("result").is_null())
       throw Error("IDEMPOTENCY_CONFLICT", "Original operation already allocated a session");
     const auto id = session.at("id").get<std::string>();
+    history_reserve(id, 16 * 1024, 8, "runtime-terminal");
     history_reserve(id, 64 * 1024, 16);
     const Json recovery = {
         {"error",

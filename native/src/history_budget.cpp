@@ -6,6 +6,8 @@ namespace {
 std::string reservation_key(const std::string &session, const std::string &owner) {
   if (owner.size() > 128)
     throw Error("INVALID_REQUEST", "Invalid history reservation owner");
+  if (owner == "runtime-terminal")
+    return "control-reservation:" + session;
   return "reservation:" + (owner.empty() ? session : Json::array({session, owner}).dump());
 }
 struct HistoryResource {
@@ -91,11 +93,13 @@ void Store::history_budget_init(bool authoritative) {
            "AND bytes=0 AND records=0; ";
   };
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_insert BEFORE INSERT ON "
-      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND NOT EXISTS "
+      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND NEW.key NOT GLOB "
+      "'control-reservation:*' AND NOT EXISTS "
       "(SELECT 1 FROM transport2_history_entries WHERE key=NEW.key) BEGIN " +
       consume("NEW.bytes", "NEW.records") + "END");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_update BEFORE UPDATE ON "
-      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND "
+      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND NEW.key NOT GLOB "
+      "'control-reservation:*' AND "
       "(NEW.bytes>OLD.bytes OR NEW.records>OLD.records OR NEW.session!=OLD.session) BEGIN " +
       consume(
           "CASE WHEN NEW.session=OLD.session THEN MAX(0,NEW.bytes-OLD.bytes) ELSE NEW.bytes END",
@@ -282,7 +286,8 @@ Json Store::history_turn_admit(const std::string &session, const Json &input, co
       throw Error("TARGET_NOT_FOUND", "Steering must name the original active turn");
     // Admission, task identity and user history either all commit or all roll
     // back. The caller may publish and send to Codex only after this returns.
-    history_reserve(session, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 64);
+    history_reserve(session, 16 * 1024, 8, "runtime-terminal");
+    history_reserve_output(session, 16 * 1024 + static_cast<int64_t>(encoded) * 4, 16);
     if (start) {
       state["running"] = true;
       state.erase("turnId");
@@ -337,20 +342,52 @@ void Store::history_release(const std::string &session, const std::string &owner
   run("DELETE FROM transport2_history_entries WHERE key=? AND session=?",
       {reservation_key(session, owner), session});
 }
+void Store::history_reserve_output(const std::string &session, int64_t bytes, int64_t records) {
+  if (bytes < 4096 || bytes > 9007199254740991LL || records < 1 || records > 9007199254740991LL)
+    throw Error("INVALID_REQUEST", "Invalid history output window demand");
+  const auto target = [](int64_t needed, int64_t window, int64_t limit) {
+    const auto rounded = ((needed - 1) / window + 1) * window;
+    return std::max(needed, std::min(rounded, limit));
+  };
+  const auto next_bytes =
+      target(bytes, history_policy_.at("writeWindowBytes"), history_policy_.at("maxSessionBytes"));
+  const auto next_records = target(records, history_policy_.at("writeWindowRecords"),
+                                   history_policy_.at("maxSessionRecords"));
+  try {
+    history_reserve(session, next_bytes, next_records);
+  } catch (const Error &error) {
+    if (error.code != "BACKPRESSURE")
+      throw;
+    // Prefetching a whole window is optional. Honor already admitted output
+    // and use the exact bounded demand when the remaining global slack is small.
+    history_reserve(session, bytes, records);
+  }
+}
+Json Store::history_runtime_close(const std::string &session, const Json &data) {
+  if (query("SELECT key FROM transport2_history_entries WHERE key=?",
+            {reservation_key(session, "runtime-terminal")})
+          .empty())
+    return event(session, "sessionClosed", data);
+  return history_reserved_event(session, "runtime-terminal", "sessionClosed", data);
+}
 Json Store::history_queue_accept(const std::string &session, const std::string &owner,
                                  const Json &data) {
+  return history_reserved_event(session, owner, "queueAccepted", data);
+}
+Json Store::history_reserved_event(const std::string &session, const std::string &owner,
+                                   const std::string &type, const Json &data) {
   if (owner.empty())
-    throw Error("INVALID_REQUEST", "Queued history requires its original reservation owner");
+    throw Error("INVALID_REQUEST", "History receipt requires its original reservation owner");
   run("BEGIN IMMEDIATE");
   try {
     if (query("SELECT key FROM transport2_history_entries WHERE key=? AND session=?",
               {reservation_key(session, owner), session})
             .empty())
-      throw Error("DELIVERY_STATE_MISMATCH", "Queued history reservation is missing");
+      throw Error("DELIVERY_STATE_MISMATCH", "History receipt reservation is missing");
     const auto normal = query("SELECT bytes,records FROM transport2_history_entries WHERE key=?",
                               {reservation_key(session, "")});
     history_release(session, owner);
-    auto result = event(session, "queueAccepted", data);
+    auto result = event(session, type, data);
     // Ordinary event accounting consumes the session's turn reservation. This
     // receipt spends only its own promise; restore any unrelated turn headroom
     // before committing, with the same global quota triggers still enforced.

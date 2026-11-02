@@ -122,8 +122,8 @@ void session_recovery() {
           "Remove receipt failure");
     sqlite3_close(fault);
     journal.operation_session(key, session);
-    check(journal.history_budget()["global"]["bytes"] == 64 * 1024 &&
-              journal.history_budget()["global"]["records"] == 16,
+    check(journal.history_budget()["global"]["bytes"] == 80 * 1024 &&
+              journal.history_budget()["global"]["records"] == 24,
           "Original session allocation commits initial capacity before external initialization");
     auto pending = journal.operation_begin(request, "create", input);
     check(pending.at("state") == "started" && !pending.contains("result"),
@@ -142,7 +142,7 @@ void session_recovery() {
           "Original request recovers the session identity across the initialization crash gap");
     check(journal.get("host~allocated").at("state") == "failed",
           "Recovering the identity does not claim that its runtime survived restart");
-    check(journal.history_budget()["global"]["bytes"] == 64 * 1024,
+    check(journal.history_budget()["global"]["bytes"] == 80 * 1024,
           "Unknown creation retains unconsumed capacity across restart");
     journal.operation_ack(request, "create", input);
     rejects([&] { journal.operation_begin(request, "create", input); }, "RESULT_UNAVAILABLE");
@@ -164,8 +164,9 @@ void creation_capacity_completion() {
         "Wrong completion cannot release another session promise");
   journal.operation_finish(key, {{"data", {{"id", "host~success"}, {"state", "ready"}}}});
   const auto actual = journal.history_budget()["global"];
-  check(actual["bytes"] > 0 && actual["bytes"] < 64 * 1024 && actual["records"] == 2,
-        "Successful initialization releases only unused capacity with durable completion");
+  check(actual["bytes"] > 0 && actual["bytes"] < 64 * 1024 && actual["records"] == 10,
+        "Initialization releases unused task capacity and retains the protected runtime terminal "
+        "slot");
   journal.operation_finish(key, {{"data", {{"id", "host~success"}, {"state", "ready"}}}});
   check(journal.history_budget()["global"] == actual, "Duplicate completion cannot refund history");
 }

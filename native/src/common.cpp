@@ -296,7 +296,8 @@ Json history_storage_config(Json value) {
                    {"maxSessions", 1024},         {"minFreeDiskBytes", 536870912},
                    {"readPageMaxBytes", 1048576}, {"readConcurrency", 2},
                    {"cacheMaxBytes", 67108864},   {"cacheMaxSessionBytes", 16777216},
-                   {"cacheTargetPercent", 80}};
+                   {"cacheTargetPercent", 80},    {"writeWindowBytes", 1048576},
+                   {"writeWindowRecords", 256}};
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "historyStorage must be an object");
   for (auto it = value.begin(); it != value.end(); ++it) {
@@ -307,6 +308,15 @@ Json history_storage_config(Json value) {
       throw Error("CONFIG_ERROR", "Invalid historyStorage field: " + it.key());
     defaults[it.key()] = it.value();
   }
+  if (!value.contains("writeWindowBytes"))
+    defaults["writeWindowBytes"] =
+        std::min(int64_t(1048576), defaults.at("maxSessionBytes").get<int64_t>());
+  if (!value.contains("writeWindowRecords"))
+    defaults["writeWindowRecords"] =
+        std::min(int64_t(256), defaults.at("maxSessionRecords").get<int64_t>());
+  if (defaults["writeWindowBytes"] > defaults["maxSessionBytes"] ||
+      defaults["writeWindowRecords"] > defaults["maxSessionRecords"])
+    throw Error("CONFIG_ERROR", "History write window exceeds session limits");
   if (!value.contains("cacheMaxBytes"))
     defaults["cacheMaxBytes"] = std::min(int64_t(67108864), defaults.at("maxBytes").get<int64_t>());
   if (!value.contains("cacheMaxSessionBytes"))

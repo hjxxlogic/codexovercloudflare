@@ -2,7 +2,13 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -10,6 +16,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { operationWrite } from '../packages/protocol/src/index.ts';
 import { WebSocketServer, type WebSocket } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-delivery-'));
+mkdirSync(join(root, 'window'));
+const projectRoot = join(root, 'project');
+mkdirSync(projectRoot);
 const frames: any[] = [];
 let peer: WebSocket | undefined;
 let child: ChildProcess | undefined;
@@ -59,7 +68,10 @@ writeFileSync(
     dataDir: join(root, 'state'),
     autoUpdate: false,
     externalSessions: { allowQueue: true },
-    projects: [{ id: 'project', name: 'Project', path: root }],
+    projects: [
+      { id: 'project', name: 'Project', path: projectRoot },
+      { id: 'window', name: 'Window test', path: join(root, 'window') },
+    ],
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
   }),
@@ -1466,7 +1478,8 @@ try {
     threadId: 'external-history',
   });
   const queueRecords = () =>
-    JSON.parse(readFileSync(join(root, '.fake-external.json'), 'utf8')).queue;
+    JSON.parse(readFileSync(join(projectRoot, '.fake-external.json'), 'utf8'))
+      .queue;
   const queuePromises = () =>
     database!
       .prepare(
@@ -1618,6 +1631,112 @@ try {
     'ready',
     'Safe queue refusal keeps the Agent available',
   );
+  const windowSession = await control('create', {
+    key: 'create-output-window',
+    projectId: 'window',
+    mode: 'web',
+  });
+  await control('attach', {
+    sessionId: windowSession.id,
+    epoch: 1,
+    expires: Date.now() + 15000,
+  });
+  await open(windowSession.id, 'web', 'window-normal');
+  mutation(windowSession.id, 'window-normal', 'normal', 1, 0, {
+    action: 'prompt',
+    requestId: 'window-task',
+    text: 'hold output window',
+  });
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === windowSession.id &&
+        frame.payload?.event?.type === 'turn/started',
+    ),
+  );
+  const windowUsage = database
+    .prepare('SELECT bytes FROM transport2_history_budget WHERE scope=?')
+    .get(windowSession.id)!;
+  const windowFill =
+    'reservation:' + JSON.stringify([windowSession.id, 'test-output-full']);
+  database
+    .prepare(
+      'INSERT INTO transport2_history_entries(key,session,bytes,records) VALUES(?,?,?,1)',
+    )
+    .run(
+      windowFill,
+      windowSession.id,
+      64 * 1024 * 1024 - Number(windowUsage.bytes),
+    );
+  send({
+    type: 'web',
+    sessionId: windowSession.id,
+    epoch: 1,
+    payload: {
+      action: 'models',
+      requestId: 'window-output-trigger',
+      cursor: 'history-window-overflow',
+    },
+  });
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === windowSession.id &&
+        frame.payload?.event?.type === 'sessionClosed',
+    ),
+  );
+  const stoppedWindow = await control('snapshot', {
+    sessionId: windowSession.id,
+    mode: 'web',
+  });
+  assert.equal(stoppedWindow.session.state, 'failed');
+  assert.equal(stoppedWindow.session.historyError.code, 'BACKPRESSURE');
+  assert.equal(stoppedWindow.session.historyError.incomplete, true);
+  const admittedOutput = stoppedWindow.history.events.find(
+    (event: any) => event.type === 'item/agentMessage/delta',
+  );
+  assert.equal(
+    admittedOutput.data.delta,
+    'saved-prefix'.repeat(8),
+    'Every admitted buffered delta survives output-window refusal',
+  );
+  assert(
+    stoppedWindow.history.events.some(
+      (event: any) =>
+        event.type === 'sessionClosed' && event.data.error?.incomplete,
+    ),
+    'Protected terminal history explicitly records the incomplete output',
+  );
+  assert.equal(
+    database
+      .prepare(
+        'SELECT COUNT(*) AS n FROM transport2_history_entries WHERE key=?',
+      )
+      .get('control-reservation:' + windowSession.id)?.n,
+    0,
+    'Runtime exit converts its protected terminal capacity exactly once',
+  );
+  assert(
+    Number(
+      database
+        .prepare('SELECT bytes FROM transport2_history_entries WHERE key=?')
+        .get('reservation:' + windowSession.id)?.bytes,
+    ) > 0,
+    'Unknown task output responsibility retains its remaining ordinary promise',
+  );
+  database
+    .prepare('DELETE FROM transport2_history_entries WHERE key=?')
+    .run(windowFill);
+  assert.equal(
+    (await control('get', { sessionId: external.id })).state,
+    'ready',
+    'History capacity stops only the affected runtime',
+  );
+  assert.equal(
+    child.exitCode,
+    null,
+    'History capacity refusal does not terminate the Agent',
+  );
   const stoppedAgent = child;
   const exitedAgent = new Promise((resolve) =>
     stoppedAgent.once('close', resolve),
@@ -1664,8 +1783,18 @@ try {
     3,
     'Restarted original-result query cannot execute the queue again',
   );
+  const recoveredWindow = await control('snapshot', {
+    sessionId: windowSession.id,
+    mode: 'web',
+  });
+  assert.equal(recoveredWindow.session.historyError.incomplete, true);
+  assert.deepEqual(
+    recoveredWindow.history.events,
+    stoppedWindow.history.events,
+    'Restart preserves the admitted output and explicit incomplete-history evidence',
+  );
   console.log(
-    'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery, end-to-end history tail recovery and isolated external queue promises',
+    'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery, end-to-end history tail recovery isolated external queue promises and bounded history output windows',
   );
 } finally {
   database?.close();
