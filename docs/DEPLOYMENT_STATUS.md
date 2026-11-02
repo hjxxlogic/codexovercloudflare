@@ -4,6 +4,16 @@
 
 截至本文件最后一次记录（2026-11-01），Worker / 网站及四平台原生下载均为 0.6.0；现场 Agent / CLI 仍需手动升级。以下是带日期的发布证据，不是运行实例的实时版本探测。
 
+## 0.6.1 分阶段发布 · 2026-11-02（配套发行进行中）
+
+按用户明确要求，先发布源码 `66e5fdb` 的 Worker / 网页，再等待修复后的完整 CI 发布配套原生包。[Actions 41417410092](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092) 的 regression、sanitizers、三套 Linux 成功，Windows 历史来源测试夹具失败，不能描述为六项全绿。使用部署脚本严格 cloud-only 例外，禁止新原生下载及更新通知；原生下载仍为已验证 0.6.0。
+
+首阶段 Worker 版本 `abec596d-269b-4658-a44e-9663176bfc41` 已接收 100% 流量，健康返回 0.6.1，首页、JS/CSS、手册及下载清单逐字节核验通过。既有归档 SHA256 重新核验后保留；沿用原 D1、变量、Secret 和 Cron，无待执行迁移。私有 D1 备份完整性通过，不包含活动 DO。真实无界面邮箱身份和管理员只读接口在发布后均验证 200。[首阶段制品、CI、部署和认证证据](assets/release-0.6.1-2026-11-02/stage-one.json)。
+
+用户随后明确要求启动本机新版：当前用户 systemd Agent 已使用该提交的 musl CI 制品升级到 0.6.1，核验 GitHub artifact、包及二进制摘要，使用既有部署 helper 备份、替换并观察 120 秒，网站确认在线。此为明确授权的 Linux 本机测试，不代表四平台发行全部通过；其他用户 Agent 未操作。原程序、配置和 SQLite 私有备份保留。因本机代理超时，使用 runtime systemd drop-in 直连，不修改配置中的代理。旧历史约 270.2 MiB、最大会话约 67.1 MiB 超出默认配额；确认无活动任务后将本机 JSON maxBytes/maxSessionBytes 调整为 512/128 MiB 并重启，retainedRecords 未启用，未删除历史或重放请求。临时连接覆盖重启机器后失效，正式代理修复另行处理。
+
+Windows 的规范路径和 node.exe 两处测试夹具已修复，缓存键改为按工具链及运行刷新；当前以 `9a4f889` 的新 CI 作为完整发行门禁。首阶段和本机测试不替代它，后续完成后追加最终证据。
+
 ## 0.6.0 协议简化发布 · 2026-11-01
 
 源码 `4b164c62fe93581903d5ead53d367c4675a74360` 在 27 组本地发布回归全部通过后推送。[Actions 41314704820](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41314704820) 的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功；分支 publish-release 正常跳过。此前两次失败运行没有用于发布。

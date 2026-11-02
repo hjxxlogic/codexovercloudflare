@@ -1,0 +1,106 @@
+{
+  "commit": "66e5fdbe735540f8cfe36d895f65a761a837ace2",
+  "deploymentToolCommit": "41594c358ff0c74119734d248db350eeb7c39b69",
+  "cloudOnlyAfterWindowsFailure": true,
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13129871970,
+      "digest": "sha256:4e96111a45c05c2475f41ad48aeb382ca9d08b6d3738dd953f673f5b8ac48e64"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13130096318,
+      "digest": "sha256:914a0140e47b053139119f7005769c856e9d8715106675abfef0d6616add32a9"
+    }
+  ],
+  "sourceDigest": "4fe3ec3b185a2c22fe196c4afb569796b42ec0399d61f2f4f90781e67d7e6db4",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.6.0",
+    "commit": "4b164c62fe93581903d5ead53d367c4675a74360",
+    "sourceDigest": "aba6d32edc08bba9c41e5fc6064a3128672294692f10a0be95fdf80eb6a9d761",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.0-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.0-linux-x86_64-musl.tar.gz",
+      "coc-0.6.0-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.0-windows-x64.zip",
+      "codex-over-cloudflare-0.6.0-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "applied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.1",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "jobs": [
+    {
+      "name": "windows-x64",
+      "conclusion": "failure",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522421"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522711"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522767"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522834"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522885"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125184522911"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41417410092/job/125196810353"
+    }
+  ],
+  "deployment": {
+    "id": "26aa7b83-53f3-418e-a017-c5e83d8e15ec",
+    "created_on": "2026-11-02T09:41:12.156175Z",
+    "versions": [
+      {
+        "version_id": "abec596d-269b-4658-a44e-9663176bfc41",
+        "percentage": 100
+      }
+    ]
+  },
+  "backup": {
+    "createdAt": "2026-11-02T09:04:01.865315+00:00",
+    "sha256": "094d7082aaec8d605eda97c5fa605df7195fc84340ac6e83ea18269d7149708e",
+    "bytes": 76243,
+    "integrity": "ok",
+    "scope": "D1 directory and archived host state only; active DO state is not included"
+  },
+  "browser": {
+    "time": "2026-11-02T09:42:58.909Z",
+    "emailIdentityVerified": true,
+    "accessStatus": 200,
+    "adminStatus": 200,
+    "businessStorageCopied": false
+  }
+}
