@@ -149,6 +149,37 @@ void durable_reservations() {
     journal.history_reserve("two", 20000);
   }
 }
+void reservation_conversion() {
+  Temp temp;
+  Json checkpoint;
+  const Json policy = {{"maxBytes", 65536}, {"maxSessionBytes", 65536}, {"minFreeDiskBytes", 1}};
+  {
+    Store journal(temp.path, true, "", policy);
+    journal.save({{"id", "one"}, {"state", "closed"}});
+    journal.history_reserve("one", 60000);
+    const auto start = journal.history_budget();
+    journal.event("one", "item/agentMessage/delta", {{"itemId", "a"}, {"delta", "你好"}});
+    journal.event("one", "item/agentMessage/delta", {{"itemId", "a"}, {"delta", " world"}});
+    check(journal.history_budget()["global"]["bytes"] == start["global"]["bytes"],
+          "Raw events, projection and chunk growth consume reserved bytes exactly once");
+    checkpoint = journal.history_budget();
+    const auto page = journal.history("one");
+    backpressure([&] { journal.event("one", "record", std::string(60000, 'x')); });
+    check(journal.history_budget() == checkpoint && journal.history("one") == page,
+          "Failure after consuming a reservation rolls back promise and body together");
+  }
+  {
+    Store journal(temp.path, true, "", policy);
+    check(journal.history_budget() == checkpoint, "Converted reservation survives restart");
+    journal.history_release("one");
+    const auto actual = journal.history_budget()["global"]["bytes"].get<int64_t>();
+    check(actual > 0 && actual < 60000,
+          "Retirement only refunds unused bytes, retaining actual body");
+    journal.history_release("one");
+    check(journal.history_budget()["global"]["bytes"] == actual,
+          "Retirement cannot refund body twice");
+  }
+}
 void accounting() {
   Temp temp;
   Json saved;
@@ -289,6 +320,7 @@ int main() {
   try {
     configurable_policy();
     durable_reservations();
+    reservation_conversion();
     accounting();
     capacity();
     namespaces();

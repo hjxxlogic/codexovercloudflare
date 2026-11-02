@@ -58,6 +58,24 @@ void Store::history_budget_init(bool authoritative) {
       "UPDATE transport2_history_budget SET bytes=bytes-OLD.bytes,records=records-1 "
       "WHERE scope IN('@global',OLD.session); "
       "DELETE FROM transport2_history_budget WHERE scope!='@global' AND records=0; END");
+  // Consume the promise before charging actual bytes, inside the caller's write
+  // transaction. An UPSERT consumes only its growth, not its full size twice.
+  const auto consume = [](const std::string &amount) {
+    return "UPDATE transport2_history_entries SET bytes=MAX(0,bytes-(" + amount +
+           ")) WHERE key='reservation:'||NEW.session; "
+           "DELETE FROM transport2_history_entries WHERE key='reservation:'||NEW.session "
+           "AND bytes=0; ";
+  };
+  run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_insert BEFORE INSERT ON "
+      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND NOT EXISTS "
+      "(SELECT 1 FROM transport2_history_entries WHERE key=NEW.key) BEGIN " +
+      consume("NEW.bytes") + "END");
+  run("CREATE TRIGGER IF NOT EXISTS transport2_history_consume_update BEFORE UPDATE ON "
+      "transport2_history_entries WHEN NEW.key NOT GLOB 'reservation:*' AND "
+      "(NEW.bytes>OLD.bytes OR NEW.session!=OLD.session) BEGIN " +
+      consume(
+          "CASE WHEN NEW.session=OLD.session THEN MAX(0,NEW.bytes-OLD.bytes) ELSE NEW.bytes END") +
+      "END");
   const std::string body_session = "COALESCE((SELECT session FROM history WHERE seq=$seq),"
                                    "(SELECT session FROM events WHERE seq=$seq),'@orphan')";
   const std::vector<HistoryResource> resources = {
