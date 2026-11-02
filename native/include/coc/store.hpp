@@ -36,6 +36,7 @@ private:
   void cache_uncharge(const std::string &physical_key);
   void history_budget_init(bool authoritative);
   int64_t archive_sequence();
+  int64_t history_head(const std::string &session);
   Json history_inline_text(const std::string &session, int64_t seq);
   Json history_reserved_event(const std::string &session, const std::string &owner,
                               const std::string &type, const Json &data);

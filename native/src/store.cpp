@@ -817,6 +817,11 @@ Json Store::project(const std::string &id, Json e) {
   result["seq"] = rows[0]["seq"];
   return result;
 }
+int64_t Store::history_head(const std::string &session) {
+  const auto rows =
+      query("SELECT revision FROM transport2_history_heads WHERE session=?", {session});
+  return rows.empty() ? 0 : rows.at(0).at("revision").get<int64_t>();
+}
 Json Store::history(const std::string &id, int64_t before, int64_t after) {
   get(id);
   const bool forward = after >= 0;
@@ -865,12 +870,10 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
                      : events.back()["seq"].get<int64_t>());
   if (!forward)
     std::reverse(events.begin(), events.end());
-  auto latest =
-      query("SELECT MAX(0,COALESCE(MAX(revision),0)) AS seq FROM history WHERE session=?", {id});
   return {{"events", events},
           {"more", more},
           {"cursor", cursor},
-          {"snapshotSeq", latest[0]["seq"]},
+          {"snapshotSeq", history_head(id)},
           {"direction", forward ? "after" : "before"}};
 }
 Json Store::history_inline_text(const std::string &id, int64_t seq) {

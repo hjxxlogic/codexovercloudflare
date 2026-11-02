@@ -18,12 +18,7 @@ Json Store::history_hint(const Json &d) {
   if (rows.empty() || rows.at(0).at("closed") == 1)
     throw Error("STREAM_CLOSED", "History subscription has retired");
   const auto &row = rows.at(0);
-  const auto head =
-      query("SELECT MAX(0,COALESCE(MAX(revision),0)) AS revision FROM history WHERE session=?",
-            {d.at("sessionId")})
-          .at(0)
-          .at("revision")
-          .get<int64_t>();
+  const auto head = history_head(d.at("sessionId"));
   if (head < row.at("published").get<int64_t>())
     throw Error("DELIVERY_STATE_MISMATCH", "Authoritative history has rolled back");
   if (head > row.at("published").get<int64_t>())

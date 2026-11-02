@@ -69,6 +69,11 @@ void Store::history_budget_init(bool authoritative) {
     run("UPDATE transport2_history_meta SET archive_seq=(SELECT MIN(0,COALESCE(MIN(seq),0)) "
         "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events))");
   }
+  const bool migrate_heads = query("SELECT name FROM sqlite_master WHERE type='table' "
+                                   "AND name='transport2_history_heads'")
+                                 .empty();
+  run("CREATE TABLE IF NOT EXISTS transport2_history_heads(session TEXT PRIMARY KEY,"
+      "revision INTEGER NOT NULL CHECK(revision BETWEEN 0 AND 9007199254740991))");
   run("INSERT OR IGNORE INTO transport2_history_budget VALUES('@global',0,0)");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_charge AFTER INSERT ON "
       "transport2_history_entries BEGIN "
@@ -120,6 +125,7 @@ void Store::history_budget_init(bool authoritative) {
   const std::string body_session = "COALESCE((SELECT session FROM history WHERE seq=$seq),"
                                    "(SELECT session FROM events WHERE seq=$seq),'@orphan')";
   const std::vector<HistoryResource> resources = {
+      {"transport2_history_heads", "json_array($session)", "$session", "8"},
       {"events", "json_array($seq)", "$session", "length(CAST($value AS BLOB))"},
       {"history", "json_array($seq)", "$session",
        "length(CAST($value AS BLOB))+COALESCE((SELECT length(CAST(recovery AS BLOB)) FROM history "
@@ -160,6 +166,14 @@ void Store::history_budget_init(bool authoritative) {
           columns(key, "t") + "," + columns(resource.session, "t") + "," + columns(cost, "t") +
           " FROM " + resource.table + " AS t");
   }
+  if (migrate_heads)
+    run("INSERT INTO transport2_history_heads SELECT session,MAX(0,MAX(revision)) "
+        "FROM history GROUP BY session");
+  for (const auto *action : {"insert", "update"})
+    run(std::string("CREATE TRIGGER transport2_history_head_") + action + " AFTER " + action +
+        " ON history BEGIN INSERT INTO transport2_history_heads(session,revision) "
+        "VALUES(NEW.session,MAX(0,NEW.revision)) ON CONFLICT(session) DO UPDATE SET "
+        "revision=excluded.revision WHERE excluded.revision>revision; END");
   // Source identity belongs to the session; recovery spans belong to the
   // original history row. Neither needs a second content-ID mapping table.
   const std::string source_key = "'sessions-source:'||json_array(NEW.id)";

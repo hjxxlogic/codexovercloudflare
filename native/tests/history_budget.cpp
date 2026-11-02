@@ -106,6 +106,56 @@ void archive_allocation_retirement() {
   check(restarted.history(session) == retained && restarted.history_budget() == budget,
         "Archive identity exhaustion changed accepted history");
 }
+void history_head_retirement() {
+  Temp temp;
+  const std::string session = "host~head-retirement";
+  int64_t head;
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"state", "closed"}});
+    store.event(session, "user", {{"text", "accepted"}});
+    head = store.history(session).at("snapshotSeq");
+    Database fixture(temp.path);
+    fixture.sql("DROP TABLE transport2_history_heads");
+    fixture.sql(
+        "DELETE FROM transport2_history_entries WHERE key GLOB 'transport2_history_heads:*'");
+  }
+  {
+    Store store(temp.path);
+    check(store.delivery_heads(session).at("agent") == head, "Legacy head migration lost revision");
+    Database fixture(temp.path);
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=1 FROM transport2_history_entries "
+                "WHERE key GLOB 'transport2_history_heads:*'");
+    // Only the fixture deletes projections; production retirement is not enabled.
+    fixture.sql("DELETE FROM history; DELETE FROM events");
+    check(store.history(session).at("events").empty() &&
+              store.history(session).at("snapshotSeq") == head,
+          "Deleting all projections must not rewind the durable head");
+  }
+  Store restarted(temp.path);
+  check(restarted.delivery_heads(session).at("agent") == head,
+        "Empty projection restart reset the durable head");
+  const auto before = restarted.history_budget();
+  Database fixture(temp.path);
+  fixture.sql("CREATE TRIGGER reject_head BEFORE UPDATE ON transport2_history_heads BEGIN "
+              "SELECT RAISE(ABORT,'injected head failure'); END");
+  bool failed = false;
+  try {
+    restarted.event(session, "user", {{"text", "uncommitted"}});
+  } catch (const Error &) {
+    failed = true;
+  }
+  check(failed && restarted.history_budget() == before &&
+            restarted.history(session).at("events").empty() &&
+            restarted.delivery_heads(session).at("agent") == head,
+        "Head update failure must roll back projection and accounting");
+  fixture.sql("DROP TRIGGER reject_head");
+  const auto next = restarted.event(session, "user", {{"text", "next"}});
+  check(next.at("revision") > head &&
+            restarted.delivery_heads(session).at("agent") == next.at("revision"),
+        "New projection must advance the retained head");
+}
 void legacy_packing() {
   Temp temp;
   Json reference, snapshot, before;
@@ -960,21 +1010,21 @@ void record_reservations() {
   Temp temp;
   const Json policy = {{"maxBytes", 65536},
                        {"maxSessionBytes", 65536},
-                       {"maxRecords", 8},
-                       {"maxSessionRecords", 8},
+                       {"maxRecords", 9},
+                       {"maxSessionRecords", 9},
                        {"minFreeDiskBytes", 1}};
   Json saved;
   {
     Store journal(temp.path, true, "", policy);
     journal.save({{"id", "one"}, {"state", "closed"}});
-    journal.history_reserve("one", 40000, 8);
+    journal.history_reserve("one", 40000, 9);
     saved = journal.history_budget();
     backpressure([&] { journal.history_reserve("two", 4096, 1); });
     check(journal.history_budget() == saved, "Record promises prevent another session admission");
     for (int n = 0; n < 4; ++n) {
       journal.event("one", "record", "small");
-      check(journal.history_budget()["global"]["records"] == 8,
-            "Each event and projection consume promised record capacity");
+      check(journal.history_budget()["global"]["records"] == 9,
+            "Head, events and projections consume promised record capacity");
     }
     saved = journal.history_budget();
     backpressure([&] { journal.event("one", "record", "overflow"); });
@@ -985,7 +1035,7 @@ void record_reservations() {
     Store journal(temp.path, true, "", policy);
     check(journal.history_budget() == saved, "Record promises and consumption survive restart");
     journal.history_release("one");
-    check(journal.history_budget()["global"]["records"] == 8,
+    check(journal.history_budget()["global"]["records"] == 9,
           "Refunding leftover bytes cannot refund already consumed records");
   }
 }
@@ -1039,6 +1089,10 @@ void accounting() {
     for (const auto &table : {"events", "history", "chunks", "bodies", "external_items", "streams"})
       fixture.sql(std::string("DELETE FROM ") + table);
     fixture.sql("COMMIT");
+    check(imported.history_budget()["global"]["records"] == 1 &&
+              imported.delivery_heads("session").at("agent") > 0,
+          "Projection removal retains the accounted session watermark");
+    fixture.sql("DELETE FROM transport2_history_heads");
     const auto empty = imported.history_budget();
     check(empty["global"]["bytes"] == 0 && empty["global"]["records"] == 0 &&
               empty["sessions"].empty(),
@@ -1132,6 +1186,7 @@ void oversized_legacy() {
 int main() {
   try {
     archive_allocation_retirement();
+    history_head_retirement();
     legacy_packing();
     legacy_inline_dedup();
     projected_history_heads();
