@@ -244,10 +244,8 @@ Json Store::history_source_candidate() {
             "json_extract(s.value,'$.projectId') AS projectId,s.source AS origin,"
             "json_extract(h.value,'$.data.turnId') AS turnId,"
             "COALESCE(json_extract(h.value,'$.data.itemId'),json_extract(h.value,'$.data.item.id'))"
-            " AS itemId,"
-            "(h.recovery IS NULL OR EXISTS(SELECT 1 FROM chunks WHERE seq=h.seq) "
-            "OR json_extract(h.value,'$.contentSeq') IS NULL) "
-            "AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
+            " AS itemId,EXISTS(SELECT 1 FROM chunks WHERE seq=h.seq) AS cached_chunks,"
+            "COALESCE(json_extract(s.value,'$.running'),0)=0 "
             "AND COALESCE((SELECT bytes FROM bodies WHERE seq=h.seq),length(CAST(h.value AS "
             "BLOB)))<=1048576 "
             "AND (json_extract(h.value,'$.type')!='item/started' OR "
@@ -271,6 +269,17 @@ Json Store::history_source_candidate() {
               row.at(key).get<std::string>().size() <= 200;
     if (!valid)
       continue;
+    if (row.at("cached_chunks") == 0) {
+      // Examine one bounded projection at a time. Do not launch a reader or
+      // persist proof for an inline shape that cannot release any body bytes.
+      const auto values = query("SELECT value FROM history WHERE seq=?", {row.at("seq")});
+      if (values.empty() ||
+          history_cache_descriptor(Json::parse(values.at(0).at("value").get<std::string>()),
+                                   row.at("seq"))
+              .is_null())
+        continue;
+    }
+    row.erase("cached_chunks");
     row.erase("eligible");
     if (!row.at("origin").is_null())
       row["origin"] = Json::parse(row.at("origin").get<std::string>());

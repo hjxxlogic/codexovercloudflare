@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+恢复凭据候选过滤：Agent 构建、来源专项最终 4.07 秒、历史预算专项 15.14 秒通过。共享正文描述符规则保证无 chunks 且不能缩小的短正文/未分类元数据不启动来源准备；有收益的文本与文件开始态、128 行边界、活动预留、运行中跳过和绕回继续验证。真实 Agent `--file-started` 自动准备/淘汰、Unicode 分页、并发拒绝、来源替换及 SIGKILL 重启回源通过。日志 `/tmp/coc-proof-filter-{build,test,clean-build,clean-test,agent}.log`；初次来源夹具错误地将一个实际可缩小的正文判为不可缩小，已修正，最终来源专项通过。未执行全量回归或删除既有恢复凭据，历史索引长期退休仍待完成。
+
 网页未知队列恢复：Agent 构建、操作专项最终 21.10 秒、原生核心专项 33.37 秒通过，类型和定向 ESLint 通过。原生测试覆盖 ACK/重启保留原 wire body、字段顺序/空白、错误输入拒绝、旧代际关闭不恢复执行权、原结果/摘要保持、ACK 后清理、关闭流退休，以及清理失败时事实/退款/正文全回滚。最新真实 Agent 交付专项验证两类未知请求同时强杀重启、网页 ACK 保留证据、后台轮换查证、两条独立事实、已确认正文清理和源提交次数不变。日志 `/tmp/coc-web-queue-{final-build,fault-build,fault-test,final-delivery,typecheck,lint}.log`。使用确定性源，无模型调用或全量回归；旧版本已经清空的正文与已消费不可查的队列仍不能据此确定结果。
 
 未知控制 RPC 队列后台查证：Agent 构建通过；操作专项最终 20.92 秒、公共预留保存点变更后的历史预算专项 15.82 秒通过；队列查询专项、类型和定向 ESLint 通过。新增重启/ACK 后身份恢复、128 行边界、输入/关联/项目拒绝、写入故障回滚、单次事实及原结果不变测试。真实 Agent 交付专项通过强杀重启后保留未知、源项重新可查后的后台退款、唯一原请求历史事实和 queue/add 次数不变。日志 `/tmp/coc-queue-retire-{build,test}.log`、`/tmp/coc-queue-reconcile-{agent-build,final-build,final-test,delivery,source,typecheck,lint}.log`。集成场景使用确定性源，不证明已消费不可见队列可恢复；网页命令未知承诺尚未接入，未运行全量回归或部署。

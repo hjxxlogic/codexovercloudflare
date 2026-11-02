@@ -7,6 +7,8 @@ struct HistoryItemProjection {
 };
 // Version 1 preserves the existing external snapshot serialization and redaction.
 HistoryItemProjection project_history_item(Json item, const std::string &turn, int version = 1);
+// Returns a smaller display descriptor, or null when no classified body can be removed.
+Json history_cache_descriptor(Json event, int64_t seq);
 // Rebuild only the content view. Retained event metadata is not replaced with
 // current source metadata, and callers must verify the original content digest.
 std::string recover_history_text(const Json &event, Json item, const std::string &projection);

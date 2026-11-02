@@ -435,9 +435,9 @@ void candidate_scan_cases() {
   store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
   for (int i = 0; i < 128; ++i)
     store.event(session, "warning", {{"message", "not a source item"}});
-  const auto event = store.event(
-      session, "item/completed",
-      {{"turnId", "turn"}, {"item", {{"id", "item"}, {"type", "agentMessage"}, {"text", "body"}}}});
+  const auto event =
+      store.event(session, "item/agentMessage/delta",
+                  {{"turnId", "turn"}, {"itemId", "item"}, {"delta", std::string(1000, 'x')}});
   if (!store.history_source_candidate().is_null())
     throw std::runtime_error("Candidate scan exceeded its bounded row slice");
   const auto candidate = store.history_source_candidate();
@@ -464,9 +464,21 @@ void candidate_scan_cases() {
   const auto other_start = store.event(
       session, "item/started",
       {{"turnId", "turn"}, {"item", {{"id", "command"}, {"type", "commandExecution"}}}});
-  const auto file_start =
-      store.event(session, "item/started",
-                  {{"turnId", "turn"}, {"item", {{"id", "file"}, {"type", "fileChange"}}}});
+  const auto file_start = store.event(
+      session, "item/started",
+      {{"turnId", "turn"},
+       {"item",
+        {{"id", "file"},
+         {"type", "fileChange"},
+         {"changes", Json::array({{{"path", "file.txt"}, {"diff", std::string(1000, 'x')}}})}}}});
+  const auto metadata = store.event(session, "item/completed",
+                                    {{"turnId", "turn"},
+                                     {"item",
+                                      {{"id", "reasoning"},
+                                       {"type", "reasoning"},
+                                       {"summary", Json::array({std::string(1000, 'x')})}}}});
+  const auto tiny = store.event(session, "item/agentMessage/delta",
+                                {{"turnId", "turn"}, {"itemId", "tiny"}, {"delta", "x"}});
   bool found_file = false;
   for (int i = 0; i < 8; ++i) {
     const auto selected = store.history_source_candidate();
@@ -474,6 +486,8 @@ void candidate_scan_cases() {
       continue;
     if (selected.at("seq") == other_start.at("seq"))
       throw std::runtime_error("Unclassified start event selected for recovery preparation");
+    if (selected.at("seq") == metadata.at("seq") || selected.at("seq") == tiny.at("seq"))
+      throw std::runtime_error("No-savings inline metadata selected for source preparation");
     found_file = selected.at("seq") == file_start.at("seq") || found_file;
   }
   if (!found_file)

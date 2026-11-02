@@ -32,6 +32,38 @@ HistoryItemProjection project_history_item(Json item, const std::string &turn, i
   }
   return result;
 }
+Json history_cache_descriptor(Json event, int64_t seq) {
+  if (!event.is_object() || event.contains("contentSeq") || !event.contains("data") ||
+      !event.at("data").is_object())
+    return nullptr;
+  const auto original_size = event.dump().size();
+  auto &data = event.at("data");
+  // Only remove a classified body field. The recovery template is not a
+  // display envelope: command, exit code and other metadata must survive.
+  if (data.contains("delta") && data.at("delta").is_string())
+    data.erase("delta");
+  else if (data.contains("text") && data.at("text").is_string())
+    data.erase("text");
+  else if (data.contains("item") && data.at("item").is_object() &&
+           data.at("item").contains("aggregatedOutput") &&
+           data.at("item").at("aggregatedOutput").is_string())
+    data["item"]["aggregatedOutput"] = "";
+  else if (data.contains("item") && data.at("item").is_object()) {
+    auto &item = data.at("item");
+    if (item.value("type", "") == "fileChange" && item.contains("changes") &&
+        item.at("changes").is_array()) {
+      for (auto &change : item.at("changes"))
+        if (change.is_object() && change.contains("diff") && change.at("diff").is_string())
+          change["diff"] = ""; // Keep paths, kinds and count for the existing UI.
+    } else if (item.value("type", "") == "mcpToolCall") {
+      for (const auto *field : {"arguments", "result"})
+        if (item.contains(field))
+          item[field] = nullptr;
+    }
+  }
+  event["contentSeq"] = seq;
+  return event.dump().size() < original_size ? event : Json();
+}
 std::string recover_history_text(const Json &event, Json item, const std::string &projection) {
   if (projection != "external-v1" && projection != "event-v1")
     throw Error("CONTENT_UNAVAILABLE", "Unsupported history projection version");

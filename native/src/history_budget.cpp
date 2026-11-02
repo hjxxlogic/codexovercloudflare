@@ -1,4 +1,5 @@
 #include "coc/credit.hpp"
+#include "coc/history_projection.hpp"
 #include "coc/store.hpp"
 #include <vector>
 namespace coc {
@@ -282,32 +283,8 @@ Json Store::history_cache_compact(const Json &verified) {
           (total > global_target ||
            (targets.count(session) && bytes[session] > targets.at(session)))) {
         const auto &row = inline_rows.at(0);
-        auto descriptor = Json::parse(row.at("value").get<std::string>());
-        auto &data = descriptor.at("data");
-        // Only remove a classified body field. The recovery template is not a
-        // display envelope: command, exit code and other metadata must survive.
-        if (data.contains("delta") && data.at("delta").is_string())
-          data.erase("delta");
-        else if (data.contains("text") && data.at("text").is_string())
-          data.erase("text");
-        else if (data.contains("item") && data.at("item").is_object() &&
-                 data.at("item").contains("aggregatedOutput") &&
-                 data.at("item").at("aggregatedOutput").is_string())
-          data["item"]["aggregatedOutput"] = "";
-        else if (data.contains("item") && data.at("item").is_object()) {
-          auto &item = data.at("item");
-          if (item.value("type", "") == "fileChange" && item.contains("changes") &&
-              item.at("changes").is_array()) {
-            for (auto &change : item.at("changes"))
-              if (change.is_object() && change.contains("diff") && change.at("diff").is_string())
-                change["diff"] = ""; // Keep paths, kinds and count for the existing UI.
-          } else if (item.value("type", "") == "mcpToolCall") {
-            for (const auto *field : {"arguments", "result"})
-              if (item.contains(field))
-                item[field] = nullptr;
-          }
-        }
-        descriptor["contentSeq"] = verified.at("seq");
+        const auto descriptor = history_cache_descriptor(
+            Json::parse(row.at("value").get<std::string>()), verified.at("seq"));
         const auto encoded = descriptor.dump();
         const auto savings = int64_t(row.at("value").get_ref<const std::string &>().size()) -
                              int64_t(encoded.size());
@@ -325,7 +302,7 @@ Json Store::history_cache_compact(const Json &verified) {
               scope.at("bytes") <= policy.at(global ? "maxBytes" : "maxSessionBytes") &&
               scope.at("records") <= policy.at(global ? "maxRecords" : "maxSessionRecords");
         }
-        if (savings > 0 && within_limits) {
+        if (!descriptor.is_null() && savings > 0 && within_limits) {
           run("UPDATE history SET value=?,recovery=NULL WHERE seq=? AND session=?",
               {encoded, verified.at("seq"), session});
           run("UPDATE history SET recovery=? WHERE seq=? AND session=?",
