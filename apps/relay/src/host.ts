@@ -605,7 +605,7 @@ export class HostRelayDO extends DurableObject<Env> {
     if (agent.protocol !== 1 || agent.deliveryVersion !== 2)
       throw new AppError(
         'AGENT_NEGOTIATING',
-        'Upgrade Agent and complete negotiation',
+        'Agent is reconnecting or negotiating; retry after the connection is ready',
         503,
       );
     await this.authorized(agent.auth.hash);

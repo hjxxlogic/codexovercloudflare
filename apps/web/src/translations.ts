@@ -1,5 +1,13 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  '刷新超时，已恢复操作；请稍后重试。':
+    'Refresh timed out. Controls are available again; please retry later.',
+  '请求超时，请刷新重试。': 'Request timed out. Refresh and retry.',
+  结束状态待确认: 'Session closure not yet confirmed',
+  会话结束失败: 'Session closure failed',
+  '结束请求已提交，暂未确认最终状态；请刷新核对，不必重复结束。':
+    'The close request was submitted, but the final state is unconfirmed. Refresh to check; do not submit it again.',
+
   远程配置与重启: 'Remote configuration and restart',
   '已确认重启请求。请刷新在线目标，确认重新连接。':
     'Restart request acknowledged. Refresh online targets to verify reconnection.',

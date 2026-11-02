@@ -1042,6 +1042,9 @@ describe('recoverable asynchronous controls', () => {
     expect((await h.read(operation.data.operationId)).data.error.code).toBe(
       'AGENT_NEGOTIATING',
     );
+    expect(
+      (await h.read(operation.data.operationId)).data.error.message,
+    ).not.toMatch(/upgrade/i);
     const legacy = await h.relay.fetch(
       new Request('https://internal/control', {
         method: 'POST',

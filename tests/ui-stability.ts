@@ -1055,6 +1055,26 @@ try {
     'Successful direct refresh preserves control',
   );
   stallHistory = false;
+  // A stalled HTTP read must release the refresh button at the total deadline.
+  let stalledSnapshot = false;
+  const stallSnapshot = async (route: import('@playwright/test').Route) => {
+    stalledSnapshot = true;
+    await new Promise<void>((resolve) => setTimeout(resolve, 22000));
+    await route.abort().catch(() => {});
+  };
+  await page.route('**/api/v1/sessions/**/snapshot*', stallSnapshot);
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled({ timeout: 25000 });
+  assert(stalledSnapshot, 'the test stalled a real snapshot read');
+  await expect(page.getByRole('alert')).toContainText(
+    '刷新超时，已恢复操作；请稍后重试。',
+  );
+  await page.unroute('**/api/v1/sessions/**/snapshot*', stallSnapshot);
   await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(

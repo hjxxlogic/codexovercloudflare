@@ -1,3 +1,4 @@
+import { boundedRefresh, requestErrorMessage } from './refresh.ts';
 import { deliveryIdentity } from './delivery-identity.ts';
 import { CommandDelivery } from './delivery.ts';
 import { OperationClient } from './operations.ts';
@@ -263,6 +264,7 @@ function App() {
     setPanel(null);
   };
   const [notice, setNotice] = useState('');
+  const [closingSession, setClosingSession] = useState<string>();
   const [reconnect, setReconnect] = useState(0);
   const [away, setAway] = useState(false);
   const [sessionCursor, setSessionCursor] = useState<string | null>(null);
@@ -313,8 +315,10 @@ function App() {
   }, [host, project]);
   const socket = useRef<WebSocket | null>(null),
     after = useRef(0);
-  const report = (e: unknown) =>
-    setError(e instanceof Error ? e.message : String(e));
+  const report = (error: unknown) => {
+    const message = requestErrorMessage(error);
+    if (message !== undefined) setError(message);
+  };
   const captureHistoryAnchor = () => {
     const anchor =
       messageList.current?.querySelector<HTMLElement>('[data-event-seq]');
@@ -326,7 +330,9 @@ function App() {
       : null;
   };
   const refreshPending = useRef<Promise<void> | undefined>(undefined);
-  const refreshSession = useRef<(() => Promise<void>) | undefined>(undefined);
+  const refreshSession = useRef<
+    ((signal?: AbortSignal) => Promise<void>) | undefined
+  >(undefined);
   const observeSessionHeads = useRef<
     ((id: string, heads: any) => void) | undefined
   >(undefined);
@@ -340,7 +346,7 @@ function App() {
     mode === 'cw' && view === 'chat' && !!selected && online,
     async () => {
       if (olderView.current) loadHistory.current(0, true);
-      await refreshView();
+      await refreshView(true);
     },
     `${host}:${selected?.id ?? ''}`,
   );
@@ -566,25 +572,40 @@ function App() {
       });
     return () => controller.abort();
   }, [host, online, wakeConfigured, mode]);
-  async function refreshView() {
+  async function refreshView(sessionOnly = false) {
     if (refreshPending.current) return refreshPending.current;
     const work = (async () => {
       setRefreshing(true);
       setRefreshed('');
       recoverNotifications(true);
       try {
-        await refresh();
-        if (mode === 'admin') await readAdminSnapshot();
-        if (mode === 'cw' && host) {
-          await recoverCatalog.current?.();
-          // Reload the catalog even if probing or session confirmation fails.
-          setRevision((value) => value + 1);
-          const confirmation = await api(`/hosts/${host}/probe`, {});
-          if (!confirmation.online) throw new Error('未确认服务器可达，请重试');
-          await refreshSession.current?.();
-        }
-        setRevision((value) => value + 1);
-        setRefreshed(new Date().toLocaleTimeString());
+        await boundedRefresh(async (signal) => {
+          if (sessionOnly && mode === 'cw' && host && refreshSession.current) {
+            await refreshSession.current(signal);
+          } else {
+            await refresh();
+            signal.throwIfAborted();
+            if (mode === 'admin') await readAdminSnapshot();
+            signal.throwIfAborted();
+            if (mode === 'cw' && host) {
+              await recoverCatalog.current?.();
+              signal.throwIfAborted();
+              setRevision((value) => value + 1);
+              const confirmation = await api(
+                `/hosts/${host}/probe`,
+                {},
+                signal,
+              );
+              if (!confirmation.online)
+                throw new Error('未确认服务器可达，请重试');
+              signal.throwIfAborted();
+              await refreshSession.current?.(signal);
+            }
+          }
+          signal.throwIfAborted();
+          if (!sessionOnly) setRevision((value) => value + 1);
+          setRefreshed(new Date().toLocaleTimeString());
+        });
       } catch (error) {
         report(error);
       } finally {
@@ -2031,9 +2052,14 @@ function App() {
       }
     };
     let sessionSync: Promise<void> | undefined;
-    const confirmSession = async () => {
+    const confirmSession = async (refreshSignal?: AbortSignal) => {
+      const signal = refreshSignal
+        ? AbortSignal.any([controller.signal, refreshSignal])
+        : controller.signal;
       try {
+        signal.throwIfAborted();
         await commandDelivery?.refresh();
+        signal.throwIfAborted();
         {
           // A direct read does not depend on either session socket, and never
           // acquires control or resends a mutation.
@@ -2041,7 +2067,7 @@ function App() {
             const before = historySync.received;
             const snapshot = await readApi(
               `/sessions/${selected.id}/snapshot?historyVersion=2${before === undefined ? '' : `&after=${before}`}`,
-              controller.signal,
+              signal,
             );
             if (disposed) return;
             const page = snapshot.history;
@@ -2094,9 +2120,9 @@ function App() {
         if (!disposed) throw error;
       }
     };
-    refreshSession.current = () => {
+    refreshSession.current = (signal) => {
       if (!sessionSync)
-        sessionSync = confirmSession().finally(() => {
+        sessionSync = confirmSession(signal).finally(() => {
           sessionSync = undefined;
         });
       return sessionSync;
@@ -2444,6 +2470,51 @@ function App() {
       sessionId: session.id,
     });
   }
+  useEffect(() => {
+    if (!closingSession) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      controller.signal,
+      AbortSignal.timeout(60000),
+    ]);
+    void (async () => {
+      for (;;) {
+        const snapshot = await readApi(
+          `/sessions/${closingSession}/snapshot?historyVersion=2`,
+          signal,
+        );
+        if (signal.aborted) return;
+        const session = snapshot.session as Session;
+        if (session.state === 'closed' || session.state === 'failed') {
+          setSessions((current) =>
+            current.map((row) => (row.id === session.id ? session : row)),
+          );
+          setStatus(session.state === 'closed' ? '会话已结束' : '会话结束失败');
+          setClosingSession(undefined);
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => {
+            signal.removeEventListener('abort', abort);
+            resolve();
+          };
+          const timer = setTimeout(finish, 1000);
+          const abort = () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          };
+          signal.addEventListener('abort', abort, { once: true });
+          if (signal.aborted) abort();
+        });
+      }
+    })().catch(() => {
+      if (controller.signal.aborted) return;
+      setClosingSession(undefined);
+      setStatus('结束状态待确认');
+      setNotice('结束请求已提交，暂未确认最终状态；请刷新核对，不必重复结束。');
+    });
+    return () => controller.abort();
+  }, [closingSession]);
   const openSessions = () => {
     setView('chat');
     setPanel('sessions');
@@ -3775,6 +3846,11 @@ function App() {
                                   v.map((s) =>
                                     s.id === closed.id ? closed : s,
                                   ),
+                                );
+                                setClosingSession(
+                                  closed.state === 'closed'
+                                    ? undefined
+                                    : closed.id,
                                 );
                                 setSelected(undefined);
                                 setPanel(null);
