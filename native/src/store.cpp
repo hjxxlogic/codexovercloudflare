@@ -640,7 +640,16 @@ Json Store::project(const std::string &id, Json e) {
     }
     const auto text = data.value("delta", "");
     if (!text.empty()) {
-      run("INSERT INTO chunks VALUES(?,?,?)", {seq, body[0]["size"], text});
+      // Coalesce small deltas into a bounded tail. Offsets remain SQLite
+      // Unicode character positions; the packing limit counts UTF-8 bytes.
+      const auto tail = query("SELECT start,length(CAST(text AS BLOB)) AS bytes FROM chunks "
+                              "WHERE seq=? ORDER BY start DESC LIMIT 1",
+                              {seq});
+      if (!tail.empty() && tail[0]["bytes"].get<int64_t>() + int64_t(text.size()) <= 4096)
+        run("UPDATE chunks SET text=text||? WHERE seq=? AND start=?",
+            {text, seq, tail[0]["start"]});
+      else
+        run("INSERT INTO chunks VALUES(?,?,?)", {seq, body[0]["size"], text});
       run("UPDATE bodies SET size=size+length(?),bytes=bytes+length(CAST(? AS BLOB)) WHERE seq=?",
           {text, text, seq});
     }

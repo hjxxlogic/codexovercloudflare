@@ -47,6 +47,63 @@ struct Database {
     sql("DROP TABLE transport2_history_meta");
   }
 };
+void packed_deltas() {
+  Temp temp;
+  int64_t seq = 0, revision = 0;
+  const std::string unit = "你🙂";
+  {
+    Store journal(temp.path);
+    journal.save({{"id", "packed"}, {"state", "closed"}, {"running", false}});
+    for (int i = 0; i < 3000; ++i) {
+      const auto event = journal.event("packed", "item/agentMessage/delta",
+                                       {{"itemId", "answer"}, {"delta", unit}});
+      seq = event.at("seq");
+      revision = event.at("revision");
+    }
+    Database fixture(temp.path);
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1))");
+    fixture.sql("INSERT INTO assertion SELECT COUNT(*)=6 FROM chunks");
+    fixture.sql("INSERT INTO assertion SELECT MAX(length(CAST(text AS BLOB)))<=4096 FROM chunks");
+    const auto budget = journal.history_budget();
+    fixture.sql("CREATE TRIGGER reject_projection BEFORE UPDATE ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected projection failure'); END");
+    bool failed = false;
+    try {
+      journal.event("packed", "item/agentMessage/delta",
+                    {{"itemId", "answer"}, {"delta", "must roll back"}});
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && journal.history_budget() == budget,
+          "Failed projection restores packed tail and accounting atomically");
+    fixture.sql("DROP TRIGGER reject_projection");
+  }
+  Store reopened(temp.path);
+  const auto read = [&](int64_t offset) {
+    std::string text;
+    for (;;) {
+      const auto page = reopened.content("packed", seq, offset, revision);
+      text += page.at("text").get<std::string>();
+      check(page.at("nextOffset").get<int64_t>() >= offset, "Content cursor never retreats");
+      offset = page.at("nextOffset");
+      if (!page.at("more").get<bool>())
+        break;
+    }
+    check(offset == 6000, "Packed body retains Unicode length");
+    return text;
+  };
+  std::string expected;
+  for (int i = 0; i < 3000; ++i)
+    expected += unit;
+  check(read(0) == expected, "Packed Unicode body survives restart and rollback");
+  for (const int offset : {1, 1169, 1170, 2339, 4095, 4096, 5999, 6000}) {
+    std::string suffix;
+    for (int i = offset; i < 6000; ++i)
+      suffix += i % 2 == 0 ? "你" : "🙂";
+    check(read(offset) == suffix,
+          "Random character offsets cross packed byte boundaries correctly");
+  }
+}
 void configurable_policy() {
   for (const auto &fixture :
        read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/history-policy-fixtures.json")) {
@@ -351,6 +408,7 @@ void oversized_legacy() {
 } // namespace
 int main() {
   try {
+    packed_deltas();
     configurable_policy();
     durable_reservations();
     reservation_conversion();
