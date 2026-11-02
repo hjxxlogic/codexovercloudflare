@@ -46,4 +46,13 @@ it('hides intentional cancellation while retaining useful timeout and server err
     requestErrorMessage(new DOMException('signal timed out', 'TimeoutError')),
   ).toBe('请求超时，请刷新重试。');
   expect(requestErrorMessage(new Error('FORBIDDEN'))).toBe('FORBIDDEN');
+  expect(requestErrorMessage(new TypeError('Failed to fetch'))).toContain(
+    '未确认的任务已保留',
+  );
+  expect(
+    requestErrorMessage(new Error('STALE_AGENT: Agent replaced')),
+  ).toContain('恢复连接');
+  expect(requestErrorMessage(new TypeError('Programming error'))).toBe(
+    'Programming error',
+  );
 });

@@ -12,6 +12,27 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('browser request recovery', () => {
+  it.each([
+    new TypeError('Failed to fetch'),
+    new ApiError('STALE_AGENT', 'Agent replaced', 409),
+  ])(
+    'recovers a read after a transient connection failure: %s',
+    async (error) => {
+      vi.useFakeTimers();
+      const fetcher = vi
+        .fn()
+        .mockRejectedValueOnce(error)
+        .mockResolvedValue(response({ recovered: true }));
+      vi.stubGlobal('fetch', fetcher);
+      const reading = queryApi('/hosts/host/files');
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(reading).resolves.toEqual({ recovered: true });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(
+        fetcher.mock.calls.every(([, init]) => init.method === 'GET'),
+      ).toBe(true);
+    },
+  );
   it('commits a proved original result before acknowledging its forwarding correlation', async () => {
     vi.spyOn(notifications, 'observe').mockReturnValue(() => {});
     let release!: () => void;
@@ -283,6 +304,9 @@ describe('browser request recovery', () => {
       false,
     );
     expect(retryable(new ApiError('UNAUTHORIZED', 'Log in', 401))).toBe(false);
+    expect(retryable(new ApiError('STALE_AGENT', 'Agent replaced', 409))).toBe(
+      true,
+    );
   });
 });
 

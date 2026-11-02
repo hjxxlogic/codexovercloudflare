@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
 import type { HistoryCache } from '../apps/web/src/history.ts';
+import { browserCacheRecovery } from './helpers/browser-cache-recovery.ts';
 // Bundle the actual module graph so new shared dependencies remain part of the fixture.
 const bundle = await build({
   stdin: {
@@ -640,6 +641,7 @@ try {
     'Many cache scopes cannot multiply the global cache quota',
   );
   await secondTab.close();
+  await browserCacheRecovery(context, source);
   console.log(
     'PASS: persistent history/content, atomic cursors, independent cache/command quotas across real tabs, preserved reservations, batching and scoped clear',
   );

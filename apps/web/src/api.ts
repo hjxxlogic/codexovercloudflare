@@ -51,7 +51,9 @@ export function retryable(error: unknown) {
     error instanceof TypeError ||
     (error instanceof DOMException && error.name === 'TimeoutError') ||
     (error instanceof ApiError &&
-      (error.status === 429 || error.status >= 500) &&
+      (error.status === 429 ||
+        error.status >= 500 ||
+        error.code === 'STALE_AGENT') &&
       error.code !== 'RESULT_UNKNOWN')
   );
 }

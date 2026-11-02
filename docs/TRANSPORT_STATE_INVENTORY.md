@@ -49,7 +49,7 @@ OPEN 具有唯一 exchangeId，HTTP / WebSocket 读取将该值转给 Agent 并�
 
 CC 输出先提交完整正文、连续序号和字节位置，再发送接收确认及交给 TUI。未交付正文不得淘汰，消费后仅保留有界诊断尾部；清理普通历史缓存保留这些记录。Agent 在既有 30 秒维护调度中仅为未确认结果 / RPC 输出补发，静默丢 ACK 测试覆盖无新业务的恢复。新 SQLite 表使用 transport2_*、CW 使用 delivery-outbox-v2、CC 使用 :delivery:v2 / :output:v2，不读取旧传输待办。
 
-网页创建 / 停止会话和项目修改已接入同样的原请求账本。首次意图先以 IndexedDB 原子 read-modify-write 占用既有 32 MiB 预留，再查询并持久绑定 Agent 实例；Web Locks 在同一主体 / 主机范围串行网络交换，并以四个全站槽限制在途交换，BroadcastChannel 唤醒其它标签页。最多 32 项未确认 / 1024 项身份，终态提交后才确认，确认后回收输入并保留 16 项 / 4 MiB 结果尾部及永久拒绝摘要；无待办停止恢复。管理员项目管理使用实际 owner 哈希及同一主机范围，云端 identity / probe 仍验证 owner 和主机有效性。上传及其余写入口、旧业务路径去除仍待完成。
+网页创建 / 停止会话和项目修改已接入同样的原请求账本。首次意图先以 IndexedDB 原子 read-modify-write 登记未决交付的 32 MiB 余量，再查询并持久绑定 Agent 实例；全部确认后按实际占用计费；Web Locks 在同一主体 / 主机范围串行网络交换，并以四个全站槽限制在途交换，BroadcastChannel 唤醒其它标签页。最多 32 项未确认 / 1024 项身份，终态提交后才确认，确认后回收输入并保留 16 项 / 4 MiB 结果尾部及永久拒绝摘要；无待办停止恢复。管理员项目管理使用实际 owner 哈希及同一主机范围，云端 identity / probe 仍验证 owner 和主机有效性。上传及其余写入口、旧业务路径去除仍待完成。
 
 上传执行端已将回执从普通 cache 移入 transport2_uploads；开始创建暂存文件前持久绑定主体 / 项目根 / uploadId 与原路径、大小、覆盖意图摘要，并预留完整暂存大小和 16 KiB 元数据。全局最多 4 个未解除资源承诺 / 80 MiB 暂存，每主体最多 2 个；拒绝身份全局 1024 / 每主体 256，总预算 96 MiB。分块推进连续偏移前同步文件；完成和取消先回收暂存资源再释放对应预留，永久保留旧身份，清普通缓存和旧一天期限不重新放行。重启中的上传固定为 unknown；无法证明资源已回收时保守保留预留，不能通过重启扩大磁盘承诺。网页完整正文首发持久化、上传恢复及云端写路径收敛仍待完成，本段仅描述执行端基础。
 
@@ -207,7 +207,7 @@ Linux 私有配置、凭据及更新状态的原子替换在父目录锁内清�
 | 资源 | 固定边界与释放规则 | 源码 / 证据 |
 | --- | --- | --- |
 | A 命令 / 结果 / 流 | 持久 normal 512 MiB、priority 256 MiB；1024 流 / 每流 1024 身份，先预留结果；ACK / 退役再归还 | credit.hpp、credit.cpp、native-core |
-| C 命令 / 输出 / 普通缓存 | 命令每份 32 MiB / 全局 512 MiB，CC 输出每份 8 MiB / 全局 128 MiB；普通缓存 64 MiB / 单范围 16 MiB | CC SQLite 与 CW IndexedDB 事务并发测试 |
+| C 命令 / 输出 / 普通缓存 | CC 命令每份 32 MiB / 全局 512 MiB；CW 已完成记录按实际占用、未决交付保留 32 MiB，共享同浏览器同站点 512 MiB；CC 输出每份 8 MiB / 全局 128 MiB；普通缓存 64 MiB / 单范围 16 MiB | CC SQLite 与 CW IndexedDB 事务并发测试 |
 | A 历史 / 输出 | 历史 256 MiB / 单会话 64 MiB，输出 64 MiB / 单会话 8 MiB；保留未确认正文，拒绝增长 | native-history-budget、native-delivery |
 | A HTTP 原请求 / 上传 | 原请求 128 MiB / 主体 32 MiB / 1024 身份；上传 96 MiB / 4 个 active / 主体 2 个 / 单文件 20 MiB | native-operations、native-uploads、完整 E2E |
 | A 项目 / 配置 | 项目含替换副本 16 MiB / 1024 永久身份；配置每实例 256 身份 / 每项 8192 字节，原文 64 KiB | native-projects、native-configuration、SIGKILL 暂存回收 |

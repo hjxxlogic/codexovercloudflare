@@ -26,5 +26,12 @@ export function requestErrorMessage(error: unknown): string | undefined {
   if (error instanceof Error && error.name === 'AbortError') return undefined;
   if (error instanceof Error && error.name === 'TimeoutError')
     return '请求超时，请刷新重试。';
+  if (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed/i.test(error.message)
+  )
+    return '网络请求未能完成，请检查网络后刷新状态；未确认的任务已保留，请勿重复发送。';
+  if (error instanceof Error && error.message.startsWith('STALE_AGENT:'))
+    return 'Agent 正在恢复连接，请稍后刷新状态；未确认的任务已保留。';
   return error instanceof Error ? error.message : String(error);
 }

@@ -598,7 +598,7 @@ received / started 和未确认结果都占命令槽；RESULT ACK 在同事务�
 
 CC 的 transport2_local_credit 事务登记不可静默撤回的本地承诺：命令 / 结果每份 32 MiB、总量 512 MiB，输出每份 8 MiB、总量 128 MiB，键及分配记录有界。CommandDelivery 初始化及输出 WINDOW 发送之前先预留，所有该键的 cache 写入校验包含序列化正文与元数据的保留空间。普通 cache_clear 不释放承诺；不能证明安全退休时停止新分配。命令的两 lane 各自保留现有条数 / 字节 / 结果上限，normal 不能使用 priority 的份额。
 
-CW 使用 coc-history-v3 隔离旧缓存。在同一个包含 pages 的 readwrite 事务内串行更新正文、事件 / checkpoint 与全站账本；不同标签页的事务共享配额。每份 outbox 固定预留 32 MiB、全站 512 MiB，包含当前两 lane 与有界 retired 记录；普通缓存另有 64 MiB / 100000 条全站上限、16 MiB / 10000 条单作用域上限、最多 1024 个普通缓存作用域。删除 / 替换正文同时更新计量；超限 abort 整个事务，不发布 checkpoint。history clear 保留 outbox 及其预留。此账本是逻辑计量，不等于浏览器提供物理空间保证。
+CW 使用 coc-history-v3 隔离旧缓存。在同一个包含 pages 的 readwrite 事务内串行更新正文、事件 / checkpoint 与全站账本；不同标签页的事务共享配额。命令账本共享当前浏览器配置文件中同一站点的 512 MiB 逻辑预算（最多 1024 份账本），不同设备 / 配置文件不共享；空闲 / 完成的 delivery:2 记录、全部确认的 HTTP 原请求和不再保留文件块的终态上传按实际序列化大小与记录开销计费，有未决命令、未接齐结果、未确认 HTTP 回执或上传正文时保留 32 MiB 余量。未知旧格式保守保留余量。首次新写事务原子迁移旧固定预留，仅调整账本数值，不重写或删除原身份；普通缓存另有 64 MiB / 100000 条全站上限、16 MiB / 10000 条单作用域上限、最多 1024 个普通缓存作用域。删除 / 替换正文同时更新计量；超限 abort 整个事务，不发布 checkpoint。history clear 保留 outbox 和必要余量；完成交付后的下一次账本写入释放固定余量。普通缓存不足时，只回收数字分页投影和 content 正文缓存，优先当前作用域，再检查其它作用域；事件、checkpoint、订阅证明、草稿和原命令不自动删除。单项过大或保护数据仍超额时 abort 整个事务（含回收），不产生部分提交。此账本是逻辑计量，不等于浏览器提供物理空间保证。
 
 CC 的输出接收信用取连续 consumed + 32、consumedBytes + 2 MiB；落盘和 TUI 消费分别登记，消费回调再发 WINDOW。A 输出日志以 transport2_output_budget 保存事务计数，含每条 512 字节计量开销；全局 64 MiB / 16384 条，单流 8 MiB / 4096 条，最多 1024 个输出流头。连续 ACK 删除正文并释放相同计数；不能靠增加会话绕过。满时停止对应 Codex runtime，保存会话 outputError=BACKPRESSURE，不淘汰先前未确认输出。
 

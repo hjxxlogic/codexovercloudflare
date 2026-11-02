@@ -173,6 +173,31 @@ it('rejects incomplete upload bindings and checksums before forwarding or durabl
   expect(writes).not.toHaveBeenCalled();
 });
 describe('recoverable asynchronous controls', () => {
+  it('uses the newest Agent epoch while the replaced socket still reports OPEN', async () => {
+    const h = harness();
+    const next = socket({
+      ...h.agent.deserializeAttachment(),
+      id: 'new-agent',
+      epoch: 2,
+    });
+    h.sockets.push(next);
+    h.storage.values.set('agentEpoch', 2);
+    h.agent.close(1012, 'Agent reconnected');
+    expect(h.agent.readyState).toBe(1);
+    const first = await h.start();
+    expect(first.response.status).toBe(202);
+    expect(h.agent.send).not.toHaveBeenCalled();
+    expect(next.send).toHaveBeenCalled();
+    h.recreate();
+    expect(h.relay.agent()).toBe(next);
+    next.readyState = 3;
+    const refused = await h.start();
+    const result = refused.data.operationId
+      ? (await h.read(refused.data.operationId)).data
+      : refused.data;
+    expect(result.error.code).toBe('STALE_AGENT');
+    expect(h.agent.send).not.toHaveBeenCalled();
+  });
   it('keeps original write forwarding in memory and binds receipts to authenticated intent across reconstruction', async () => {
     const h = harness();
     const client = { ...auth, hash: 'a'.repeat(64) };

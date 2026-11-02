@@ -412,7 +412,18 @@ export class HostRelayDO extends DurableObject<Env> {
     { tail: Promise<void>; bytes: number; count: number }
   >();
   agent() {
-    return this.ctx.getWebSockets('agent').find((s) => s.readyState === 1);
+    return this.ctx
+      .getWebSockets('agent')
+      .filter((s) => s.readyState === 1)
+      .reduce<WebSocket | undefined>(
+        (newest, candidate) =>
+          !newest ||
+          (candidate.deserializeAttachment() as Attachment).epoch! >
+            (newest.deserializeAttachment() as Attachment).epoch!
+            ? candidate
+            : newest,
+        undefined,
+      );
   }
   send(ws: WebSocket, data: unknown) {
     if (ws.readyState >= 2) return;
