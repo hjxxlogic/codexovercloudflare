@@ -1827,8 +1827,18 @@ public:
       asio::post(io_, [this, remaining] { prepare_history_source(remaining - 1); });
       return;
     }
-    auto process = std::make_shared<CodexProcess>(
-        io_, config_, cwd, [](Json) {}, [] {}, CodexProcessRole::reader);
+    std::shared_ptr<CodexProcess> process;
+    try {
+      process = std::make_shared<CodexProcess>(
+          io_, config_, cwd, [](Json) {}, [] {}, CodexProcessRole::reader);
+    } catch (const Error &error) {
+      if (error.code != "BACKPRESSURE")
+        throw;
+      // Live external sessions share this process budget. Optional cache preparation
+      // must yield to them instead of letting capacity refusal stop the Agent.
+      ++history_prepare_skipped_;
+      return;
+    }
     auto finished = std::make_shared<bool>(false);
     auto complete = [this, id, candidate, process, finished, remaining](Json source, Json error) {
       if (*finished)

@@ -997,6 +997,9 @@ try {
     assert.equal(queued.state, 'queued');
     assert.equal(queued.queueId, repeated.queueId);
     if (threadId === 'external-history') {
+      const priorQueueAdds = JSON.parse(
+        readFileSync(join(dir, '.fake-external.json'), 'utf8'),
+      ).queueAdds;
       const lostId = randomUUID();
       const unconfirmed = await request(
         `/sessions/${session.id}/queue`,
@@ -1009,9 +1012,20 @@ try {
         { text: 'lost queue reply' },
         { key: lostId },
       );
-      assert.equal(reconciled.b.error.code, 'RESULT_UNKNOWN');
+      assert.equal(reconciled.b.state, 'queued');
       const persisted = JSON.parse(
         readFileSync(join(dir, '.fake-external.json'), 'utf8'),
+      );
+      assert.equal(
+        persisted.queueAdds,
+        priorQueueAdds + 1,
+        'Original request lookup must not repeat queue/add',
+      );
+      assert.equal(
+        reconciled.b.queueId,
+        persisted.queue.find(
+          (q: any) => q.input?.[0]?.text === 'lost queue reply',
+        ).id,
       );
       assert.equal(
         persisted.queue.filter(

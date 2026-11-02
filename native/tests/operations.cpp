@@ -355,8 +355,9 @@ void creation_capacity_completion() {
         "Wrong completion cannot release another session promise");
   journal.operation_finish(key, {{"data", {{"id", "host~success"}, {"state", "ready"}}}});
   const auto actual = journal.history_budget()["global"];
-  check(actual["bytes"] > 0 && actual["bytes"] < 64 * 1024 && actual["records"] == 10,
-        "Initialization releases unused task capacity and retains the protected runtime terminal "
+  check(actual["bytes"] > 0 && actual["bytes"] < 64 * 1024 && actual["records"] == 11,
+        "Initialization releases unused task capacity and retains the accounted history head and "
+        "protected runtime terminal "
         "slot");
   journal.operation_finish(key, {{"data", {{"id", "host~success"}, {"state", "ready"}}}});
   check(journal.history_budget()["global"] == actual, "Duplicate completion cannot refund history");

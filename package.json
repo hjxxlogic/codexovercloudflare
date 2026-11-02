@@ -42,7 +42,7 @@
     "test:billing:web": "tsx tests/browser-demand.ts",
     "test:projects": "tsx tests/native-projects.ts",
     "test:projects:e2e": "tsx tests/projects-e2e.ts",
-    "test:delivery": "tsx tests/native-delivery.ts && tsx tests/native-history-recovery.ts",
+    "test:delivery": "tsx tests/native-delivery.ts && tsx tests/native-history-recovery.ts --retention",
     "test:operations": "tsx tests/native-operations.ts && tsx tests/native-cli-operations.ts",
     "test:configuration": "tsx tests/native-configuration.ts",
     "test:operations:web": "vitest run tests/web-operations.test.ts tests/web-api.test.ts && tsx tests/browser-operations.ts",

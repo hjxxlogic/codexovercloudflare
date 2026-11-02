@@ -787,3 +787,10 @@ retainedRecords 非零时复用现有 Agent 维护周期，每轮按会话主键
 该证据覆盖本机实际存在并已成功淘汰的类型，不扩展到没有样本的 MCP 等类型，不证明多周离线的来源保留。只改隔离备份的必要 schema，未修改正式 Agent 库或调用模型。[脱敏新进程复核](assets/history-storage-2026-11-02/fresh-reader-recovery.json)。
 
 按 ONLINE_BROWSER_TESTING 的 headless 方法复核已有 Access 邮箱身份，Access 仍有效；CoC 管理员会话已失效，使用正常邮箱管理员登录接口重建，并确认管理员只读接口返回 200。认证快照仅保留认证 Cookie，不带 IndexedDB/outbox；私有证据留在 .local。线上此时仍是旧发行版本，这项仅证明认证与只读页面可用，不能作为当前源码的上线验证。
+
+
+### 12.11 全量回归发现的共享 reader 容量故障
+
+真实 Worker/Agent 集成测试在多个外部会话占用全部 reader 配额时，触发 prepare_history_source 的 CodexProcess 构造异常。构造发生在完成回调的保护之外，BACKPRESSURE 逃逸到执行器，退出整个 Agent；这是正确性故障，不是应放宽的测试条件。
+
+现在仅对该可选准备步骤的构造 BACKPRESSURE 计入跳过并返回，等待已有维护调度下一轮重试；其余错误不吞掉，不增加 reader 配额。请求去重与历史承诺不变。回归同时更新登录 JSON 新增 historyStorage 和历史高水位计费对应的旧测试断言；队列回执丢失后只读找回成功的测试新增 queue/add 调用次数必须只增加一次，避免只靠去重后的队列长度掩盖重复发送。

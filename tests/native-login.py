@@ -111,8 +111,10 @@ class LoginRecovery(unittest.TestCase):
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
-                            'displayName', 'proxy', 'accessEmails', 'codexUseProxy',
+                            'displayName', 'proxy', 'accessEmails', 'codexUseProxy', 'historyStorage',
                         })
+                        self.assertEqual(saved['historyStorage']['retainedRecords'], 0)
+                        self.assertLessEqual(saved['historyStorage']['maxSessionBytes'], saved['historyStorage']['maxBytes'])
                         self.assertEqual(saved['externalSessions'], {
                             'allowQueue': scenario == 'custom', 'allowApprovals': False,
                             'approvalEndpoint': '', 'approvalTokenFile': '',
