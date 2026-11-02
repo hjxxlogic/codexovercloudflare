@@ -2,6 +2,8 @@
 #include "process.hpp"
 namespace coc {
 bool active_writer_error(const Json &error);
+std::string queue_submission_id(const std::string &instance, const std::string &session,
+                                const std::string &request);
 bool same_project_path(const std::string &left, const std::string &right);
 void read_history_thread(std::shared_ptr<CodexProcess>, const std::string &thread,
                          const std::string &cwd, Completion);
@@ -35,7 +37,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   void forward(Json, const std::string &, Json, Completion);
   void latest(Completion);
   void schedule(int);
-  void queue_page(const std::string &, Completion, Json, int);
+  void queue_page(const std::string &, const std::string &, Completion, Json, int, Json);
   void deliver(const Json &, bool, bool);
 
 public:
@@ -46,6 +48,6 @@ public:
   void close();
   void enqueue(const std::string &text, const std::string &client_id,
                std::function<void()> submitted, Completion);
-  void find_queued(const std::string &client_id, Completion);
+  void find_queued(const std::string &client_id, const std::string &text, Completion);
 };
 } // namespace coc

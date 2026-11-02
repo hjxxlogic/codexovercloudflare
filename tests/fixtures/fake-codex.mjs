@@ -351,11 +351,32 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         state.queue.push(queued);
         writeFileSync(stateFile, JSON.stringify(state));
       }
+      state.queueAdds = (state.queueAdds || 0) + 1;
+      writeFileSync(stateFile, JSON.stringify(state));
       result = { queuedSubmission: queued };
-      if (m.params.input[0].text === 'lost queue reply') return;
+      if (
+        ['lost queue reply', 'lost consumed queue reply'].includes(
+          m.params.input[0].text,
+        )
+      )
+        return;
     }
-    if (m.method === 'thread/queue/list')
-      result = { data: externalState().queue, nextCursor: null };
+    if (m.method === 'thread/queue/list') {
+      const state = externalState();
+      const entries = state.queue.filter(
+        (q) => q.input?.[0]?.text !== 'lost consumed queue reply',
+      );
+      const start = Number(m.params.cursor || 0);
+      const size = state.queuePageSize || entries.length || 1;
+      result = {
+        data: entries.slice(start, start + size),
+        nextCursor: state.queueCursorCycle
+          ? String(start)
+          : start + size < entries.length
+            ? String(start + size)
+            : null,
+      };
+    }
     if (m.method === 'turn/start' || m.method === 'turn/interrupt')
       throw new Error('External writer must never be controlled');
   }

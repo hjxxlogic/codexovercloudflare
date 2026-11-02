@@ -1577,6 +1577,77 @@ void external_test() {
   std::cout << "PASS: external stable snapshots, revisions, rewrite, chunks, archive overlap and "
                "writer fallback\n";
 }
+void external_queue_lookup_test() {
+  const auto client = queue_submission_id("instance", "session", "request");
+  check(client == queue_submission_id("instance", "session", "request") &&
+            client != queue_submission_id("other", "session", "request") &&
+            client != queue_submission_id("instance", "other", "request") &&
+            client != queue_submission_id("instance", "session", "other"),
+        "Queue correlation is stable and bound to instance, session and original request");
+  for (const auto &scenario :
+       {"found", "absent", "changed", "duplicate", "bound", "cycle", "oversize"}) {
+    Temp temp;
+    const Json wanted = {{"id", "queued-original"},
+                         {"clientUserMessageId", client},
+                         {"input", Json::array({{{"type", "text"}, {"text", "original"}}})}};
+    Json entries = Json::array({wanted});
+    const std::string kind = scenario;
+    int size = 1;
+    if (kind == "found") {
+      entries.insert(entries.begin(), Json{{"id", "before"}, {"clientUserMessageId", "before"}});
+      entries.push_back({{"id", "after"}, {"clientUserMessageId", "after"}});
+    }
+    if (kind == "absent")
+      entries.clear();
+    if (kind == "changed")
+      entries[0]["input"][0]["text"] = "changed";
+    if (kind == "duplicate")
+      entries.push_back(wanted);
+    if (kind == "bound" || kind == "oversize")
+      for (int i = 0; i < (kind == "bound" ? 20 : 100); ++i)
+        entries.push_back({{"id", "other-" + std::to_string(i)},
+                           {"clientUserMessageId", "other-" + std::to_string(i)}});
+    if (kind == "oversize")
+      size = 101;
+    save_private(temp.path + "/.fake-external.json", {{"items", Json::array()},
+                                                      {"queue", entries},
+                                                      {"running", false},
+                                                      {"queuePageSize", size},
+                                                      {"queueCursorCycle", kind == "cycle"}});
+    asio::io_context io;
+    bool finished = false, matched = false;
+    std::string detail;
+    std::shared_ptr<CodexProcess> process;
+    process = std::make_shared<CodexProcess>(
+        io,
+        Json{{"codexPath", "node"},
+             {"codexArgs",
+              Json::array({std::string(COC_SOURCE_DIR) + "/tests/fixtures/fake-codex.mjs"})},
+             {"sandbox", "read-only"}},
+        temp.path, [](Json) {}, [] {});
+    auto reader = std::make_shared<ExternalThread>(
+        io, process, "external-history", temp.path, [](std::string, Json, bool) {}, [](Json) {},
+        [](Json) {});
+    process->start();
+    process->initialize([&](Json, Json error) {
+      if (!error.is_null()) {
+        process->close();
+        return;
+      }
+      reader->find_queued(client, "original", [&](Json result, Json error) {
+        finished = true;
+        detail = Json{{"result", result}, {"error", error}}.dump();
+        matched = kind == "found" ? error.is_null() && result.at("queuedSubmission") == wanted
+                                  : !error.is_null() && error.at("code") == "RESULT_UNKNOWN";
+        reader->close();
+        process->close();
+      });
+    });
+    io.run();
+    check(finished && matched, ("Bounded positive queue evidence: " + kind + " " + detail).c_str());
+  }
+  std::cout << "PASS: queue correlation, unique positive lookup and bounded ambiguity rejection\n";
+}
 void external_refresh_test() {
   Temp temp;
   asio::io_context io;
@@ -2430,6 +2501,8 @@ int main(int argc, char **argv) {
     std::string mode = argc > 1 ? argv[1] : "";
     if (mode == "--proxy") {
       proxy_tests();
+    } else if (mode == "--external-queue") {
+      external_queue_lookup_test();
     } else if (mode == "--external-refresh") {
       external_refresh_test();
     } else if (mode == "--external-approval") {
@@ -2453,6 +2526,7 @@ int main(int argc, char **argv) {
         remote_configuration_fixture(remote.path);
       }
       external_test();
+      external_queue_lookup_test();
       external_refresh_test();
       std::cout << "RUN: history\n";
       history_subscriber_test();

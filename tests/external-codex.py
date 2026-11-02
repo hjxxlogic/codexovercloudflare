@@ -1,5 +1,6 @@
-"""Real Codex 0.164.0 cross-process read/queue contract, isolated from credentials/models."""
+"""Installed Codex cross-process read/queue contract, isolated from credentials/model services."""
 import json
+import hashlib
 import os
 import pathlib
 import queue
@@ -97,12 +98,25 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
             forward = reader.call(method, dict(params, sortDirection='asc', cursor=page['backwardsCursor']))
             identity = lambda entry: entry.get('item', entry)['id']
             assert list(map(identity, forward['data'])) == list(map(identity, page['data'])), (page, forward)
-            queued = reader.call('thread/queue/add', {'threadId': thread, 'clientUserMessageId': 'queue-' + mode,
-                'input': [{'type': 'text', 'text': 'queued from independent reader', 'text_elements': []}]})
+            correlation = 'coc-' + hashlib.sha256(json.dumps(
+                ['queue-v1', 'isolated-instance', thread, 'original-request'],
+                separators=(',', ':')).encode()).hexdigest()
+            original_input = [{'type': 'text', 'text': 'queued from independent reader', 'text_elements': []}]
+            queued = reader.call('thread/queue/add', {'threadId': thread, 'clientUserMessageId': correlation,
+                'input': original_input})
             pending = reader.call('thread/queue/list', {'threadId': thread, 'limit': 100})
             assert queued['queuedSubmission'] in pending['data'], pending
+            assert queued['queuedSubmission']['clientUserMessageId'] == correlation
+            assert queued['queuedSubmission']['input'] == original_input
+            reader.close()
+            peers.remove(reader)
+            replacement = Peer(env, str(work))
+            peers.append(replacement)
+            pending = replacement.call('thread/queue/list', {'threadId': thread, 'limit': 100})
+            matched = [entry for entry in pending['data'] if entry['clientUserMessageId'] == correlation]
+            assert matched == [queued['queuedSubmission']], pending
             assert owner.process.poll() is None
-            print('PASS: real Codex', mode, 'writer lock, read-only reverse cursor and independent queue')
+            print('PASS: real Codex', mode, 'writer lock, read-only reverse cursor and queue correlation after reader restart')
         finally:
             for peer in peers:
                 peer.close()

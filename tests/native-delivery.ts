@@ -1477,9 +1477,17 @@ try {
     external: true,
     threadId: 'external-history',
   });
-  const queueRecords = () =>
-    JSON.parse(readFileSync(join(projectRoot, '.fake-external.json'), 'utf8'))
-      .queue;
+  const queueRecords = () => {
+    const state = JSON.parse(
+      readFileSync(join(projectRoot, '.fake-external.json'), 'utf8'),
+    );
+    assert.equal(
+      state.queueAdds,
+      state.queue.length,
+      'Source deduplication must not hide duplicate queue/add dispatches',
+    );
+    return state.queue;
+  };
   const queuePromises = () =>
     database!
       .prepare(
@@ -1537,6 +1545,79 @@ try {
     0,
     'Web queue uses the same isolated promise lifecycle',
   );
+  const recoveredData = {
+    sessionId: external.id,
+    mode: 'web',
+    requestId: 'external-recovered-original',
+    text: 'lost queue reply',
+  };
+  const recoveredIntent = {
+    requestId: recoveredData.requestId,
+    owner: 'a'.repeat(64),
+    instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
+      .deliveryInstance,
+  };
+  const recoveredRequest = randomUUID();
+  send({
+    type: 'control',
+    requestId: recoveredRequest,
+    action: 'queue',
+    data: recoveredData,
+    intent: recoveredIntent,
+  });
+  await until(
+    () =>
+      frames.some(
+        (frame) =>
+          frame.type === 'result' && frame.requestId === recoveredRequest,
+      ),
+    25000,
+  );
+  const recoveredReply = frames.find(
+    (frame) => frame.type === 'result' && frame.requestId === recoveredRequest,
+  );
+  assert(!recoveredReply.error, JSON.stringify(recoveredReply.error));
+  assert.equal(
+    recoveredReply.data.state,
+    'queued',
+    'Lost reply is recovered by a read-only positive queue lookup',
+  );
+  const operationKey = createHash('sha256')
+    .update(JSON.stringify([recoveredIntent.owner, recoveredIntent.requestId]))
+    .digest('hex');
+  const expectedClientId =
+    'coc-' +
+    createHash('sha256')
+      .update(
+        JSON.stringify([
+          'queue-v1',
+          recoveredIntent.instance,
+          external.id,
+          'operation:' + operationKey,
+        ]),
+      )
+      .digest('hex');
+  assert.equal(
+    recoveredReply.data.clientUserMessageId,
+    expectedClientId,
+    'Correlation derives from durable original scope without a mapping table',
+  );
+  assert.equal(
+    queuePromises().length,
+    0,
+    'Verified acceptance consumes only its original promise',
+  );
+  assert.deepEqual(
+    await control('queue', recoveredData),
+    recoveredReply.data,
+    'Original retry returns the recovered durable receipt',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(projectRoot, '.fake-external.json'), 'utf8'))
+      .queueAdds,
+    3,
+    'Reply recovery and original retry never dispatch queue/add twice',
+  );
   const lostIntent = {
     requestId: 'external-lost-original',
     owner: 'a'.repeat(64),
@@ -1547,7 +1628,7 @@ try {
     sessionId: external.id,
     mode: 'web',
     requestId: lostIntent.requestId,
-    text: 'lost queue reply',
+    text: 'lost consumed queue reply',
   };
   const lostRequest = randomUUID();
   send({
@@ -1592,7 +1673,7 @@ try {
   );
   assert.equal(
     queueRecords().length,
-    3,
+    4,
     'Unknown result retry cannot create a new external submission',
   );
   const queueUsage = database
@@ -1724,7 +1805,7 @@ try {
   );
   assert.equal(
     queueRecords().length,
-    3,
+    4,
     'History admission rejects before the external queue side effect',
   );
   assert.deepEqual(
@@ -1912,7 +1993,7 @@ try {
   );
   assert.equal(
     queueRecords().length,
-    3,
+    4,
     'Restarted original-result query cannot execute the queue again',
   );
   const recoveredWindow = await control('snapshot', {

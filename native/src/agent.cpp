@@ -1637,13 +1637,25 @@ public:
     const auto encoded = cmd.dump().size();
     if (encoded > max_frame)
       throw Error("MESSAGE_TOO_LARGE", "Queue input exceeds history admission bound");
+    const auto client_id = queue_submission_id(store_.delivery_instance(), id, reservation);
     reader->enqueue(
-        cmd.at("text"), uuid(),
+        cmd.at("text"), client_id,
         [this, id, reservation, encoded] {
           store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 16,
                                  reservation);
         },
-        complete);
+        [reader, client_id, text = cmd.at("text").get<std::string>(), complete](Json result,
+                                                                                Json error) {
+          if (error.is_null() || error.value("code", "") != "RESULT_UNKNOWN") {
+            complete(result, error);
+            return;
+          }
+          // Read-only reconciliation, never a second queue/add. A failed or
+          // incomplete lookup cannot turn a sent request into a known refusal.
+          reader->find_queued(client_id, text, [complete, error](Json found, Json lookup_error) {
+            complete(found, lookup_error.is_null() ? Json() : error);
+          });
+        });
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {

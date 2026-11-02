@@ -1,8 +1,33 @@
 #include "coc/external.hpp"
+#include "coc/delivery.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cwchar>
 namespace coc {
+std::string queue_submission_id(const std::string &instance, const std::string &session,
+                                const std::string &request) {
+  if (instance.empty() || session.empty() || request.empty())
+    throw Error("INVALID_REQUEST", "Queue correlation requires its original scope");
+  return "coc-" + delivery_digest(Json::array({"queue-v1", instance, session, request}).dump());
+}
+namespace {
+bool queue_matches(const Json &entry, const std::string &client, const std::string &text) {
+  if (!entry.is_object() || !entry.contains("id") || !entry.at("id").is_string() ||
+      entry.at("id").get_ref<const std::string &>().empty() ||
+      entry.at("id").get_ref<const std::string &>().size() > 200 ||
+      entry.value("clientUserMessageId", "") != client)
+    return false;
+  const auto input = entry.value("input", Json::array());
+  return input.is_array() && input.size() == 1 && input.at(0).is_object() &&
+         input.at(0).value("type", "") == "text" && input.at(0).value("text", "") == text &&
+         input.at(0).value("text_elements", Json::array()) == Json::array();
+}
+Json queue_unknown() {
+  return {{"code", "RESULT_UNKNOWN"},
+          {"message", "Original queue submission could not be uniquely verified; it may already "
+                      "have been consumed. Do not resubmit automatically"}};
+}
+} // namespace
 bool active_writer_error(const Json &error) {
   if (!error.is_object() || error.value("code", "") != "CODEX_ERROR")
     return false;
@@ -365,43 +390,72 @@ void ExternalThread::enqueue(const std::string &text, const std::string &client_
            {"clientUserMessageId", client_id},
            {"input",
             Json::array({{{"type", "text"}, {"text", text}, {"text_elements", Json::array()}}})}},
-          done, submitted);
+          [client_id, text, done](Json result, Json error) {
+            if (error.is_null()) {
+              try {
+                if (!queue_matches(result.at("queuedSubmission"), client_id, text))
+                  error = queue_unknown();
+              } catch (const std::exception &) {
+                error = queue_unknown();
+              }
+            }
+            done(error.is_null() ? result : Json(), error);
+          },
+          submitted);
     } catch (const std::exception &error) {
       done(nullptr, error_data(error));
     }
   });
 }
-void ExternalThread::find_queued(const std::string &client_id, Completion done) {
+void ExternalThread::find_queued(const std::string &client_id, const std::string &text,
+                                 Completion done) {
   auto self = shared_from_this();
-  validate([self, client_id, done](Json, Json error) {
+  validate([self, client_id, text, done](Json, Json error) {
     if (!error.is_null())
       done(nullptr, error);
     else
-      self->queue_page(client_id, done, nullptr, 20);
+      self->queue_page(client_id, text, done, nullptr, 20, nullptr);
   });
 }
-void ExternalThread::queue_page(const std::string &client_id, Completion done, Json cursor,
-                                int pages) {
+void ExternalThread::queue_page(const std::string &client_id, const std::string &text,
+                                Completion done, Json cursor, int pages, Json found) {
   auto self = shared_from_this();
   process_->request(
       "thread/queue/list", {{"threadId", thread_}, {"cursor", cursor}, {"limit", 100}},
-      [self, client_id, cursor, pages, done](Json result, Json error) {
+      [self, client_id, text, cursor, pages, found, done](Json result, Json error) mutable {
         if (!error.is_null()) {
           done(nullptr, error);
           return;
         }
-        for (auto &entry : result.value("data", Json::array()))
-          if (entry.value("clientUserMessageId", "") == client_id) {
-            done({{"queuedSubmission", entry}}, nullptr);
-            return;
-          }
-        auto next = result.value("nextCursor", Json());
-        if (!next.is_null() && pages > 1 && next != cursor)
-          self->queue_page(client_id, done, next, pages - 1);
-        else
-          done(nullptr, {{"code", "RESULT_UNKNOWN"},
-                         {"message", "Submission is absent from the pending queue; it may already "
-                                     "have been consumed. Do not resubmit automatically"}});
+        Json next;
+        try {
+          const auto &data = result.at("data");
+          if (!data.is_array() || data.size() > 100)
+            throw Error("INVALID_FRAME", "Queue page exceeds its bound");
+          for (const auto &entry : data)
+            if (entry.value("clientUserMessageId", "") == client_id) {
+              if (!found.is_null() || !queue_matches(entry, client_id, text))
+                throw Error("RESULT_UNKNOWN", "Queue correlation is ambiguous or changed");
+              found = entry;
+            }
+          next = result.at("nextCursor");
+          if (!next.is_null() && (!next.is_string() || next == cursor || pages <= 1))
+            throw Error("RESULT_UNKNOWN", "Queue scan did not reach a verified end");
+        } catch (const std::exception &) {
+          done(nullptr, queue_unknown());
+          return;
+        }
+        if (!next.is_null()) {
+          self->queue_page(client_id, text, done, next, pages - 1, found);
+          return;
+        }
+        if (found.is_null()) {
+          done(nullptr, queue_unknown());
+          return;
+        }
+        self->validate([found, done](Json, Json error) {
+          done(error.is_null() ? Json{{"queuedSubmission", found}} : Json(), error);
+        });
       });
 }
 } // namespace coc
