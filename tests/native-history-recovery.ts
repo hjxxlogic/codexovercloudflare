@@ -72,7 +72,7 @@ try {
       historyStorage: {
         cacheMaxBytes: 0,
         readConcurrency: 1,
-        readPageMaxBytes: 4096,
+        readPageMaxBytes: 65536,
         minFreeDiskBytes: 1,
       },
     }),
@@ -140,12 +140,16 @@ try {
   }
   const [first, busy] = await Promise.all([read(), read()]);
   assert.equal(first.error, undefined, JSON.stringify(first.error));
-  assert.equal(first.data.text, '你好🙂');
-  assert.equal(first.data.nextOffset, 3);
+  const characters = Array.from('你好🙂'.repeat(2000));
+  assert.equal(first.data.text, characters.slice(0, 4096).join(''));
+  assert.equal(first.data.nextOffset, 4096);
   assert.equal(busy.error.code, 'BACKPRESSURE');
   const page = await read({ offset: 1 });
-  assert.equal(page.data.text, '好🙂');
-  assert.equal(page.data.more, false);
+  assert.equal(page.data.text, characters.slice(1, 4097).join(''));
+  assert.equal(page.data.more, true);
+  const tail = await read({ offset: 4096 });
+  assert.equal(tail.data.text, characters.slice(4096).join(''));
+  assert.equal(tail.data.more, false);
   const invalid = await read({
     reference: {
       ...reference,
@@ -160,7 +164,7 @@ try {
   assert.equal((await read()).error.code, 'DELIVERY_STATE_MISMATCH');
   rmSync(path);
   renameSync(path + '.original', path);
-  assert.equal((await read()).data.text, '你好🙂');
+  assert.equal((await read()).data.text, characters.slice(0, 4096).join(''));
   console.log(
     'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement and bounded readers',
   );

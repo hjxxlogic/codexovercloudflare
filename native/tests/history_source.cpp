@@ -326,14 +326,21 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
               {"state", "closed"},
               {"mode", "web"},
               {"running", false}});
+  const std::string item = prepared ? "ok" : "large";
+  std::string body = "你好🙂";
+  if (!prepared) {
+    body.clear();
+    for (int i = 0; i < 2000; ++i)
+      body += "你好🙂";
+  }
   const auto event = store.event(session, "item/agentMessage/delta",
-                                 {{"turnId", "turn"}, {"itemId", "ok"}, {"delta", "你好🙂"}});
+                                 {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
   const Json entry = {{"turnId", "turn"},
                       {"completedAtMs", 1},
-                      {"item", {{"id", "ok"}, {"type", "agentMessage"}, {"text", "你好🙂"}}}};
+                      {"item", {{"id", item}, {"type", "agentMessage"}, {"text", body}}}};
   const auto candidate = store.history_source_candidate();
   if (candidate.is_null() || candidate.at("seq") != event.at("seq") ||
-      candidate.at("threadId") != "normal" || candidate.at("itemId") != "ok")
+      candidate.at("threadId") != "normal" || candidate.at("itemId") != item)
     throw std::runtime_error("Missing native-identity recovery candidate");
   if (!prepared)
     return store.history_reference(session, event.at("seq"));
@@ -374,7 +381,9 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
               reclaimed.at("reclaimedBytes").get<int64_t>() ||
       store.history_reference(session, event.at("seq")) != reference)
     throw std::runtime_error("Cache eviction did not refund bytes or preserve immutable reference");
-  rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
+  std::filesystem::remove(path);
+  if (store.history_content(session, reference, 1).at("text") != "好🙂")
+    throw std::runtime_error("Intact inline body became dependent on missing Codex source");
   const auto page = store.history_recovered_content(session, reference, origin, entry, 1);
   if (page.at("text") != "好🙂" || page.at("nextOffset") != 3 || page.at("more") != false)
     throw std::runtime_error("Recovered page changed Unicode character offsets");
@@ -387,6 +396,7 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   altered["contentId"] = altered.at("digest");
   rejects_source([&] { store.history_recovered_content(session, altered, origin, entry, 0); },
                  "CONTENT_UNAVAILABLE");
+  rejects_source([&] { store.history_content(session, altered, 0); }, "CONTENT_UNAVAILABLE");
   if (store.history_source_plan(session, event.at("seq")) != proof)
     throw std::runtime_error("Recovery plan changed after cache loss");
   const auto late = store.event(session, "item/agentMessage/delta",
@@ -472,8 +482,8 @@ void cache_fifo_cases() {
       result.at("cacheBytes") > 2400)
     throw std::runtime_error("Cache did not trim oldest verified chunks to target");
   for (int i = 0; i < 2; ++i)
-    rejects_source([&] { store.history_content(session, references.at(i), 0); },
-                   "CONTENT_UNAVAILABLE");
+    if (store.history_content(session, references.at(i), 0).at("text") != "cache body")
+      throw std::runtime_error("Evicting duplicate chunks lost intact inline content");
   if (store.history_content(session, references.at(2), 0).at("text") != "cache body" ||
       store.content(session, fixed.at("seq"), 0).at("text") != "necessary body")
     throw std::runtime_error("FIFO evicted newest cache or unverified body");

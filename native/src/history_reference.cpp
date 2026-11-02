@@ -92,6 +92,11 @@ Json Store::history_content(const std::string &id, const Json &input, int64_t of
   if (reference.at("agentInstance") != delivery_instance_)
     throw Error("DELIVERY_STATE_MISMATCH", "History reference belongs to another Agent store");
   try {
+    const auto proof =
+        query("SELECT recovery FROM history WHERE session=? AND seq=?", {id, reference.at("seq")});
+    if (!proof.empty() && !proof.at(0).at("recovery").is_null() &&
+        history_reference(id, reference.at("seq")) != reference)
+      throw Error("CONTENT_UNAVAILABLE", "History reference does not match original durable proof");
     return content(id, reference.at("seq"), offset, reference.at("revision"));
   } catch (const Error &error) {
     if (error.code == "CONTENT_NOT_FOUND" || error.code == "CONTENT_CHANGED")

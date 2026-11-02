@@ -784,8 +784,23 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
     for (unsigned char c : text)
       if ((c & 0xc0) != 0x80)
         ++characters;
-    if (characters != std::min(int64_t(4096), size - offset))
-      throw Error("CONTENT_UNAVAILABLE", "History body chunks are incomplete");
+    if (characters != std::min(int64_t(4096), size - offset)) {
+      // Chunk eviction must not make an intact local inline copy depend on
+      // Codex availability. Accept it only against the original durable proof.
+      const auto local = query(
+          "SELECT COALESCE(json_extract(value,'$.data.text'),json_extract(value,'$.data.delta'),"
+          "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text FROM history "
+          "WHERE session=? AND seq=? AND recovery IS NOT NULL AND length(CAST(value AS "
+          "BLOB))<=1048576",
+          {id, seq});
+      if (local.empty() || !local.at(0).at("text").is_string() ||
+          !history_text_matches(local.at(0).at("text"), history_reference(id, seq)))
+        throw Error("CONTENT_UNAVAILABLE", "History body chunks are incomplete");
+      text = query("SELECT substr(?,?+1,4096) AS text", {local.at(0).at("text"), offset})
+                 .at(0)
+                 .at("text")
+                 .get<std::string>();
+    }
     return {{"seq", seq},
             {"revision", current},
             {"offset", offset},

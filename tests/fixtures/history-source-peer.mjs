@@ -63,7 +63,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       item: {
         id: id === 'wrong-item' ? 'other' : id,
         type: 'agentMessage',
-        text: '你好🙂',
+        text: id === 'large' ? '你好🙂'.repeat(2000) : '你好🙂',
       },
       completedAtMs: 1,
     };
