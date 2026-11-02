@@ -274,6 +274,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       params: { turn: result.turn, model: m.params.model },
     });
     const text = m.params.input[0].text;
+    if (text.includes('stale-completion')) {
+      send({
+        method: 'turn/completed',
+        params: { turn: { id: 'old-turn', status: 'completed' } },
+      });
+      send({ method: 'test/staleCompletionProcessed', params: {} });
+    }
+
     if (text.startsWith('scope-approvals:')) {
       const count = Number(text.split(':')[1]);
       for (let n = 0; n < count; n++) {

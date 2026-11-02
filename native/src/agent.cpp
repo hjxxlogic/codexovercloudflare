@@ -453,7 +453,8 @@ public:
                                                   std::chrono::steady_clock::now() - began)
                                                   .count()));
     // Projections are cumulative. Publish only the latest committed revision of
-    // each stream, in revision order; every original delta remains in the journal.
+    // each stream, in revision order; original deltas may later be reclaimed
+    // only after their durable projections have been verified.
     std::map<int64_t, size_t> latest;
     for (size_t i = 0; i < results.size(); ++i)
       latest[results[i]["seq"].get<int64_t>()] = i;
@@ -2131,7 +2132,11 @@ public:
         method == "turn/completed" && s.contains("turnId") &&
         m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==
             s.at("turnId").get<std::string>();
-    if (method == "turn/completed") {
+    // A late terminal notification cannot retire another task, expose it to
+    // idle maintenance, or tell clients that the active turn has finished.
+    if (method == "turn/completed" && !completed_active_turn)
+      return;
+    if (completed_active_turn) {
       s["running"] = false;
       s.erase("turnId");
       store_.save(s);

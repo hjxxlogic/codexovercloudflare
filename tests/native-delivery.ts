@@ -528,7 +528,7 @@ try {
     {
       action: 'prompt',
       requestId: 'exact-running',
-      text: 'hold exact cancellation',
+      text: 'hold exact cancellation stale-completion',
     },
   );
   await until(() =>
@@ -537,6 +537,22 @@ try {
         frame.sessionId === cancellable.id &&
         frame.payload?.event?.type === 'turn/started',
     ),
+  );
+  await until(() =>
+    frames.some(
+      (frame) =>
+        frame.sessionId === cancellable.id &&
+        frame.payload?.event?.type === 'test/staleCompletionProcessed',
+    ),
+  );
+  assert(
+    !frames.some(
+      (frame) =>
+        frame.sessionId === cancellable.id &&
+        frame.payload?.event?.type === 'turn/completed' &&
+        frame.payload.event.data?.turn?.id === 'old-turn',
+    ),
+    'A stale terminal event cannot tell clients the current turn is finished',
   );
   const promisedHistory = database
     .prepare('SELECT bytes,records FROM transport2_history_entries WHERE key=?')
@@ -558,6 +574,18 @@ try {
   assert.equal(
     runningSnapshot.session.activeTask.turnId,
     runningSnapshot.session.turnId,
+  );
+  assert.equal(
+    runningSnapshot.session.running,
+    true,
+    'A stale completed turn cannot expose the active task to idle history cleanup',
+  );
+  assert(
+    !runningSnapshot.history.events.some(
+      (event: any) =>
+        event.type === 'turn/completed' && event.data?.turn?.id === 'old-turn',
+    ),
+    'Historical replay cannot reintroduce a rejected stale terminal event',
   );
   const { turnId: _turnId, ...missingTurn } =
     runningSnapshot.session.activeTask;
