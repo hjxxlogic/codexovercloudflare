@@ -75,7 +75,7 @@ export default function RichBlock({
         title={t('Mermaid 图表')}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        src={relayPath('/diagram.html')}
+        src={relayPath('/diagram')}
         onLoad={() => {
           clearTimeout(deadline.current);
           deadline.current = setTimeout(

@@ -16,7 +16,7 @@ Agent 的 Web 待执行队列（含正在处理的项）每会话最多 100 条 
 
 `workbench/` 装配现有会话组件、懒加载目录/预览和共享事件的只读输出面板；`markdown/` 统一对话、侧栏、独立预览的格式化。主题仅作用于 CW 工作台，管理页面保持原有布局。页面标题展示执行/审批状态，后台页面通知由用户单独开启且只含通用提示；不新增服务端通知或页面关闭后的推送通道。预览读取绑定 host/project/session 并可取消，内联限制 1 MiB；布局偏好使用带版本且校验范围的本地配置。文件读写和历史同步继续走原权限及可靠操作路径。
 
-公式、代码高亮、xterm 动态加载。Mermaid 引擎作为本地静态资源按需装入 `/diagram.html`：iframe 只允许脚本且无同源权限，专用 CSP 禁止网络和应用嵌入；父页面只向该 frame 发送源码，不能接受它发起业务请求。普通网页继续禁止内联脚本；允许内联样式以支持 React 尺寸、KaTeX 及 xterm 的定位样式。图表没有任意 HTML/iframe 内容或回调通道。具体限制和未完成项见 [实施记录](CW_WORKBENCH.md)。
+公式、代码高亮、xterm 动态加载。Mermaid 引擎作为本地静态资源按需装入规范静态路径 `/diagram`（`/diagram.html` 的重定向目标）：iframe 只允许脚本且无同源权限，专用 CSP 禁止网络和应用嵌入；父页面只向该 frame 发送源码，不能接受它发起业务请求。图表路径及其 HTML 别名均设置专用 CSP，并移除普通资源的 X-Frame-Options；普通网页继续禁止内联脚本；允许内联样式以支持 React 尺寸、KaTeX 及 xterm 的定位样式，字体仅允许同源和构建器内联的 data 字体。图表没有任意 HTML/iframe 内容或回调通道。具体限制和未完成项见 [实施记录](CW_WORKBENCH.md)。
 
 `POST /api/v1/hosts/:id/terminal` 只接受 Web 身份和显式的 info/open/read/input/resize/close 契约；非 info 操作由 Relay 事务验证活动项目 writer、完整 control proof、账号及会话归属。Agent 再验证当前持久控制代次、运行时连接代次、会话模式与项目。创建/关闭进入原可靠 operation 账本，输入/缩放按 runtime + 严格递增序号在内存去重，不把按键逐条写入业务数据库；相同上一序号只接受完全相同摘要。写入结果无法确认或部分写入会关闭 runtime 并报告 RESULT_UNKNOWN，不能重新编号重放。
 

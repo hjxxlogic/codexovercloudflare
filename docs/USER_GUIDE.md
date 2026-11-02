@@ -972,3 +972,5 @@ CW 历史保存在浏览器 IndexedDB，已缓存的旧页再次打开优先本�
 仅经明确授权跳过 CI 的本机更新使用 `deploy-agent.py --local --local-build --binary /absolute/path/coc-agent --apply`；本机编译、来源核对、终端专项及备份重启仍执行，记录中注明未验证 CI。默认部署流程继续使用 Actions 制品。
 
 生产部署配置现固定原有 `STATE_DB`、`STATE_BACKEND=d1` 和清理 Cron。若管理员看到 `STATE_MIGRATED: Restore the D1 binding`，须恢复原数据库绑定，不能删除迁移标记或切回旧 DO；不会通过重新配对修复。直接 `npx wrangler deploy` 仍可能遗漏完整下载站，日常部署使用上述脚本。
+
+图表预览兼容生产静态资源的规范 URL，公式使用本站提供或构建时内联的字体；无需放宽浏览器安全设置。

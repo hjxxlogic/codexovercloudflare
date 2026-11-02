@@ -252,18 +252,24 @@ describe('Cloudflare Access signature and email identity', () => {
       "frame-ancestors 'none'",
     );
   });
-  it('restricts the diagram page to an opaque sandbox and preserves normal anti-framing', async () => {
-    vi.spyOn(env.ASSETS, 'fetch').mockResolvedValue(new Response('diagram'));
-    const response = await worker.fetch(
-      new Request('https://relay.test/guest/diagram.html'),
-      env,
-    );
-    const policy = response.headers.get('Content-Security-Policy');
-    expect(policy).toContain('sandbox allow-scripts');
-    expect(policy).toContain("connect-src 'none'");
-    expect(policy).toContain("frame-ancestors 'self'");
-    expect(policy).not.toContain('allow-same-origin');
-  });
+  it.each(['/guest/diagram.html', '/guest/diagram'])(
+    'restricts diagram resource %s including the canonical HTML redirect target',
+    async (path) => {
+      vi.spyOn(env.ASSETS, 'fetch').mockResolvedValue(
+        new Response('diagram', { headers: { 'X-Frame-Options': 'DENY' } }),
+      );
+      const response = await worker.fetch(
+        new Request('https://relay.test' + path),
+        env,
+      );
+      const policy = response.headers.get('Content-Security-Policy');
+      expect(policy).toContain('sandbox allow-scripts');
+      expect(policy).toContain("connect-src 'none'");
+      expect(policy).toContain("frame-ancestors 'self'");
+      expect(policy).not.toContain('allow-same-origin');
+      expect(response.headers.has('X-Frame-Options')).toBe(false);
+    },
+  );
   it.each([
     [
       'keys_network',

@@ -30,7 +30,7 @@ const server = createServer(async (req, res) => {
     );
     return;
   }
-  if (url.pathname === '/diagram.html')
+  if (url.pathname === '/diagram.html' || url.pathname === '/diagram')
     res.setHeader(
       'Content-Security-Policy',
       "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts",
@@ -38,12 +38,17 @@ const server = createServer(async (req, res) => {
   else
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     );
   const root = resolve('dist/web');
   const file = resolve(
     root,
-    '.' + (url.pathname === '/' ? '/index.html' : url.pathname),
+    '.' +
+      (url.pathname === '/'
+        ? '/index.html'
+        : url.pathname === '/diagram'
+          ? '/diagram.html'
+          : url.pathname),
   );
   if (!file.startsWith(root + '/')) {
     res.writeHead(403).end();
