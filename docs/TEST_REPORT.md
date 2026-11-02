@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+正文淘汰后强杀恢复：`tests/native-history-recovery.ts --file-started` 与 `--inline` 均通过。真实 Agent 自动淘汰后 SIGKILL，旧连接关闭、新 PID 启动，原引用首尾页及 history value/revision/recovery 不变，chunks 保持 0；来源替换拒绝及恢复原文件后的读取通过。TypeScript 类型与定向 ESLint 通过。日志 `/tmp/coc-history-restart-{agent,inline,typecheck,lint}.log`。该专项使用确定性源 peer，不等于真实 Codex 重启或最终浏览器验收；未运行全量回归。
+
 网页引用段组装：`npx vitest run tests/web-events.test.ts` 14 项通过，TypeScript 类型与定向 ESLint 通过。新增 5 项验证迟到工具输出不隐藏在引用中、文本/工具片段不跨引用错序、旧工具拼接位置失效及无 itemId 片段边界。日志 `/tmp/coc-reference-assembly-{test,typecheck,lint}.log`。该批仅验证事件组装，未替代最终真实浏览器、Agent 重启或全量回归。
 
 文件开始态后台接入：Agent/测试构建通过，来源专项 4.06 秒通过，类型检查和定向 ESLint 通过；真实 Agent 的 `npx tsx tests/native-history-recovery.ts --file-started` 自动准备、淘汰及原引用回源通过，覆盖 Unicode 多页、并发预算、来源替换拒绝。日志 `/tmp/coc-file-auto-{build,source,agent,typecheck,lint}.log`。另外真实 Codex 类型专项核验 4316 条候选，3407 条可恢复（1421 条实际回收、1986 条验证保留），909 条保留；净计费减少 4190908 字节，Store 重开复核与完整性通过。[完整类型矩阵](assets/history-storage-2026-11-02/source-type-coverage.json)。类型审计绕过后台候选调度，不能证明所有记录均会自动回收；缺少真实 MCP/plan/dynamicToolCall 样本，未运行最终浏览器/全量回归或修改正式数据库。

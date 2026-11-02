@@ -32,6 +32,9 @@ sockets.on('connection', (ws) => {
       epoch: 1,
     }),
   );
+  ws.on('close', () => {
+    if (peer === ws) peer = undefined;
+  });
   ws.on('message', (raw) => {
     const message = JSON.parse(String(raw));
     if (message.type === 'capabilities') peer = ws;
@@ -100,21 +103,24 @@ try {
     }),
     { mode: 0o600 },
   );
-  child = spawn(
-    executable('coc-agent'),
-    ['run', '--config', config, '--proxy', ''],
-    {
-      env: { ...process.env, CODEX_HOME: join(root, '.codex') },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-  child.stdout?.on('data', (b) => {
-    output += String(b);
-  });
-  child.stderr?.on('data', (b) => {
-    output += String(b);
-  });
-  await until(() => Boolean(peer));
+  async function startAgent() {
+    child = spawn(
+      executable('coc-agent'),
+      ['run', '--config', config, '--proxy', ''],
+      {
+        env: { ...process.env, CODEX_HOME: join(root, '.codex') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    child.stdout?.on('data', (b) => {
+      output += String(b);
+    });
+    child.stderr?.on('data', (b) => {
+      output += String(b);
+    });
+    await until(() => Boolean(peer));
+  }
+  await startAgent();
   const database = new DatabaseSync(join(root, 'state', 'agent.db'));
   try {
     await until(
@@ -185,6 +191,41 @@ try {
   const tail = await read({ offset: 4096 });
   assert.equal(tail.data.text, characters.slice(4096).join(''));
   assert.equal(tail.data.more, false);
+  const stateBeforeRestart = new DatabaseSync(join(root, 'state', 'agent.db'));
+  const retained = stateBeforeRestart
+    .prepare('SELECT value,revision,recovery FROM history WHERE seq=?')
+    .get(reference.seq);
+  stateBeforeRestart.close();
+  const oldChild = child!;
+  const oldPid = oldChild.pid;
+  const stopped = new Promise((r) => oldChild.once('exit', r));
+  oldChild.kill('SIGKILL');
+  await stopped;
+  await until(() => peer === undefined);
+  await startAgent();
+  assert.notEqual(child!.pid, oldPid);
+  const restartedFirst = await read();
+  const restartedTail = await read({ offset: 4096 });
+  assert.equal(
+    restartedFirst.error,
+    undefined,
+    JSON.stringify(restartedFirst.error),
+  );
+  assert.equal(restartedFirst.data.text, characters.slice(0, 4096).join(''));
+  assert.equal(restartedTail.data.text, characters.slice(4096).join(''));
+  assert.equal(restartedTail.data.more, false);
+  const stateAfterRestart = new DatabaseSync(join(root, 'state', 'agent.db'));
+  assert.deepEqual(
+    stateAfterRestart
+      .prepare('SELECT value,revision,recovery FROM history WHERE seq=?')
+      .get(reference.seq),
+    retained,
+  );
+  assert.equal(
+    stateAfterRestart.prepare('SELECT COUNT(*) AS n FROM chunks').get()?.n,
+    0,
+  );
+  stateAfterRestart.close();
   const invalid = await read({
     reference: {
       ...reference,
@@ -201,10 +242,10 @@ try {
   renameSync(path + '.original', path);
   assert.equal((await read()).data.text, characters.slice(0, 4096).join(''));
   console.log(
-    'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement and bounded readers',
+    'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement, bounded readers and SIGKILL restart',
   );
 } finally {
-  if (child && child.exitCode === null) {
+  if (child && child.exitCode === null && child.signalCode === null) {
     child.kill();
     await new Promise((r) => child!.once('exit', r));
   }
