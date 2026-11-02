@@ -81,6 +81,7 @@ type Ticket = {
   epoch?: number;
 };
 type Lease = {
+  projectId?: string;
   controlEpoch?: number;
   controlId?: string;
   nextControlEpoch?: number;
@@ -520,6 +521,15 @@ export class HostRelayDO extends DurableObject<Env> {
         (lease.controllerId && lease.controllerId !== a.id)
       )
         throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
+      if (
+        lease.projectId &&
+        (await tx.get('project-writer:' + lease.projectId)) !== a.sessionId
+      )
+        throw new AppError(
+          'PROJECT_READ_ONLY',
+          'Another session holds this project write access',
+          409,
+        );
       if (agent.epoch !== (await tx.get('agentEpoch')))
         throw new AppError('STALE_AGENT', 'Agent replaced', 409);
     });
@@ -783,6 +793,15 @@ export class HostRelayDO extends DurableObject<Env> {
           'Control claim was replaced before Agent confirmation',
           409,
         );
+      if (
+        lease.projectId &&
+        (await tx.get('project-writer:' + lease.projectId)) !== o.data.sessionId
+      )
+        throw new AppError(
+          'PROJECT_READ_ONLY',
+          'Project write claim was replaced',
+          409,
+        );
       if (!lease.active) await tx.put(key, { ...lease, active: true });
     });
   }
@@ -1019,7 +1038,11 @@ export class HostRelayDO extends DurableObject<Env> {
           undefined,
           new AppError('FORBIDDEN', 'Wrong credential for session mode', 403),
         );
-      o.info = { mode: data.mode, sandbox: data.sandbox };
+      o.info = {
+        mode: data.mode,
+        sandbox: data.sandbox,
+        projectId: data.projectId,
+      };
       if (
         (await this.storage.get('session-mode:' + o.data.sessionId)) !==
         data.mode
@@ -1072,6 +1095,7 @@ export class HostRelayDO extends DurableObject<Env> {
           o.data.resume?.controller,
           o.data.claimId,
           o.auth.hash,
+          o.info.projectId,
         );
         return this.command(
           'attach',
@@ -1118,6 +1142,7 @@ export class HostRelayDO extends DurableObject<Env> {
             409,
           );
         await tx.put(key, {
+          projectId: lease.projectId,
           epoch: o.reservation!.epoch,
           nextEpoch: Math.max(lease.nextEpoch || 0, o.reservation!.epoch),
           active: false,
@@ -1794,10 +1819,43 @@ export class HostRelayDO extends DurableObject<Env> {
     expectedController?: string,
     claimId?: string,
     owner = 'test-owner',
+    projectId?: string,
   ) {
     return this.storage.transaction(async (tx) => {
       const key = 'lease:' + sessionId;
       const lease = (await tx.get<Lease>(key)) || { epoch: 0, active: false };
+      projectId ||= lease.projectId;
+      if (projectId) {
+        const writerKey = 'project-writer:' + projectId;
+        const writer = await tx.get<string>(writerKey);
+        if (writer && writer !== sessionId) {
+          const other = await tx.get<Lease>('lease:' + writer);
+          const connected = this.ctx
+            .getWebSockets('session:' + writer)
+            .some((ws) => {
+              const a = ws.deserializeAttachment() as Attachment;
+              return (
+                ws.readyState < 2 &&
+                a.authenticated &&
+                !a.history &&
+                a.epoch === other?.epoch
+              );
+            });
+          if (
+            (other?.pending && other.pending.expires > Date.now()) ||
+            (other && ((other.expires || 0) > Date.now() || connected))
+          )
+            throw new AppError(
+              'PROJECT_READ_ONLY',
+              'Another session holds this project write access',
+              409,
+            );
+        }
+        // Reservation and project ownership commit atomically. A competing
+        // attach cannot acquire another session while this claim is pending.
+        await tx.put(writerKey, sessionId);
+      }
+
       if (
         expectedController &&
         lease.controllerId !== expectedController &&
@@ -1876,6 +1934,7 @@ export class HostRelayDO extends DurableObject<Env> {
         throw new AppError('CAPACITY', 'Control generation exhausted', 409);
       await tx.put(key, {
         ...lease,
+        projectId,
         active: false,
         nextEpoch: pending.epoch,
         nextControlEpoch: Math.max(

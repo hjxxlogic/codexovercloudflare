@@ -938,6 +938,126 @@ describe('recoverable asynchronous controls', () => {
     ).toBe(202);
     expect(h.frames()).toHaveLength(129);
   });
+  it('allows one project writer across sessions, reconstruction and explicit takeover', async () => {
+    const h = harness();
+    await h.relay.reserve(
+      'host~writer',
+      false,
+      undefined,
+      'writer-claim',
+      auth.hash,
+      'shared',
+    );
+    h.recreate();
+    await expect(
+      h.relay.reserve(
+        'host~reader',
+        false,
+        undefined,
+        'reader-claim',
+        auth.hash,
+        'shared',
+      ),
+    ).rejects.toMatchObject({ code: 'PROJECT_READ_ONLY' });
+    await expect(
+      h.relay.reserve(
+        'host~reader',
+        true,
+        undefined,
+        'reader-claim',
+        auth.hash,
+        'shared',
+      ),
+    ).rejects.toMatchObject({ code: 'PROJECT_READ_ONLY' });
+    await expect(
+      h.relay.reserve(
+        'host~other',
+        false,
+        undefined,
+        'other-claim',
+        auth.hash,
+        'different',
+      ),
+    ).resolves.toMatchObject({ epoch: 1 });
+    const lease = await h.storage.get<any>('lease:host~writer');
+    await h.storage.put('lease:host~writer', {
+      ...lease,
+      epoch: lease.pending.epoch,
+      pending: undefined,
+      active: true,
+    });
+    const writer = socket({
+      id: 'writer',
+      role: 'web',
+      sessionId: 'host~writer',
+      epoch: lease.pending.epoch,
+      authenticated: true,
+    });
+    h.sockets.push(writer);
+    await expect(
+      h.relay.reserve(
+        'host~reader',
+        false,
+        undefined,
+        'reader-claim',
+        auth.hash,
+        'shared',
+      ),
+    ).rejects.toMatchObject({ code: 'PROJECT_READ_ONLY' });
+    writer.readyState = 3;
+    await h.relay.webSocketClose(writer as unknown as WebSocket);
+    await expect(
+      h.relay.reserve(
+        'host~reader',
+        false,
+        undefined,
+        'reader-claim',
+        auth.hash,
+        'shared',
+      ),
+    ).resolves.toMatchObject({ epoch: 1 });
+  });
+  it('admits exactly one of five simultaneous project write claims', async () => {
+    const h = harness();
+    const claims = await Promise.allSettled(
+      Array.from({ length: 5 }, (_, i) =>
+        h.relay.reserve(
+          'host~session-' + i,
+          false,
+          undefined,
+          'claim-' + i,
+          auth.hash,
+          'shared',
+        ),
+      ),
+    );
+    expect(claims.filter((claim) => claim.status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(
+      claims
+        .filter((claim) => claim.status === 'rejected')
+        .map((claim) => claim.reason.code),
+    ).toEqual(Array(4).fill('PROJECT_READ_ONLY'));
+  });
+  it('rejects a replaced project claim before forwarding a direct controller mutation', async () => {
+    const h = harness();
+    await h.storage.put('lease:host~writer', {
+      epoch: 1,
+      active: true,
+      projectId: 'shared',
+      controllerId: 'writer',
+      owner: auth.hash,
+    });
+    await h.storage.put('project-writer:shared', 'host~other');
+    await expect(
+      (h.relay as any).assertController(
+        { sessionId: 'host~writer', epoch: 1, id: 'writer', auth },
+        h.agent.deserializeAttachment(),
+      ),
+    ).rejects.toMatchObject({ code: 'PROJECT_READ_ONLY' });
+    expect(h.frames()).toHaveLength(0);
+  });
   it('fences the old controller as soon as a takeover is reserved', async () => {
     const h = harness();
     h.storage.values.set('lease:host~session', { epoch: 4, active: true });

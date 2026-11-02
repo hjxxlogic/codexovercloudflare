@@ -651,3 +651,9 @@ CW / CC 同时请求 receivedRevision 与 releasedRevision 时，仅数据水位
 底部刷新复用当前会话只读确认，手动状态刷新才包含身份、目录及主机探测；两者均合并并发调用，并设 20 秒总 UI 等待上限。超时信号向当前会话快照传播，各阶段之间检查取消，finally 释放按钮。正常 AbortError 不展示，TimeoutError 保留可操作提示。IndexedDB 历史页缓存继续按原会话、分页及代际边界复用。
 
 结束操作仍由可靠操作日志持久化并提交一次。收到 closing 后以独立取消信号查询快照，直至 closed/failed，最长 60 秒；离开会话产生的取消不阻断该最终状态确认。未确认时明确显示待确认，不重新发 stop。
+
+### 同项目唯一写会话
+
+HostRelay 从 Agent 的 get 响应取得权威 projectId；连接 reserve 事务同时保存会话 lease 的 projectId 与 project-writer 指针。另会话有未过期 reservation、连接票据或有效控制 WebSocket 时，竞争者收到 PROJECT_READ_ONLY；普通 attach 和显式 takeover 都不能跨会话抢占项目写权限。OPEN 激活及后续 HTTP/WebSocket 控制变更再次核对项目指针。断开的旧连接和已过期的准备不阻止下一次显式申请，历史连接独立保留。原生 Agent 的执行互斥保留，无需升级 Agent。
+
+CW 遇到 PROJECT_READ_ONLY 停止自动控制重试，展示历史和显式获取入口，不展示任务输入。当前会话快照与命令回执恢复不再串行等待，手动刷新时身份/目录恢复在后台独立进行；辅助恢复的完成不定义当前历史刷新是否成功。

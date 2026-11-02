@@ -1,5 +1,10 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  '只读会话 · 同项目已有写会话':
+    'Read-only session · Another session can write in this project',
+  '可查看历史；请先关闭当前写连接，再获取写权限。':
+    'History is available. Close the current write connection before acquiring write access.',
+  获取写权限: 'Acquire write access',
   '刷新超时，已恢复操作；请稍后重试。':
     'Refresh timed out. Controls are available again; please retry later.',
   '请求超时，请刷新重试。': 'Request timed out. Refresh and retry.',

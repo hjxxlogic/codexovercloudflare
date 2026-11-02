@@ -265,6 +265,7 @@ function App() {
   };
   const [notice, setNotice] = useState('');
   const [closingSession, setClosingSession] = useState<string>();
+  const [projectReadOnly, setProjectReadOnly] = useState(false);
   const [reconnect, setReconnect] = useState(0);
   const [away, setAway] = useState(false);
   const [sessionCursor, setSessionCursor] = useState<string | null>(null);
@@ -580,8 +581,25 @@ function App() {
       recoverNotifications(true);
       try {
         await boundedRefresh(async (signal) => {
-          if (sessionOnly && mode === 'cw' && host && refreshSession.current) {
-            await refreshSession.current(signal);
+          if (mode === 'cw' && host && refreshSession.current) {
+            // Catalog/identity recovery must not hold the conversation spinner.
+            if (!sessionOnly) {
+              void refresh().catch(report);
+              void recoverCatalog.current?.().catch(report);
+            }
+            await Promise.all([
+              refreshSession.current(signal),
+              ...(sessionOnly
+                ? []
+                : [
+                    api(`/hosts/${host}/probe`, {}, signal).then(
+                      (confirmation) => {
+                        if (!confirmation.online)
+                          throw new Error('未确认服务器可达，请重试');
+                      },
+                    ),
+                  ]),
+            ]);
           } else {
             await refresh();
             signal.throwIfAborted();
@@ -1074,6 +1092,7 @@ function App() {
     after.current = 0;
     setEvents([]);
     setApprovals([]);
+    setProjectReadOnly(false);
     setReady(false);
     setPending(false);
     let running = selected.state === 'ready' && selected.running;
@@ -1424,6 +1443,15 @@ function App() {
               setPending(false);
             }
             if (d.type === 'error') {
+              if (d.error.code === 'PROJECT_READ_ONLY') {
+                terminal = true;
+                clearTimeout(handshake);
+                setProjectReadOnly(true);
+                setReady(false);
+                setPending(false);
+                setStatus('只读会话 · 同项目已有写会话');
+                return;
+              }
               setPending(false);
               if (d.requestId === pendingCommand.current?.requestId)
                 setPromptProgress(undefined);
@@ -1494,6 +1522,12 @@ function App() {
         };
       } catch (e) {
         if (!disposed) {
+          if (e instanceof ApiError && e.code === 'PROJECT_READ_ONLY') {
+            terminal = true;
+            setProjectReadOnly(true);
+            setStatus('只读会话 · 同项目已有写会话');
+            return;
+          }
           report(e);
           setStatus(
             retryable(e)
@@ -2058,7 +2092,7 @@ function App() {
         : controller.signal;
       try {
         signal.throwIfAborted();
-        await commandDelivery?.refresh();
+        void commandDelivery?.refresh().catch(report);
         signal.throwIfAborted();
         {
           // A direct read does not depend on either session socket, and never
@@ -2113,7 +2147,7 @@ function App() {
             if (historySync.received === before)
               throw new Error('History cursor did not advance');
           }
-          await checkPending();
+          void checkPending();
           return;
         }
       } catch (error) {
@@ -2991,18 +3025,20 @@ function App() {
           status={
             !online
               ? t('服务器离线 · 只读缓存')
-              : selected?.external
-                ? t('外部会话 · 只读同步') +
-                  (selected.approvalForwarding
-                    ? t(' · 可远程审批')
-                    : t(' · 审批在原客户端')) +
-                  (busy ? t(' · 原客户端执行中') : '') +
-                  (selected.historySyncPending
-                    ? t(' · 历史容量不足，等待同步')
-                    : '')
-                : approvals.length
-                  ? t('等待你的确认')
-                  : status
+              : projectReadOnly
+                ? t('只读会话 · 同项目已有写会话')
+                : selected?.external
+                  ? t('外部会话 · 只读同步') +
+                    (selected.approvalForwarding
+                      ? t(' · 可远程审批')
+                      : t(' · 审批在原客户端')) +
+                    (busy ? t(' · 原客户端执行中') : '') +
+                    (selected.historySyncPending
+                      ? t(' · 历史容量不足，等待同步')
+                      : '')
+                  : approvals.length
+                    ? t('等待你的确认')
+                    : status
           }
           onDetails={() => {
             if (selected) setPanel('details');
@@ -4049,7 +4085,22 @@ function App() {
                         </small>
                       </div>
                     )}
-                    {selected.state !== 'ready' ? (
+                    {projectReadOnly ? (
+                      <div className="readonly-hint" role="status">
+                        <p>{t('只读会话 · 同项目已有写会话')}</p>
+                        <p>
+                          {t('可查看历史；请先关闭当前写连接，再获取写权限。')}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setTakeover(false);
+                            setReconnect((n) => n + 1);
+                          }}
+                        >
+                          {t('获取写权限')}
+                        </button>
+                      </div>
+                    ) : selected.state !== 'ready' ? (
                       <p className="readonly-hint">
                         {t(
                           '会话已结束 · 历史只读，请从历史记录显式恢复并继续。',

@@ -1055,6 +1055,25 @@ try {
     'Successful direct refresh preserves control',
   );
   stallHistory = false;
+  // Reliable result recovery can stall without holding the conversation snapshot.
+  let stalledDelivery = false;
+  const stallDelivery = async (route: import('@playwright/test').Route) => {
+    stalledDelivery = true;
+    await new Promise<void>((resolve) => setTimeout(resolve, 22000));
+    await route.abort().catch(() => {});
+  };
+  await page.route('**/api/v1/sessions/**/delivery*', stallDelivery);
+  const beforeIndependentSnapshot = controlSyncCalls;
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled({ timeout: 10000 });
+  assert(stalledDelivery, 'recovery encountered a stalled delivery lane');
+  assert(
+    controlSyncCalls > beforeIndependentSnapshot,
+    'snapshot refresh bypasses stalled command recovery',
+  );
+  await page.unroute('**/api/v1/sessions/**/delivery*', stallDelivery);
   // A stalled HTTP read must release the refresh button at the total deadline.
   let stalledSnapshot = false;
   const stallSnapshot = async (route: import('@playwright/test').Route) => {
@@ -2814,6 +2833,49 @@ try {
   ).toBeVisible();
   await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
   await gapContext.close();
+  const readerContext = await browser.newContext();
+  let denyProjectWrite = true;
+  await readerContext.routeWebSocket('**/ws/v1/web/**', (route) => {
+    if (!denyProjectWrite) {
+      route.connectToServer();
+      return;
+    }
+    route.onMessage(() =>
+      route.send(
+        JSON.stringify({
+          type: 'error',
+          error: {
+            code: 'PROJECT_READ_ONLY',
+            message: 'Another session holds this project write access',
+          },
+        }),
+      ),
+    );
+  });
+  const reader = await readerContext.newPage();
+  await reader.goto(origin);
+  await openMenu(reader);
+  await reader.getByRole('button', { name: /^会话记录/ }).click();
+  await reader.getByLabel('主机', { exact: true }).selectOption('sample');
+  await openMenu(reader);
+  await reader.getByRole('button', { name: /^会话记录/ }).click();
+  await reader.getByRole('button', { name: /进行中的对话/ }).click();
+  await expect(
+    reader.getByText('只读会话 · 同项目已有写会话', { exact: true }).last(),
+  ).toBeVisible();
+  await expect(
+    reader.getByRole('textbox', { name: '任务内容', exact: true }),
+  ).toHaveCount(0);
+  await expect(reader.locator('[data-event-seq]').first()).toBeVisible();
+  denyProjectWrite = false;
+  await reader.getByRole('button', { name: '获取写权限', exact: true }).click();
+  await reader
+    .getByRole('textbox', { name: '任务内容', exact: true })
+    .fill('读会话取得已释放写权限');
+  await expect(
+    reader.getByRole('button', { name: '发送', exact: true }),
+  ).toBeEnabled({ timeout: 20000 });
+  await readerContext.close();
   assert.deepEqual(failures, []);
   console.log(
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
