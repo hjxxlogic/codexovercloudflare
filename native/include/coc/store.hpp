@@ -23,6 +23,7 @@ private:
   Json history_policy_;
   int64_t history_pack_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_pack_start_ = -1;
+  int64_t history_inline_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_prepare_seq_ = std::numeric_limits<int64_t>::min();
   Lock lock_;
   sqlite3 *db_ = nullptr;
@@ -31,6 +32,7 @@ private:
   void cache_forget(const std::string &physical_key);
   void cache_uncharge(const std::string &physical_key);
   void history_budget_init(bool authoritative);
+  Json history_inline_text(const std::string &session, int64_t seq);
   std::string operation_key(const Json &intent);
   void local_operation_save(const std::string &request, const Json &record);
   std::map<std::string, sqlite3_stmt *> statements_;
@@ -65,6 +67,7 @@ public:
   Json history_hint(const Json &request);
   Json history_budget();
   Json history_compact();
+  Json history_inline_compact();
   Json history_cache_compact(const Json &verified = nullptr);
   Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
                                const Json &entry, const Json &expected = nullptr);

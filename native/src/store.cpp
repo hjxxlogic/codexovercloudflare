@@ -826,6 +826,22 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
           {"snapshotSeq", latest[0]["seq"]},
           {"direction", forward ? "after" : "before"}};
 }
+Json Store::history_inline_text(const std::string &id, int64_t seq) {
+  auto local =
+      query("SELECT COALESCE(json_extract(value,'$.data.text'),json_extract(value,'$.data.delta'),"
+            "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text,"
+            "CASE WHEN json_type(value,'$.data.item')='object' AND EXISTS(SELECT 1 FROM "
+            "external_items "
+            "WHERE session=history.session AND turn=json_extract(history.value,'$.data.turnId') "
+            "AND item=json_extract(history.value,'$.data.itemId') AND seq=history.seq) "
+            "THEN json_extract(value,'$.data.item') ELSE NULL END AS external_item FROM history "
+            "WHERE session=? AND seq=? AND length(CAST(value AS "
+            "BLOB))<=1048576",
+            {id, seq});
+  if (!local.empty() && !local.at(0).at("external_item").is_null())
+    local[0]["text"] = Json::parse(local.at(0).at("external_item").get<std::string>()).dump();
+  return local.empty() || !local.at(0).at("text").is_string() ? Json() : local.at(0).at("text");
+}
 Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t revision) {
   auto body = query("SELECT bodies.size,bodies.bytes,history.revision,history.recovery FROM bodies "
                     "JOIN history USING(seq) WHERE "
@@ -855,26 +871,13 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
     if (characters != std::min(int64_t(4096), size - offset)) {
       // Chunk eviction must not make an intact local inline copy depend on
       // Codex availability. Validate its size and any durable recovery proof.
-      auto local = query(
-          "SELECT COALESCE(json_extract(value,'$.data.text'),json_extract(value,'$.data.delta'),"
-          "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text,"
-          "CASE WHEN json_type(value,'$.data.item')='object' AND EXISTS(SELECT 1 FROM "
-          "external_items "
-          "WHERE session=history.session AND turn=json_extract(history.value,'$.data.turnId') "
-          "AND item=json_extract(history.value,'$.data.itemId') AND seq=history.seq) "
-          "THEN json_extract(value,'$.data.item') ELSE NULL END AS external_item FROM history "
-          "WHERE session=? AND seq=? AND length(CAST(value AS "
-          "BLOB))<=1048576",
-          {id, seq});
-      if (!local.empty() && !local.at(0).at("external_item").is_null())
-        local[0]["text"] = Json::parse(local.at(0).at("external_item").get<std::string>()).dump();
-      if (local.empty() || !local.at(0).at("text").is_string() ||
-          local.at(0).at("text").get<std::string>().size() !=
-              body.at(0).at("bytes").get<size_t>() ||
+      const auto local = history_inline_text(id, seq);
+      if (local.is_null() ||
+          local.get<std::string>().size() != body.at(0).at("bytes").get<size_t>() ||
           (!body.at(0).at("recovery").is_null() &&
-           !history_text_matches(local.at(0).at("text"), history_reference(id, seq))))
+           !history_text_matches(local, history_reference(id, seq))))
         throw Error("CONTENT_UNAVAILABLE", "History body chunks are incomplete");
-      text = query("SELECT substr(?,?+1,4096) AS text", {local.at(0).at("text"), offset})
+      text = query("SELECT substr(?,?+1,4096) AS text", {local, offset})
                  .at(0)
                  .at("text")
                  .get<std::string>();
@@ -1031,8 +1034,94 @@ Json Store::history_compact() {
     throw;
   }
 }
+Json Store::history_inline_compact() {
+  run("BEGIN IMMEDIATE");
+  try {
+    const auto rows = query(
+        "SELECT h.seq,h.session,b.size,b.bytes,h.recovery IS NOT NULL AS verified,"
+        "b.bytes<=12000 AND length(CAST(h.value AS BLOB))<=16384 "
+        "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
+        "(SELECT 1 FROM transport2_history_entries WHERE key='reservation:'||h.session) AS "
+        "eligible "
+        "FROM history h LEFT JOIN bodies b ON b.seq=h.seq LEFT JOIN sessions s ON s.id=h.session "
+        "WHERE h.seq>? ORDER BY h.seq LIMIT 128",
+        {history_inline_seq_});
+    int64_t removed = 0, reclaimed = 0;
+    const auto before =
+        query("SELECT bytes,records FROM transport2_history_budget WHERE scope='@global'").at(0);
+    for (const auto &row : rows) {
+      if (row.at("eligible") != 1 || removed == 128)
+        continue;
+      const auto chunks = query("SELECT start,CASE WHEN length(CAST(text AS BLOB))<=12000 THEN "
+                                "text ELSE NULL END AS text "
+                                "FROM chunks WHERE seq=? ORDER BY start LIMIT 129",
+                                {row.at("seq")});
+      if (chunks.empty() || int64_t(chunks.size()) > 128 - removed)
+        continue;
+      const auto local = history_inline_text(row.at("session"), row.at("seq"));
+      if (local.is_null() || local.get<std::string>().size() != row.at("bytes").get<size_t>())
+        continue;
+      const auto body = local.get<std::string>();
+      std::vector<size_t> offsets;
+      for (size_t i = 0; i < body.size(); ++i)
+        if ((static_cast<unsigned char>(body[i]) & 0xc0) != 0x80)
+          offsets.push_back(i);
+      offsets.push_back(body.size());
+      if (int64_t(offsets.size() - 1) != row.at("size") ||
+          (row.at("verified") == 1 &&
+           !history_text_matches(body, history_reference(row.at("session"), row.at("seq")))))
+        continue;
+      bool valid = true;
+      for (const auto &chunk : chunks) {
+        if (chunk.at("text").is_null() || chunk.at("start") < 0 ||
+            chunk.at("start") > row.at("size")) {
+          valid = false;
+          break;
+        }
+        const auto start = chunk.at("start").get<size_t>();
+        const auto text = chunk.at("text").get<std::string>();
+        size_t characters = 0;
+        for (unsigned char c : text)
+          if ((c & 0xc0) != 0x80)
+            ++characters;
+        if (characters > offsets.size() - 1 - start ||
+            offsets[start + characters] - offsets[start] != text.size() ||
+            body.compare(offsets[start], text.size(), text) != 0) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid)
+        continue;
+      const auto charge = query("SELECT COUNT(*) AS records,COALESCE(SUM(e.bytes),0) AS bytes "
+                                "FROM chunks c JOIN transport2_history_entries e ON "
+                                "e.key='chunks:'||json_array(c.seq,c.start) "
+                                "WHERE c.seq=?",
+                                {row.at("seq")})
+                              .at(0);
+      if (charge.at("records") != chunks.size())
+        throw Error("STORAGE_ERROR", "Duplicate history chunk accounting is incomplete");
+      run("DELETE FROM chunks WHERE seq=?", {row.at("seq")});
+      removed += int64_t(chunks.size());
+      reclaimed += charge.at("bytes").get<int64_t>();
+    }
+    const auto after =
+        query("SELECT bytes,records FROM transport2_history_budget WHERE scope='@global'").at(0);
+    if (after.at("bytes").get<int64_t>() != before.at("bytes").get<int64_t>() - reclaimed ||
+        after.at("records").get<int64_t>() != before.at("records").get<int64_t>() - removed)
+      throw Error("STORAGE_ERROR", "History duplicate removal changed unexpected accounting");
+    run("COMMIT");
+    history_inline_seq_ = rows.size() < 128 ? std::numeric_limits<int64_t>::min()
+                                            : rows.back().at("seq").get<int64_t>();
+    return {{"scanned", rows.size()}, {"removedChunks", removed}, {"reclaimedBytes", reclaimed}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 void Store::cleanup() {
   history_compact();
+  history_inline_compact();
   run("BEGIN IMMEDIATE");
   try {
     for (const auto &record : query("SELECT key FROM cache WHERE key GLOB 'upload:*' AND "

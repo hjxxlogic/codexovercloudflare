@@ -227,6 +227,81 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void legacy_inline_dedup() {
+  Temp temp;
+  Json reference, snapshot, tool_reference;
+  const std::string session = "host~legacy-inline";
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"running", false}, {"external", true}});
+    const auto event = store.event(session, "item/agentMessage/delta",
+                                   {{"turnId", "turn"}, {"itemId", "answer"}, {"delta", "甲🙂乙"}});
+    const auto seq = event.at("seq").get<int64_t>();
+    const Json item = {{"id", "tool"}, {"type", "commandExecution"}, {"aggregatedOutput", "body"}};
+    const auto tool = store.external_item(session, "turn", item);
+    const auto mismatch =
+        store.event(session, "item/agentMessage/delta",
+                    {{"turnId", "turn"}, {"itemId", "mismatch"}, {"delta", "original"}});
+    const auto partial =
+        store.event(session, "item/agentMessage/delta",
+                    {{"turnId", "turn"}, {"itemId", "partial"}, {"delta", "甲🙂乙"}});
+    Database fixture(temp.path);
+    fixture.sql("INSERT INTO chunks VALUES(" + std::to_string(seq) + ",0,'甲🙂'),(" +
+                std::to_string(seq) + ",2,'乙')");
+    fixture.sql("INSERT INTO chunks SELECT seq,0,json_extract(value,'$.data.item') FROM history "
+                "WHERE seq=" +
+                tool.at("seq").dump());
+    fixture.sql("INSERT INTO chunks VALUES(" + mismatch.at("seq").dump() + ",0,'modified')");
+    fixture.sql("INSERT INTO chunks VALUES(" + partial.at("seq").dump() + ",2,'乙')");
+    reference = store.history_reference(session, seq);
+    tool_reference = store.history_reference(session, tool.at("seq"));
+    snapshot = store.history(session);
+    auto state = store.get(session);
+    state["running"] = true;
+    store.save(state);
+    check(store.history_inline_compact().at("removedChunks") == 0,
+          "Inline migration skips running sessions");
+    state["running"] = false;
+    store.save(state);
+    store.history_reserve(session, 65536, 16);
+    check(store.history_inline_compact().at("removedChunks") == 0,
+          "Inline migration skips active promises");
+    store.history_release(session);
+    const auto before = store.history_budget();
+    fixture.sql(
+        "CREATE TRIGGER fail_inline BEFORE DELETE ON chunks WHEN OLD.seq=" + tool.at("seq").dump() +
+        " BEGIN SELECT RAISE(ABORT,'injected inline migration failure'); END");
+    bool failed = false;
+    try {
+      store.history_inline_compact();
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.history_budget() == before &&
+              store.history_reference(session, seq) == reference,
+          "Later migration failure restores earlier removals and accounting");
+    fixture.sql("DROP TRIGGER fail_inline");
+    const auto result = store.history_inline_compact();
+    check(
+        result.at("removedChunks") == 4 &&
+            store.history_budget().at("global").at("bytes").get<int64_t>() ==
+                before.at("global").at("bytes").get<int64_t>() -
+                    result.at("reclaimedBytes").get<int64_t>() &&
+            store.history_reference(session, seq) == reference &&
+            store.history(session) == snapshot &&
+            store.history_reference(session, tool.at("seq")) == tool_reference &&
+            store.content(session, partial.at("seq"), 0).at("text") == "甲🙂乙",
+        "Only matching copies are refunded; incomplete matching fragments use intact inline body");
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=1 FROM chunks; "
+                "INSERT INTO assertion SELECT text='modified' FROM chunks");
+  }
+  Store reopened(temp.path);
+  check(reopened.history_inline_compact().at("removedChunks") == 0 &&
+            reopened.history_reference(session, reference.at("seq")) == reference &&
+            reopened.history(session) == snapshot,
+        "Migration is idempotent across restart and does not erase conflicting evidence");
+}
 void packed_deltas() {
   Temp temp;
   int64_t seq = 0, revision = 0;
@@ -590,6 +665,7 @@ void oversized_legacy() {
 int main() {
   try {
     legacy_packing();
+    legacy_inline_dedup();
     inline_transition();
     external_inline_transition();
     packed_deltas();
