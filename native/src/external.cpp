@@ -359,20 +359,13 @@ void ExternalThread::enqueue(const std::string &text, const std::string &client_
       return;
     }
     try {
-      submitted();
       self->process_->request(
           "thread/queue/add",
           {{"threadId", self->thread_},
            {"clientUserMessageId", client_id},
            {"input",
             Json::array({{{"type", "text"}, {"text", text}, {"text_elements", Json::array()}}})}},
-          [done](Json result, Json error) {
-            if (!error.is_null() && error.value("code", "") != "CODEX_ERROR")
-              error = {{"code", "RESULT_UNKNOWN"},
-                       {"message",
-                        "Queue submission unconfirmed; query its request status before retrying"}};
-            done(result, error);
-          });
+          done, submitted);
     } catch (const std::exception &error) {
       done(nullptr, error_data(error));
     }

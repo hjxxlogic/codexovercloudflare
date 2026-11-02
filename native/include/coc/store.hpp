@@ -83,8 +83,10 @@ public:
   std::string history_source_recover(const std::string &session, int64_t seq, const Json &origin,
                                      const Json &entry);
 
-  void history_reserve(const std::string &session, int64_t bytes, int64_t records = 1);
-  void history_release(const std::string &session);
+  void history_reserve(const std::string &session, int64_t bytes, int64_t records = 1,
+                       const std::string &owner = "");
+  void history_release(const std::string &session, const std::string &owner = "");
+  Json history_queue_accept(const std::string &session, const std::string &owner, const Json &data);
   void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);
   Json operation_begin(const Json &intent, const std::string &action, const Json &data);
   void operation_session(const std::string &key, const Json &session);

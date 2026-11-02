@@ -3,6 +3,11 @@
 #include <vector>
 namespace coc {
 namespace {
+std::string reservation_key(const std::string &session, const std::string &owner) {
+  if (owner.size() > 128)
+    throw Error("INVALID_REQUEST", "Invalid history reservation owner");
+  return "reservation:" + (owner.empty() ? session : Json::array({session, owner}).dump());
+}
 struct HistoryResource {
   std::string table, key, session, bytes;
 };
@@ -39,6 +44,8 @@ void Store::history_budget_init(bool authoritative) {
     has_records = has_records || column.at("name") == "records";
   if (!has_records)
     run("ALTER TABLE transport2_history_entries ADD COLUMN records INTEGER NOT NULL DEFAULT 1");
+  run("CREATE INDEX IF NOT EXISTS transport2_history_reservations ON "
+      "transport2_history_entries(session) WHERE key GLOB 'reservation:*'");
   // Replace old trigger SQL in the enclosing schema transaction, including old
   // positional INSERTs which would otherwise break after adding the column.
   for (const auto &trigger : query("SELECT name FROM sqlite_master WHERE type='trigger' "
@@ -208,7 +215,8 @@ Json Store::history_cache_compact(const Json &verified) {
         "JOIN transport2_history_entries e ON e.key='chunks:'||json_array(c.seq,c.start) "
         "WHERE h.recovery IS NOT NULL AND s.source IS NOT NULL "
         "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
-        "(SELECT 1 FROM transport2_history_entries WHERE key='reservation:'||h.session) ";
+        "(SELECT 1 FROM transport2_history_entries WHERE session=h.session AND key GLOB "
+        "'reservation:*') ";
     const auto usage =
         query("SELECT h.session,SUM(e.bytes) AS bytes" + eligible + "GROUP BY h.session");
     std::map<std::string, int64_t> bytes, targets;
@@ -294,13 +302,14 @@ Json Store::history_turn_admit(const std::string &session, const Json &input, co
 }
 // Reservations share the authoritative history ledger and its SQL quota checks.
 // Their charged bytes include bookkeeping overhead; no second credit pool exists.
-void Store::history_reserve(const std::string &session, int64_t bytes, int64_t records) {
+void Store::history_reserve(const std::string &session, int64_t bytes, int64_t records,
+                            const std::string &owner) {
   if (session.empty() || session == "@global" || session.size() > 201 || bytes < 4096 ||
       bytes > 9007199254740991LL || records < 1 || records > 9007199254740991LL)
     throw Error("INVALID_REQUEST", "Invalid history reservation");
   run("SAVEPOINT history_reservation");
   try {
-    const auto key = "reservation:" + session;
+    const auto key = reservation_key(session, owner);
     auto existing =
         query("SELECT bytes,records FROM transport2_history_entries WHERE key=?", {key});
     const auto previous = existing.empty() ? int64_t(0) : existing.at(0).at("bytes").get<int64_t>();
@@ -322,11 +331,40 @@ void Store::history_reserve(const std::string &session, int64_t bytes, int64_t r
     throw;
   }
 }
-void Store::history_release(const std::string &session) {
+void Store::history_release(const std::string &session, const std::string &owner) {
   // Call only after the associated execution/retention responsibility is resolved.
   // The existing refund trigger removes both byte and bookkeeping-record charges.
   run("DELETE FROM transport2_history_entries WHERE key=? AND session=?",
-      {"reservation:" + session, session});
+      {reservation_key(session, owner), session});
+}
+Json Store::history_queue_accept(const std::string &session, const std::string &owner,
+                                 const Json &data) {
+  if (owner.empty())
+    throw Error("INVALID_REQUEST", "Queued history requires its original reservation owner");
+  run("BEGIN IMMEDIATE");
+  try {
+    if (query("SELECT key FROM transport2_history_entries WHERE key=? AND session=?",
+              {reservation_key(session, owner), session})
+            .empty())
+      throw Error("DELIVERY_STATE_MISMATCH", "Queued history reservation is missing");
+    const auto normal = query("SELECT bytes,records FROM transport2_history_entries WHERE key=?",
+                              {reservation_key(session, "")});
+    history_release(session, owner);
+    auto result = event(session, "queueAccepted", data);
+    // Ordinary event accounting consumes the session's turn reservation. This
+    // receipt spends only its own promise; restore any unrelated turn headroom
+    // before committing, with the same global quota triggers still enforced.
+    if (!normal.empty())
+      run("INSERT INTO transport2_history_entries(key,session,bytes,records) VALUES(?,?,?,?) "
+          "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes,records=excluded.records",
+          {reservation_key(session, ""), session, normal.at(0).at("bytes"),
+           normal.at(0).at("records")});
+    run("COMMIT");
+    return result;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
 }
 void Store::history_require_capacity(const std::string &session, int64_t bytes, int64_t records) {
   if (bytes < 0 || records < 0)

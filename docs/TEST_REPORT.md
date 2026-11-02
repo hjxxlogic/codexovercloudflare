@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+外部队列独立预留：Agent 构建通过，最终历史预算专项 15.58 秒、来源专项 3.36 秒通过，TypeScript 类型检查及定向 ESLint 通过。底层覆盖两笔并发承诺互不消费、普通任务预留不被回执借用、失败事务回滚、重启保留及按项退款。真实 Agent 交付专项新增控制 RPC/网页队列成功、原请求重试、源端已入队但丢回复、同会话满额拒绝；真实进程重启后未知预留不变、原请求仍返回 RESULT_UNKNOWN，源队列只出现预期的三笔提交。测试修正了前置故障主动断连后的握手等待，避免向已关闭连接发送新用例。日志 `/tmp/coc-queue-{index-build,final-test,test,delivery-test,typecheck,lint}.log`。未运行全量回归、模型任务或修改正式数据。
+
 发送前准入原子化：Agent 构建通过，历史预算专项 16.41 秒通过，真实原生交付专项通过。新增 start 用户投影失败与 steer 增长预留后失败，核验任务状态、标题、事件/投影、字节/记录预留完整回滚；成功准入跨 Store 重开一致，容量不足不留下部分任务。网页/CLI 任务、资源背压、精确取消、未知结果和历史尾部恢复仍通过。日志 `/tmp/coc-atomic-admission-{build,test,delivery-test}.log`。未运行全量回归、模型任务或修改正式库。
 
 迟到终态校验：Agent 构建及真实原生交付专项通过，定向 ESLint 通过。确定性 peer 在当前 turn 运行中注入另一 turn 的完成通知，并用后续通知确认处理顺序；验证当前 running/turnId/activeTask 与历史预留保持，实时流及历史页不含错误终态，之后精确中断正常释放预留。日志 `/tmp/coc-terminal-identity-{build,test,lint}.log`。未执行全量回归、模型调用或正式库修改。

@@ -227,6 +227,60 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void scoped_queue_reservations() {
+  Temp temp;
+  const std::string session = "host~queue-reservation";
+  Json remaining;
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"running", false}});
+    store.history_reserve(session, 65536, 16);
+    store.history_reserve(session, 65536, 16, "first");
+    store.history_reserve(session, 65536, 16, "second");
+    const auto all = store.history_budget();
+    store.history_reserve(session, 65536, 16, "first");
+    check(store.history_budget() == all, "Scoped promise replay does not allocate twice");
+    store.event(session, "observation", {{"text", "unrelated history"}});
+    Database fixture(temp.path);
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=2 FROM transport2_history_entries "
+                "WHERE key GLOB 'reservation:[[]*' AND bytes=65536 AND records=16; "
+                "CREATE TEMP TABLE original_turn AS SELECT * FROM transport2_history_entries "
+                "WHERE key NOT GLOB 'reservation:[[]*' AND key GLOB 'reservation:*'");
+    const auto before = store.history_budget(), history = store.history(session);
+    fixture.sql("CREATE TRIGGER fail_queue_receipt BEFORE INSERT ON history BEGIN "
+                "SELECT RAISE(ABORT,'injected receipt projection failure'); END");
+    bool failed = false;
+    try {
+      store.history_queue_accept(session, "first", {{"requestId", "first"}, {"text", "queued"}});
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.history_budget() == before && store.history(session) == history,
+          "Receipt failure restores its promise and every unrelated reservation");
+    fixture.sql("DROP TRIGGER fail_queue_receipt");
+    const auto event =
+        store.history_queue_accept(session, "first", {{"requestId", "first"}, {"text", "queued"}});
+    check(event.at("type") == "queueAccepted" && event.at("data").at("requestId") == "first",
+          "Accepted queue receipt retains its original request identity");
+    fixture.sql("INSERT INTO assertion SELECT COUNT(*)=0 FROM (SELECT * FROM original_turn "
+                "EXCEPT SELECT * FROM transport2_history_entries); "
+                "INSERT INTO assertion SELECT COUNT(*)=1 FROM transport2_history_entries "
+                "WHERE key GLOB 'reservation:[[]*' AND bytes=65536 AND records=16");
+    store.history_release(session);
+    check(store.history_journal_compact().at("removedEvents") == 0,
+          "Unresolved queue promise is honored by idle history maintenance");
+    remaining = store.history_budget();
+  }
+  Store reopened(temp.path, false);
+  check(reopened.history_budget() == remaining,
+        "Unresolved queue resource promise survives process restart");
+  reopened.history_release(session, "second");
+  check(reopened.history_budget().at("global").at("bytes").get<int64_t>() ==
+                remaining.at("global").at("bytes").get<int64_t>() - 65536 &&
+            reopened.history_journal_compact().at("removedEvents") > 0,
+        "Resolving one queue promise refunds only its capacity and unpins maintenance");
+}
 void atomic_turn_admission() {
   Temp temp;
   const std::string session = "host~atomic-admission";
@@ -885,6 +939,7 @@ int main() {
     projected_history_heads();
     journal_cleanup();
     atomic_turn_admission();
+    scoped_queue_reservations();
     inline_transition();
     external_inline_transition();
     packed_deltas();

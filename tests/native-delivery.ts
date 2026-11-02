@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -58,6 +58,7 @@ writeFileSync(
     token: 'delivery-test-credential',
     dataDir: join(root, 'state'),
     autoUpdate: false,
+    externalSessions: { allowQueue: true },
     projects: [{ id: 'project', name: 'Project', path: root }],
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
@@ -1424,6 +1425,9 @@ try {
       )
       .get('cancel-priority'),
   };
+  const beforeMalformedCapabilities = frames.filter(
+    (frame) => frame.type === 'capabilities',
+  ).length;
   mutation(cancellable.id, 'cancel-priority', 'priority', 5, priorityEnd, {
     action: 'interrupt',
     requestId: 'missing-target',
@@ -1448,8 +1452,220 @@ try {
     beforeUnbound,
     'A malformed interruption cannot consume sequence, persist a command or create a cancellation marker',
   );
+  await until(
+    () =>
+      peer &&
+      frames.filter((frame) => frame.type === 'capabilities').length >
+        beforeMalformedCapabilities,
+  );
+  const external = await control('create', {
+    key: 'create-external-reservations',
+    projectId: 'project',
+    mode: 'web',
+    external: true,
+    threadId: 'external-history',
+  });
+  const queueRecords = () =>
+    JSON.parse(readFileSync(join(root, '.fake-external.json'), 'utf8')).queue;
+  const queuePromises = () =>
+    database!
+      .prepare(
+        "SELECT key,bytes,records FROM transport2_history_entries WHERE session=? AND key GLOB 'reservation:*' ORDER BY key",
+      )
+      .all(external.id);
+  const queued = await control('queue', {
+    sessionId: external.id,
+    mode: 'web',
+    requestId: 'external-queue-original',
+    text: 'first external receipt',
+  });
+  assert.equal(queued.state, 'queued');
+  assert.equal(
+    queuePromises().length,
+    0,
+    'Accepted receipt retires only its queue promise',
+  );
+  assert.deepEqual(
+    await control('queue', {
+      sessionId: external.id,
+      mode: 'web',
+      requestId: 'external-queue-original',
+      text: 'first external receipt',
+    }),
+    queued,
+  );
+  assert.equal(
+    queueRecords().length,
+    1,
+    'Original queue retry cannot submit again',
+  );
+  await control('attach', {
+    sessionId: external.id,
+    epoch: 1,
+    expires: Date.now() + 15000,
+  });
+  await open(external.id, 'web', 'external-queue-web');
+  mutation(external.id, 'external-queue-web', 'normal', 1, 0, {
+    action: 'prompt',
+    requestId: 'external-web-original',
+    text: 'web external receipt',
+  });
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get('external-queue-web')?.phase === 'finished',
+  );
+  assert.equal(queueRecords().length, 2);
+  assert.equal(
+    queuePromises().length,
+    0,
+    'Web queue uses the same isolated promise lifecycle',
+  );
+  const lostIntent = {
+    requestId: 'external-lost-original',
+    owner: 'a'.repeat(64),
+    instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
+      .deliveryInstance,
+  };
+  const lostData = {
+    sessionId: external.id,
+    mode: 'web',
+    requestId: lostIntent.requestId,
+    text: 'lost queue reply',
+  };
+  const lostRequest = randomUUID();
+  send({
+    type: 'control',
+    requestId: lostRequest,
+    action: 'queue',
+    data: lostData,
+    intent: lostIntent,
+  });
+  await until(() => queuePromises().length === 1);
+  const pendingPromise = queuePromises();
+  await until(
+    () =>
+      frames.some(
+        (frame) => frame.type === 'result' && frame.requestId === lostRequest,
+      ),
+    25000,
+  );
+  assert.equal(
+    frames.find(
+      (frame) => frame.type === 'result' && frame.requestId === lostRequest,
+    ).error.code,
+    'RESULT_UNKNOWN',
+  );
+  assert.deepEqual(
+    queuePromises(),
+    pendingPromise,
+    'Unknown external submission retains its full isolated promise',
+  );
+  const retryLost = randomUUID();
+  send({
+    type: 'control',
+    requestId: retryLost,
+    action: 'queue',
+    data: lostData,
+    intent: lostIntent,
+  });
+  await until(() =>
+    frames.some(
+      (frame) => frame.type === 'result' && frame.requestId === retryLost,
+    ),
+  );
+  assert.equal(
+    queueRecords().length,
+    3,
+    'Unknown result retry cannot create a new external submission',
+  );
+  const queueUsage = database
+    .prepare('SELECT bytes FROM transport2_history_budget WHERE scope=?')
+    .get(external.id)!;
+  const fillKey = 'reservation:' + JSON.stringify([external.id, 'test-full']);
+  database
+    .prepare(
+      'INSERT INTO transport2_history_entries(key,session,bytes,records) VALUES(?,?,?,1)',
+    )
+    .run(fillKey, external.id, 64 * 1024 * 1024 - Number(queueUsage.bytes));
+  await assert.rejects(
+    control('queue', {
+      sessionId: external.id,
+      mode: 'web',
+      requestId: 'external-capacity-refusal',
+      text: 'must not reach queue',
+    }),
+    /BACKPRESSURE/,
+  );
+  database
+    .prepare('DELETE FROM transport2_history_entries WHERE key=?')
+    .run(fillKey);
+  assert.equal(
+    queueRecords().length,
+    3,
+    'History admission rejects before the external queue side effect',
+  );
+  assert.deepEqual(
+    queuePromises(),
+    pendingPromise,
+    'A separate refusal cannot refund the unknown submission',
+  );
+  assert.equal(
+    (await control('get', { sessionId: external.id })).state,
+    'ready',
+    'Safe queue refusal keeps the Agent available',
+  );
+  const stoppedAgent = child;
+  const exitedAgent = new Promise((resolve) =>
+    stoppedAgent.once('close', resolve),
+  );
+  stoppedAgent.kill('SIGTERM');
+  const stopDeadline = setTimeout(() => stoppedAgent.kill('SIGKILL'), 10000);
+  await exitedAgent;
+  clearTimeout(stopDeadline);
+  await until(() => !peer);
+  child = spawn(
+    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
+    ['run', '--config', config],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  child.stdout!.on('data', (data) => (log += data));
+  child.stderr!.on('data', (data) => (log += data));
+  await until(() => peer);
+  assert.deepEqual(
+    queuePromises(),
+    pendingPromise,
+    'Agent restart retains unknown queue capacity',
+  );
+  const afterRestart = randomUUID();
+  send({
+    type: 'control',
+    requestId: afterRestart,
+    action: 'queue',
+    data: lostData,
+    intent: lostIntent,
+  });
+  await until(() =>
+    frames.some(
+      (frame) => frame.type === 'result' && frame.requestId === afterRestart,
+    ),
+  );
+  assert.equal(
+    frames.find(
+      (frame) => frame.type === 'result' && frame.requestId === afterRestart,
+    ).error.code,
+    'RESULT_UNKNOWN',
+  );
+  assert.equal(
+    queueRecords().length,
+    3,
+    'Restarted original-result query cannot execute the queue again',
+  );
   console.log(
-    'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery and end-to-end history tail recovery',
+    'PASS: native durable command/result recovery, exact cancellation, verified transfer, stable reservations, output credit, bounded slow-receiver termination, closed-flow result recovery, end-to-end history tail recovery and isolated external queue promises',
   );
 } finally {
   database?.close();

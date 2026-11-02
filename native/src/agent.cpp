@@ -1222,7 +1222,7 @@ public:
       auto command = web_command(
           {{"action", "prompt"}, {"requestId", d.at("requestId")}, {"text", d.at("text")}});
       command["internal"] = true;
-      queue_external(s.at("id"), command, done);
+      queue_external(s.at("id"), command, "operation:" + operation_key, done);
       return;
     }
     if (action == "stop") {
@@ -1561,7 +1561,8 @@ public:
       done(nullptr, value);
     }
   }
-  void queue_external(const std::string &id, const Json &cmd, Completion done) {
+  void queue_external(const std::string &id, const Json &cmd, const std::string &reservation,
+                      Completion done) {
     auto s = store_.get(id);
     auto it = runtimes_.find(id);
     if (!s.value("external", false) || it == runtimes_.end() || !it->second->reader ||
@@ -1573,23 +1574,37 @@ public:
                   "Enable externalSessions.allowQueue on a workspace-write Agent to queue input; "
                   "the original client controls execution and approvals");
     auto reader = it->second->reader;
-    auto complete = [this, cmd, id, done](Json result, Json error) {
+    auto complete = [this, cmd, id, reservation, done](Json result, Json error) {
       if (!error.is_null()) {
         done(nullptr, error);
+        if (error.value("code", "") != "RESULT_UNKNOWN")
+          store_.history_release(id, reservation);
         return;
       }
       Json queued = {
           {"state", "queued"},
           {"queueId", result.at("queuedSubmission").at("id")},
           {"clientUserMessageId", result.at("queuedSubmission").at("clientUserMessageId")}};
-      emit(id, "queueAccepted",
-           {{"requestId", cmd.at("requestId")},
-            {"queueId", queued["queueId"]},
-            {"text", cmd.at("text")},
-            {"message", "Message queued for the original Codex client"}});
+      flush_events();
+      const auto event = store_.history_queue_accept(
+          id, reservation,
+          redact(Json{{"requestId", cmd.at("requestId")},
+                      {"queueId", queued["queueId"]},
+                      {"text", cmd.at("text")},
+                      {"message", "Message queued for the original Codex client"}}));
+      publish(id, event);
       done(queued, nullptr);
     };
-    reader->enqueue(cmd.at("text"), uuid(), [] {}, complete);
+    const auto encoded = cmd.dump().size();
+    if (encoded > max_frame)
+      throw Error("MESSAGE_TOO_LARGE", "Queue input exceeds history admission bound");
+    reader->enqueue(
+        cmd.at("text"), uuid(),
+        [this, id, reservation, encoded] {
+          store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 16,
+                                 reservation);
+        },
+        complete);
   }
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {
@@ -2294,7 +2309,11 @@ public:
                     "The original Codex client handles interruption and approvals");
       if (cmd.contains("model"))
         throw Error("EXTERNAL_READ_ONLY", "Switch models in the original Codex client");
-      queue_external(id, cmd, [this, id, cmd, done](Json result, Json error) {
+      const auto context = rt->deliveries.at(cmd.at("requestId").get<std::string>());
+      const auto reservation =
+          "command:" +
+          delivery_digest(Json::array({context.at("stream"), context.at("seq")}).dump());
+      queue_external(id, cmd, reservation, [this, id, cmd, done](Json result, Json error) {
         if (error.is_null())
           notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
         done(result, error);

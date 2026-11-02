@@ -175,8 +175,9 @@ Json Store::history_source_register(const std::string &session, int64_t seq, con
     if (!source.is_null() && Json::parse(source.get<std::string>()) != origin)
       throw Error("DELIVERY_STATE_MISMATCH", "History source cannot be rebound implicitly");
     if (source.is_null() || prior != encoded) {
-      if (!query("SELECT key FROM transport2_history_entries WHERE key=?",
-                 {"reservation:" + session})
+      if (!query("SELECT key FROM transport2_history_entries WHERE session=? AND key GLOB "
+                 "'reservation:*' LIMIT 1",
+                 {session})
                .empty())
         throw Error("BACKPRESSURE", "History recovery cannot borrow task reservation");
       const auto key = "sessions-source:" + Json::array({session}).dump();
@@ -249,7 +250,8 @@ Json Store::history_source_candidate() {
             "AND COALESCE((SELECT bytes FROM bodies WHERE seq=h.seq),length(CAST(h.value AS "
             "BLOB)))<=1048576 "
             "AND json_extract(h.value,'$.type')!='item/started' AND NOT EXISTS(SELECT 1 "
-            "FROM transport2_history_entries WHERE key='reservation:'||h.session) AS eligible "
+            "FROM transport2_history_entries WHERE session=h.session AND key GLOB 'reservation:*') "
+            "AS eligible "
             "FROM history h LEFT JOIN sessions s ON s.id=h.session WHERE h.seq>? ORDER BY h.seq "
             "LIMIT 128",
             {history_prepare_seq_});

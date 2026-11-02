@@ -222,3 +222,10 @@ Linux 私有配置、凭据及更新状态的原子替换在父目录锁内清�
 transport2_control 保留 session/epoch/control_id/owner，ready 由这些权威列及固定 Agent 实例派生；transport2_command_keys 保留 stream/request_id/seq，摘要唯一存于 transport2_command_digests。同流旧主体快照、连续水位、信用承诺、关闭及去重拒绝身份不变。旧 delivery:2 布局在启动事务内校验一致后转换，冲突拒绝且回滚；不支持转换后直接降级旧程序。已删除不再需要的启动正文回填循环。详见简化审计第六批。
 
 transport2_namespaces 只保留 scope/allocated；closedThrough 诊断值从同一查询快照的未关闭 credit 最小 serial−1 推导，无未关闭流则为 allocated。credit 拒绝墓碑不清除，分配及关闭仍事务提交。旧关闭游标不一致拒绝转换并回滚全部表转换；详见简化审计第八批。
+
+
+## 历史优化开发状态（2026-11-02，尚未发布）
+
+历史配额现由 Agent JSON 策略统一决定；具体配置与批次验证见 [历史优化方案](HISTORY_STORAGE_OPTIMIZATION.md)。现有 history_entries 同时计量普通任务预留与按原操作/命令身份隔离的外部队列预留，没有新增请求账本。队列预留只由本笔成功回执或明确失败解除；未知提交跨 Agent 重启保留，不受普通历史同步和其它请求退款影响。后台维护识别同会话全部未决预留。
+
+原始事件副本可在同会话持久投影已覆盖时分批删除，投影、原引用、单调高水位与业务执行证据保留；缓存分块只在本轮来源验证通过后回收。尚未完成持续输出窗口、全部历史保留闭环与最终集成/全量验收，不能将这些阶段实现视为全部物理资源约束完成。

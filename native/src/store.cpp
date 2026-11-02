@@ -986,7 +986,8 @@ Json Store::history_compact() {
       const auto eligible = query(
           "SELECT h.session FROM history h JOIN transport2_history_budget b ON b.scope=h.session "
           "WHERE h.seq=? AND NOT EXISTS "
-          "(SELECT 1 FROM transport2_history_entries r WHERE r.key='reservation:'||h.session)",
+          "(SELECT 1 FROM transport2_history_entries r WHERE r.session=h.session AND r.key GLOB "
+          "'reservation:*')",
           {row.at("seq")});
       if (eligible.empty())
         continue;
@@ -1045,7 +1046,8 @@ Json Store::history_inline_compact() {
         "SELECT h.seq,h.session,b.size,b.bytes,h.recovery IS NOT NULL AS verified,"
         "b.bytes<=12000 AND length(CAST(h.value AS BLOB))<=16384 "
         "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
-        "(SELECT 1 FROM transport2_history_entries WHERE key='reservation:'||h.session) AS "
+        "(SELECT 1 FROM transport2_history_entries WHERE session=h.session AND key GLOB "
+        "'reservation:*') AS "
         "eligible "
         "FROM history h LEFT JOIN bodies b ON b.seq=h.seq LEFT JOIN sessions s ON s.id=h.session "
         "WHERE h.seq>? ORDER BY h.seq LIMIT 128",
@@ -1131,7 +1133,7 @@ Json Store::history_journal_compact() {
     const auto rows = query("SELECT e.seq,e.session,s.id IS NOT NULL "
                             "AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
                             "AND NOT EXISTS(SELECT 1 FROM transport2_history_entries "
-                            "WHERE key='reservation:'||e.session) AS eligible "
+                            "WHERE session=e.session AND key GLOB 'reservation:*') AS eligible "
                             "FROM events e LEFT JOIN sessions s ON s.id=e.session "
                             "WHERE e.seq>? ORDER BY e.seq LIMIT 128",
                             {history_journal_seq_});
