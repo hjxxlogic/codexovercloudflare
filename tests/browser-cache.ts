@@ -63,6 +63,108 @@ try {
   );
   await blocker.evaluate(() => (globalThis as any).blockingDatabase.close());
   await blocker.close();
+  const gapPage = await context.newPage();
+  await gapPage.route('https://gap-cache.invalid/**', (route) =>
+    route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
+  );
+  await gapPage.goto('https://gap-cache.invalid/');
+  await gapPage.addScriptTag({
+    content: source + '\nglobalThis.__name = (value) => value;',
+  });
+  const gapRecovery = await gapPage.evaluate(async () => {
+    const Cache = (globalThis as any).HistoryCache;
+    let cache = new Cache('gap-recovery');
+    const event = (seq: number, text = 'body') => ({
+      seq,
+      revision: seq,
+      type: 'user',
+      data: { text },
+    });
+    await cache.writeSnapshot([event(1), event(9)], 9);
+    await cache.record('draft', 'keep draft');
+    await cache.record('history-subscription', { stream: 'keep identity' });
+    await cache.record('delivery-outbox:test', {
+      requestId: 'keep original request',
+    });
+    await cache.content(1, 0, 1, { text: 'expired cached body' });
+    const snapshot = {
+      events: [event(5)],
+      more: false,
+      cursor: 5,
+      snapshotSeq: 5,
+      direction: 'before',
+      historyVersion: 2,
+      snapshotGeneration: 1,
+      retainedAfter: 4,
+      gap: true,
+    };
+    await cache.writeSnapshot(snapshot.events, 5, 0, snapshot);
+    cache.close();
+    cache = new Cache('gap-recovery');
+    const restored = await cache.latest();
+    const preserved = [
+      await cache.record('draft'),
+      await cache.record('history-subscription'),
+      await cache.record('delivery-outbox:test'),
+    ];
+    const expired = await cache.content(1, 0, 1);
+    let failed = false;
+    try {
+      const huge = {
+        ...snapshot,
+        snapshotSeq: 10,
+        snapshotGeneration: 2,
+        events: [event(10, 'x'.repeat(17 * 1024 * 1024))],
+      };
+      await cache.writeSnapshot(huge.events, 10, 0, huge);
+    } catch {
+      failed = true;
+    }
+    cache.close();
+    cache = new Cache('gap-recovery');
+    const afterFailure = await cache.latest();
+    let staleRejected = false;
+    try {
+      await cache.writeSnapshot([event(2)], 2, 0, {
+        ...snapshot,
+        snapshotGeneration: 0,
+      });
+    } catch {
+      staleRejected = true;
+    }
+    cache.close();
+    return {
+      restored,
+      preserved,
+      expired,
+      failed,
+      afterFailure,
+      staleRejected,
+    };
+  });
+  assert.deepEqual(
+    gapRecovery.restored.events.map((event: any) => event.seq),
+    [5, 9],
+  );
+  assert.equal(
+    gapRecovery.restored.checkpoint,
+    9,
+    'newer live checkpoint survives a gap snapshot',
+  );
+  assert.deepEqual(gapRecovery.preserved, [
+    'keep draft',
+    { stream: 'keep identity' },
+    { requestId: 'keep original request' },
+  ]);
+  assert.equal(gapRecovery.expired, undefined);
+  assert.equal(gapRecovery.failed, true);
+  assert.deepEqual(
+    gapRecovery.afterFailure,
+    gapRecovery.restored,
+    'failed replacement rolls back view and checkpoint',
+  );
+  assert.equal(gapRecovery.staleRejected, true);
+  await gapPage.close();
   const committedReceipt = await page.evaluate(async () => {
     const cache = new (globalThis as any).HistoryCache('subscription-commit');
     await cache.latest();

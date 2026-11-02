@@ -1002,8 +1002,9 @@ public:
                                {"submitted", approval.submitted},
                                {"unsupported", approval.unsupported}});
       Json history = {{"sessionId", id}, {"operation", "page"}};
-      if (d.contains("after"))
-        history["after"] = d.at("after");
+      for (const auto *field : {"after", "historyVersion", "snapshotGeneration"})
+        if (d.contains(field))
+          history[field] = d.at(field);
       control("history", history, [session, approvals, done](Json page, Json error) {
         done({{"session", session}, {"approvals", approvals}, {"history", page}}, error);
       });

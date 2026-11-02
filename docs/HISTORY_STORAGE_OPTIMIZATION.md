@@ -755,3 +755,12 @@ JSON `historyStorage.retainedRecords` 默认 0 关闭，正数作为每会话最
 历史分页版本 2 返回 snapshotGeneration、retainedAfter、gap；旧增量位置落在退休覆盖区时改取最近保留快照，明确 gap，不伪装为完整增量。分页携带原代际，代际变化返回 HISTORY_SNAPSHOT_CHANGED。版本 1 仅在尚未退休时可用，未知版本拒绝；已退休会话旧读者明确 UNSUPPORTED_PROTOCOL_VERSION。不存在的原引用经同一 Agent/会话校验且原 revision 落入覆盖区时返回 CONTENT_EXPIRED，不尝试把重新导入的数据冒充原正文。
 
 这是保留视图快照，不是完整 Codex 历史的永久副本；更早已释放内容允许明确缺失。CC/CW 必须理解该契约并原子替换视图/保存检查点后，才可打开后台调度。当前 HTTP 包装、客户端和订阅恢复代际尚未全部接通，不能把底层专项当作启用证明。
+
+
+### 12.8 CC/CW 缺口视图与浏览器持久替换（已接入基础路径）
+
+网页 WS 分页和 HTTP snapshot 请求版本 2；HTTP 包装校验并透传版本及快照代际，Agent snapshot 复用同一历史入口。CC 单次 history 与附着分页请求版本 2。缺口响应替换旧视图，但保留 revision 大于快照水位的实时事件，不把读取期间到达的新尾部抹掉；CC 沿原本的单笔缓存写入保存视图及 receivedRevision，再触发确认。
+
+CW 的 HistoryCache 在同一 IndexedDB 事务里删除旧事件、数字分页和 content 缓存、写入快照、覆盖代际与检查点并更新原全局预算。draft、pending、订阅身份和 delivery-outbox 不删除。较新事件保留；检查点不回退。低于已持久覆盖代际的迟到页面拒绝，普通迟到 live 写入不复活覆盖下界内的旧投影。失败保留旧视图和检查点；现有保存后确认顺序继续适用。UI 清除旧合并位置和正文显示并提示缺口；CONTENT_EXPIRED 不盲目拼接旧内容。
+
+真实无界面 Chromium 验证替换后重开、较新尾部保留、草稿/订阅/原始 outbox 保留、正文缓存清理、超预算回滚以及旧代际拒绝。测试采用独立 origin 隔离该用例的命令预留，不降低原多标签页全局预算断言。Agent/CLI 构建通过，但真实 CC 缺口链路与完整 HTTP/WS 页面故障验收仍待后续；客户端显式释放时机、分页代际重试及后台退休尚未启用。

@@ -8,6 +8,10 @@ export type HistoryPage = {
   cursor: number;
   snapshotSeq: number;
   direction: 'before' | 'after';
+  historyVersion?: 2;
+  snapshotGeneration?: number;
+  retainedAfter?: number;
+  gap?: boolean;
 };
 
 // Every record is scoped by relay origin, credential identity, host and session.
@@ -205,38 +209,99 @@ export class HistoryCache {
       const tx = db.transaction(['events', 'pages'], 'readwrite');
       const budget = new CacheBudget(tx);
       let committed: number | undefined;
-      for (const event of events) {
-        const store = tx.objectStore('events');
-        const previous = store.get([this.scope, event.seq]);
-        previous.onsuccess = () => {
-          const old = previous.result?.event as Event | undefined;
+      const persist = () => {
+        for (const event of events) {
           if (
-            !old ||
-            (event.revision ?? event.seq) >= (old.revision ?? old.seq)
+            !page &&
+            (event.revision ?? event.seq) <= (coverage?.retainedAfter ?? -1)
           )
+            continue;
+          const store = tx.objectStore('events');
+          const previous = store.get([this.scope, event.seq]);
+          previous.onsuccess = () => {
+            const old = previous.result?.event as Event | undefined;
+            if (
+              !old ||
+              (event.revision ?? event.seq) >= (old.revision ?? old.seq)
+            )
+              budget.put(
+                'events',
+                [this.scope, event.seq],
+                { scope: this.scope, seq: event.seq, event },
+                this.scope,
+              );
+          };
+        }
+        if (checkpoint !== undefined && this.checkpointSafe) {
+          const store = tx.objectStore('pages');
+          const previous = store.get([this.scope, 'checkpoint']);
+          previous.onsuccess = () => {
+            committed = Math.max(checkpoint, previous.result ?? 0);
             budget.put(
-              'events',
-              [this.scope, event.seq],
-              { scope: this.scope, seq: event.seq, event },
+              'pages',
+              [this.scope, 'checkpoint'],
+              committed,
               this.scope,
             );
-        };
-      }
-      if (checkpoint !== undefined && this.checkpointSafe) {
-        const store = tx.objectStore('pages');
-        const previous = store.get([this.scope, 'checkpoint']);
-        previous.onsuccess = () => {
-          committed = Math.max(checkpoint, previous.result ?? 0);
+          };
+        }
+        if (before !== undefined && page)
+          budget.put('pages', [this.scope, before], page, this.scope);
+        if (page?.snapshotGeneration !== undefined)
           budget.put(
             'pages',
-            [this.scope, 'checkpoint'],
-            committed,
+            [this.scope, 'history-coverage'],
+            {
+              generation: page.snapshotGeneration,
+              retainedAfter: page.retainedAfter ?? 0,
+            },
             this.scope,
           );
-        };
-      }
-      if (before !== undefined && page)
-        budget.put('pages', [this.scope, before], page, this.scope);
+      };
+      let coverage: { generation: number; retainedAfter: number } | undefined;
+      let failure: Error | undefined;
+      const previousCoverage = tx
+        .objectStore('pages')
+        .get([this.scope, 'history-coverage']);
+      previousCoverage.onsuccess = () => {
+        coverage = previousCoverage.result;
+        if (
+          page &&
+          (page.snapshotGeneration ?? 0) < (coverage?.generation ?? 0)
+        ) {
+          failure = new Error(
+            'History snapshot generation changed; reload history',
+          );
+          tx.abort();
+          return;
+        }
+        if (!page?.gap) {
+          persist();
+          return;
+        }
+        // Remove only replaceable history. Drafts, subscriptions and outboxes survive.
+        // Newer live events stay in the same transaction as the replacement checkpoint.
+        let remaining = 2;
+        for (const name of ['events', 'pages']) {
+          const scan = tx.objectStore(name).openCursor(this.range());
+          scan.onsuccess = () => {
+            const row = scan.result;
+            if (!row) {
+              if (--remaining === 0) persist();
+              return;
+            }
+            const key = (row.key as IDBValidKey[])[1];
+            if (
+              name === 'events'
+                ? (row.value.event.revision ?? row.value.event.seq) <=
+                  page.snapshotSeq
+                : typeof key === 'number' || String(key).startsWith('content:')
+            )
+              budget.remove(name, row.key, this.scope);
+            row.continue();
+          };
+        }
+      };
       tx.oncomplete = () => {
         if (generation === this.generation && committed !== undefined)
           this.durableRevision = Math.max(this.durableRevision ?? 0, committed);
@@ -245,7 +310,10 @@ export class HistoryCache {
       };
       tx.onabort = () =>
         reject(
-          budget.error || tx.error || new Error('Local history write aborted'),
+          failure ||
+            budget.error ||
+            tx.error ||
+            new Error('Local history write aborted'),
         );
       tx.onerror = () => reject(tx.error);
     });

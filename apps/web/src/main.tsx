@@ -1515,7 +1515,26 @@ function App() {
     const cacheError = () => {
       if (!disposed) setError('本地历史缓存不可用；仍可从 Agent 读取历史。');
     };
+    const applyHistoryGap = (page: HistoryPage) => {
+      if (!page.gap) return;
+      if (page.historyVersion !== 2)
+        throw new Error('Unsupported history gap protocol');
+      for (const [seq, revision] of seen)
+        if (revision <= page.snapshotSeq) seen.delete(seq);
+      for (const [seq, event] of displayEvents)
+        if ((event.revision ?? event.seq) <= page.snapshotSeq)
+          displayEvents.delete(seq);
+      setEvents((previous) =>
+        previous.filter(
+          (event) => (event.revision ?? event.seq) > page.snapshotSeq,
+        ),
+      );
+      setContentChunks({});
+      olderView.current = false;
+      setHistoryNotice('部分旧历史已过期，已恢复当前保留快照。');
+    };
     const showPage = (page: HistoryPage) => {
+      applyHistoryGap(page);
       if (olderView.current) captureHistoryAnchor();
       setEvents((previous) => {
         const merged = mergeEvents([...page.events, ...previous]);
@@ -1562,7 +1581,7 @@ function App() {
         if (!before && reliableCommands) {
           try {
             const snapshot = await readApi(
-              `/sessions/${selected.id}/snapshot`,
+              `/sessions/${selected.id}/snapshot?historyVersion=2`,
               controller.signal,
             );
             if (disposed || generation !== pageGeneration) return;
@@ -1592,7 +1611,14 @@ function App() {
         }
         const requestId = crypto.randomUUID();
         requests.set(requestId, before);
-        hs.send(JSON.stringify({ operation: 'page', before, requestId }));
+        hs.send(
+          JSON.stringify({
+            operation: 'page',
+            historyVersion: 2,
+            before,
+            requestId,
+          }),
+        );
       })();
     };
     loadHistory.current = requestPage;
@@ -1807,6 +1833,7 @@ function App() {
           hs.send(
             JSON.stringify({
               operation: 'page',
+              historyVersion: 2,
               requestId,
               ...(historySync.received === undefined
                 ? {}
@@ -1872,7 +1899,11 @@ function App() {
               for (const [seq, read] of contentReads) {
                 if (!d.requestId || read.requestId === d.requestId) {
                   finishRead(seq);
-                  if (d.error.code === 'CONTENT_CHANGED') {
+                  if (
+                    ['CONTENT_CHANGED', 'CONTENT_EXPIRED'].includes(
+                      d.error.code,
+                    )
+                  ) {
                     setContentChunks((chunks) => {
                       const next = { ...chunks };
                       delete next[seq];
@@ -1913,6 +1944,7 @@ function App() {
               clearTimeout(historyReplyTimer);
               // Complete the missing range; later live frames cannot rewind either watermark.
               syncRequest = undefined;
+              applyHistoryGap(d);
               historySync.snapshot(d);
               for (const e of d.events) add(e, false);
               const committed = cache?.writeSnapshot(
@@ -1992,7 +2024,7 @@ function App() {
           for (;;) {
             const before = historySync.received;
             const snapshot = await readApi(
-              `/sessions/${selected.id}/snapshot${before === undefined ? '' : `?after=${before}`}`,
+              `/sessions/${selected.id}/snapshot?historyVersion=2${before === undefined ? '' : `&after=${before}`}`,
               controller.signal,
             );
             if (disposed) return;
@@ -2016,6 +2048,7 @@ function App() {
                     : undefined,
               );
             }
+            applyHistoryGap(page);
             historySync.snapshot(page);
             for (const event of page.events) add(event, false);
             await cache

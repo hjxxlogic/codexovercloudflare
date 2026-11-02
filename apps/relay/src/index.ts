@@ -1216,6 +1216,24 @@ export default {
             data: {
               sessionId: snapshot[1],
               mode: auth.role,
+              ...(u.searchParams.has('historyVersion')
+                ? {
+                    historyVersion: z.coerce
+                      .number()
+                      .pipe(z.literal(2))
+                      .parse(u.searchParams.get('historyVersion')),
+                  }
+                : {}),
+              ...(u.searchParams.has('snapshotGeneration')
+                ? {
+                    snapshotGeneration: z.coerce
+                      .number()
+                      .int()
+                      .nonnegative()
+                      .max(Number.MAX_SAFE_INTEGER)
+                      .parse(u.searchParams.get('snapshotGeneration')),
+                  }
+                : {}),
               ...(after === undefined ? {} : { after }),
             },
           }),

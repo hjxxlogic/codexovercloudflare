@@ -246,8 +246,10 @@ class Cli {
       std::cout << "Local history cache cleared for selected credential and host\n";
       return;
     }
-    Json request = {
-        {"operation", "page"}, {"before", cursor_option("before")}, {"requestId", uuid()}};
+    Json request = {{"operation", "page"},
+                    {"historyVersion", 2},
+                    {"before", cursor_option("before")},
+                    {"requestId", uuid()}};
     auto key = id + ":page:" + std::to_string(cursor_option("before"));
     if (!option("seq").empty()) {
       request = {{"operation", "content"},
@@ -423,7 +425,7 @@ class Cli {
       history_pending = true;
       history_requested = now();
       history_request = uuid();
-      Json command = {{"operation", "page"}, {"requestId", history_request}};
+      Json command = {{"operation", "page"}, {"historyVersion", 2}, {"requestId", history_request}};
       command[received_revision < 0 ? "before" : "after"] =
           received_revision < 0 ? 0 : received_revision;
       reader->send(command);
@@ -497,6 +499,14 @@ class Cli {
               history_pending = false;
             if (d.value("type", "") == "history" && d.contains("events")) {
               auto current = tail["events"];
+              if (d.value("gap", false)) {
+                Json newer = Json::array();
+                for (const auto &event : current)
+                  if (event.value("revision", event.at("seq").get<int64_t>()) >
+                      d.value("snapshotSeq", int64_t(0)))
+                    newer.push_back(event);
+                current = std::move(newer);
+              }
               tail = d;
               for (auto &event : current) {
                 bool found = false;
