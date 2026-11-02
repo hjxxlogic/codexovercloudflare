@@ -1,0 +1,172 @@
+{
+  "commit": "df4caeacd2fd6d1878d7707ff73cda9f37d72c02",
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41458682983",
+  "environment": "GitHub Actions isolated Worker / native Agent / Chromium / deterministic Codex peer; no model calls",
+  "commandCountMeaning": "HTTP prompt submission attempts; a reader may submit only after acquired=true; retries retain reliable command identity",
+  "backends": {
+    "do": [
+      {
+        "size": 3,
+        "durationMs": 1015,
+        "passed": true,
+        "cleanupErrors": [],
+        "browsers": [
+          {
+            "index": 1,
+            "reader": false,
+            "commands": 1,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 0,
+            "reader": true,
+            "commands": 2,
+            "refreshMs": 854,
+            "closed": true,
+            "acquired": true,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 851,
+            "closed": true,
+            "errors": []
+          }
+        ]
+      },
+      {
+        "size": 5,
+        "durationMs": 1076,
+        "passed": true,
+        "cleanupErrors": [],
+        "browsers": [
+          {
+            "index": 1,
+            "reader": true,
+            "commands": 1,
+            "refreshMs": 892,
+            "closed": true,
+            "acquired": true,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "reader": false,
+            "commands": 1,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 0,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 890,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 885,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 4,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 890,
+            "closed": true,
+            "errors": []
+          }
+        ]
+      }
+    ],
+    "d1": [
+      {
+        "size": 3,
+        "durationMs": 1059,
+        "passed": true,
+        "cleanupErrors": [],
+        "browsers": [
+          {
+            "index": 2,
+            "reader": true,
+            "commands": 2,
+            "refreshMs": 855,
+            "closed": true,
+            "acquired": true,
+            "errors": []
+          },
+          {
+            "index": 1,
+            "reader": false,
+            "commands": 1,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 0,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 854,
+            "closed": true,
+            "errors": []
+          }
+        ]
+      },
+      {
+        "size": 5,
+        "durationMs": 1642,
+        "passed": true,
+        "cleanupErrors": [],
+        "browsers": [
+          {
+            "index": 1,
+            "reader": false,
+            "commands": 1,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 0,
+            "reader": true,
+            "commands": 1,
+            "refreshMs": 1369,
+            "closed": true,
+            "acquired": true,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 1372,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 1370,
+            "closed": true,
+            "errors": []
+          },
+          {
+            "index": 4,
+            "reader": true,
+            "commands": 0,
+            "refreshMs": 1366,
+            "closed": true,
+            "errors": []
+          }
+        ]
+      }
+    ]
+  }
+}

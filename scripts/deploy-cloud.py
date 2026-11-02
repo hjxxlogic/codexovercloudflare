@@ -106,9 +106,11 @@ def preserve_downloads(base, site, cache, saved=None):
 
 
 
-def publish_downloads(bundles, identity, site):
-    """Publish only digest-verified, same-source packages from all four CI platforms."""
+def publish_downloads(bundles, identity, site, skip_musl=False):
+    """Publish verified CI packages; an explicit musl deferral preserves its old package."""
     expected = {'linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'}
+    if skip_musl:
+        expected.remove('linux-musl')
     if set(bundles) != expected:
         raise RuntimeError('All four verified native platforms are required')
     version = identity['version']
@@ -148,6 +150,22 @@ def publish_downloads(bundles, identity, site):
                 checked[name] = data
     target = site / 'downloads'
     target.mkdir(exist_ok=True)
+    deferred = {}
+    if skip_musl:
+        previous = json.loads((target / 'index.json').read_text())
+        prior_musl = previous.get('deferredPlatforms', {}).get('linux-musl', previous)
+        old_version = prior_musl['version']
+        if not re.fullmatch(r'\d+\.\d+\.\d+', old_version) or old_version == version:
+            raise RuntimeError('Musl deferral requires a distinct previous verified release')
+        old_name = 'coc-' + old_version + '-linux-x86_64-musl.tar.gz'
+        old_sums = dict(line.split('  ', 1)[::-1] for line in (target / 'SHA256SUMS').read_text().splitlines())
+        old_bytes = (target / old_name).read_bytes()
+        if old_name not in previous['files'] or hashlib.sha256(old_bytes).hexdigest() != old_sums.get(old_name):
+            raise RuntimeError('Deferred musl package checksum mismatch')
+        checked[old_name] = old_bytes
+        deferred['linux-musl'] = {'version': old_version, 'file': old_name, 'commit': prior_musl['commit']}
+    if any(len(data) > 25 * 1024 * 1024 for data in checked.values()):
+        raise RuntimeError('Native archive exceeds the 25 MiB static asset limit')
     for name, data in checked.items():
         if (target / name).exists() and (target / name).read_bytes() != data:
             raise RuntimeError('A different archive already exists for this version: ' + name)
@@ -155,10 +173,13 @@ def publish_downloads(bundles, identity, site):
         (target / name).write_bytes(data)
     manifest = {key: identity[key] for key in ('version', 'commit', 'sourceDigest', 'protocol')}
     manifest.update(files=sorted(checked), checksums='SHA256SUMS', manual='USER_GUIDE.md')
+    if deferred:
+        manifest['deferredPlatforms'] = deferred
     (target / 'index.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (target / 'SHA256SUMS').write_text(''.join(hashlib.sha256(checked[name]).hexdigest() + '  ' + name + '\n' for name in sorted(checked)))
+    notice = ('<p>musl ' + version + ' 暂缓发布；保留已验证的 ' + deferred['linux-musl']['version'] + ' 下载。</p>') if deferred else ''
     links = ''.join('<li><a href="' + name + '">' + name + '</a></li>' for name in sorted(checked))
-    (target / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex Downloads</title><h1>Codex over Cloudflare ' + version + '</h1><p>Linux x86_64 / Windows x64</p><ul>' + links + '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></html>', encoding='utf-8')
+    (target / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex Downloads</title><h1>Codex over Cloudflare ' + version + '</h1><p>Linux x86_64 / Windows x64</p>' + notice + '<ul>' + links + '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></html>', encoding='utf-8')
     return manifest
 
 
@@ -214,6 +235,7 @@ def main():
     parser.add_argument('--preserved-downloads', type=pathlib.Path,
                         help='Previously verified download directory for recovery when the live endpoint is unavailable')
     parser.add_argument('--publish-downloads', action='store_true', help='Publish all four native platforms from this same verified Actions run')
+    parser.add_argument('--skip-native-platform', choices=['linux-musl'], help='Explicitly defer musl while preserving its previous verified download; requires --publish-downloads')
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
@@ -221,6 +243,8 @@ def main():
         parser.error('--local-build forbids CI run selection and native publication/notification')
     if args.cloud_only_after_windows_failure and (args.publish_downloads or args.notify_release or not args.run_id):
         parser.error('Cloud-only exception requires --run-id and forbids native publication/notification')
+    if args.skip_native_platform and (not args.publish_downloads or args.notify_release):
+        parser.error('--skip-native-platform requires --publish-downloads and forbids --notify-release')
     if args.notify_release and (not args.publish_downloads or not args.owner_secret_file):
         parser.error('--notify-release requires --publish-downloads and --owner-secret-file')
     if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', name) for name in args.delete_secret):
@@ -302,6 +326,8 @@ def main():
     if args.publish_downloads:
         bundles = {}
         for name in ('linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'):
+            if name == args.skip_native_platform:
+                continue
             matches = [artifact for artifact in artifacts if artifact['name'] == name and not artifact['expired']]
             if len(matches) != 1:
                 raise RuntimeError('Expected exactly one ' + name + ' artifact')
@@ -311,12 +337,13 @@ def main():
                 agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
             bundles[name] = (archive, artifact['digest'])
             selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
-        published = publish_downloads(bundles, identities[0], output / 'site')
+        published = publish_downloads(bundles, identities[0], output / 'site', bool(args.skip_native_platform))
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
                 'localBuild': args.local_build, 'ciVerified': not args.local_build,
-                'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure, 'run': run['html_url'], 'jobs': jobs,
+                'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure,
+                'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
     if args.state_db_id:

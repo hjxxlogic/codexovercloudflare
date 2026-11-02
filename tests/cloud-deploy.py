@@ -202,6 +202,65 @@ class CloudArtifactTests(unittest.TestCase):
                 cloud.publish_downloads(bundles, identity, site)
             self.assertFalse((site / 'downloads').exists())
 
+    def test_explicit_musl_deferral_preserves_verified_previous_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            site = root / 'site'
+            target = site / 'downloads'
+            target.mkdir(parents=True)
+            old_name = 'coc-0.5.13-linux-x86_64-musl.tar.gz'
+            old_bytes = b'previous verified static musl package'
+            (target / old_name).write_bytes(old_bytes)
+            (target / 'index.json').write_text(json.dumps({
+                'version': '0.5.13', 'commit': 'b' * 40, 'files': [old_name]}))
+            (target / 'SHA256SUMS').write_text(hashlib.sha256(old_bytes).hexdigest() + '  ' + old_name + '\n')
+            bundles, identity = self.native_bundles(root)
+            del bundles['linux-musl']
+            with self.assertRaises(RuntimeError):
+                cloud.publish_downloads(bundles, identity, site)
+            (target / old_name).write_bytes(b'tampered')
+            with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
+                cloud.publish_downloads(bundles, identity, site, skip_musl=True)
+            (target / old_name).write_bytes(old_bytes)
+            result = cloud.publish_downloads(bundles, identity, site, skip_musl=True)
+            self.assertEqual(result['deferredPlatforms']['linux-musl']['version'], '0.5.13')
+            self.assertIn(old_name, result['files'])
+            self.assertNotIn('coc-0.5.14-linux-x86_64-musl.tar.gz', result['files'])
+            self.assertEqual((target / old_name).read_bytes(), old_bytes)
+            self.assertIn('暂缓发布', (target / 'index.html').read_text())
+            self.assertIn(hashlib.sha256(old_bytes).hexdigest(), (target / 'SHA256SUMS').read_text())
+            self.assertEqual(cloud.publish_downloads(bundles, identity, site, skip_musl=True), result)
+
+    def test_musl_deferral_requires_explicit_partial_publication_without_notification(self):
+        for options in ([], ['--publish-downloads', '--notify-release']):
+            with patch('sys.argv', ['deploy-cloud.py', '--skip-native-platform', 'linux-musl', *options]):
+                with self.assertRaises(SystemExit) as error:
+                    cloud.main()
+                self.assertEqual(error.exception.code, 2)
+
+    def test_oversized_native_archive_is_rejected_before_writing_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            site = root / 'site'
+            site.mkdir()
+            bundles, identity = self.native_bundles(root)
+            path, _ = bundles['linux-musl']
+            with zipfile.ZipFile(path) as archive:
+                contents = {name: archive.read(name) for name in archive.namelist()}
+            package = 'coc-0.5.14-linux-x86_64-musl.tar.gz'
+            contents[package] = b'x' * (25 * 1024 * 1024 + 1)
+            files = json.loads(contents['index.json'])['files']
+            contents['SHA256SUMS'] = ''.join(
+                hashlib.sha256(contents[name]).hexdigest() + '  ' + name + '\n'
+                for name in files).encode()
+            with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for name, data in contents.items():
+                    archive.writestr(name, data)
+            bundles['linux-musl'] = (path, 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest())
+            with self.assertRaisesRegex(RuntimeError, '25 MiB'):
+                cloud.publish_downloads(bundles, identity, site)
+            self.assertFalse((site / 'downloads' / package).exists())
+
 
 if __name__ == '__main__':
     unittest.main()

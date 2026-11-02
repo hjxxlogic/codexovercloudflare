@@ -119,3 +119,25 @@ Playwright Chromium 使用已有邮箱登录状态操作真实页面和在线 Ag
 D1 本地完整回归的压力阶段通过，后续恢复历史会话的布局检查发现旧 SESSION_CLOSED 提示仍残留在已连接的新会话。切换会话时清除此项旧错误，其它错误仍保留；新增 UI 故障注入，先验证已关闭会话连接提示，再选择另一项目会话验证旧提示清除。该失败不计为 D1 完整通过，修复后另行复测。
 
 修复后的完整 UI 回归及新增旧错误清除注入通过；修复前另一次独立 D1 完整复查通过，说明此提示残留属于时序问题，不能用偶发通过替代专项断言。修复版本仍须等待对应提交 Actions 的全部作业结果。
+
+## 压力测试正式纳入套件与最终 CI 结果
+
+提交 df4caeacd2fd6d1878d7707ff73cda9f37d72c02 的 [Actions 41458682983](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41458682983) 六项必需作业全部成功：regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64。普通 Worker 与 D1 的完整 E2E、UI、缓存及后端回归均通过；本地另通过 9 项 CTest、460 项 Vitest、类型检查、lint、完整 UI 与两种后端 E2E。无标签推送的 publish-release 作业按既有条件跳过，不代表必需作业缺失。
+
+正式压力入口为 `npm run test:e2e` 和 `npm run test:e2e:d1`，CI 两个入口均执行 3 / 5 独立浏览器阶段。普通 Worker 读端刷新 851–854 / 885–892 毫秒，D1 为 854–855 / 1366–1372 毫秒；四阶段共 16 个测试会话全部确认结束，无 pageerror 或清理失败。指标来自下载的 Actions browser-evidence / d1-regression-evidence，脱敏副本见 [ci-browser-stress.json](assets/cw-functional-2026-11-02/ci-browser-stress.json)。不把 CI 模拟 peer 耗时作为线上模型性能结论，也不把 HTTP 重试次数等同于任务执行次数。
+
+| 本轮缺陷或场景 | 正式回归位置 |
+| --- | --- |
+| 引用释放确认迟到导致 ACK 风暴 | tests/history-subscription.test.ts、native/tests/ 的历史订阅回归 |
+| 刷新截止时间、正常取消和真实超时区分 | tests/web-refresh.test.ts、tests/ui-stability.ts 的快照挂起注入 |
+| 两个 WebSocket 保持 OPEN 但无数据 | tests/e2e.ts 的 stalled-channel-proof |
+| 完成快照先于 prompt ACK | tests/web-prompt-state.test.ts 及完整 E2E |
+| 同项目唯一写者、结束后立即释放、重复关闭 | tests/relay-order.test.ts |
+| 3 / 5 浏览器并行、审批、只读刷新、权限移交、最终结束 | tests/helpers/browser-session-stress.ts，由两种后端 E2E 调用 |
+| 切换后旧 SESSION_CLOSED 错误残留 | tests/ui-stability.ts 的连接失败后切换项目注入 |
+
+历史缓存 / 离线恢复、模型查询和选择、工具及审批交互继续由原有完整 E2E、UI 和缓存套件覆盖；真实线上模型与 Agent 组合的手工验收仍保留在本文，不能将模拟回归等同于所有线上组合均自动覆盖。
+
+## 发布阶段的 musl 包限制
+
+完整 CI 成功后，部署脚本在上传前被 Wrangler 拒绝：musl 0.6.1 包约 25.4 MiB，超过单个静态资源 25 MiB。此时 applied=false，线上 Worker 未切换，D1 无待执行迁移。用户随后明确要求“先跳过这个包，继续发布”；据此扩展受检部署脚本，显式暂缓 musl、本次只发布其余三平台，校验并保留旧 0.6.0 musl 下载，同时在清单和下载页标注。不修改或重新编译已通过 CI 的二进制，不发送原生更新通知。新增旧包完整性、默认不得缺平台、部分发行不得通知和超限提前拒绝回归。
