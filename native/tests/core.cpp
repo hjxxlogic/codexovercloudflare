@@ -1835,6 +1835,21 @@ void history_subscription_test() {
     request["receivedRevision"] = revision;
     check(store.history_subscription(request).at("receivedRevision") == revision,
           "History confirmation advances only the addressed subscriber");
+    check(store.history_hint(request).at("releasedRevision") == 0,
+          "Ordinary history ACK does not release unread body references");
+    auto release = request;
+    release["releasedRevision"] = revision + 1;
+    rejects([&] { store.history_subscription(release); }, "INVALID_ACK");
+    release["releasedRevision"] = 0.5;
+    rejects([&] { store.history_subscription(release); }, "INVALID_ACK");
+    release["releasedRevision"] = nullptr;
+    rejects([&] { store.history_subscription(release); }, "INVALID_ACK");
+    release["releasedRevision"] = revision;
+    check(store.history_subscription(release).at("releasedRevision") == revision,
+          "Explicit history reference release is durable and independent from receipt");
+    release["releasedRevision"] = 0;
+    check(store.history_subscription(release).at("releasedRevision") == revision,
+          "Delayed release cannot restore a relinquished reference obligation");
     auto stranger = request;
     stranger["owner"] = "other-reader";
     rejects([&] { store.history_subscription(stranger); }, "DELIVERY_STATE_MISMATCH");
@@ -1856,6 +1871,8 @@ void history_subscription_test() {
     request["acknowledgedRevision"] = revision;
     request["exchangeId"] = "after-restart";
     auto recovered = store.history_subscription(request);
+    check(recovered.at("releasedRevision") > 0 && recovered.at("releasedRevision") < revision,
+          "Restart preserves explicit release without inferring it from later ordinary ACKs");
     check(recovered.at("receivedRevision") == revision &&
               recovered.at("streamSerial") == identity.at("streamSerial") &&
               recovered.at("creditGeneration") == identity.at("creditGeneration"),

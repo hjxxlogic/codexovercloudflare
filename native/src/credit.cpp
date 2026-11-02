@@ -30,6 +30,7 @@ Json Store::history_hint(const Json &d) {
           {"streamSerial", row.at("serial")},
           {"creditGeneration", row.at("generation")},
           {"receivedRevision", row.at("received")},
+          {"releasedRevision", row.at("released")},
           {"maxRevision", head}};
 }
 Json Store::history_subscription(const Json &d) {
@@ -43,6 +44,12 @@ Json Store::history_subscription(const Json &d) {
   const auto floor = d.value("acknowledgedRevision", int64_t(-1));
   if (received < 0 || received > 9007199254740991LL || floor < 0 || floor > received)
     throw Error("INVALID_REQUEST", "Invalid durable history checkpoint");
+  if (d.contains("releasedRevision") && !d.at("releasedRevision").is_number_integer())
+    throw Error("INVALID_ACK", "History reference release must be an integer checkpoint");
+  const auto released = d.value("releasedRevision", int64_t(0));
+  if (d.contains("releasedRevision") &&
+      (operation == "subscribe" || released < 0 || released > received))
+    throw Error("INVALID_ACK", "History reference release must accompany a confirmed checkpoint");
   run("BEGIN IMMEDIATE");
   try {
     get(d.at("sessionId"));
@@ -76,6 +83,8 @@ Json Store::history_subscription(const Json &d) {
       throw Error("INVALID_REQUEST", "History acknowledgement requires its allocation identity");
     if (operation == "ack" && received > row.at("published").get<int64_t>())
       throw Error("INVALID_ACK", "History acknowledgement exceeds its published boundary");
+    if (released > row.at("published").get<int64_t>())
+      throw Error("INVALID_ACK", "History reference release exceeds its published boundary");
     const auto state = history_hint(d);
     if (received > state.at("maxRevision").get<int64_t>() ||
         (operation == "subscribe" && (received < row.at("received").get<int64_t>() ||
@@ -83,11 +92,14 @@ Json Store::history_subscription(const Json &d) {
       throw Error("DELIVERY_STATE_MISMATCH", "History durable checkpoint has rolled back");
     if (operation == "ack" && received > row.at("received").get<int64_t>())
       run("UPDATE transport2_history_subscriptions SET received=? WHERE key=?", {received, key});
+    if (released > row.at("released").get<int64_t>())
+      run("UPDATE transport2_history_subscriptions SET released=? WHERE key=?", {released, key});
     if (operation == "retire")
       run("UPDATE transport2_history_subscriptions SET closed=1 WHERE key=?", {key});
     auto result = state;
     if (operation == "ack")
       result["receivedRevision"] = std::max(received, row.at("received").get<int64_t>());
+    result["releasedRevision"] = std::max(released, row.at("released").get<int64_t>());
     result["closed"] = operation == "retire";
     run("COMMIT");
     return result;

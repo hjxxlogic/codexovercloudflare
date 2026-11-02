@@ -383,6 +383,7 @@ export const historyCommandSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.enum(['ack', 'retire']),
     requestId: idSchema,
+    releasedRevision: sequenceSchema.nonnegative().optional(),
     ...historySubscriptionFields,
     agentInstance: idSchema,
     streamSerial: sequenceSchema.positive(),

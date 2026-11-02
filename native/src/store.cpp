@@ -276,6 +276,12 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "instance TEXT NOT NULL,serial INTEGER NOT NULL UNIQUE,generation TEXT NOT NULL,"
         "received INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
         "closed INTEGER NOT NULL DEFAULT 0)");
+    bool has_history_release = false;
+    for (const auto &column : query("PRAGMA table_info(transport2_history_subscriptions)"))
+      has_history_release = has_history_release || column.at("name") == "released";
+    if (!has_history_release)
+      run("ALTER TABLE transport2_history_subscriptions ADD COLUMN released INTEGER NOT NULL "
+          "DEFAULT 0 CHECK(released BETWEEN 0 AND 9007199254740991)");
     run("CREATE TABLE IF NOT EXISTS transport2_cache_entries(key TEXT PRIMARY KEY,scope TEXT "
         "NOT NULL,bytes INTEGER NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS transport2_cache_scope ON transport2_cache_entries(scope)");

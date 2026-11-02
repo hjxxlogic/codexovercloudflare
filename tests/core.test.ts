@@ -68,6 +68,31 @@ describe('protocol boundaries', () => {
         historyCommandSchema.parse({ ...data, requestId: 'read' }),
       ).toThrow();
   });
+  it('carries explicit history reference release only on acknowledgements', () => {
+    const command = {
+      operation: 'ack',
+      requestId: 'release',
+      stream: 'history',
+      instance: 'client',
+      agentInstance: 'agent',
+      exchangeId: 'exchange',
+      receivedRevision: 20,
+      acknowledgedRevision: 10,
+      streamSerial: 1,
+      creditGeneration: 'generation',
+      releasedRevision: 12,
+    };
+    expect(historyCommandSchema.parse(command)).toMatchObject({
+      releasedRevision: 12,
+    });
+    for (const releasedRevision of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+      expect(() =>
+        historyCommandSchema.parse({ ...command, releasedRevision }),
+      ).toThrow();
+    expect(
+      historyCommandSchema.parse({ ...command, releasedRevision: undefined }),
+    ).toMatchObject({ releasedRevision: undefined });
+  });
   it('rejects oversized frames and unknown web commands', () => {
     expect(() => parseFrame(' '.repeat(MAX_FRAME + 1))).toThrow();
     expect(() =>

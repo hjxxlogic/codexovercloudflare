@@ -133,3 +133,9 @@ Agent 正文回源批次：Agent 构建通过，历史预算专项 13.72 秒、�
 `native-history-budget` 最终 15.94 秒通过，构建与测试日志为 `/tmp/coc-history-head-{build,test}.log`。记录预留测试按新增高水位计入 9 条而非 8 条；模拟全部删除的测试明确区分仍需保留的高水位和可退款正文。未放宽生产配额。此批没有启用投影自动退休，不证明缺口协议或浏览器恢复已完成。
 
 根据用户最新要求，长期压力优化、缺少真实样本的类型扩展、无法查证的已消费未知队列自动退休、自动物理缩库和额外抽象优化延期，触发条件详见 HISTORY_STORAGE_OPTIMIZATION §12.4。本批仅运行必要专项，未运行全量回归、推送或部署。
+
+### 2026-11-02：显式引用释放检查点
+
+现有历史 ACK/retire 可携带 releasedRevision，独立于投影 receivedRevision 持久保存；普通 ACK 和不带该字段的关闭不释放正文责任。原生订阅测试验证超过确认位置、非整数、null 拒绝，释放单调，普通后续 ACK 不扩大释放，以及重启后保留原释放位置与分配身份。沿用原事务和订阅数量上限，未增加逐引用映射。
+
+`native-core` 最终 34.08 秒通过，协议 schema 专项 6 项通过，TypeScript、协议生成一致性及定向 ESLint 通过；日志 `/tmp/coc-history-release-{core-test,schema-test,typecheck,protocol,lint}.log`。CC/CW 尚未发送释放字段，尚未启用自动投影删除或证明过期/缺口恢复完成；仅运行相关专项，未运行全量回归、推送或部署。

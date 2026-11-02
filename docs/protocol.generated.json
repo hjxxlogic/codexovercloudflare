@@ -1090,6 +1090,11 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,100}$"
           },
+          "releasedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "stream": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,100}$"
@@ -1547,6 +1552,32 @@
           "owner",
           "requestId",
           "stream"
+        ],
+        "additionalProperties": false
+      },
+      "historySyncPending": {
+        "type": "boolean"
+      },
+      "historyError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "BACKPRESSURE"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "incomplete": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "incomplete"
         ],
         "additionalProperties": false
       },
