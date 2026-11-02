@@ -1,0 +1,65 @@
+{
+  "commit": "33a0d5e18a0cc95128670ab382c0e48a05c8450e",
+  "deploymentToolCommit": "33a0d5e18a0cc95128670ab382c0e48a05c8450e",
+  "localBuild": true,
+  "ciVerified": false,
+  "run": null,
+  "sourceDigest": "0920ef197a82184f2211af51d399369525837af440f7b19bf7698d8bc20982b0",
+  "target": "https://r.xlogic.cc",
+  "applied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.1",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "artifacts": [
+    {
+      "name": "site/_headers",
+      "digest": "sha256:47eafe1b86e64e19780f54f9357b13606ea69a87629002ef7cb147a3c3c55eed"
+    },
+    {
+      "name": "site/assets/index-CCXUhPBq.js",
+      "digest": "sha256:348ab70b73a900a52882748a9028994a0158d5be1eaa0d7bd7c6ffc576ed9e98"
+    },
+    {
+      "name": "site/assets/index-DdWY9-46.css",
+      "digest": "sha256:fad97aa9847b26186fd522816012c03d4776badd741381dbab7214fe1f55a5d0"
+    },
+    {
+      "name": "site/index.html",
+      "digest": "sha256:5a1514aa2906abac3f8b1b743a079c00ad9a94635c5b5fa09098f925e370057e"
+    },
+    {
+      "name": "worker/README.md",
+      "digest": "sha256:7131e9648036c3182071d24bc63bc12ef0220976866aaeee2297ade8502bbcee"
+    },
+    {
+      "name": "worker/deploy-config.jsonc",
+      "digest": "sha256:402193cdc3c23bdff45adc2510dc1a44d7ed534f60c9a8c1e29b50c29b7d06dd"
+    },
+    {
+      "name": "worker/index.js",
+      "digest": "sha256:e59d46272d7cf2316b3194b0cd0193f0ce5c98f0cf976a82974c982111183d63"
+    },
+    {
+      "name": "worker/index.js.map",
+      "digest": "sha256:2ec4e68ab79af467a0b2c7d2ff3824515b77b33481a36b7c665d3492bcd704b8"
+    },
+    {
+      "name": "worker/state-migrations/0001_relay_state.sql",
+      "digest": "sha256:be0f99f2d3194c1200ba5b715a5f2262fce61da4e55600980314ed3286134ca7"
+    }
+  ],
+  "workerVersion": "c852f4f1-9d78-43ee-9613-9a4146e78797",
+  "authorization": "User explicitly requested direct local-code deployment without GitHub Actions",
+  "nativeDownloads": "Preserved existing published archives after SHA256 verification",
+  "agent": "Not updated or restarted",
+  "limitations": [
+    "No claim of new CI verification",
+    "No authenticated production model task executed during this deployment"
+  ]
+}

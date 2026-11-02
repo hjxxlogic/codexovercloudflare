@@ -126,15 +126,15 @@ D1 本地完整回归的压力阶段通过，后续恢复历史会话的布局�
 
 正式压力入口为 `npm run test:e2e` 和 `npm run test:e2e:d1`，CI 两个入口均执行 3 / 5 独立浏览器阶段。普通 Worker 读端刷新 851–854 / 885–892 毫秒，D1 为 854–855 / 1366–1372 毫秒；四阶段共 16 个测试会话全部确认结束，无 pageerror 或清理失败。指标来自下载的 Actions browser-evidence / d1-regression-evidence，脱敏副本见 [ci-browser-stress.json](assets/cw-functional-2026-11-02/ci-browser-stress.json)。不把 CI 模拟 peer 耗时作为线上模型性能结论，也不把 HTTP 重试次数等同于任务执行次数。
 
-| 本轮缺陷或场景 | 正式回归位置 |
-| --- | --- |
-| 引用释放确认迟到导致 ACK 风暴 | tests/history-subscription.test.ts、native/tests/ 的历史订阅回归 |
-| 刷新截止时间、正常取消和真实超时区分 | tests/web-refresh.test.ts、tests/ui-stability.ts 的快照挂起注入 |
-| 两个 WebSocket 保持 OPEN 但无数据 | tests/e2e.ts 的 stalled-channel-proof |
-| 完成快照先于 prompt ACK | tests/web-prompt-state.test.ts 及完整 E2E |
-| 同项目唯一写者、结束后立即释放、重复关闭 | tests/relay-order.test.ts |
-| 3 / 5 浏览器并行、审批、只读刷新、权限移交、最终结束 | tests/helpers/browser-session-stress.ts，由两种后端 E2E 调用 |
-| 切换后旧 SESSION_CLOSED 错误残留 | tests/ui-stability.ts 的连接失败后切换项目注入 |
+| 本轮缺陷或场景                                       | 正式回归位置                                                     |
+| ---------------------------------------------------- | ---------------------------------------------------------------- |
+| 引用释放确认迟到导致 ACK 风暴                        | tests/history-subscription.test.ts、native/tests/ 的历史订阅回归 |
+| 刷新截止时间、正常取消和真实超时区分                 | tests/web-refresh.test.ts、tests/ui-stability.ts 的快照挂起注入  |
+| 两个 WebSocket 保持 OPEN 但无数据                    | tests/e2e.ts 的 stalled-channel-proof                            |
+| 完成快照先于 prompt ACK                              | tests/web-prompt-state.test.ts 及完整 E2E                        |
+| 同项目唯一写者、结束后立即释放、重复关闭             | tests/relay-order.test.ts                                        |
+| 3 / 5 浏览器并行、审批、只读刷新、权限移交、最终结束 | tests/helpers/browser-session-stress.ts，由两种后端 E2E 调用     |
+| 切换后旧 SESSION_CLOSED 错误残留                     | tests/ui-stability.ts 的连接失败后切换项目注入                   |
 
 历史缓存 / 离线恢复、模型查询和选择、工具及审批交互继续由原有完整 E2E、UI 和缓存套件覆盖；真实线上模型与 Agent 组合的手工验收仍保留在本文，不能将模拟回归等同于所有线上组合均自动覆盖。
 
@@ -157,3 +157,7 @@ D1 本地完整回归的压力阶段通过，后续恢复历史会话的布局�
 新增真实浏览器回归通过：构造 16 份旧固定预留，两标签页迁移后共 66 份空闲记录可用；未决原请求在清理历史后保留，完成释放余量后新请求可进入；跨标签页并发不能超出未决预算。已确认 HTTP / 上传身份保留；作用域和全局可重建缓存回收后，事件、确认游标、订阅证明与草稿完整。单测覆盖各类未决状态不能提前释放、较新 Agent 优先和旧连接 fencing、读取网络恢复、真实权限错误不重试，以及取消 / 超时区分。当前源码验证与后续发布结果另行记录，不把本地回归称作线上已部署。
 
 本次修改本地验证完成：466 项 Vitest、TypeScript、lint、网页构建、完整 UI 回归、真实 IndexedDB 缓存专项及普通 Worker / 原生 Agent / Chromium 完整 E2E（含 3 / 5 浏览器压力）通过。保护数据仍超额时，事务回滚整个回收过程的负向用例通过。D1 与所有平台的完整 CI 需以新提交对应运行结果为准；本节不代表线上已经发布这些续修。
+
+## 缓存及重连续修发布结果
+
+用户明确要求本地构建直接部署，不等待 GitHub Actions。源码 `33a0d5e` 已通过受检脚本的 `--local-build` 路径部署，Worker version `c852f4f1-9d78-43ee-9613-9a4146e78797`；健康及首页、JS / CSS、手册、下载清单字节核验通过。无 D1 待执行迁移，原生下载包核验后保留，本机 Agent 未升级或重启。本次不宣称完整 CI 或线上真实模型业务已复验；刷新所有 CW 标签页即可加载新逻辑，实际旧账本恢复仍需用户浏览器观察。以上续修章节的“尚未发布”是提交时状态，以本节发布结果为准。[构建及部署摘要](assets/cw-functional-2026-11-02/cache-recovery-local-deployment.json)。

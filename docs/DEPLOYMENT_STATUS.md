@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## CW 缓存及重连续修本地部署 · 2026-11-02
+
+按用户明确要求“直接部署本地代码，无需 github action”，通过 `scripts/deploy-cloud.py --local-build --state-db-id UUID --apply` 发布干净源码 `33a0d5e18a0cc95128670ab382c0e48a05c8450e`，未等待或使用该提交的 Actions 制品。本地构建、类型检查及 Worker dry-run 成功；此前 466 项 Vitest、完整 UI / 普通 Worker E2E、3 / 5 浏览器压力与双标签页 IndexedDB 专项通过，不将这些描述为完整 CI 验证。
+
+Worker version `c852f4f1-9d78-43ee-9613-9a4146e78797` 已部署至 https://r.xlogic.cc，健康检查通过，首页、JS / CSS、在线手册、下载清单与校验和均与本次暂存产物逐字节一致。现有原生下载包先核对 SHA-256 后原样保留，未发布新原生包或更新通知。沿用 D1、生产变量、Secret 和 Cron，D1 无待执行迁移；本机 Agent 未升级、未重启。用户刷新所有 CW 标签页后使用新缓存逻辑，无需清空站点数据。未在本次部署中执行线上真实模型业务验收，用户实际浏览器缓存恢复及长期稳定性仍待观察。[部署及产物摘要](assets/cw-functional-2026-11-02/cache-recovery-local-deployment.json)。
+
 ## CW 回归与三平台发布 · 2026-11-02（musl 暂缓）
 
 应用源码 df4caeacd2fd6d1878d7707ff73cda9f37d72c02 的 [Actions 41458682983](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41458682983) 六项必需作业全部成功，含普通 Worker / D1 的完整原生与 Chromium E2E、3 / 5 浏览器压力、UI 与缓存回归。使用同一运行的 CI 制品发布网页、Worker、Ubuntu 20.04、Debian 12 和 Windows x64 下载及源码归档；未使用本地编译二进制。
