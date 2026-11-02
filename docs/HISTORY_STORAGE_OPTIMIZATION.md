@@ -312,3 +312,16 @@ P1 是容量行为的正确性修复，不依赖先做完环形缓存；P2 不�
 
 
 本机旧库隔离副本验证：40,163 条 chunk 经 314 个批次合并为 363 条，计费占用从 288,563,401 字节降至 185,445,423 字节（275.20 → 176.85 MiB），最大单会话从 67.54 → 40.36 MiB。355 份按字符偏移重建的正文 SHA-256 不变，events/history/bodies/streams/external_items 的排序行摘要不变，SQLite 完整性检查通过。此处只证明副本在本次数据集上的计费/记录收益，不代表物理文件缩小、所有旧库都能回到额度内或完整优化方案已完成。脱敏汇总见 [packing.json](assets/history-storage-2026-11-02/packing.json)，原始私有证据位于 `.local/history-implementation/packing-verification.json`。
+
+
+### P3 只读精确条目读取与来源校验（实施中）
+
+C++ `read_history_thread` 统一校验 thread ID、项目 canonical cwd 与历史模式；普通会话、外部会话的归档加载均经此入口，未知模式明确拒绝。`read_history_item` 只使用 `thread/read` → `thread/items/read` → `thread/read`，每次仅请求一个明确 turn/item；拒绝缺失、重复、错 turn/错 item、无效结构和超过调用预算的条目，读取后再次检查项目与模式。禁止借此调用 resume/start/turn 或自动回退业务执行。
+
+单次返回条目的序列化 JSON 最多 1 MiB；上游解析仍受 CodexProcess 既有有界缓冲保护。该入口暂不提供大条目回源分页或 legacy 分页查找，能力不足/错误保持明确失败。它返回**当前持久条目**，不是旧 history revision 的恢复证明；还没有替换 `Store::content` 的本地正文读取。未增加来源持久表，未启用自动淘汰，`readPageMaxBytes`/`readConcurrency` 配置尚未开放。
+
+专项 `native-history-source` 使用只允许初始化与读取 RPC 的确定性 peer，覆盖 18 个成功/失败场景，包括项目重绑、历史模式改变、未知模式、缺失、重复、身份冲突、大小边界和不支持的 API；错误不触发无限扫描或执行型降级。
+
+真实只读调查使用本机 Codex 0.166.0：userMessage、agentMessage、commandExecution、reasoning、webSearch、mcpToolCall、fileChange、contextCompaction、imageView、sleep 各一个已完成样本，每个在两个独立 app-server 进程通过该 C++ 入口重读，完整条目序列化摘要一致。没有模型调用，运行时入口不直接读取私有数据库。调查工具仅以只读数据库选择样本身份，正文由 API 读取；脱敏证据见 [source-read.json](assets/history-storage-2026-11-02/source-read.json)。
+
+剩余前置条件：来源用户环境/实例持久绑定、版本化脱敏投影与原 history 摘要比对、legacy 有界查找、旧修订/来源删除/替换、读取并发与缓存策略。当前样本没有 plan；未证明 0.164.0、所有活跃 writer 或同类型全部变体可回源，因此不能将整个类型直接标记可淘汰。

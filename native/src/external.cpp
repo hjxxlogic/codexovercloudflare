@@ -34,25 +34,105 @@ ExternalThread::ExternalThread(asio::io_context &io, std::shared_ptr<CodexProces
                                std::function<void(Json)> state, std::function<void(Json)> failure)
     : process_(std::move(process)), timer_(io), thread_(std::move(thread)), cwd_(std::move(cwd)),
       item_(std::move(item)), state_(std::move(state)), failure_(std::move(failure)) {}
+void read_history_thread(std::shared_ptr<CodexProcess> process, const std::string &thread,
+                         const std::string &cwd, Completion done) {
+  process->request(
+      "thread/read", {{"threadId", thread}, {"includeTurns", false}},
+      [thread, cwd, done](Json result, Json error) {
+        if (!error.is_null()) {
+          done(nullptr, error);
+          return;
+        }
+        if (!result.is_object() || !result.contains("thread") || !result.at("thread").is_object()) {
+          done(nullptr, {{"code", "INVALID_FRAME"}, {"message", "Invalid thread metadata"}});
+          return;
+        }
+        const auto &source = result.at("thread");
+        if (!source.contains("id") || source.at("id") != thread || !source.contains("cwd") ||
+            !source.at("cwd").is_string() || !same_project_path(source.at("cwd"), cwd)) {
+          done(nullptr,
+               {{"code", "FORBIDDEN"}, {"message", "History thread belongs to another project"}});
+          return;
+        }
+        if (source.contains("historyMode") && source.at("historyMode") != "paginated" &&
+            source.at("historyMode") != "legacy") {
+          done(nullptr,
+               {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"}, {"message", "Unknown history mode"}});
+          return;
+        }
+        done(source, nullptr);
+      });
+}
+void read_history_item(std::shared_ptr<CodexProcess> process, const std::string &thread,
+                       const std::string &cwd, const std::string &turn, const std::string &item,
+                       size_t max_bytes, Completion done) {
+  if (thread.empty() || turn.empty() || item.empty() || thread.size() > 256 || turn.size() > 256 ||
+      item.size() > 256 || max_bytes == 0 || max_bytes > 1024 * 1024) {
+    done(nullptr, {{"code", "INVALID_REQUEST"}, {"message", "Invalid bounded history read"}});
+    return;
+  }
+  read_history_thread(
+      process, thread, cwd,
+      [process, thread, cwd, turn, item, max_bytes, done](Json source, Json error) {
+        if (!error.is_null()) {
+          done(nullptr, error);
+          return;
+        }
+        if (source.value("historyMode", "paginated") != "paginated") {
+          done(nullptr, {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"},
+                         {"message", "Direct item reads require paginated history"}});
+          return;
+        }
+        process->request(
+            "thread/items/read",
+            {{"threadId", thread}, {"turnId", turn}, {"itemIds", Json::array({item})}},
+            [process, thread, cwd, turn, item, max_bytes, done](Json result, Json error) {
+              if (!error.is_null()) {
+                done(nullptr, error);
+                return;
+              }
+              if (!result.is_object() || !result.contains("data") ||
+                  !result.at("data").is_array()) {
+                done(nullptr,
+                     {{"code", "INVALID_FRAME"}, {"message", "Invalid persisted item response"}});
+                return;
+              }
+              const auto &data = result.at("data");
+              if (data.empty()) {
+                done(nullptr, {{"code", "CONTENT_UNAVAILABLE"},
+                               {"message", "Persisted item is unavailable"}});
+                return;
+              }
+              if (data.size() != 1 || !data.at(0).is_object() || !data.at(0).contains("turnId") ||
+                  data.at(0).at("turnId") != turn || !data.at(0).contains("item") ||
+                  !data.at(0).at("item").is_object() || !data.at(0).at("item").contains("id") ||
+                  data.at(0).at("item").at("id") != item) {
+                done(nullptr,
+                     {{"code", "INVALID_FRAME"}, {"message", "Persisted item identity mismatch"}});
+                return;
+              }
+              if (data.at(0).dump().size() > max_bytes) {
+                done(nullptr,
+                     {{"code", "BACKPRESSURE"}, {"message", "Persisted item exceeds read budget"}});
+                return;
+              }
+              const auto entry = data.at(0);
+              read_history_thread(process, thread, cwd, [entry, done](Json source, Json error) {
+                if (error.is_null() && source.value("historyMode", "paginated") != "paginated")
+                  error = {{"code", "CONTENT_CHANGED"},
+                           {"message", "History mode changed during read"}};
+                done(error.is_null() ? entry : Json(), error);
+              });
+            });
+      });
+}
 void ExternalThread::validate(Completion done) {
   auto self = shared_from_this();
-  process_->request("thread/read", {{"threadId", thread_}, {"includeTurns", false}},
-                    [self, done](Json result, Json error) {
-                      if (!error.is_null()) {
-                        done(nullptr, error);
-                        return;
-                      }
-                      try {
-                        if (result.at("thread").at("id") != self->thread_ ||
-                            !same_project_path(result.at("thread").value("cwd", ""), self->cwd_))
-                          throw Error("FORBIDDEN", "External thread belongs to another project");
-                        self->legacy_ =
-                            result.at("thread").value("historyMode", "paginated") == "legacy";
-                        done(result.at("thread"), nullptr);
-                      } catch (const std::exception &error) {
-                        done(nullptr, error_data(error));
-                      }
-                    });
+  read_history_thread(process_, thread_, cwd_, [self, done](Json source, Json error) {
+    if (error.is_null())
+      self->legacy_ = source.value("historyMode", "paginated") == "legacy";
+    done(source, error);
+  });
 }
 void ExternalThread::deliver(const Json &entry, bool historical, bool descending) {
   if (legacy_) {

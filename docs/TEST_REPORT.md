@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+只读来源基础批次：Agent/专项目标构建通过，新增 `native-history-source` 的 18 个场景通过（1.81 秒），覆盖双重来源校验、身份/模式变化、缺失/重复条目及大小限制。本机 Codex 0.166.0 的 10 类已完成样本通过 C++ 入口在两个独立进程重读，完整条目摘要一致，无模型调用；[脱敏证据](assets/history-storage-2026-11-02/source-read.json)。这尚不证明旧修订、全部条目变体或淘汰安全。日志 `/tmp/coc-history-source-{build,test-final}.log`，私有样本证据在 `.local/history-implementation/source-probe-result.json`。 重建 `coc-tests` 后仅执行 `--external-refresh`，原有活跃外部会话超过 16 个新条目后仍能追踪旧条目终态的专项通过，日志 `/tmp/coc-history-source-refresh-test.log`。
+
 旧分块迁移批次：Agent 与历史测试目标构建通过，历史预算/引用专项通过；新增活动预留跳过、固定批次上限、删除后故障回滚、跨重启引用/快照不变、超限库净减及容量触发器恢复验证。本机旧库的隔离在线备份经过 314 批合并，chunk 从 40163 条降到 363 条，计费 275.20 → 176.85 MiB，355 份正文 SHA-256 及历史相关表摘要不变，完整性检查正常。详见 [脱敏结果](assets/history-storage-2026-11-02/packing.json)；正式库未修改，不能据此声称磁盘文件缩小或最终线上验收通过。 最终历史预算专项 13.88 秒通过，额外注入异常计量增长验证提交前拒绝及回滚；真实 Agent 交付专项通过，覆盖原请求恢复、精确取消、输出信用与历史尾部恢复。日志 `/tmp/coc-pack-migration-{build,test,delivery}.log` 和 `/tmp/coc-pack-migration-test-final.log`。
 
 小 delta 尾块合并批次：重新构建历史预算与引用测试目标后，两项 CTest 通过（13.99 秒 / 0.12 秒）。3000 条 Unicode delta 形成 6 个 chunk，验证跨块/跨页随机字符偏移、重启后完整正文和投影失败的正文/计量事务回滚。日志 `/tmp/coc-packed-{build,test}.log`。未运行全量回归；没有对正式历史库执行迁移或删除。

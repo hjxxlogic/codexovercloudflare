@@ -143,6 +143,8 @@ TLS 在 Cloudflare 终止；当前不提供端到端加密或不可信多用户�
 
 ## 可靠传输专项回归
 
+历史只读来源专项：构建 `coc-history-source-tests` 后执行 `ctest --test-dir build -R native-history-source --output-on-failure`。确定性 peer 只允许初始化和读取 RPC，不调用模型；实际 Codex 类型样本及验证边界见 [历史优化方案](HISTORY_STORAGE_OPTIMIZATION.md)。
+
 `native-operations` CTest 验证执行端原请求回执的实例 / 内容冲突、结果保留、崩溃不重放、确认回收及全局 / 主体 / 退休记录限额。`npm run test:operations` 启动真实 Agent，以临时 SQLite 和确定性 Codex 验证线响应丢失与进程强制退出后的原结果恢复；不触及生产进程。共享 operation-intent-fixtures 同时由 C++ 与 Zod 校验。当前入口迁移范围见 [传输状态盘点](TRANSPORT_STATE_INVENTORY.md)。
 
 CLI 原请求账本同样由 native-operations 验证：共享数据库的并发准备、缓存清理与重启、32 项满额输入 / 终态预留、16 项结果尾部、1024 项退休边界和跨凭据全局上限。test:operations 还运行真实 CLI 的 tests/native-cli-operations.ts，HTTP 服务在首次写入到达时核对 SQLite 已有完整意图，在确认到达时核对完整结果已提交；覆盖进程中断、丢关联 / 确认、实例替换、无证明 / 错证明，以及意图和结果写入故障。仅使用临时目录；网页和 Worker 的配套验证见下文。

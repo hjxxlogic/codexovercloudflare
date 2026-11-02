@@ -1,0 +1,96 @@
+{
+  "sourceBase": "eff005b",
+  "change": "bounded C++ history item reader in the commit containing this report",
+  "codexVersion": "0.166.0",
+  "method": "one completed item per observed type, read through the C++ helper in two fresh app-server processes",
+  "businessRequests": 0,
+  "directDatabaseUse": "read-only investigation selected identifiers; production reader only uses app-server RPC",
+  "samples": [
+    {
+      "type": "userMessage",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 352,
+      "error": null
+    },
+    {
+      "type": "agentMessage",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 667,
+      "error": null
+    },
+    {
+      "type": "commandExecution",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 3595,
+      "error": null
+    },
+    {
+      "type": "reasoning",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 280,
+      "error": null
+    },
+    {
+      "type": "webSearch",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 11817,
+      "error": null
+    },
+    {
+      "type": "mcpToolCall",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 546,
+      "error": null
+    },
+    {
+      "type": "fileChange",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 3017,
+      "error": null
+    },
+    {
+      "type": "contextCompaction",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 245,
+      "error": null
+    },
+    {
+      "type": "imageView",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 304,
+      "error": null
+    },
+    {
+      "type": "sleep",
+      "samples": 1,
+      "independentProcesses": 2,
+      "sameSerializedEntryDigest": true,
+      "serializedEntryBytes": 253,
+      "error": null
+    }
+  ],
+  "limitations": [
+    "One current completed sample per type is not a full type coverage proof.",
+    "No plan sample available in the observed completed-item corpus.",
+    "Old revisions, all active writers, legacy and Codex 0.164.0 not verified here.",
+    "Persistent source binding and redacted projection digest verification remain prerequisites for eviction."
+  ]
+}

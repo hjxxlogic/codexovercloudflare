@@ -3,6 +3,14 @@
 namespace coc {
 bool active_writer_error(const Json &error);
 bool same_project_path(const std::string &left, const std::string &right);
+void read_history_thread(std::shared_ptr<CodexProcess>, const std::string &thread,
+                         const std::string &cwd, Completion);
+// Returns one current persisted entry, not a proof that any old revision can be
+// reconstructed. Source binding and projected digest checks precede eviction.
+void read_history_item(std::shared_ptr<CodexProcess>, const std::string &thread,
+                       const std::string &cwd, const std::string &turn, const std::string &item,
+                       size_t max_bytes, Completion);
+
 // A reader never resumes a thread or starts/interrupts a turn. Queue execution
 // and approval handling remain with the original Codex client.
 class ExternalThread : public std::enable_shared_from_this<ExternalThread> {

@@ -1680,28 +1680,19 @@ public:
     archive_loading_.insert(id);
     auto read = [this, id, process, temporary, done]() {
       auto s = store_.get(id);
-      if (!s.value("external", false)) {
-        read_archive(id, process, temporary, 10, done);
-        return;
-      }
-      process->request("thread/read", {{"threadId", s.at("threadId")}, {"includeTurns", false}},
-                       [this, id, process, temporary, done](Json result, Json error) {
-                         try {
-                           if (!error.is_null())
-                             throw Error(error.at("code"), error.at("message"));
-                           auto s = store_.get(id);
-                           if (result.at("thread").at("id") != s.at("threadId") ||
-                               !same_project_path(result.at("thread").value("cwd", ""),
-                                                  project(s.at("projectId")).at("path")))
-                             throw Error("FORBIDDEN", "External thread belongs to another project");
-                           read_archive(id, process, temporary, 10, done);
-                         } catch (const std::exception &error) {
-                           archive_loading_.erase(id);
-                           if (temporary)
-                             process->close();
-                           done(nullptr, error_data(error));
-                         }
-                       });
+      read_history_thread(process, s.at("threadId"), project(s.at("projectId")).at("path"),
+                          [this, id, process, temporary, done](Json, Json error) {
+                            try {
+                              if (!error.is_null())
+                                throw Error(error.at("code"), error.at("message"));
+                              read_archive(id, process, temporary, 10, done);
+                            } catch (const std::exception &error) {
+                              archive_loading_.erase(id);
+                              if (temporary)
+                                process->close();
+                              done(nullptr, error_data(error));
+                            }
+                          });
     };
     if (temporary) {
       try {
