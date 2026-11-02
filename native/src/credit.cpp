@@ -19,7 +19,7 @@ Json Store::history_hint(const Json &d) {
     throw Error("STREAM_CLOSED", "History subscription has retired");
   const auto &row = rows.at(0);
   const auto head =
-      query("SELECT MAX(0,COALESCE(MAX(seq),0)) AS revision FROM events WHERE session=?",
+      query("SELECT MAX(0,COALESCE(MAX(revision),0)) AS revision FROM history WHERE session=?",
             {d.at("sessionId")})
           .at(0)
           .at("revision")

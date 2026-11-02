@@ -545,8 +545,8 @@ Json Store::delivery_results(const std::string &stream, int64_t after) {
   return records;
 }
 Json Store::delivery_heads(const std::string &session) {
-  const auto history =
-      query("SELECT MAX(0,COALESCE(MAX(seq),0)) AS head FROM events WHERE session=?", {session});
+  const auto history = query(
+      "SELECT MAX(0,COALESCE(MAX(revision),0)) AS head FROM history WHERE session=?", {session});
   const auto output = query("SELECT published FROM transport2_output_heads WHERE stream=?",
                             {"rpc-output:" + session});
   return {{"agent", history[0]["head"]},

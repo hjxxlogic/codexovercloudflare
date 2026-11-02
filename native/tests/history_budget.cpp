@@ -227,6 +227,73 @@ void external_inline_transition() {
   check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
         "Generic external inline body retains item JSON, not only command output");
 }
+void projected_history_heads() {
+  Temp temp;
+  const std::string session = "host~projected-head";
+  Json snapshot, reference, negative, identity;
+  Json request = {{"sessionId", session},     {"owner", "reader"},
+                  {"stream", "subscription"}, {"instance", "client-storage"},
+                  {"exchangeId", "exchange"}, {"operation", "subscribe"},
+                  {"receivedRevision", 0},    {"acknowledgedRevision", 0}};
+  int64_t head = 0;
+  {
+    Store store(temp.path);
+    store.save({{"id", session}, {"state", "closed"}});
+    store.event(session, "item/agentMessage/delta", {{"itemId", "a"}, {"delta", "first"}});
+    store.event(session, "item/agentMessage/delta", {{"itemId", "a"}, {"delta", "second"}});
+    negative = store.archive_event(session, "user", {{"text", "archive"}});
+    const auto external = store.external_item(
+        session, "turn", {{"id", "external"}, {"type", "agentMessage"}, {"text", "external"}},
+        true);
+    store.external_item(session, "turn",
+                        {{"id", "external"}, {"type", "agentMessage"}, {"text", "updated"}});
+    snapshot = store.history(session);
+    head = snapshot.at("snapshotSeq");
+    reference = store.history_reference(session, external.at("seq"));
+    identity = store.history_subscription(request);
+    for (const auto &field : {"agentInstance", "streamSerial", "creditGeneration"})
+      request[field] = identity.at(field);
+    request["operation"] = "ack";
+    request["receivedRevision"] = head;
+    store.history_subscription(request);
+    Database fixture(temp.path);
+    fixture.sql("DELETE FROM events");
+    check(store.history(session) == snapshot && store.delivery_heads(session).at("agent") == head &&
+              store.history_hint(request).at("maxRevision") == head &&
+              store.history_reference(session, external.at("seq")) == reference,
+          "Removing raw journal copies cannot rewind projections, heads or original references");
+    check(store.replay(session, 0).at("events") == store.history(session, 0, 0).at("events"),
+          "Offline replay still reads the complete projected view without raw events");
+  }
+  Store restored(temp.path);
+  check(restored.history(session) == snapshot,
+        "Restart with an empty event journal retains history");
+  request["operation"] = "subscribe";
+  request["acknowledgedRevision"] = head;
+  check(restored.history_subscription(request).at("receivedRevision") == head,
+        "Confirmed history subscription survives empty-journal restart");
+  const auto archive = restored.archive_event(session, "user", {{"text", "next archive"}});
+  check(archive.at("seq") < reference.at("seq") && archive.at("seq") < negative.at("seq") &&
+            restored.history(session).at("snapshotSeq") == head,
+        "Negative archive allocation cannot reuse a retained projection identity or alter head");
+  const auto next = restored.event(session, "user", {{"text", "next live"}});
+  check(next.at("revision") > head &&
+            restored.delivery_heads(session).at("agent") == next.at("revision"),
+        "SQLite allocation and projected high watermark remain monotonic after journal removal");
+  const auto before = restored.history(session);
+  Database fixture(temp.path);
+  fixture.sql("CREATE TRIGGER fail_projection BEFORE INSERT ON history BEGIN "
+              "SELECT RAISE(ABORT,'injected projection failure'); END");
+  bool failed = false;
+  try {
+    restored.event(session, "user", {{"text", "not committed"}});
+  } catch (const Error &) {
+    failed = true;
+  }
+  check(failed && restored.history(session) == before &&
+            restored.delivery_heads(session).at("agent") == next.at("revision"),
+        "Failed projection cannot publish an allocated but uncommitted event revision");
+}
 void legacy_inline_dedup() {
   Temp temp;
   Json reference, snapshot, tool_reference;
@@ -666,6 +733,7 @@ int main() {
   try {
     legacy_packing();
     legacy_inline_dedup();
+    projected_history_heads();
     inline_transition();
     external_inline_transition();
     packed_deltas();

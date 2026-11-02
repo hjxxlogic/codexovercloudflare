@@ -1,0 +1,8 @@
+{
+  "scope": "read-only prior local Agent backup",
+  "eventRows": 48224,
+  "historyRows": 8416,
+  "sessionsWithDifferentHeads": 0,
+  "negativeEventsWithoutProjection": 0,
+  "eventAccountingBytes": 147325641
+}

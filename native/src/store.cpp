@@ -622,7 +622,7 @@ Json Store::archive_event(const std::string &id, const std::string &type, const 
   try {
     Json e = {{"type", type}, {"data", data}, {"time", now()}};
     run("INSERT INTO events(seq,session,value,time) SELECT MIN(0,COALESCE(MIN(seq),0))-1,?,?,? "
-        "FROM events",
+        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)",
         {id, e.dump(), e["time"]});
     e["seq"] = sqlite3_last_insert_rowid(db_);
     auto result = project(id, e);
@@ -819,7 +819,7 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
   if (!forward)
     std::reverse(events.begin(), events.end());
   auto latest =
-      query("SELECT MAX(0,COALESCE(MAX(seq),0)) AS seq FROM events WHERE session=?", {id});
+      query("SELECT MAX(0,COALESCE(MAX(revision),0)) AS seq FROM history WHERE session=?", {id});
   return {{"events", events},
           {"more", more},
           {"cursor", cursor},
