@@ -657,3 +657,5 @@ CW / CC 同时请求 receivedRevision 与 releasedRevision 时，仅数据水位
 HostRelay 从 Agent 的 get 响应取得权威 projectId；连接 reserve 事务同时保存会话 lease 的 projectId 与 project-writer 指针。另会话有未过期 reservation、连接票据或有效控制 WebSocket 时，竞争者收到 PROJECT_READ_ONLY；普通 attach 和显式 takeover 都不能跨会话抢占项目写权限。OPEN 激活及后续 HTTP/WebSocket 控制变更再次核对项目指针。断开的旧连接和已过期的准备不阻止下一次显式申请，历史连接独立保留。原生 Agent 的执行互斥保留，无需升级 Agent。
 
 CW 遇到 PROJECT_READ_ONLY 停止自动控制重试，展示历史和显式获取入口，不展示任务输入。当前会话快照与命令回执恢复不再串行等待，手动刷新时身份/目录恢复在后台独立进行；辅助恢复的完成不定义当前历史刷新是否成功。
+
+结束写会话的成功响应（closing/closed/failed）以及 Agent 的 sessionClosed 事件原子撤销 lease 的 active/准备有效期，并仅在项目写指针仍指向该会话时删除指针，随后关闭控制连接。旧 WebSocket 仍处于 closing 不再阻止下一会话；重复关闭事件不能删除后来写者的权限，历史通道及可靠结果日志保留。

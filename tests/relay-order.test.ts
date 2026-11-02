@@ -1017,6 +1017,44 @@ describe('recoverable asynchronous controls', () => {
       ),
     ).resolves.toMatchObject({ epoch: 1 });
   });
+  it('releases a stopped project writer before its old socket finishes closing', async () => {
+    const h = harness();
+    await h.storage.put('lease:host~writer', {
+      epoch: 1,
+      active: true,
+      projectId: 'shared',
+    });
+    await h.storage.put('project-writer:shared', 'host~writer');
+    const writer = socket({
+      role: 'web',
+      sessionId: 'host~writer',
+      epoch: 1,
+      authenticated: true,
+    });
+    const history = socket({
+      role: 'web',
+      sessionId: 'host~writer',
+      history: true,
+      authenticated: true,
+    });
+    h.sockets.push(writer, history);
+    await (h.relay as any).releaseStoppedSession('host~writer');
+    expect(writer.close).toHaveBeenCalledWith(4000, 'Session ended');
+    expect(writer.readyState).toBe(1);
+    expect(history.close).not.toHaveBeenCalled();
+    await expect(
+      h.relay.reserve(
+        'host~next',
+        false,
+        undefined,
+        'next',
+        auth.hash,
+        'shared',
+      ),
+    ).resolves.toMatchObject({ epoch: 1 });
+    await (h.relay as any).releaseStoppedSession('host~writer');
+    expect(await h.storage.get('project-writer:shared')).toBe('host~next');
+  });
   it('admits exactly one of five simultaneous project write claims', async () => {
     const h = harness();
     const claims = await Promise.allSettled(

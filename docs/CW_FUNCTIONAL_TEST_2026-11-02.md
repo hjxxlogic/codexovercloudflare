@@ -103,3 +103,7 @@ Playwright Chromium 使用已有邮箱登录状态操作真实页面和在线 Ag
 修订压力脚本时遇到两次等待条件问题：先在握手前按输入区误判角色；又在显式权限申请尚未结束时点击第二次获取按钮，按钮已随首次申请成功而消失。最终脚本只在写端结束后申请一次，并等“已连接”核对最终控制权；两个探测问题不另记为产品丢任务。前一轮清理显示未确认的三个测试会话，已通过 Agent SQLite 只读核验均为 closed、running=false。
 
 最终 3 / 5 会话两阶段均通过。5 会话四个读端刷新分别 5.841、6.851、10.879、11.882 秒，无刷新超时；两阶段合计 8 个测试会话均在 UI 确认结束，无取消弹窗及 pageerror，另以 Agent SQLite 只读逐 ID 核验均为 closed、running=false。脱敏指标见 assets/cw-functional-2026-11-02/final-results.json；完整私有浏览器记录只留在 .local/online-tests/。
+
+## Actions 完整回归补充
+
+完整 Actions 在 tests/e2e.ts 的网页会话结束后连接同项目 CLI 场景发现 PROJECT_READ_ONLY：旧浏览器仍保持连接，项目写指针未随结束操作释放。新增结束成功响应及 sessionClosed 事件的原子释放，关闭控制连接但保留历史连接；回归覆盖旧 socket 尚未完成关闭、立即获取新写权限以及重复关闭不能撤销新写者。此次按用户要求等待全部 Actions 作业通过后，使用同一提交 CI 制品完整发布网页、Worker 与四平台下载包，不重启本机 Agent。

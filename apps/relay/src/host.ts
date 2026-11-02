@@ -998,6 +998,27 @@ export class HostRelayDO extends DurableObject<Env> {
         epoch: reservation.epoch,
       });
   }
+  private async releaseStoppedSession(sessionId: string) {
+    await this.storage.transaction(async (tx) => {
+      const key = 'lease:' + sessionId;
+      const lease = await tx.get<Lease>(key);
+      if (!lease) return;
+      if (lease.projectId) {
+        const writerKey = 'project-writer:' + lease.projectId;
+        if ((await tx.get(writerKey)) === sessionId) await tx.delete(writerKey);
+      }
+      await tx.put(key, {
+        ...lease,
+        active: false,
+        expires: 0,
+        ...(lease.pending ? { pending: { ...lease.pending, expires: 0 } } : {}),
+      });
+    });
+    for (const ws of this.ctx.getWebSockets('session:' + sessionId)) {
+      const a = ws.deserializeAttachment() as Attachment;
+      if (!a.history) ws.close(4000, 'Session ended');
+    }
+  }
   private async result(o: Operation, data: any, error?: any) {
     if (o.kind === 'attach' && o.socketId) {
       const controller = this.socket(o.socketId);
@@ -1167,6 +1188,11 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       if (o.kind === 'ticket') return this.issueTicket(o);
     }
+    if (
+      o.action === 'stop' &&
+      ['closing', 'closed', 'failed'].includes(data?.state)
+    )
+      await this.releaseStoppedSession(o.data.sessionId);
     return this.complete(o, data);
   }
   private async issueTicket(o: Operation) {
@@ -2274,6 +2300,8 @@ export class HostRelayDO extends DurableObject<Env> {
           }
           return;
         }
+        if (d.type === 'event' && d.payload?.event?.type === 'sessionClosed')
+          await this.releaseStoppedSession(d.sessionId);
         if (
           d.type === 'event' &&
           [
