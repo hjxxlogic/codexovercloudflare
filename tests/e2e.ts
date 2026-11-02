@@ -1,3 +1,4 @@
+import { browserSessionStress } from './helpers/browser-session-stress.ts';
 import { resolveAsync } from './helpers/async-http.ts';
 import { OriginalHttpRequests } from './helpers/original-http.ts';
 import { WindowPeer } from './helpers/window-peer.ts';
@@ -150,7 +151,12 @@ async function request(
     headers,
     body: data === undefined ? undefined : JSON.stringify(data),
   });
-  const r = await resolveAsync(response, origin, headers);
+  const r = await resolveAsync(
+    response,
+    origin,
+    headers,
+    options.admin === true,
+  );
   const b: any = await r.json();
   return { r, b };
 }
@@ -2188,6 +2194,14 @@ try {
   pass(
     'administrator approves browser requests; two scoped persistent cookies survive reload',
   );
+  await browserSessionStress({
+    browser,
+    origin,
+    hostId: enrolled.hostId,
+    projectId: 'test-project',
+    cookies: await visitor.cookies(),
+    artifacts,
+  });
   // Different tabs select their own host cookie; the selected identity is not global.
   const otherPage = await visitor.newPage();
   await otherPage.goto(origin);

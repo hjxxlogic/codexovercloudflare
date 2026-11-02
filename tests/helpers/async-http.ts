@@ -4,6 +4,7 @@ export async function resolveAsync(
   response: Response,
   origin: string,
   headers: Record<string, string>,
+  admin = false,
 ): Promise<Response> {
   if (response.status !== 202) return response;
   const accepted: any = await response.json();
@@ -16,7 +17,8 @@ export async function resolveAsync(
     let poll: ReturnType<typeof setTimeout> | undefined;
     const options = { headers, closeTimeout: 1000 };
     const socket = new WebSocket(
-      origin.replace(/^http/, 'ws') + '/ws/v1/hosts/' + accepted.hostId,
+      origin.replace(/^http/, 'ws') +
+        (admin ? '/ws/v1/admin' : '/ws/v1/hosts/' + accepted.hostId),
       options,
     );
     const finish = (error?: unknown, value?: Response) => {
@@ -45,7 +47,7 @@ export async function resolveAsync(
       try {
         const path =
           origin +
-          '/api/v1/hosts/' +
+          (admin ? '/api/v1/admin/hosts/' : '/api/v1/hosts/') +
           accepted.hostId +
           '/operations/' +
           accepted.operationId;

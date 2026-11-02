@@ -1,3 +1,4 @@
+import { promptAcknowledged } from './prompt-state.ts';
 import { boundedRefresh, requestErrorMessage } from './refresh.ts';
 import { deliveryIdentity } from './delivery-identity.ts';
 import { CommandDelivery } from './delivery.ts';
@@ -1430,11 +1431,13 @@ function App() {
                 );
               if (pendingCommand.current?.requestId === d.requestId) {
                 setPromptProgress((progress) =>
-                  d.result?.state === 'queued'
-                    ? undefined
-                    : progress === 'sending'
-                      ? 'waiting'
-                      : progress,
+                  promptAcknowledged(
+                    progress,
+                    d.result?.state === 'queued',
+                    running,
+                    stateSeq,
+                    d.result?.history?.seq,
+                  ),
                 );
                 pendingCommand.current = undefined;
                 setUnconfirmed(undefined);

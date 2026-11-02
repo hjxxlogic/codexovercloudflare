@@ -659,3 +659,5 @@ HostRelay 从 Agent 的 get 响应取得权威 projectId；连接 reserve 事务
 CW 遇到 PROJECT_READ_ONLY 停止自动控制重试，展示历史和显式获取入口，不展示任务输入。当前会话快照与命令回执恢复不再串行等待，手动刷新时身份/目录恢复在后台独立进行；辅助恢复的完成不定义当前历史刷新是否成功。
 
 结束写会话的成功响应（closing/closed/failed）以及 Agent 的 sessionClosed 事件原子撤销 lease 的 active/准备有效期，并仅在项目写指针仍指向该会话时删除指针，随后关闭控制连接。旧 WebSocket 仍处于 closing 不再阻止下一会话；重复关闭事件不能删除后来写者的权限，历史通道及可靠结果日志保留。
+
+任务完成快照与可靠 prompt ACK 可乱序。ACK 引用的原始 user 事件 seq 不高于已确认会话状态水位，且会话已不运行时，不重新进入 waiting；更早快照或缺少事件引用不能据此判完成。此约束保持快照与命令回执解耦，同时避免迟到 ACK 恢复已结束的等待指示。

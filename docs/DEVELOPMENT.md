@@ -432,3 +432,7 @@ Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只
 Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路径；CreateProcessW 的显式 applicationName 不搜索 PATH。CI 通过 setup-node 固定 Node 22.17.0，仅测试需要 Node，运行 Agent/CLI 不需要。Windows 项目/操作磁盘事务测试与 sanitizers 使用 240 秒 CTest 上限：原 60 秒附近已有 53–57 秒成功样本及一次超时；完整断言与业务超时不变。
 
 用户显式要求本地云端发布时，`scripts/deploy-cloud.py --local-build --apply` 提供可复查入口；D1 须继续显式指定既有 UUID。该模式不等待 CI，不发布原生包，记录 clean HEAD、sourceDigest 与产物 SHA-256，复用下载保留及线上字节校验。默认 CI 路径不变。
+
+### CW 浏览器并行压力回归
+
+`npm run test:e2e` 及 `npm run test:e2e:d1` 通过 tests/helpers/browser-session-stress.ts 在真实隔离 Worker、原生 Agent、确定性 Codex peer 上运行 3 / 5 个独立 Chromium context。共享仅限隔离测试授权 Cookie，IndexedDB 与控制身份分离，所有连接握手完成后检查 1 写 N−1 读；覆盖命令审批拒绝、读端并行刷新、读端不提交 prompt、结束写者、显式获取写权限后发送、其它读者仍只读、最终结束状态及无取消弹窗。固定先 3 后 5，失败立即停止递增并清理；JSON 指标及失败截图放入 COC_ARTIFACT_DIR，CI 随现有 browser-evidence / d1-regression-evidence 上传。仅使用模拟 Codex，不访问生产凭据或模型。性能耗时只记录，不以硬件相关毫秒阈值判断正确性。
