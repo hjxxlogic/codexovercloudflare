@@ -90,9 +90,11 @@ void Store::operation_session(const std::string &key, const Json &session) {
     if (!rows.at(0).at("result").is_null())
       throw Error("IDEMPOTENCY_CONFLICT", "Original operation already allocated a session");
     const auto id = session.at("id").get<std::string>();
+    history_reserve(id, 64 * 1024, 16);
     const Json recovery = {
         {"error",
          {{"code", "RESULT_UNKNOWN"},
+          {"sessionId", id},
           {"message", "Session " + id +
                           " was allocated by this request; initialization outcome "
                           "is unknown. Inspect this session before a new intent."}}}};
@@ -127,6 +129,18 @@ Json Store::operation_finish(const std::string &key, Json envelope) {
       if (rows.at(0).at("phase") != "started")
         throw Error("RESULT_UNAVAILABLE",
                     "Retired or uncertain operation cannot be completed anew");
+      if (!rows.at(0).at("result").is_null() && envelope.contains("data") &&
+          envelope.at("data").is_object()) {
+        const auto recovery = Json::parse(rows.at(0).at("result").get<std::string>());
+        const auto id = recovery.value("error", Json::object()).value("sessionId", "");
+        if (!id.empty()) {
+          if (envelope.at("data").value("id", "") != id)
+            throw Error("IDEMPOTENCY_CONFLICT", "Creation result does not match allocated session");
+          // Initialization finished. Only unused initial capacity is released;
+          // actual history and the independently reserved result remain durable.
+          history_release(id);
+        }
+      }
       run("UPDATE transport2_operations SET phase='completed',result=? WHERE key=?", {body, key});
     }
     run("COMMIT");

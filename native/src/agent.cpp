@@ -1275,7 +1275,6 @@ public:
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
-    store_.history_require_capacity(id, 64 * 1024, 16);
     auto rt = std::make_shared<Runtime>();
     bool session_saved = false;
     try {
