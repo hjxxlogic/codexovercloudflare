@@ -1,0 +1,35 @@
+{
+  "sourceBase": "99f7291",
+  "change": "bounded legacy chunk packing in the commit containing this report",
+  "environment": "isolated SQLite online backup of local ubuntu Agent data; production unchanged",
+  "chunkRecords": {
+    "before": 40163,
+    "after": 363
+  },
+  "historyBudgetBytes": {
+    "before": 288563401,
+    "after": 185445423
+  },
+  "historyBudgetRecords": {
+    "before": 97209,
+    "after": 57409
+  },
+  "maxSessionBudgetBytes": {
+    "before": 70817478,
+    "after": 42325328
+  },
+  "verification": {
+    "logicalBodies": 355,
+    "bodyHashesUnchanged": true,
+    "historyTablesUnchanged": true,
+    "integrity": "ok"
+  },
+  "batches": 314,
+  "rowsPerBatch": 128,
+  "merged": 39800,
+  "limitations": [
+    "Accounting reduction is not physical database shrinkage.",
+    "No production database mutation, full regression, model call or deployment.",
+    "Codex source recovery and cache eviction are not part of this batch."
+  ]
+}

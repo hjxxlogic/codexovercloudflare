@@ -849,7 +849,87 @@ void Store::cache_clear() {
     throw;
   }
 }
+Json Store::history_compact() {
+  // The scan position is only a scheduling hint: a restart may safely rescan.
+  // Bound both rows and returned text, including legacy oversized chunks.
+  run("BEGIN IMMEDIATE");
+  try {
+    std::map<std::string, Json> original_budget;
+    for (const auto &scope : query("SELECT scope,bytes,records FROM transport2_history_budget"))
+      original_budget.emplace(scope.at("scope").get<std::string>(), scope);
+    const auto guard = query("SELECT sql FROM sqlite_master WHERE type='trigger' "
+                             "AND name='transport2_history_capacity'");
+    if (guard.size() != 1 || !guard.at(0).at("sql").is_string())
+      throw Error("STORAGE_ERROR", "Missing history capacity guard");
+    // SQLite's write lock prevents another writer from borrowing the temporary
+    // accounting gap. Restore the guard and prove net non-growth before commit.
+    // DDL is transactional: failure/crash restores the guard and original body.
+    const auto rows =
+        query("SELECT seq,start,CASE WHEN length(CAST(text AS BLOB))<=4096 THEN text ELSE NULL END "
+              "AS text,length(text) AS size FROM chunks WHERE (seq,start)>(?,?) "
+              "ORDER BY seq,start LIMIT 128",
+              {history_pack_seq_, history_pack_start_});
+    int merged = 0;
+    for (const auto &row : rows) {
+      if (row.at("text").is_null() || row.at("start") == 0)
+        continue;
+      const auto eligible = query(
+          "SELECT h.session FROM history h JOIN transport2_history_budget b ON b.scope=h.session "
+          "WHERE h.seq=? AND NOT EXISTS "
+          "(SELECT 1 FROM transport2_history_entries r WHERE r.key='reservation:'||h.session)",
+          {row.at("seq")});
+      if (eligible.empty())
+        continue;
+      const auto previous =
+          query("SELECT start,length(text) AS size,CASE WHEN length(CAST(text AS BLOB))<=4096 "
+                "THEN text ELSE NULL END AS text FROM chunks WHERE seq=? AND start<? "
+                "ORDER BY start DESC LIMIT 1",
+                {row.at("seq"), row.at("start")});
+      if (previous.empty() || previous.at(0).at("text").is_null())
+        continue;
+      const auto &tail = previous.at(0);
+      const auto combined = tail.at("text").get<std::string>() + row.at("text").get<std::string>();
+      if (combined.size() > 4096 ||
+          tail.at("start").get<int64_t>() + tail.at("size").get<int64_t>() != row.at("start"))
+        continue;
+      // Refund the absorbed row first; the final charge is smaller. Both mutations
+      // and their accounting triggers commit with unchanged body/revision metadata.
+      if (merged == 0)
+        run("DROP TRIGGER transport2_history_capacity");
+      run("DELETE FROM chunks WHERE seq=? AND start=?", {row.at("seq"), row.at("start")});
+      run("UPDATE chunks SET text=? WHERE seq=? AND start=?",
+          {combined, row.at("seq"), tail.at("start")});
+      const auto verified = query("SELECT text FROM chunks WHERE seq=? AND start=?",
+                                  {row.at("seq"), tail.at("start")});
+      if (verified.size() != 1 || verified.at(0).at("text") != combined)
+        throw Error("STORAGE_ERROR", "History packing verification failed");
+      ++merged;
+    }
+    for (const auto &scope : query("SELECT scope,bytes,records FROM transport2_history_budget")) {
+      const auto previous = original_budget.find(scope.at("scope").get<std::string>());
+      if (previous == original_budget.end() || scope.at("bytes") < 0 || scope.at("records") < 0 ||
+          scope.at("bytes") > previous->second.at("bytes") ||
+          scope.at("records") > previous->second.at("records"))
+        throw Error("STORAGE_ERROR", "History packing increased committed resource usage");
+    }
+    if (merged > 0)
+      run(guard.at(0).at("sql").get<std::string>());
+    run("COMMIT");
+    if (rows.size() < 128) {
+      history_pack_seq_ = std::numeric_limits<int64_t>::min();
+      history_pack_start_ = -1;
+    } else {
+      history_pack_seq_ = rows.back().at("seq");
+      history_pack_start_ = rows.back().at("start");
+    }
+    return {{"scanned", rows.size()}, {"merged", merged}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 void Store::cleanup() {
+  history_compact();
   run("BEGIN IMMEDIATE");
   try {
     for (const auto &record : query("SELECT key FROM cache WHERE key GLOB 'upload:*' AND "

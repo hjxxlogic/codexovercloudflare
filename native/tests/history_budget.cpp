@@ -47,6 +47,93 @@ struct Database {
     sql("DROP TABLE transport2_history_meta");
   }
 };
+void legacy_packing() {
+  Temp temp;
+  Json reference, snapshot, before;
+  {
+    Store journal(temp.path);
+    journal.save({{"id", "h~legacy"}, {"state", "closed"}});
+    std::string text;
+    for (int i = 0; i < 1000; ++i)
+      text += "你🙂";
+    const auto event =
+        journal.event("h~legacy", "item/agentMessage/delta", {{"itemId", "a"}, {"delta", text}});
+    const auto seq = event.at("seq").get<int64_t>();
+    Database fixture(temp.path);
+    fixture.sql("BEGIN IMMEDIATE");
+    fixture.sql("DELETE FROM chunks");
+    fixture.sql("WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<999) "
+                "INSERT INTO chunks SELECT " +
+                std::to_string(seq) + ",i*2,'你🙂' FROM n");
+    fixture.sql("COMMIT");
+    reference = journal.history_reference("h~legacy", seq);
+    snapshot = journal.history("h~legacy");
+    journal.history_reserve("h~legacy", 65536, 16);
+    before = journal.history_budget();
+    check(journal.history_compact().at("merged") == 0 && journal.history_budget() == before,
+          "Packing cannot consume an active durable reservation");
+    journal.history_release("h~legacy");
+    before = journal.history_budget();
+    fixture.sql("CREATE TRIGGER fail_pack BEFORE UPDATE ON chunks BEGIN "
+                "SELECT RAISE(ABORT,'injected packing failure'); END");
+    bool failed = false;
+    try {
+      journal.history_compact();
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && journal.history_budget() == before &&
+              journal.history_reference("h~legacy", seq) == reference,
+          "Packing failure restores deleted chunks, reference and accounting");
+    fixture.sql("CREATE TEMP TABLE guard_check(n INTEGER CHECK(n=1))");
+    fixture.sql("INSERT INTO guard_check SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+                "AND name='transport2_history_capacity'");
+    fixture.sql("DROP TRIGGER fail_pack");
+    fixture.sql("CREATE TRIGGER inflate_pack AFTER UPDATE ON chunks BEGIN "
+                "UPDATE transport2_history_budget SET bytes=bytes+100000000 WHERE scope='@global'; "
+                "END");
+    failed = false;
+    try {
+      journal.history_compact();
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && journal.history_budget() == before &&
+              journal.history_reference("h~legacy", seq) == reference,
+          "Final net-growth verification rejects and rolls back an invalid migration");
+    fixture.sql("INSERT INTO guard_check SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+                "AND name='transport2_history_capacity'");
+    fixture.sql("DROP TRIGGER inflate_pack");
+    const auto batch = journal.history_compact();
+    check(batch.at("scanned") == 128 && batch.at("merged").get<int>() > 0,
+          "Packing migration has a fixed per-transaction row budget");
+  }
+  {
+    Store journal(temp.path, true, "", {{"maxBytes", 4096}, {"maxSessionBytes", 4096}});
+    check(journal.history_budget().at("global").at("bytes") > 4096,
+          "Migration fixture starts above the configured quota");
+    for (int i = 0; i < 10; ++i)
+      journal.history_compact();
+    check(journal.history_reference("h~legacy", reference.at("seq")) == reference &&
+              journal.history("h~legacy") == snapshot,
+          "Restarted migration preserves digest, revision, snapshot and public cursors");
+    const auto after = journal.history_budget();
+    check(after.at("global").at("records").get<int64_t>() ==
+                  before.at("global").at("records").get<int64_t>() - 998 &&
+              after.at("global").at("bytes") < before.at("global").at("bytes"),
+          "Legacy packing refunds only redundant chunk records and overhead");
+    journal.history_compact();
+    check(journal.history_budget() == after, "Packing an already packed body is idempotent");
+  }
+  {
+    Store journal(temp.path, true, "", {{"maxBytes", 4096}, {"maxSessionBytes", 4096}});
+    const auto budget = journal.history_budget();
+    check(journal.history_compact().at("merged") == 0 && journal.history_budget() == budget,
+          "Finished packing remains idempotent above the configured quota");
+    backpressure([&] { journal.event("h~legacy", "record", "still forbidden"); });
+    check(journal.history_budget() == budget, "Packing restores quota enforcement before commit");
+  }
+}
 void packed_deltas() {
   Temp temp;
   int64_t seq = 0, revision = 0;
@@ -408,6 +495,7 @@ void oversized_legacy() {
 } // namespace
 int main() {
   try {
+    legacy_packing();
     packed_deltas();
     configurable_policy();
     durable_reservations();

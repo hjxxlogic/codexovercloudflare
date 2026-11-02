@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include <functional>
+#include <limits>
 #include <map>
 #include <sqlite3.h>
 namespace coc {
@@ -20,6 +21,8 @@ public:
 
 private:
   Json history_policy_;
+  int64_t history_pack_seq_ = std::numeric_limits<int64_t>::min();
+  int64_t history_pack_start_ = -1;
   Lock lock_;
   sqlite3 *db_ = nullptr;
   std::string delivery_instance_;
@@ -60,6 +63,7 @@ public:
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
   Json history_budget();
+  Json history_compact();
   void history_reserve(const std::string &session, int64_t bytes, int64_t records = 1);
   void history_release(const std::string &session);
   void history_require_capacity(const std::string &session, int64_t bytes, int64_t records);
