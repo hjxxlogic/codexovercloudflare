@@ -481,7 +481,8 @@ void oversized_legacy() {
     for (int seq = 1; seq <= 3; ++seq) {
       const auto prefix = std::to_string(seq) + ",'legacy','" + value + "',";
       fixture.sql("INSERT INTO events VALUES(" + prefix + "1)");
-      fixture.sql("INSERT INTO history VALUES(" + prefix + std::to_string(seq) + ")");
+      fixture.sql("INSERT INTO history(seq,session,value,revision) VALUES(" + prefix +
+                  std::to_string(seq) + ")");
     }
   }
   Store journal(temp.path);

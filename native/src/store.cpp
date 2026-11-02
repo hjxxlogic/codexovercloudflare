@@ -170,9 +170,16 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE TABLE IF NOT EXISTS streams(session TEXT,key TEXT,seq INTEGER,PRIMARY "
         "KEY(session,key))");
     if (migrate)
-      run("INSERT INTO history SELECT seq,session,value,MAX(0,seq) FROM events");
-    run("CREATE TABLE IF NOT EXISTS transport2_history_sources(seq INTEGER PRIMARY KEY,"
-        "session TEXT NOT NULL,revision INTEGER NOT NULL,value TEXT NOT NULL)");
+      run("INSERT INTO history(seq,session,value,revision) SELECT seq,session,value,MAX(0,seq) "
+          "FROM events");
+    for (const auto &field : std::vector<std::pair<std::string, std::string>>{
+             {"history", "recovery"}, {"sessions", "source"}}) {
+      bool exists = false;
+      for (const auto &column : query("PRAGMA table_info(" + field.first + ")"))
+        exists = exists || column.at("name") == field.second;
+      if (!exists)
+        run("ALTER TABLE " + field.first + " ADD COLUMN " + field.second + " TEXT");
+    }
     run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
         "TEXT NOT NULL,"
         "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");
@@ -372,7 +379,9 @@ Store::~Store() {
 void Store::save(const Json &s) {
   auto value = s;
   value["updatedAt"] = now();
-  run("INSERT OR REPLACE INTO sessions VALUES(?,?)", {s.at("id"), value.dump()});
+  run("INSERT INTO sessions(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET "
+      "value=excluded.value",
+      {s.at("id"), value.dump()});
   if (!value.value("running", false)) {
     const bool transaction = sqlite3_get_autocommit(db_) != 0;
     if (transaction)
@@ -558,7 +567,8 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
         event["data"]["item"] = {
             {"id", item_id}, {"type", kind}, {"status", item.value("status", "")}};
     }
-    run("INSERT OR REPLACE INTO history VALUES(?,?,?,?)", {seq, id, event.dump(), revision});
+    run("INSERT OR REPLACE INTO history(seq,session,value,revision) VALUES(?,?,?,?)",
+        {seq, id, event.dump(), revision});
     if (type == "user")
       run("UPDATE sessions SET "
           "value=json_set(value,'$.title',COALESCE(json_extract(value,'$.title'),substr(?,1,160))) "
@@ -648,7 +658,8 @@ Json Store::project(const std::string &id, Json e) {
           {revision, revision, seq});
     e["seq"] = seq;
   } else {
-    run("INSERT INTO history VALUES(?,?,?,?)", {e["seq"], id, e.dump(), revision});
+    run("INSERT INTO history(seq,session,value,revision) VALUES(?,?,?,?)",
+        {e["seq"], id, e.dump(), revision});
     if (!key.empty()) {
       const auto text = data.value("delta", "");
       run("INSERT INTO bodies VALUES(?,length(?),length(CAST(? AS BLOB)))", {e["seq"], text, text});

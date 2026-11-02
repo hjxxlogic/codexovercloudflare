@@ -129,7 +129,18 @@ void durable_source_cases() {
     if (store.history_budget() != before || store.content(session, seq, 0).at("text") != "原输出🙂")
       throw std::runtime_error("Failed registration changed body or budget");
     rejects_source([&] { store.history_source(session, seq, origin); }, "CONTENT_UNAVAILABLE");
-    sql(path / "data", "DROP TRIGGER fail_source");
+    sql(path / "data",
+        "DROP TRIGGER fail_source; "
+        "CREATE TRIGGER fail_proof BEFORE UPDATE OF recovery ON history "
+        "WHEN NEW.recovery IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected proof failure'); END");
+    rejects_source([&] { store.history_source_register(session, seq, origin, entry); },
+                   "STORAGE_ERROR");
+    if (store.history_budget() != before)
+      throw std::runtime_error("Failed proof write retained session source charge");
+    sql(path / "data",
+        "DROP TRIGGER fail_proof; "
+        "CREATE TEMP TABLE rollback_check(n INTEGER CHECK(n=0)); "
+        "INSERT INTO rollback_check SELECT COUNT(*) FROM sessions WHERE source IS NOT NULL");
     registered = store.history_source_register(session, seq, origin, entry);
     budget = store.history_budget();
     if (registered.at("offset") != 7 ||
@@ -173,20 +184,28 @@ void durable_source_cases() {
     rejects_source([&] { store.history_source_register(session, seq, other, entry); },
                    "DELIVERY_STATE_MISMATCH");
     auto state = store.get(session);
+    const auto before_rebind = store.history_budget().at("global");
     state["threadId"] = "different";
     store.save(state);
-    rejects_source([&] { store.history_source(session, seq, origin); }, "DELIVERY_STATE_MISMATCH");
+    rejects_source([&] { store.history_source(session, seq, origin); }, "CONTENT_UNAVAILABLE");
+    const auto after_rebind = store.history_budget().at("global");
+    if (after_rebind.at("records").get<int64_t>() !=
+            before_rebind.at("records").get<int64_t>() - 1 ||
+        after_rebind.at("bytes") >= before_rebind.at("bytes"))
+      throw std::runtime_error("Source invalidation did not refund its proof atomically");
     state["threadId"] = "thread";
     store.save(state);
+    store.history_source_register(session, seq, origin, entry);
     const auto next = store.event(session, "item/commandExecution/outputDelta",
                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "追加"}});
     if (next.at("seq") != seq)
       throw std::runtime_error("Fixture changed stable history identity");
     rejects_source([&] { store.history_source(session, seq, origin); }, "CONTENT_UNAVAILABLE");
-    sql(path / "data", "CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
-                       "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
-                       "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
-                       "WHERE key GLOB 'transport2_history_sources:*'");
+    sql(path / "data",
+        "CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
+        "INSERT INTO source_check SELECT COUNT(*) FROM history WHERE recovery IS NOT NULL; "
+        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
+        "WHERE key GLOB 'transport2_history_sources:*'");
   }
   {
     Store store((path / "external").u8string());
@@ -207,7 +226,7 @@ void durable_source_cases() {
                    "CONTENT_UNAVAILABLE");
     sql(path / "external",
         "CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
-        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
+        "INSERT INTO source_check SELECT COUNT(*) FROM history WHERE recovery IS NOT NULL; "
         "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
         "WHERE key GLOB 'transport2_history_sources:*'");
   }
@@ -239,17 +258,31 @@ void durable_source_cases() {
         {"completedAtMs", 1},
         {"item",
          {{"id", "overlap"}, {"type", "commandExecution"}, {"aggregatedOutput", "ababababacazz"}}}};
+    const auto before_second = store.history_budget().at("global");
     if (store.history_source_register(session, overlap.at("seq"), origin, overlap_entry)
                 .at("offset") != 4 ||
         store.history_source_recover(session, overlap.at("seq"), origin, overlap_entry) !=
             "ababaca")
       throw std::runtime_error("Repeated-prefix source span search is incorrect");
+    const auto after_second = store.history_budget().at("global");
+    if (after_second.at("records") != before_second.at("records") ||
+        after_second.at("bytes").get<int64_t>() - before_second.at("bytes").get<int64_t>() > 256)
+      throw std::runtime_error("Recovery proof duplicated session origin or allocated mapping row");
+    sql(path / "envelope",
+        "CREATE TEMP TABLE layout_check(n INTEGER CHECK(n=0)); "
+        "INSERT INTO layout_check SELECT COUNT(*) FROM sqlite_master "
+        "WHERE name='transport2_history_sources'; "
+        "INSERT INTO layout_check SELECT COUNT(*) FROM history WHERE recovery IS NOT NULL AND "
+        "(json_extract(recovery,'$.turnId') IS NOT NULL OR json_extract(recovery,'$.itemId') IS "
+        "NOT NULL "
+        "OR json_extract(recovery,'$.event') IS NOT NULL OR length(recovery)>256)");
+
     store.save({{"id", "host~other"}, {"projectId", "project"}, {"threadId", "thread"}});
     rejects_source([&] { store.history_source("host~other", event.at("seq"), origin); },
                    "CONTENT_UNAVAILABLE");
     sql(path / "envelope",
         "DELETE FROM history; CREATE TEMP TABLE source_check(n INTEGER CHECK(n=0)); "
-        "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_sources; "
+        "INSERT INTO source_check SELECT COUNT(*) FROM history WHERE recovery IS NOT NULL; "
         "INSERT INTO source_check SELECT COUNT(*) FROM transport2_history_entries "
         "WHERE key GLOB 'transport2_history_sources:*'");
   }

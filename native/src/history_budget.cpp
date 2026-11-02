@@ -99,12 +99,12 @@ void Store::history_budget_init(bool authoritative) {
                                    "(SELECT session FROM events WHERE seq=$seq),'@orphan')";
   const std::vector<HistoryResource> resources = {
       {"events", "json_array($seq)", "$session", "length(CAST($value AS BLOB))"},
-      {"history", "json_array($seq)", "$session", "length(CAST($value AS BLOB))"},
+      {"history", "json_array($seq)", "$session",
+       "length(CAST($value AS BLOB))+COALESCE((SELECT length(CAST(recovery AS BLOB)) FROM history "
+       "WHERE seq=$seq),0)"},
       {"chunks", "json_array($seq,$start)", body_session, "length(CAST($text AS BLOB))"},
       {"bodies", "json_array($seq)", body_session, "0"},
       {"streams", "json_array($session,$key)", "$session", "length(CAST($key AS BLOB))"},
-      {"transport2_history_sources", "json_array($seq)", "$session",
-       "length(CAST($value AS BLOB))"},
       {"external_items", "json_array($session,$turn,$item)", "$session",
        "length(CAST($fingerprint AS BLOB))+length(CAST($turn AS BLOB))+"
        "length(CAST($item AS BLOB))"}};
@@ -138,16 +138,44 @@ void Store::history_budget_init(bool authoritative) {
           columns(key, "t") + "," + columns(resource.session, "t") + "," + columns(cost, "t") +
           " FROM " + resource.table + " AS t");
   }
-  // A mapping belongs to one exact history revision. SQLite REPLACE does not
-  // always fire DELETE triggers, so invalidate on INSERT as well as UPDATE/DELETE.
-  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_insert AFTER INSERT ON history "
-      "BEGIN DELETE FROM transport2_history_sources WHERE seq=NEW.seq; END");
-  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_update AFTER UPDATE ON history "
-      "WHEN NEW.seq!=OLD.seq OR NEW.session!=OLD.session OR NEW.revision!=OLD.revision "
-      "OR NEW.value!=OLD.value BEGIN DELETE FROM transport2_history_sources "
-      "WHERE seq IN(OLD.seq,NEW.seq); END");
-  run("CREATE TRIGGER IF NOT EXISTS transport2_history_source_delete AFTER DELETE ON history "
-      "BEGIN DELETE FROM transport2_history_sources WHERE seq=OLD.seq; END");
+  // Source identity belongs to the session; recovery spans belong to the
+  // original history row. Neither needs a second content-ID mapping table.
+  const std::string source_key = "'sessions-source:'||json_array(NEW.id)";
+  const std::string source_cost =
+      "(SELECT length(CAST(source AS BLOB)) FROM sessions WHERE id=NEW.id)+2048+6*length(CAST((" +
+      source_key + ") AS BLOB))+6*length(CAST(NEW.id AS BLOB))";
+  const auto source_charge =
+      "INSERT INTO transport2_history_entries(key,session,bytes) SELECT " + source_key +
+      ",NEW.id," + source_cost +
+      " WHERE EXISTS(SELECT 1 FROM sessions WHERE id=NEW.id AND source IS NOT NULL) "
+      "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes; "
+      "DELETE FROM transport2_history_entries WHERE key=" +
+      source_key +
+      " AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=NEW.id AND source IS NOT NULL); ";
+  for (const auto *action : {"insert", "update"})
+    run(std::string("CREATE TRIGGER transport2_history_session_source_") + action + " AFTER " +
+        action + " ON sessions BEGIN " + source_charge + "END");
+  if (bootstrap)
+    run("INSERT OR IGNORE INTO transport2_history_entries(key,session,bytes) "
+        "SELECT 'sessions-source:'||json_array(id),id,length(CAST(source AS BLOB))+2048+"
+        "6*length(CAST(('sessions-source:'||json_array(id)) AS BLOB))+6*length(CAST(id AS BLOB)) "
+        "FROM sessions WHERE source IS NOT NULL");
+  run("CREATE TRIGGER transport2_history_session_source_insert_invalidate AFTER INSERT ON sessions "
+      "BEGIN UPDATE history SET recovery=NULL WHERE session=NEW.id; END");
+  run("CREATE TRIGGER transport2_history_session_source_delete AFTER DELETE ON sessions BEGIN "
+      "DELETE FROM transport2_history_entries WHERE key='sessions-source:'||json_array(OLD.id); "
+      "UPDATE history SET recovery=NULL WHERE session=OLD.id; END");
+  run("CREATE TRIGGER transport2_history_session_source_invalidate AFTER UPDATE OF value ON "
+      "sessions "
+      "WHEN NEW.source IS NOT NULL AND (json_extract(NEW.value,'$.threadId') IS NOT "
+      "json_extract(OLD.value,'$.threadId') OR json_extract(NEW.value,'$.projectId') IS NOT "
+      "json_extract(OLD.value,'$.projectId')) BEGIN "
+      "UPDATE sessions SET source=NULL WHERE id=NEW.id; "
+      "UPDATE history SET recovery=NULL WHERE session=NEW.id; END");
+  run("CREATE TRIGGER transport2_history_recovery_invalidate AFTER UPDATE ON history "
+      "WHEN NEW.recovery IS NOT NULL AND (NEW.seq!=OLD.seq OR NEW.session!=OLD.session "
+      "OR NEW.revision!=OLD.revision OR NEW.value!=OLD.value) BEGIN "
+      "UPDATE history SET recovery=NULL WHERE seq=NEW.seq; END");
   // Install limits after importing existing authoritative data: a large old
   // history remains readable and can shrink, but cannot acquire more capacity.
   run("DROP TRIGGER IF EXISTS transport2_history_capacity");

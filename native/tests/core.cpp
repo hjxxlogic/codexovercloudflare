@@ -1892,7 +1892,8 @@ void stabilization_test() {
   check(sqlite3_open((temp.path + "/agent.db").c_str(), &database) == SQLITE_OK, "Seed database");
   sqlite3_exec(database, "BEGIN", nullptr, nullptr, nullptr);
   sqlite3_stmt *statement = nullptr;
-  sqlite3_prepare_v2(database, "INSERT INTO sessions VALUES(?,?)", -1, &statement, nullptr);
+  sqlite3_prepare_v2(database, "INSERT INTO sessions(id,value) VALUES(?,?)", -1, &statement,
+                     nullptr);
   for (int i = 0; i < 100000; ++i) {
     const auto id = std::to_string(100000 + i);
     const auto value = Json{{"id", id},          {"projectId", "p"}, {"mode", "web"},

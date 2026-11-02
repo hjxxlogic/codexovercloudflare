@@ -145,38 +145,35 @@ Json Store::history_source_register(const std::string &session, int64_t seq, con
     if (recover_history_content(verify, entry.at("item"), projection, reference, offset) !=
         original)
       throw Error("CONTENT_UNAVAILABLE", "Source reconstruction differs from original body");
-    const Json value = {{"origin", origin},
-                        {"projectId", state.at("projectId")},
-                        {"threadId", state.at("threadId")},
-                        {"turnId", turn},
-                        {"itemId", item},
-                        {"projection", projection},
-                        {"event", minimal},
+    // Content identity already lives in session.threadId and event.data.
+    // Persist only non-derivable recovery proof on the original history row.
+    const Json value = {{"projection", projection},
                         {"offset", offset},
                         {"length", reference.at("length")},
                         {"digest", reference.at("digest")}};
     const auto encoded = value.dump();
-    if (encoded.size() > 16384)
-      throw Error("BACKPRESSURE", "History source metadata exceeds bounded record size");
-    const auto existing = query("SELECT value FROM transport2_history_sources WHERE seq=?", {seq});
-    if (!existing.empty() &&
-        Json::parse(existing.at(0).at("value").get<std::string>()).at("origin") != origin)
+    const auto binding = query("SELECT source FROM sessions WHERE id=?", {session});
+    const auto prior =
+        query("SELECT recovery FROM history WHERE seq=?", {seq}).at(0).at("recovery");
+    const auto source = binding.at(0).at("source");
+    if (!source.is_null() && Json::parse(source.get<std::string>()) != origin)
       throw Error("DELIVERY_STATE_MISMATCH", "History source cannot be rebound implicitly");
-    if (existing.empty() || existing.at(0).at("value") != encoded) {
+    if (source.is_null() || prior != encoded) {
       if (!query("SELECT key FROM transport2_history_entries WHERE key=?",
                  {"reservation:" + session})
                .empty())
-        throw Error("BACKPRESSURE", "History source registration cannot borrow task reservation");
-      const auto key = "transport2_history_sources:" + Json::array({seq}).dump();
-      const int64_t cost =
-          int64_t(encoded.size()) + 2048 + 6 * int64_t(key.size() + session.size());
-      const auto charged = query("SELECT bytes FROM transport2_history_entries WHERE key=?", {key});
-      const auto previous = charged.empty() ? int64_t(0) : charged.at(0).at("bytes").get<int64_t>();
-      history_require_capacity(session, std::max(int64_t(0), cost - previous),
-                               existing.empty() ? 1 : 0);
-      run("INSERT INTO transport2_history_sources VALUES(?,?,?,?) ON CONFLICT(seq) DO UPDATE SET "
-          "session=excluded.session,revision=excluded.revision,value=excluded.value",
-          {seq, session, reference.at("revision"), encoded});
+        throw Error("BACKPRESSURE", "History recovery cannot borrow task reservation");
+      const auto key = "sessions-source:" + Json::array({session}).dump();
+      const int64_t origin_cost = source.is_null() ? int64_t(origin.dump().size()) + 2048 +
+                                                         6 * int64_t(key.size() + session.size())
+                                                   : 0;
+      const int64_t growth = int64_t(encoded.size()) -
+                             (prior.is_null() ? 0 : int64_t(prior.get<std::string>().size()));
+      history_require_capacity(session, origin_cost + std::max(int64_t(0), growth),
+                               source.is_null() ? 1 : 0);
+      if (source.is_null())
+        run("UPDATE sessions SET source=? WHERE id=?", {origin.dump(), session});
+      run("UPDATE history SET recovery=? WHERE session=? AND seq=?", {encoded, session, seq});
     }
     auto saved = history_source(session, seq, origin);
     run(outer ? "COMMIT" : "RELEASE history_source_registration");
@@ -194,17 +191,21 @@ Json Store::history_source_register(const std::string &session, int64_t seq, con
 Json Store::history_source(const std::string &session, int64_t seq, const Json &origin) {
   validate_origin(origin);
   const auto state = get(session);
-  const auto rows =
-      query("SELECT s.value,s.revision FROM transport2_history_sources s JOIN history h "
-            "ON h.seq=s.seq AND h.session=s.session AND h.revision=s.revision "
-            "WHERE s.session=? AND s.seq=?",
-            {session, seq});
-  if (rows.empty())
-    throw Error("CONTENT_UNAVAILABLE", "Original history source association is unavailable");
-  auto value = Json::parse(rows.at(0).at("value").get<std::string>());
-  if (value.at("origin") != origin || value.at("projectId") != state.value("projectId", "") ||
-      value.at("threadId") != state.value("threadId", ""))
-    throw Error("DELIVERY_STATE_MISMATCH", "History source origin or session association changed");
+  const auto rows = query("SELECT h.value,h.revision,h.recovery,s.source FROM history h "
+                          "JOIN sessions s ON s.id=h.session WHERE h.session=? AND h.seq=?",
+                          {session, seq});
+  if (rows.empty() || rows.at(0).at("recovery").is_null() || rows.at(0).at("source").is_null())
+    throw Error("CONTENT_UNAVAILABLE", "Original history recovery proof is unavailable");
+  if (Json::parse(rows.at(0).at("source").get<std::string>()) != origin)
+    throw Error("DELIVERY_STATE_MISMATCH", "History source origin changed");
+  auto value = Json::parse(rows.at(0).at("recovery").get<std::string>());
+  const auto event = Json::parse(rows.at(0).at("value").get<std::string>());
+  const auto &data = event.at("data");
+  value["origin"] = origin;
+  value["threadId"] = state.at("threadId");
+  value["turnId"] = data.at("turnId");
+  value["itemId"] = data.value("itemId", data.value("item", Json::object()).value("id", ""));
+  value["event"] = event_template(event, value.at("projection"));
   value["event"]["seq"] = seq;
   value["event"]["revision"] = rows.at(0).at("revision");
   value["reference"] = history_reference_descriptor({{"type", "delivery-content"},
