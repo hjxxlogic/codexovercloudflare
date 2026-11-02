@@ -1924,6 +1924,57 @@ try {
     null,
     'History capacity refusal does not terminate the Agent',
   );
+  await control('attach', {
+    sessionId: external.id,
+    epoch: 1,
+    expires: Date.now() + 60000,
+  });
+  const webUnknownStream = 'external-queue-web-unknown';
+  await open(external.id, 'web', webUnknownStream);
+  mutation(external.id, webUnknownStream, 'normal', 1, 0, {
+    action: 'prompt',
+    requestId: 'external-web-unknown',
+    text: 'lost consumed queue reply',
+  });
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT phase FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get(webUnknownStream)?.phase === 'finished',
+    25000,
+  );
+  const webUnknownResult = database
+    .prepare(
+      'SELECT seq,end_bytes FROM transport2_results WHERE stream=? AND command_seq=1',
+    )
+    .get(webUnknownStream)!;
+  send({
+    type: 'delivery-receipt',
+    sessionId: external.id,
+    mode: 'web',
+    stream: webUnknownStream,
+    received: webUnknownResult.seq,
+    receivedBytes: webUnknownResult.end_bytes,
+  });
+  await until(
+    () =>
+      database!
+        .prepare(
+          'SELECT result FROM transport2_commands WHERE stream=? AND seq=1',
+        )
+        .get(webUnknownStream)?.result === null,
+  );
+  assert.notEqual(
+    database
+      .prepare('SELECT body FROM transport2_commands WHERE stream=? AND seq=1')
+      .get(webUnknownStream)!.body,
+    '',
+    'ACK retains unresolved web input evidence',
+  );
+  const pendingPromisesBeforeRestart = queuePromises();
+  assert.equal(pendingPromisesBeforeRestart.length, 2);
   const stoppedAgent = child;
   const exitedAgent = new Promise((resolve) =>
     stoppedAgent.once('close', resolve),
@@ -1947,7 +1998,7 @@ try {
   await until(() => peer);
   assert.deepEqual(
     queuePromises(),
-    pendingPromise,
+    pendingPromisesBeforeRestart,
     'Agent restart retains unknown queue capacity',
   );
   assert.equal(
@@ -1993,13 +2044,13 @@ try {
   );
   assert.equal(
     queueRecords().length,
-    4,
+    5,
     'Restarted original-result query cannot execute the queue again',
   );
   const returnedQueue = JSON.parse(readFileSync(sourceFile, 'utf8'));
   returnedQueue.revealUnknownQueue = true;
   writeFileSync(sourceFile, JSON.stringify(returnedQueue));
-  await until(() => queuePromises().length === 0, 70000);
+  await until(() => queuePromises().length === 0, 100000);
   assert.equal(
     database
       .prepare(
@@ -2012,13 +2063,29 @@ try {
   await assert.rejects(control('queue', lostData), /RESULT_UNKNOWN/);
   assert.equal(
     queueRecords().length,
-    4,
+    5,
     'Positive recovery never repeats queue/add',
   );
   assert.equal(
     JSON.parse(readFileSync(sourceFile, 'utf8')).queueAdds,
-    4,
+    5,
     'Original submission count is unchanged after background recovery',
+  );
+  assert.equal(
+    database
+      .prepare('SELECT body FROM transport2_commands WHERE stream=? AND seq=1')
+      .get(webUnknownStream)!.body,
+    '',
+    'Resolved acknowledged web evidence is atomically cleared',
+  );
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='queueAccepted' AND json_extract(value,'$.data.requestId')='external-web-unknown'",
+      )
+      .get(external.id)!.n,
+    1,
+    'Web recovery publishes exactly one original accepted fact',
   );
   const recoveredWindow = await control('snapshot', {
     sessionId: windowSession.id,

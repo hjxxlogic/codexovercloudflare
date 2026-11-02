@@ -490,9 +490,27 @@ void Store::delivery_result_ack(const std::string &stream, int64_t received, int
           {received, bytes, stream});
       // Retain compact identity/digest records; only the acknowledged continuous prefix loses its
       // body.
-      run("UPDATE transport2_commands SET body='',result=NULL WHERE stream=? AND seq IN "
-          "(SELECT command_seq FROM transport2_results WHERE stream=? AND seq<=?)",
-          {stream, stream, received});
+      const auto completed =
+          query("SELECT c.seq,s.session,length(CAST(c.body AS BLOB)) AS body_bytes "
+                "FROM transport2_commands c JOIN transport2_streams s ON s.stream=c.stream "
+                "JOIN transport2_results r ON r.stream=c.stream AND r.command_seq=c.seq "
+                "WHERE c.stream=? AND r.seq>? AND r.seq<=?",
+                {stream, state.at("acked"), received});
+      for (const auto &command : completed) {
+        const auto owner =
+            "command:" + delivery_digest(Json::array({stream, command.at("seq")}).dump());
+        const auto key = "reservation:" + Json::array({command.at("session"), owner}).dump();
+        const bool unresolved =
+            !query("SELECT 1 FROM transport2_history_entries WHERE key=?", {key}).empty();
+        if (unresolved)
+          // The pending history promise takes over retention of the existing body
+          // before delivery credit is returned. Old undersized promises must top up.
+          history_reserve(command.at("session"), command.at("body_bytes").get<int64_t>() + 65536,
+                          16, owner);
+        run("UPDATE transport2_commands SET body=CASE WHEN ? THEN body ELSE '' END,result=NULL "
+            "WHERE stream=? AND seq=?",
+            {unresolved ? 1 : 0, stream, command.at("seq")});
+      }
       run("UPDATE transport2_results SET body=NULL WHERE stream=? AND seq<=?", {stream, received});
       run("DELETE FROM transport2_result_content WHERE stream=? AND seq<=?", {stream, received});
       const auto allocation =

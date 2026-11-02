@@ -94,6 +94,7 @@ class Agent {
   bool listing_threads_ = false, negotiated_ = false;
   std::set<std::string> archive_loading_;
   size_t history_readers_ = 0;
+  bool queue_recovery_web_ = false;
   uint64_t history_prepared_ = 0, history_prepare_skipped_ = 0;
   int attempts_ = 0;
 
@@ -1601,7 +1602,7 @@ public:
     }
   }
   void queue_external(const std::string &id, const Json &cmd, const std::string &reservation,
-                      Completion done) {
+                      Completion done, int64_t evidence_bytes = 0) {
     auto s = store_.get(id);
     auto it = runtimes_.find(id);
     if (!s.value("external", false) || it == runtimes_.end() || !it->second->reader ||
@@ -1640,9 +1641,9 @@ public:
     const auto client_id = queue_submission_id(store_.delivery_instance(), id, reservation);
     reader->enqueue(
         cmd.at("text"), client_id,
-        [this, id, reservation, encoded] {
-          store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 16,
-                                 reservation);
+        [this, id, reservation, encoded, evidence_bytes] {
+          store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4 + evidence_bytes,
+                                 16, reservation);
         },
         [reader, client_id, text = cmd.at("text").get<std::string>(), complete](Json result,
                                                                                 Json error) {
@@ -1743,7 +1744,10 @@ public:
   void recover_queue_promise() {
     if (stopped_ || history_readers_ || !archive_loading_.empty())
       return;
-    const auto candidate = store_.operation_queue_candidate();
+    const bool command = queue_recovery_web_;
+    queue_recovery_web_ = !queue_recovery_web_;
+    const auto candidate =
+        command ? store_.command_queue_candidate() : store_.operation_queue_candidate();
     if (candidate.is_null()) {
       prepare_history_source();
       return;
@@ -1756,7 +1760,8 @@ public:
           io_, process, candidate.at("threadId"), cwd, [](std::string, Json, bool) {}, [](Json) {},
           [](Json) {});
       auto finished = std::make_shared<bool>(false);
-      auto complete = [this, candidate, process, reader, finished](Json result, Json error) {
+      auto complete = [this, candidate, command, process, reader, finished](Json result,
+                                                                            Json error) {
         if (*finished)
           return;
         *finished = true;
@@ -1768,7 +1773,9 @@ public:
         try {
           if (error.is_null()) {
             const auto event =
-                store_.operation_queue_reconcile(candidate, result.at("queuedSubmission"));
+                command
+                    ? store_.command_queue_reconcile(candidate, result.at("queuedSubmission"))
+                    : store_.operation_queue_reconcile(candidate, result.at("queuedSubmission"));
             publish(candidate.at("session"), event);
           }
         } catch (const std::exception &) {
@@ -2463,11 +2470,15 @@ public:
       const auto reservation =
           "command:" +
           delivery_digest(Json::array({context.at("stream"), context.at("seq")}).dump());
-      queue_external(id, cmd, reservation, [this, id, cmd, done](Json result, Json error) {
-        if (error.is_null())
-          notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
-        done(result, error);
-      });
+      const auto evidence = store_.delivery_record(context.at("stream"), context.at("seq"));
+      queue_external(
+          id, cmd, reservation,
+          [this, id, cmd, done](Json result, Json error) {
+            if (error.is_null())
+              notice(id, {{"type", "ack"}, {"requestId", cmd["requestId"]}, {"result", result}});
+            done(result, error);
+          },
+          evidence.at("body").get_ref<const std::string &>().size());
       return;
     }
     if (action == "models") {

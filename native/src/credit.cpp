@@ -286,6 +286,19 @@ void Store::delivery_release(const std::string &stream) {
              {stream})
            .empty())
     return;
+  // Result ACK does not resolve an unknown external queue side effect. Its
+  // original command evidence must survive closing/revoking this flow.
+  for (const auto &command :
+       query("SELECT c.seq,s.session FROM transport2_commands c "
+             "JOIN transport2_streams s ON s.stream=c.stream WHERE c.stream=?",
+             {stream})) {
+    const auto owner =
+        "command:" + delivery_digest(Json::array({stream, command.at("seq")}).dump());
+    if (!query("SELECT 1 FROM transport2_history_entries WHERE key=?",
+               {"reservation:" + Json::array({command.at("session"), owner}).dump()})
+             .empty())
+      return;
+  }
   // A closed flow still has a permanent bounded tombstone and namespace boundary.
   // All results were acknowledged, so its per-command bodies and identity index may go.
   for (const auto &table :

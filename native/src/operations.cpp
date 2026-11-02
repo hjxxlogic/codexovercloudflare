@@ -174,6 +174,20 @@ Json Store::operation_ack(const Json &intent, const std::string &action, const J
   }
 }
 namespace {
+std::string queue_recovery_text(const Json &queued, const std::string &instance,
+                                const std::string &session, const std::string &owner) {
+  const auto input = queued.value("input", Json::array());
+  if (!queued.contains("id") || !queued.at("id").is_string() ||
+      queued.at("id").get_ref<const std::string &>().empty() ||
+      queued.at("id").get_ref<const std::string &>().size() > 200 ||
+      queued.value("clientUserMessageId", "") != queue_submission_id(instance, session, owner) ||
+      !input.is_array() || input.size() != 1 || !input.at(0).is_object() ||
+      input.at(0).value("type", "") != "text" || !input.at(0).contains("text") ||
+      !input.at(0).at("text").is_string() ||
+      input.at(0).value("text_elements", Json::array()) != Json::array())
+    throw Error("RESULT_UNKNOWN", "Source queue entry does not identify the original input");
+  return input.at(0).at("text");
+}
 bool uncertain_operation(const Json &operation) {
   const auto phase = operation.at("phase");
   if (phase == "unknown" || phase == "acked")
@@ -251,21 +265,11 @@ Json Store::operation_queue_reconcile(const Json &candidate, const Json &queued)
         state.at("projectId") != candidate.at("projectId") ||
         state.at("mode") != candidate.at("mode"))
       throw Error("RESULT_UNKNOWN", "Original queue recovery scope changed");
-    const auto input = queued.value("input", Json::array());
-    if (!queued.contains("id") || !queued.at("id").is_string() ||
-        queued.at("id").get_ref<const std::string &>().empty() ||
-        queued.at("id").get_ref<const std::string &>().size() > 200 ||
-        queued.value("clientUserMessageId", "") !=
-            queue_submission_id(delivery_instance_, session, owner) ||
-        !input.is_array() || input.size() != 1 || !input.at(0).is_object() ||
-        input.at(0).value("type", "") != "text" || !input.at(0).contains("text") ||
-        !input.at(0).at("text").is_string() ||
-        input.at(0).value("text_elements", Json::array()) != Json::array())
-      throw Error("RESULT_UNKNOWN", "Source queue entry does not identify the original input");
+    const auto text = queue_recovery_text(queued, delivery_instance_, session, owner);
     const Json data = {{"sessionId", session},
                        {"mode", state.at("mode")},
                        {"requestId", operation.at("request_id")},
-                       {"text", input.at(0).at("text")}};
+                       {"text", text}};
     if (operation_digest("queue", data) != operation.at("digest"))
       throw Error("RESULT_UNKNOWN", "Source queue input differs from the durable request digest");
     const auto event = history_queue_accept(
@@ -276,6 +280,89 @@ Json Store::operation_queue_reconcile(const Json &candidate, const Json &queued)
                     {"message", "Original queued message verified after recovery"}}));
     // Keep every original operation result, including acknowledged unknown results,
     // unchanged. The independently queryable history fact retires only this promise.
+    run("COMMIT");
+    return event;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+Json Store::command_queue_candidate() {
+  const auto rows = query("SELECT stream,seq FROM transport2_commands WHERE (stream,seq)>(?,?) "
+                          "ORDER BY stream,seq LIMIT 128",
+                          {queue_command_stream_, queue_command_seq_});
+  if (rows.empty()) {
+    queue_command_stream_.clear();
+    queue_command_seq_ = 0;
+    return nullptr;
+  }
+  for (const auto &row : rows) {
+    queue_command_stream_ = row.at("stream");
+    queue_command_seq_ = row.at("seq");
+    const auto streams =
+        query("SELECT session FROM transport2_streams WHERE stream=?", {row.at("stream")});
+    if (streams.empty())
+      continue;
+    const std::string session = streams.at(0).at("session");
+    const auto owner =
+        "command:" + delivery_digest(Json::array({row.at("stream"), row.at("seq")}).dump());
+    if (query("SELECT 1 FROM transport2_history_entries WHERE key=?",
+              {"reservation:" + Json::array({session, owner}).dump()})
+            .empty())
+      continue;
+    const auto state = get(session), record = delivery_record(row.at("stream"), row.at("seq"));
+    if (!state.value("external", false) || state.value("running", false) ||
+        state.value("mode", "") != "web" || !state.contains("threadId") ||
+        !state.contains("projectId") || record.at("phase") != "finished" || record.at("body") == "")
+      continue;
+    if (!record.at("result").is_null() &&
+        record.at("result").value("error", Json::object()).value("code", "") != "RESULT_UNKNOWN")
+      continue;
+    const auto command = web_command(Json::parse(record.at("body").get<std::string>()));
+    if (command.at("action") != "prompt" || command.contains("model"))
+      continue;
+    return {{"session", session},
+            {"owner", owner},
+            {"stream", row.at("stream")},
+            {"seq", row.at("seq")},
+            {"requestId", command.at("requestId")},
+            {"digest", record.at("commandDigest")},
+            {"threadId", state.at("threadId")},
+            {"projectId", state.at("projectId")}};
+  }
+  return nullptr;
+}
+Json Store::command_queue_reconcile(const Json &candidate, const Json &queued) {
+  run("BEGIN IMMEDIATE");
+  try {
+    const std::string session = candidate.at("session"), stream = candidate.at("stream");
+    const int64_t seq = candidate.at("seq");
+    const auto owner = "command:" + delivery_digest(Json::array({stream, seq}).dump());
+    const auto record = delivery_record(stream, seq), state = get(session);
+    // Scope verification does not grant the old stream execution authority.
+    delivery_scope(stream, session);
+    if (record.is_null() || record.at("phase") != "finished" || record.at("body") == "" ||
+        candidate.at("owner") != owner || record.at("commandDigest") != candidate.at("digest") ||
+        delivery_digest(record.at("body")) != record.at("commandDigest") ||
+        !state.value("external", false) || state.value("running", false) ||
+        state.value("mode", "") != "web" || state.at("threadId") != candidate.at("threadId") ||
+        state.at("projectId") != candidate.at("projectId"))
+      throw Error("RESULT_UNKNOWN", "Original queued command recovery scope changed");
+    const auto command = web_command(Json::parse(record.at("body").get<std::string>()));
+    const auto text = queue_recovery_text(queued, delivery_instance_, session, owner);
+    if (command.at("action") != "prompt" || command.contains("model") ||
+        command.at("requestId") != candidate.at("requestId") || command.at("text") != text)
+      throw Error("RESULT_UNKNOWN", "Source queue input differs from the original web command");
+    const auto event = history_queue_accept(
+        session, owner,
+        redact(Json{{"requestId", command.at("requestId")},
+                    {"queueId", queued.at("id")},
+                    {"text", text},
+                    {"message", "Original queued message verified after recovery"}}));
+    const auto head = delivery_result_state(stream);
+    if (!record.at("resultSeq").is_null() && record.at("resultSeq") <= head.at("acked"))
+      run("UPDATE transport2_commands SET body='' WHERE stream=? AND seq=?", {stream, seq});
+    delivery_release(stream);
     run("COMMIT");
     return event;
   } catch (...) {

@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+网页未知队列恢复：Agent 构建、操作专项最终 21.10 秒、原生核心专项 33.37 秒通过，类型和定向 ESLint 通过。原生测试覆盖 ACK/重启保留原 wire body、字段顺序/空白、错误输入拒绝、旧代际关闭不恢复执行权、原结果/摘要保持、ACK 后清理、关闭流退休，以及清理失败时事实/退款/正文全回滚。最新真实 Agent 交付专项验证两类未知请求同时强杀重启、网页 ACK 保留证据、后台轮换查证、两条独立事实、已确认正文清理和源提交次数不变。日志 `/tmp/coc-web-queue-{final-build,fault-build,fault-test,final-delivery,typecheck,lint}.log`。使用确定性源，无模型调用或全量回归；旧版本已经清空的正文与已消费不可查的队列仍不能据此确定结果。
+
 未知控制 RPC 队列后台查证：Agent 构建通过；操作专项最终 20.92 秒、公共预留保存点变更后的历史预算专项 15.82 秒通过；队列查询专项、类型和定向 ESLint 通过。新增重启/ACK 后身份恢复、128 行边界、输入/关联/项目拒绝、写入故障回滚、单次事实及原结果不变测试。真实 Agent 交付专项通过强杀重启后保留未知、源项重新可查后的后台退款、唯一原请求历史事实和 queue/add 次数不变。日志 `/tmp/coc-queue-retire-{build,test}.log`、`/tmp/coc-queue-reconcile-{agent-build,final-build,final-test,delivery,source,typecheck,lint}.log`。集成场景使用确定性源，不证明已消费不可见队列可恢复；网页命令未知承诺尚未接入，未运行全量回归或部署。
 
 正文淘汰后强杀恢复：`tests/native-history-recovery.ts --file-started` 与 `--inline` 均通过。真实 Agent 自动淘汰后 SIGKILL，旧连接关闭、新 PID 启动，原引用首尾页及 history value/revision/recovery 不变，chunks 保持 0；来源替换拒绝及恢复原文件后的读取通过。TypeScript 类型与定向 ESLint 通过。日志 `/tmp/coc-history-restart-{agent,inline,typecheck,lint}.log`。该专项使用确定性源 peer，不等于真实 Codex 重启或最终浏览器验收；未运行全量回归。

@@ -26,7 +26,8 @@ private:
   int64_t history_journal_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_inline_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_prepare_seq_ = std::numeric_limits<int64_t>::min();
-  std::string queue_recovery_key_;
+  std::string queue_recovery_key_, queue_command_stream_;
+  int64_t queue_command_seq_ = 0;
   Lock lock_;
   sqlite3 *db_ = nullptr;
   std::string delivery_instance_;
@@ -102,6 +103,8 @@ public:
   Json operation_ack(const Json &intent, const std::string &action, const Json &data);
   Json operation_budget();
   Json operation_queue_candidate();
+  Json command_queue_candidate();
+  Json command_queue_reconcile(const Json &candidate, const Json &queued);
   Json operation_queue_reconcile(const Json &candidate, const Json &queued);
   Json upload_record(const std::string &root, const std::string &owner, const std::string &id);
   Json upload_prepare(const std::string &root, const std::string &owner, const std::string &id,

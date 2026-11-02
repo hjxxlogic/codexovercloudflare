@@ -1,4 +1,5 @@
 #include "coc/credit.hpp"
+#include "coc/delivery.hpp"
 #include "coc/external.hpp"
 #include "coc/store.hpp"
 #include <future>
@@ -27,6 +28,100 @@ Json identity(Store &store, const std::string &request, char owner = 'a') {
   return {{"requestId", request},
           {"owner", std::string(64, owner)},
           {"instance", store.delivery_instance()}};
+}
+void web_queue_recovery_facts() {
+  for (const bool acknowledged : {false, true}) {
+    Temp temp;
+    const std::string session = "host~web-queue", stream = "web-queue";
+    // Preserve raw order, whitespace and ignored fields, not a guessed reserialization.
+    const std::string body =
+        R"({ "text":"  original input  ","requestId":"original-web","action":"prompt","ignored":true })";
+    const auto owner = "command:" + delivery_digest(Json::array({stream, 1}).dump());
+    Json queued, original;
+    {
+      Store store(temp.path);
+      store.save({{"id", session},
+                  {"mode", "web"},
+                  {"external", true},
+                  {"state", "closed"},
+                  {"threadId", "thread"},
+                  {"projectId", "project"}});
+      store.control_apply(session, 1, "old-control", "old-owner");
+      store.delivery_open(stream, session, 2, max_frame);
+      store.delivery_bind(stream, 1, "old-control");
+      store.delivery_receive(stream, 1, body.size(), body);
+      check(store.delivery_start(stream, 1), "Start original web command");
+      store.history_reserve(session, 65536 + body.size(), 16, owner);
+      check(store.command_queue_candidate().is_null(), "Executing command must remain pinned");
+      store.delivery_finish(stream, 1,
+                            delivery_failure(Json::parse(body), "RESULT_UNKNOWN", "lost reply"));
+      if (acknowledged) {
+        const auto result = store.delivery_record(stream, 1);
+        store.delivery_result_ack(stream, result.at("resultSeq"), result.at("resultEnd"));
+        check(store.delivery_record(stream, 1).at("body") == body,
+              "ACK must preserve unresolved original command evidence");
+      }
+      store.control_apply(session, 2, "new-control", "new-owner");
+      original = store.delivery_record(stream, 1);
+      queued = {
+          {"id", "queue-id"},
+          {"clientUserMessageId", queue_submission_id(store.delivery_instance(), session, owner)},
+          {"input", Json::array({{{"type", "text"}, {"text", "original input"}}})}};
+    }
+    Store store(temp.path);
+    const auto candidate = store.command_queue_candidate();
+    check(!candidate.is_null(), "Closed old stream remains available for read-only recovery");
+    const auto before = store.history_budget();
+    auto changed = queued;
+    changed["input"][0]["text"] = "different input";
+    rejects([&] { store.command_queue_reconcile(candidate, changed); }, "RESULT_UNKNOWN");
+    check(store.history_budget() == before, "Changed input retired web promise");
+    if (acknowledged) {
+      sqlite3 *db = nullptr;
+      check(sqlite3_open((temp.path + "/agent.db").c_str(), &db) == SQLITE_OK,
+            "Open web recovery fault connection");
+      check(sqlite3_exec(
+                db,
+                "CREATE TRIGGER reject_web_retirement BEFORE UPDATE OF body ON transport2_commands "
+                "WHEN NEW.body='' BEGIN SELECT RAISE(ABORT,'injected retirement fault'); END",
+                nullptr, nullptr, nullptr) == SQLITE_OK,
+            "Install web retirement fault");
+      bool failed = false;
+      try {
+        store.command_queue_reconcile(candidate, queued);
+      } catch (const std::exception &) {
+        failed = true;
+      }
+      check(failed && store.history_budget() == before &&
+                store.delivery_record(stream, 1) == original &&
+                store.history(session).at("events").empty(),
+            "Evidence retirement failure must roll back fact, refund and input together");
+      check(sqlite3_exec(db, "DROP TRIGGER reject_web_retirement", nullptr, nullptr, nullptr) ==
+                SQLITE_OK,
+            "Remove web retirement fault");
+      sqlite3_close(db);
+    }
+    const auto fact = store.command_queue_reconcile(candidate, queued);
+    check(fact.at("data").at("requestId") == "original-web", "Web recovery lost request identity");
+    const auto after = store.delivery_record(stream, 1);
+    if (acknowledged)
+      check(after.is_null(), "Resolved acknowledged closed flow should retire its evidence");
+    else
+      check(after.at("body") == body && after.at("result") == original.at("result") &&
+                after.at("commandDigest") == original.at("commandDigest") &&
+                after.at("resultDigest") == original.at("resultDigest"),
+            "Recovery changed an unacknowledged original result/digest");
+    check(store.control_state(session).at("controlEpoch") == 2 && !store.delivery_start(stream, 1),
+          "Recovery revived old execution authority");
+    check(store.history_budget().at("global").at("bytes") < before.at("global").at("bytes"),
+          "Recovery did not retire original web reservation");
+    if (!acknowledged) {
+      store.delivery_result_ack(stream, after.at("resultSeq"), after.at("resultEnd"));
+      check(store.delivery_record(stream, 1).is_null(),
+            "Later ACK failed to retire resolved closed flow");
+    }
+    check(store.command_queue_candidate().is_null(), "Resolved web command remains a candidate");
+  }
 }
 void queue_recovery_facts() {
   for (const bool acknowledged : {false, true}) {
@@ -463,6 +558,7 @@ int main() {
          read_json(std::filesystem::path(COC_SOURCE_DIR) / "tests/original-write-fixtures.json"))
       check(operation_write(fixture.at("action"), fixture.at("data")) == fixture.at("write"),
             "Shared C++/Worker write admission classification");
+    web_queue_recovery_facts();
     queue_recovery_facts();
     recovery();
     session_recovery();
