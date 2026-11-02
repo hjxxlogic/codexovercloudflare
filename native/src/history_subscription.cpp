@@ -154,7 +154,8 @@ bool HistorySubscription::receive(const Json &d) {
   maximum_ = std::max(maximum_, maximum);
   const bool opening = !opened_;
   opened_ = true;
-  if (opening || (pending_ >= 0 && received >= pending_)) {
+  if (opening ||
+      (pending_ >= 0 && received >= pending_ && (released_ < 0 || released_ >= pending_))) {
     pending_ = -1;
     retry_.cancel();
   }

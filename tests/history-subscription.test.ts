@@ -69,6 +69,32 @@ describe('persistent history subscriber', () => {
     c.stop();
   });
 
+  it('keeps the same pending release and backoff when a window acknowledges data only', async () => {
+    const h = harness(),
+      c = await h.create();
+    await c.connect(h.send);
+    await c.handle({ ...h.window(h.sent.at(-1)), releasedRevision: 0 });
+    h.cache.durableRevision = 10;
+    await c.commit();
+    const ack = h.sent.at(-1);
+    const count = h.sent.length;
+    for (let i = 0; i < 50; i++)
+      await c.handle({ ...h.window(ack, 10), releasedRevision: 0 });
+    expect(h.sent).toHaveLength(count);
+    expect(h.failure).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.sent.at(-1)).toMatchObject({
+      requestId: ack.requestId,
+      receivedRevision: 10,
+      releasedRevision: 10,
+    });
+    await c.handle({ ...h.window(ack, 10), releasedRevision: 10 });
+    const settled = h.sent.length;
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(h.sent).toHaveLength(settled);
+    c.stop();
+  });
+
   it('retries a lost OPEN and ACK indefinitely at a bounded slow rate, then becomes idle', async () => {
     const h = harness(),
       c = await h.create();

@@ -271,7 +271,10 @@ export class HistorySubscription {
         this.opened = true;
         if (
           opening ||
-          (this.pending && frame.receivedRevision >= this.pending.revision)
+          (this.pending &&
+            frame.receivedRevision >= this.pending.revision &&
+            (this.released === undefined ||
+              this.released >= this.pending.revision))
         ) {
           this.pending = undefined;
           clearTimeout(this.timer);

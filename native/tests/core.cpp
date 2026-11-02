@@ -1765,6 +1765,13 @@ void history_subscriber_test() {
     io.run_for(std::chrono::milliseconds(1100));
     check(sent.back() == ack && sent.size() == 4,
           "Native history retries a lost ACK without changing identity");
+    auto data_only = window(ack, 10);
+    data_only["releasedRevision"] = 0;
+    const auto before_release = sent.size();
+    for (int i = 0; i < 50; ++i)
+      subscriber.receive(data_only);
+    check(sent.size() == before_release,
+          "Data-only windows retain the pending native release without an ACK loop");
     subscriber.receive(window(ack, 10));
     subscriber.receive(window(ack, 5));
     check(cache.cache_get("reader").at("acknowledgedRevision") == 10,
