@@ -216,3 +216,7 @@ Actions 41417410092 的三套 Linux 与 sanitizers 通过；Windows 构建成功
 ### 2026-11-02：Windows 来源 peer 启动修复
 
 第二轮 Windows 已越过规范路径夹具，随后来源读取用例因 codexPath=node 没有 .exe 扩展名而被原生启动校验拒绝。Windows 测试 peer 改用 node.exe；Linux 保持 node，生产禁止脚本启动器的校验不变。再次运行本机来源专项后推送，Windows 行为以新一轮准确提交 CI 为准。
+
+### 2026-11-02：Actions Windows 依赖缓存刷新
+
+首轮 Windows 日志显示两个 Actions 缓存均命中，但 vcpkg `Restored 0 package(s)`；配置阶段 09:02:34–09:10:30 UTC，约 8 分钟。旧精确键在工具链变化后无法写入新包。工作流增加镜像/工具版本及运行唯一键，配置后立即保存完整或已完成的依赖包，后续失败仍保留；恢复后的 ABI 校验、完整测试及制品来源校验不变。此优化与当前发布源码隔离，不能宣称已加速正在运行的 CI；效果须由后续运行确认。

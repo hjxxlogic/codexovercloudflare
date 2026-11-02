@@ -51,7 +51,11 @@ Linux 的 regression、Ubuntu 20.04 / Debian 12 发行包、musl 和 sanitizers 
 
 缓存键按 runner 系统、架构、构建目标 / 模式和提交区分；新提交通过同目标前缀恢复最近缓存，随后由 ccache 按编译器内容、编译参数、源码和头文件校验是否复用。版本来源头每次重新生成，受影响的编译单元重新编译；不缓存 CMake 构建目录、生成的来源头或发行包，链接、打包身份检查和完整测试仍执行。首次未命中时正常编译；需要整体失效时递增 workflow 缓存键中的 `v1`。
 
-musl 工具链通过 Buildx `type=gha` 缓存 `Dockerfile.musl` 镜像层（scope 为 `musl-toolchain`），镜像只加载到 runner、不推送镜像仓库。容器内 `.local/ccache` 挂载回宿主，由 Actions 单独持久化；工具链层和 C++ 编译缓存互相独立。npm 下载缓存及 Windows 的 vcpkg 二进制 / 下载缓存继续使用原有配置。缓存目录只包含构建数据，不包含生产凭据或运行状态。
+musl 工具链通过 Buildx `type=gha` 缓存 `Dockerfile.musl` 镜像层（scope 为 `musl-toolchain`），镜像只加载到 runner、不推送镜像仓库。容器内 `.local/ccache` 挂载回宿主，由 Actions 单独持久化；工具链层和 C++ 编译缓存互相独立。npm 下载缓存继续由 setup-node 管理。Windows vcpkg 缓存按以下规则刷新。缓存目录只包含构建数据，不包含生产凭据或运行状态。
+
+Windows 的旧缓存键只有 vcpkg.json 摘要：Actions 41417410092 虽报告命中，vcpkg 却恢复 0 个包，静态依赖配置约 8 分钟；命中还会阻止保存新生成的包。现二进制缓存键包含依赖清单、runner 镜像版本、vcpkg 工具版本及运行编号/重试次数，优先恢复相同工具链，再尝试相同依赖清单；vcpkg 仍按 ABI 判断包是否可复用。每次运行保存新快照，避免不可变旧键长期锁住过期内容。下载缓存也用独立运行键滚动刷新。两者在配置完成后立即保存，后续测试失败不丢掉依赖构建成果；不缓存 build-windows、安装目录或发行制品。
+
+Linux ccache、npm 和 musl 镜像缓存已存在，本轮保留。未增加整套浏览器缓存：[Playwright 官方说明](https://playwright.dev/docs/ci#caching-browsers)指出恢复浏览器缓存可能接近下载成本且系统依赖仍需安装。计费长时重试、恢复等待和完整测试照常执行，不能靠缓存消除这些耗时。缓存优化不会改变已启动的 Actions；实际命中和节省时间以优化后运行日志为准。
 
 本机可安装 ccache，在首次 CMake 配置时添加 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，用 `ccache --show-stats` 查看命中率；musl 镜像已包含该工具。本机未设置此选项时仍使用默认构建流程。
 
