@@ -2,7 +2,23 @@
 
 [发布记录](DEPLOYMENT_STATUS.md) · [工作台范围](CW_WORKBENCH.md) · [用户指南](USER_GUIDE.md)
 
-## 刷新、Markdown 与全屏增强（当前线上）
+## Markdown 阅读简化与 Mermaid 操作（当前线上）
+
+按用户要求跳过 GitHub Actions，通过 `scripts/deploy-cloud.py --local-build --commit HEAD --apply` 本地构建并部署源码 `91577f102e4490636e85988a30a04f7d4ac32ea1`。Worker version `88cdbff7-49ee-488f-874d-4dcc14cf06d6` 已发布到 https://r.xlogic.cc；健康、73 项线上资源字节核验及 80 项本地产物摘要记录完成。未使用或等待 Actions 制品，`ciVerified=false`，没有 Actions URL。
+
+公式 / Mermaid 接近视口自动渲染；仅溢出或被缩小 / 裁切的元素显示全屏入口，对话不逐条显示文档工具栏。Mermaid 全屏提供缩放、拖动、适应窗口、100%、滚轮、双击和键盘操作。类型、lint、480 项 Vitest、最终整页 UI 与 Markdown 专项通过；实际生产资源及 CSP 下的 Chromium 检查通过，含长公式、大小图表、主题切换、实际缩放 / 拖动、Esc 与手机布局。API 使用合成只读文件夹具，没有在真实项目执行任务或 Shell；未重复原生 PTY、压力或跨平台测试。
+
+D1 绑定 / 数据、配置、Secret 和现有原生下载保留，无待执行迁移；本机 Agent 保持 `ce22d38` 且服务 active，本轮未安装或重启，没有原生发行及更新通知。用户刷新网页加载新界面即可。功能源码与随后补充的部署证据提交分开记录；两者均带 `[skip ci]` 标记。
+
+[脱敏部署、产物摘要与验证边界](assets/cw-markdown-2026-11-03/deployment.json)。以下截图仅含合成文件和图表：
+
+![自动公式渲染及小元素无全屏按钮](assets/cw-markdown-2026-11-03/markdown-automatic.png)
+
+![Mermaid 全屏放大到 125% 后可拖动浏览](assets/cw-markdown-2026-11-03/mermaid-zoomed.png)
+
+![手机 Mermaid 全屏操作](assets/cw-markdown-2026-11-03/mermaid-fullscreen-mobile.png)
+
+## 前一轮刷新、Markdown 与全屏增强
 
 按用户再次明确要求跳过 Actions，通过 `scripts/deploy-cloud.py --local-build --commit HEAD --apply` 部署干净源码 `aa5df2c00581c6a88308cde3af510794d7e5bdcf`。Worker version 为 `d21edceb-8060-4361-a16f-6d79f1b613a3`；健康与 73 项首页、静态资源和下载清单的线上字节核验通过，沿用原 D1、Secret、配置和下载包。本轮只改网页与静态图表资源，没有升级或重启现场 Agent，Terminal 配置保持启用，也没有原生发行或更新通知。
 

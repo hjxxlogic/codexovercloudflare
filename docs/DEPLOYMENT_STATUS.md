@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## CW Markdown 阅读简化与图表操作 · 2026-11-03
+
+按用户要求跳过 Actions，本地构建源码 `91577f1` 已部署至 https://r.xlogic.cc，Worker `88cdbff7-49ee-488f-874d-4dcc14cf06d6`。公式 / 图表自动渲染，元素全屏入口只在确有显示限制时出现，对话移除逐条文档工具栏；Mermaid 全屏提供缩放、平移、适应窗口和 100%。480 项 Vitest、类型、lint、整页 UI、Markdown 专项与生产资源 / CSP 浏览器验证通过，健康和 73 项资源字节一致。
+
+本轮仅改网页，D1、Secret、配置和原生下载保留，本机 Agent 未重启。验证使用合成只读文件，无真实项目 Shell 或模型调用；未重跑原生及跨平台回归。[部署记录与截图](CW_DEPLOYMENT_2026-11-03.md) · [源码、摘要及验证证据](assets/cw-markdown-2026-11-03/deployment.json)。
+
 ## CW 刷新、主题与全屏增强 · 2026-11-03
 
 按用户明确要求跳过 Actions，本地构建源码 `aa5df2c` 已部署到 https://r.xlogic.cc，Worker `d21edceb-8060-4361-a16f-6d79f1b613a3`。窗格 / Markdown 元素独立与嵌套全屏、Mermaid 主题跟随、OpenAI 公式语法及刷新减少探测 / 健康通道重连均已上线；健康、73 项资源字节、生产 CSP 下的公式 / 图表 / 全屏浏览器检查通过。现场 Agent 未修改、未重启，D1 / Secret / 原生下载保持原样。
