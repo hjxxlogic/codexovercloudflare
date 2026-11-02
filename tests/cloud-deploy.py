@@ -18,6 +18,32 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_cloud_only_exception_keeps_other_checks_and_identity_required(self):
+        run = {'head_sha': COMMIT, 'path': '.github/workflows/checks.yml',
+               'event': 'push', 'status': 'completed', 'conclusion': 'failure'}
+        jobs = [{'name': name, 'conclusion': 'failure' if name == 'windows-x64' else 'success'}
+                for name in cloud.agent.REQUIRED_JOBS]
+        def verify(candidate_run, candidate_jobs):
+            with patch.object(cloud.agent, 'api', side_effect=[candidate_run, {'jobs': candidate_jobs}]):
+                return cloud.completed_cloud_run('owner/repo', COMMIT, 1)
+        self.assertEqual(verify(run, jobs), (run, jobs))
+        for field, value in [('head_sha', 'b' * 40), ('path', 'other.yml'),
+                             ('event', 'pull_request'), ('status', 'in_progress'),
+                             ('conclusion', 'cancelled')]:
+            with self.assertRaises(RuntimeError):
+                verify({**run, field: value}, jobs)
+        for name in cloud.agent.REQUIRED_JOBS:
+            changed = [{**job, 'conclusion': 'skipped'} if job['name'] == name else job for job in jobs]
+            with self.assertRaises(RuntimeError):
+                verify(run, changed)
+        with self.assertRaises(RuntimeError):
+            verify(run, [job for job in jobs if job['name'] != 'windows-x64'])
+        for forbidden in ('--publish-downloads', '--notify-release'):
+            with patch('sys.argv', ['deploy-cloud.py', '--cloud-only-after-windows-failure', '--run-id', '1', forbidden]):
+                with self.assertRaises(SystemExit) as error:
+                    cloud.main()
+                self.assertEqual(error.exception.code, 2)
+
     def test_release_notification_authenticates_and_checks_identity(self):
         manifest = {'version': '0.5.15', 'commit': COMMIT}
         with tempfile.TemporaryDirectory() as directory:

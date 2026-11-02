@@ -179,6 +179,24 @@ def configure_state_db(config, worker, database_id):
     if '17 * * * *' not in crons:
         crons.append('17 * * * *')
 
+def completed_cloud_run(repository, commit, run_id):
+    """Explicit cloud-only exception: all checks except Windows must succeed."""
+    run = agent.api(repository, 'runs/' + str(run_id))
+    if (run['head_sha'] != commit or run['path'] != '.github/workflows/checks.yml'
+            or run['event'] not in ('push', 'workflow_dispatch')
+            or run['status'] != 'completed' or run['conclusion'] != 'failure'):
+        raise RuntimeError('Cloud-only exception requires a completed matching failed checks run')
+    jobs = agent.api(repository, 'runs/' + str(run_id) + '/jobs?per_page=100')['jobs']
+    by_name = {job['name']: job for job in jobs}
+    if not agent.REQUIRED_JOBS <= by_name.keys():
+        raise RuntimeError('Cloud-only run is missing required jobs')
+    for name in agent.REQUIRED_JOBS:
+        expected = 'failure' if name == 'windows-x64' else 'success'
+        if by_name[name]['conclusion'] != expected:
+            raise RuntimeError('Cloud-only exception cannot accept job: ' + name)
+    return run, jobs
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
@@ -186,6 +204,8 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
+                        help='Explicit staged rollout: require the other five checks to pass; preserve all native downloads')
     parser.add_argument('--state-db-id', help='Enable D1 using this existing database UUID; required again on subsequent D1 deployments')
     parser.add_argument('--delete-secret', action='append', default=[],
                         help='Remove an obsolete Worker secret after publishing the verified code')
@@ -195,6 +215,8 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.cloud_only_after_windows_failure and (args.publish_downloads or args.notify_release or not args.run_id):
+        parser.error('Cloud-only exception requires --run-id and forbids native publication/notification')
     if args.notify_release and (not args.publish_downloads or not args.owner_secret_file):
         parser.error('--notify-release requires --publish-downloads and --owner-secret-file')
     if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', name) for name in args.delete_secret):
@@ -205,9 +227,11 @@ def main():
                                       args.commit + '^{commit}'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT):
         raise RuntimeError('Deployment requires a clean working tree')
-    if subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip() != commit:
-        raise RuntimeError('Checkout the requested commit before deployment')
-    run, jobs = agent.wait_run(args.repository, commit, args.run_id, args.timeout)
+    tool_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    subprocess.run(['git', 'merge-base', '--is-ancestor', commit, tool_commit], cwd=ROOT, check=True)
+    run, jobs = (completed_cloud_run(args.repository, commit, args.run_id)
+                 if args.cloud_only_after_windows_failure else
+                 agent.wait_run(args.repository, commit, args.run_id, args.timeout))
     output = ROOT / '.local/deploy-cloud' / str(run['id'])
     output.mkdir(parents=True, exist_ok=True)
     artifacts = agent.api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
@@ -258,7 +282,8 @@ def main():
         published = publish_downloads(bundles, identities[0], output / 'site')
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
-    evidence = {'commit': commit, 'run': run['html_url'], 'jobs': jobs,
+    evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
+                'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
     if args.state_db_id:

@@ -262,3 +262,9 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 ### 协议简化候选的存储切换
 
 本候选移除 transport2_control.ready 、transport2_command_keys.digest 与 transport2_namespaces.closed_through。升级前停止共用数据目录的旧进程并保存完整一致备份；新程序在同一 SQLite 启动事务内校验副本后转换。转换失败回滚，禁止自动重建冲突身份。转换后不能只换回旧二进制；回退须使用匹配整套组件与一致备份并核对切换后的副作用。本次仅隔离库测试，未实际发布部署。
+
+## 显式分阶段发布例外
+
+用户明确要求先发布上一轮云端、等待 Windows 修复后再发布完整包时，可使用 `--cloud-only-after-windows-failure --run-id ID --commit SHA`。只接受已完成、身份匹配且 Windows 唯一必需失败项的检查运行，其余五项必须成功；禁止与 publish-downloads、notify-release 同用。仍核验 Worker/web 制品 GitHub 摘要与来源，保留原生下载，并记录例外。默认路径仍要求六项全绿。该参数不能用于一般跳过检查。
+
+部署工具可在干净的新提交中发布其祖先提交的 CI 制品，便于用修复后的工具发布既有验证产物。线上代码身份来自制品，部署记录另记 deploymentToolCommit；不得用本机重新构建替换祖先制品。
