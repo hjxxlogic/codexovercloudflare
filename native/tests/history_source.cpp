@@ -355,6 +355,11 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   sqlite3 *db = nullptr;
   if (sqlite3_open((root / "state" / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
     throw std::runtime_error("Open recovery fixture");
+  // Preserve coverage of the old duplicate-chunk layout during migration.
+  if (sqlite3_exec(
+          db, "INSERT INTO chunks SELECT seq,0,json_extract(value,'$.data.delta') FROM history",
+          nullptr, nullptr, nullptr) != SQLITE_OK)
+    throw std::runtime_error("Seed legacy duplicate chunk");
   const Json verified = {
       {"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}};
   const auto before = store.history_budget();
@@ -401,11 +406,10 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
     throw std::runtime_error("Recovery plan changed after cache loss");
   const auto late = store.event(session, "item/agentMessage/delta",
                                 {{"turnId", "turn"}, {"itemId", "ok"}, {"delta", "late"}});
-  if (late.at("seq") == event.at("seq") ||
-      store.content(session, late.at("seq"), 0).at("text") != "late" ||
-      store.history_reference(session, event.at("seq")) != reference ||
-      store.history_source_recover(session, event.at("seq"), origin, entry) != "你好🙂")
-    throw std::runtime_error("Late delta corrupted an evicted prefix or old immutable reference");
+  if (late.at("seq") != event.at("seq") ||
+      store.content(session, late.at("seq"), 0).at("text") != "你好🙂late")
+    throw std::runtime_error("Late delta failed to append to the intact inline prefix");
+  rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
   return reference;
 }
 void candidate_scan_cases() {
@@ -456,7 +460,8 @@ void cache_fifo_cases() {
   Store store((root / "state").u8string(), true, "",
               {{"cacheMaxBytes", 3000}, {"cacheMaxSessionBytes", 3000}});
   const std::string session = "host~fifo";
-  store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
+  store.save(
+      {{"id", session}, {"threadId", "thread"}, {"projectId", "project"}, {"external", true}});
   const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
   const auto fixed =
       store.event(session, "item/agentMessage/delta",
@@ -464,8 +469,8 @@ void cache_fifo_cases() {
   Json references = Json::array(), witnesses = Json::array();
   for (int i = 0; i < 3; ++i) {
     const auto item = "item" + std::to_string(i);
-    const auto event = store.event(session, "item/agentMessage/delta",
-                                   {{"turnId", "turn"}, {"itemId", item}, {"delta", "cache body"}});
+    const auto event = store.external_item(
+        session, "turn", {{"id", item}, {"type", "agentMessage"}, {"text", "cache body"}});
     const Json entry = {{"turnId", "turn"},
                         {"completedAtMs", 1},
                         {"item", {{"id", item}, {"type", "agentMessage"}, {"text", "cache body"}}}};
@@ -490,6 +495,33 @@ void cache_fifo_cases() {
   for (const auto &reference : references)
     if (store.history_reference(session, reference.at("seq")) != reference)
       throw std::runtime_error("FIFO changed immutable history reference");
+}
+void evicted_prefix_cases() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-evicted-prefix-" + uuid());
+  std::filesystem::create_directories(root);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  Store store((root / "state").u8string(), true, "", {{"cacheMaxBytes", 0}});
+  const std::string session = "host~prefix", text(20000, 'x');
+  store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
+  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const auto event = store.event(session, "item/agentMessage/delta",
+                                 {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}});
+  const Json entry = {{"turnId", "turn"},
+                      {"completedAtMs", 1},
+                      {"item", {{"id", "item"}, {"type", "agentMessage"}, {"text", text}}}};
+  const auto proof = store.history_source_register(session, event.at("seq"), origin, entry);
+  store.history_cache_compact(
+      {{"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}});
+  const auto next = store.event(session, "item/agentMessage/delta",
+                                {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "late"}});
+  if (next.at("seq") == event.at("seq") ||
+      store.content(session, next.at("seq"), 0).at("text") != "late" ||
+      store.history_reference(session, event.at("seq")) != proof.at("reference") ||
+      store.history_source_recover(session, event.at("seq"), origin, entry) != text)
+    throw std::runtime_error("Late delta appended to an evicted prefix or destroyed its proof");
 }
 void recovered_page_cases() {
   const auto root = std::filesystem::temp_directory_path() / ("coc-recovered-page-" + uuid());
@@ -725,6 +757,7 @@ int main(int argc, char **argv) {
                 << '\n';
       return 0;
     }
+    evicted_prefix_cases();
     cache_fifo_cases();
     candidate_scan_cases();
     recovered_page_cases();

@@ -134,6 +134,52 @@ void legacy_packing() {
     check(journal.history_budget() == budget, "Packing restores quota enforcement before commit");
   }
 }
+void inline_transition() {
+  Temp temp;
+  Json original;
+  int64_t seq = 0;
+  {
+    Store store(temp.path);
+    store.save({{"id", "host~inline"}});
+    std::string prefix;
+    for (int i = 0; i < 1714; ++i)
+      prefix += "你🙂";
+    const auto event = store.event("host~inline", "item/agentMessage/delta",
+                                   {{"turnId", "turn"}, {"itemId", "item"}, {"delta", prefix}});
+    seq = event.at("seq");
+    original = store.history_reference("host~inline", seq);
+    Database fixture(temp.path);
+    fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+                "INSERT INTO assertion SELECT COUNT(*)=0 FROM chunks");
+    check(store.content("host~inline", seq, 1).at("text").get<std::string>() == prefix.substr(3),
+          "Inline-only body remains readable at Unicode offsets");
+    const auto before = store.history_budget();
+    fixture.sql("CREATE TRIGGER fail_transition BEFORE INSERT ON chunks "
+                "BEGIN SELECT RAISE(ABORT,'injected transition failure'); END");
+    bool failed = false;
+    try {
+      store.event("host~inline", "item/agentMessage/delta",
+                  {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "你🙂"}});
+    } catch (const Error &) {
+      failed = true;
+    }
+    check(failed && store.history_budget() == before &&
+              store.history_reference("host~inline", seq) == original,
+          "Failed inline-to-chunk conversion restores body, revision and accounting");
+    fixture.sql("DROP TRIGGER fail_transition");
+    const auto next = store.event("host~inline", "item/agentMessage/delta",
+                                  {{"turnId", "turn"}, {"itemId", "item"}, {"delta", "你🙂"}});
+    check(next.at("seq") == seq && store.content("host~inline", seq, 3427).at("text") == "🙂你🙂",
+          "Conversion preserves stream identity and multibyte chunk boundary");
+    fixture.sql(
+        "INSERT INTO assertion SELECT MAX(length(CAST(text AS BLOB)))<=4096 FROM chunks; "
+        "INSERT INTO assertion SELECT json_extract(value,'$.data.delta') IS NULL FROM history");
+    original = store.history_reference("host~inline", seq);
+  }
+  Store reopened(temp.path);
+  check(reopened.history_reference("host~inline", seq) == original,
+        "Converted stream remains identical after restart");
+}
 void packed_deltas() {
   Temp temp;
   int64_t seq = 0, revision = 0;
@@ -497,6 +543,7 @@ void oversized_legacy() {
 int main() {
   try {
     legacy_packing();
+    inline_transition();
     packed_deltas();
     configurable_policy();
     durable_reservations();

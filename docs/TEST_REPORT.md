@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+新流式内联投影去重：Agent 构建通过；历史预算/转换专项 15.08 秒、引用专项 0.14 秒通过，最终来源专项 3.37 秒通过，真实原生交付专项通过。新增检查内联阶段无 chunks、11998 字节 Unicode 前缀跨阈值、分块写入故障的正文/修订/计量回滚、重启和字符偏移。保留旧重复 chunk 布局夹具；分别验证完整内联前缀沿用原流、已淘汰大前缀新建片段并保留旧引用。原生请求恢复、取消、信用与历史尾部恢复继续通过。日志 `/tmp/coc-inline-storage-{build,test,final-build,final-test,delivery-test}.log`。外部快照与旧库去重仍未完成；未运行全量回归或修改正式库。
+
 内联副本读取修正：来源专项 3.32 秒、引用专项 0.14 秒通过；分块淘汰后删除 Codex 来源文件，完整本地内联正文仍按原摘要和 Unicode 偏移读取，伪造摘要引用拒绝。真实 Agent 集成测试改用 20 KB / 6000 Unicode 字符、无完整内联副本的正文，自动准备、自动回收和多页实际回源通过，来源替换及并发背压检查继续通过。日志 `/tmp/coc-inline-read-{build,test,agent-test}.log`。未做全量回归、模型调用、正式库修改或部署。
 
 已验证分块缓存批次：Agent 构建通过；历史预算专项 14.62 秒、引用专项 0.14 秒通过，最终来源/回收专项 3.31 秒通过；20 项共享配置用例、TypeScript 类型检查和定向 ESLint 通过。覆盖新鲜源验证要求、删除故障事务回滚、活动预留与未验证正文固定、计量退款、原引用稳定、有序分块回收及淘汰后的迟到 delta。真实 Agent 使用 `cacheMaxBytes: 0` 自动准备凭据并自动删除测试 chunks（不再由测试脚本删除），history/events 保留，原引用回源、Unicode 页、来源替换与并发背压继续通过。日志 `/tmp/coc-history-cache-verified-test.log`、`/tmp/coc-history-cache-final2-{build,test,agent-test}.log`、`/tmp/coc-history-cache-{policy-test,typecheck}.log`。未覆盖全量旧库空间效果；内联正文及事件日志仍保留，真实 Codex/线上浏览器最终验收和全量回归尚未执行。

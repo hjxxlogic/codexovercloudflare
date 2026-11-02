@@ -618,7 +618,9 @@ Json Store::project(const std::string &id, Json e) {
                       : query("SELECT seq FROM streams WHERE session=? AND key=?", {id, key});
   if (!previous.empty() &&
       !query("SELECT h.seq FROM history h JOIN bodies b ON b.seq=h.seq "
-             "WHERE h.seq=? AND h.recovery IS NOT NULL AND b.bytes!=COALESCE("
+             "WHERE h.seq=? AND h.recovery IS NOT NULL "
+             "AND COALESCE(length(CAST(json_extract(h.value,'$.data.delta') AS BLOB)),-1)!=b.bytes "
+             "AND b.bytes!=COALESCE("
              "(SELECT SUM(length(CAST(text AS BLOB))) FROM chunks WHERE seq=h.seq),0)",
              {previous.at(0).at("seq")})
            .empty()) {
@@ -642,7 +644,37 @@ Json Store::project(const std::string &id, Json e) {
       body = query("SELECT size,bytes FROM bodies WHERE seq=?", {seq});
     }
     const auto text = data.value("delta", "");
-    if (!text.empty()) {
+    const bool chunked = !query("SELECT seq FROM chunks WHERE seq=? LIMIT 1", {seq}).empty();
+    if (!chunked && body[0]["bytes"].get<int64_t>() > 12000)
+      throw Error("CONTENT_UNAVAILABLE", "Cannot append to a missing unverified stream prefix");
+    const bool inline_only = !chunked && body[0]["bytes"].get<int64_t>() <= 12000;
+    const bool stays_inline =
+        inline_only && body[0]["bytes"].get<int64_t>() + int64_t(text.size()) <= 12000;
+    if (inline_only && !stays_inline && body[0]["bytes"].get<int64_t>() > 0) {
+      const auto prefix = query(
+          "SELECT json_extract(value,'$.data.delta') AS text FROM history WHERE seq=?", {seq});
+      if (prefix.empty() || !prefix.at(0).at("text").is_string())
+        throw Error("CONTENT_UNAVAILABLE", "Inline stream prefix is unavailable");
+      const auto original = prefix.at(0).at("text").get<std::string>();
+      if (original.size() != body[0]["bytes"].get<size_t>())
+        throw Error("CONTENT_UNAVAILABLE", "Inline stream prefix is incomplete");
+      // Refund the inline copy before acquiring chunk capacity; the surrounding
+      // event transaction restores both representations if any write fails.
+      run("UPDATE history SET value=json_remove(value,'$.data.delta') WHERE seq=?", {seq});
+      int64_t characters = 0;
+      for (size_t start = 0; start < original.size();) {
+        size_t end = std::min(start + 4096, original.size());
+        while (end < original.size() && (static_cast<unsigned char>(original[end]) & 0xc0) == 0x80)
+          --end;
+        const auto part = original.substr(start, end - start);
+        run("INSERT INTO chunks VALUES(?,?,?)", {seq, characters, part});
+        for (unsigned char c : part)
+          if ((c & 0xc0) != 0x80)
+            ++characters;
+        start = end;
+      }
+    }
+    if (!text.empty() && !stays_inline) {
       // Coalesce small deltas into a bounded tail. Offsets remain SQLite
       // Unicode character positions; the packing limit counts UTF-8 bytes.
       const auto tail = query("SELECT start,length(CAST(text AS BLOB)) AS bytes FROM chunks "
@@ -653,9 +685,10 @@ Json Store::project(const std::string &id, Json e) {
             {text, seq, tail[0]["start"]});
       else
         run("INSERT INTO chunks VALUES(?,?,?)", {seq, body[0]["size"], text});
+    }
+    if (!text.empty())
       run("UPDATE bodies SET size=size+length(?),bytes=bytes+length(CAST(? AS BLOB)) WHERE seq=?",
           {text, text, seq});
-    }
     // Small projections retain their inline form. Large bodies append chunks;
     // only bounded metadata is rewritten for each subsequent delta.
     if (body[0]["bytes"].get<int64_t>() + int64_t(text.size()) <= 12000)
@@ -674,7 +707,7 @@ Json Store::project(const std::string &id, Json e) {
     if (!key.empty()) {
       const auto text = data.value("delta", "");
       run("INSERT INTO bodies VALUES(?,length(?),length(CAST(? AS BLOB)))", {e["seq"], text, text});
-      if (!text.empty())
+      if (text.size() > 12000)
         run("INSERT INTO chunks VALUES(?,0,?)", {e["seq"], text});
       if (text.size() > 12000)
         run("UPDATE history SET "
@@ -760,7 +793,8 @@ Json Store::history(const std::string &id, int64_t before, int64_t after) {
           {"direction", forward ? "after" : "before"}};
 }
 Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t revision) {
-  auto body = query("SELECT bodies.size,history.revision FROM bodies JOIN history USING(seq) WHERE "
+  auto body = query("SELECT bodies.size,bodies.bytes,history.revision,history.recovery FROM bodies "
+                    "JOIN history USING(seq) WHERE "
                     "seq=? AND session=?",
                     {seq, id});
   if (!body.empty()) {
@@ -786,15 +820,18 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
         ++characters;
     if (characters != std::min(int64_t(4096), size - offset)) {
       // Chunk eviction must not make an intact local inline copy depend on
-      // Codex availability. Accept it only against the original durable proof.
+      // Codex availability. Validate its size and any durable recovery proof.
       const auto local = query(
           "SELECT COALESCE(json_extract(value,'$.data.text'),json_extract(value,'$.data.delta'),"
           "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text FROM history "
-          "WHERE session=? AND seq=? AND recovery IS NOT NULL AND length(CAST(value AS "
+          "WHERE session=? AND seq=? AND length(CAST(value AS "
           "BLOB))<=1048576",
           {id, seq});
       if (local.empty() || !local.at(0).at("text").is_string() ||
-          !history_text_matches(local.at(0).at("text"), history_reference(id, seq)))
+          local.at(0).at("text").get<std::string>().size() !=
+              body.at(0).at("bytes").get<size_t>() ||
+          (!body.at(0).at("recovery").is_null() &&
+           !history_text_matches(local.at(0).at("text"), history_reference(id, seq))))
         throw Error("CONTENT_UNAVAILABLE", "History body chunks are incomplete");
       text = query("SELECT substr(?,?+1,4096) AS text", {local.at(0).at("text"), offset})
                  .at(0)
