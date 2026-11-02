@@ -119,6 +119,36 @@ void configurable_policy() {
     check(lowered.history_budget()["global"] == before["global"], "Rejected growth is atomic");
   }
 }
+void durable_reservations() {
+  Temp temp;
+  const Json policy = {{"maxBytes", 32768}, {"maxSessionBytes", 32768}, {"minFreeDiskBytes", 1}};
+  Json saved;
+  {
+    Store journal(temp.path, true, "", policy);
+    journal.history_reserve("one", 20000);
+    saved = journal.history_budget();
+    journal.history_reserve("one", 4096);
+    check(journal.history_budget() == saved, "Repeated admission never shrinks a promise");
+    bool failed = false;
+    journal.on_failure([&] { failed = true; });
+    backpressure([&] { journal.history_reserve("two", 20000); });
+    check(!failed && journal.history_budget() == saved,
+          "Concurrent session reservation cannot oversubscribe or stop the Agent");
+    journal.save({{"id", "two"}, {"state", "closed"}});
+    backpressure([&] { journal.event("two", "record", std::string(10000, 'x')); });
+    check(journal.history_budget() == saved, "Unreserved writes cannot steal promised space");
+  }
+  {
+    Store journal(temp.path, true, "", policy);
+    check(journal.history_budget() == saved, "Crash/reopen retains unused promises");
+    journal.history_release("one");
+    journal.history_release("one");
+    check(journal.history_budget()["global"]["bytes"] == 0 &&
+              journal.history_budget()["global"]["records"] == 0,
+          "Explicit safe retirement refunds reservation exactly once");
+    journal.history_reserve("two", 20000);
+  }
+}
 void accounting() {
   Temp temp;
   Json saved;
@@ -258,6 +288,7 @@ void oversized_legacy() {
 int main() {
   try {
     configurable_policy();
+    durable_reservations();
     accounting();
     capacity();
     namespaces();

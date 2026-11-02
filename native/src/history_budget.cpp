@@ -117,6 +117,37 @@ void Store::history_budget_init(bool authoritative) {
       limit("maxSessions") + " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
   run("INSERT OR IGNORE INTO transport2_history_meta VALUES(1)");
 }
+// Reservations share the authoritative history ledger and its SQL quota checks.
+// Their charged bytes include bookkeeping overhead; no second credit pool exists.
+void Store::history_reserve(const std::string &session, int64_t bytes) {
+  if (session.empty() || session == "@global" || session.size() > 201 || bytes < 4096 ||
+      bytes > 9007199254740991LL)
+    throw Error("INVALID_REQUEST", "Invalid history reservation");
+  run("SAVEPOINT history_reservation");
+  try {
+    const auto key = "reservation:" + session;
+    auto existing = query("SELECT bytes FROM transport2_history_entries WHERE key=?", {key});
+    const auto previous = existing.empty() ? int64_t(0) : existing.at(0).at("bytes").get<int64_t>();
+    // Repeating an admission never shrinks a previously promised reservation.
+    if (bytes > previous) {
+      history_require_capacity(session, bytes - previous, existing.empty() ? 1 : 0);
+      run("INSERT INTO transport2_history_entries(key,session,bytes) VALUES(?,?,?) "
+          "ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes",
+          {key, session, bytes});
+    }
+    run("RELEASE history_reservation");
+  } catch (...) {
+    run("ROLLBACK TO history_reservation");
+    run("RELEASE history_reservation");
+    throw;
+  }
+}
+void Store::history_release(const std::string &session) {
+  // Call only after the associated execution/retention responsibility is resolved.
+  // The existing refund trigger removes both byte and bookkeeping-record charges.
+  run("DELETE FROM transport2_history_entries WHERE key=? AND session=?",
+      {"reservation:" + session, session});
+}
 void Store::history_require_capacity(const std::string &session, int64_t bytes, int64_t records) {
   if (bytes < 0 || records < 0)
     throw Error("INVALID_REQUEST", "Invalid history capacity request");
