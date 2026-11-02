@@ -428,3 +428,5 @@ Ubuntu/Debian 构建与原生测试、TLS/Access 集成和 sanitizer CTest 使�
 Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只读 RPC，仍验证 HTTPS/WSS 凭据、证书信任、origin 隔离及 HTML 拒绝。Windows 工作区文件夹具在删除临时目录前释放 WorkspaceFiles 和 Store，保持 Windows 文件共享与锁定语义。
 
 浏览器缓存回归与原请求/上传夹具一样，通过 esbuild 打包真实模块依赖，不手工删除 import 或拼接 TypeScript 源文件。游客主机订阅 WebSocket 须像真实客户端一样携带 `delivery=2`。更新器夹具的安装副本固定为 0755，不能继承开发构建目录的组写权限，也不能放宽生产安全检查来适配测试。
+
+Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路径；CreateProcessW 的显式 applicationName 不搜索 PATH。CI 通过 setup-node 固定 Node 22.17.0，仅测试需要 Node，运行 Agent/CLI 不需要。Windows 项目/操作磁盘事务测试与 sanitizers 使用 240 秒 CTest 上限：原 60 秒附近已有 53–57 秒成功样本及一次超时；完整断言与业务超时不变。

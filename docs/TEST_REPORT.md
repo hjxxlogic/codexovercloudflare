@@ -220,3 +220,7 @@ Actions 41417410092 的三套 Linux 与 sanitizers 通过；Windows 构建成功
 ### 2026-11-02：Actions Windows 依赖缓存刷新
 
 首轮 Windows 日志显示两个 Actions 缓存均命中，但 vcpkg `Restored 0 package(s)`；配置阶段 09:02:34–09:10:30 UTC，约 8 分钟。旧精确键在工具链变化后无法写入新包。工作流增加镜像/工具版本及运行唯一键，配置后立即保存完整或已完成的依赖包，后续失败仍保留；恢复后的 ABI 校验、完整测试及制品来源校验不变。此优化与当前发布源码隔离，不能宣称已加速正在运行的 CI；效果须由后续运行确认。
+
+### 2026-11-02：Windows 绝对 peer 路径和测试时间预算
+
+Actions 41423136328 的 Windows 来源测试从扩展名校验推进到 CreateProcessW，但显式 applicationName 不搜索 PATH，node.exe 短名仍无法启动；现由 CMake 查找并传入绝对路径，工作流固定测试 Node 版本。该轮 native-operations 60 秒超时，前两轮分别 56.68、53.05 秒通过；Windows 项目/操作测试使用与 sanitizers 相同的 240 秒上限，不改变业务重试、存储持久性或断言。完整发行仍等待新准确提交通过，首阶段云端及已授权本机测试继续运行。

@@ -1026,7 +1026,7 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
       io,
       Json{{"codexPath",
 #ifdef _WIN32
-            "node.exe"
+            COC_HISTORY_TEST_NODE
 #else
             "node"
 #endif
