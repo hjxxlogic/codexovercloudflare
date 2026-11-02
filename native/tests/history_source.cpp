@@ -1024,7 +1024,13 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
   };
   process = std::make_shared<CodexProcess>(
       io,
-      Json{{"codexPath", "node"},
+      Json{{"codexPath",
+#ifdef _WIN32
+            "node.exe"
+#else
+            "node"
+#endif
+           },
            {"codexArgs",
             Json::array({std::string(COC_SOURCE_DIR) + "/tests/fixtures/history-source-peer.mjs"})},
            {"sandbox", "read-only"}},
