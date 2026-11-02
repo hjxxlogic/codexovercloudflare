@@ -12,6 +12,12 @@ function render(text: string, scope = 'test') {
   return renderToStaticMarkup(<MarkdownRenderer text={text} scope={scope} />);
 }
 describe('shared Markdown rendering', () => {
+  it('keeps conversation messages free of document controls', () => {
+    expect(render('# Answer\n\nText')).not.toContain('document-tools');
+    expect(
+      renderToStaticMarkup(<MarkdownRenderer text="# File" tools />),
+    ).toContain('document-tools');
+  });
   it('keeps raw HTML and executable links inert', () => {
     const html = render(
       '<script>alert(1)</script>\n\n[bad](javascript:alert(1))\n\n![private](https://example.invalid/pixel)',

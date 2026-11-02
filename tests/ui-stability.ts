@@ -1261,13 +1261,20 @@ try {
     });
   }
   const markdown =
-    '# Rendered report\n\n| Result | Value |\n| --- | --- |\n| Status | OK |\n\n```js\nconst safe = true;\n```\n\n```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```\n\n<script>window.previewUnsafe = true</script>\n[bad](javascript:alert(1))';
+    '# Rendered report\n\n| Result | Value |' +
+    Array(45).fill('ExtraColumn').join(' | ') +
+    ' |\n| --- | --- |' +
+    Array(45).fill('---').join(' | ') +
+    ' |\n| Status | OK |' +
+    Array(45).fill('ExtraCell').join(' | ') +
+    ' |\n\n```js\nconst safe = true;\n```\n\n```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```\n\n<script>window.previewUnsafe = true</script>\n[bad](javascript:alert(1))';
   const plain =
     '<script>window.previewUnsafe = true</script>\n正文 <img src=x onerror=alert(1)>';
   previewFiles.set('docs/report.md', Buffer.from(markdown));
   previewFiles.set('docs/plain.txt', Buffer.from(plain));
   previewFiles.set('report.md', Buffer.from(markdown));
   await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('.message .document-tools')).toHaveCount(0);
   await expect(page.locator('.workbench-toolbar')).toHaveCount(0);
   async function workbenchAction(name: string) {
     await page.getByRole('button', { name: '功能菜单', exact: true }).click();
@@ -1367,10 +1374,10 @@ try {
     sidePreview.getByRole('heading', { name: 'Rendered report' }),
   ).toBeVisible();
   await expect(sidePreview.locator('a[href^="javascript:"]')).toHaveCount(0);
-  const previewDiagram = sidePreview.locator('.rich-code').filter({
-    has: page.locator('.code-toolbar > span', { hasText: /^mermaid$/ }),
-  });
-  await previewDiagram.getByRole('button', { name: '格式化预览' }).click();
+  const previewDiagram = sidePreview.locator(
+    '.rich-code[data-language="mermaid"]',
+  );
+  await previewDiagram.scrollIntoViewIfNeeded();
   await expect(
     previewDiagram.frameLocator('iframe').locator('html'),
   ).toHaveAttribute('data-theme', 'light');

@@ -8,7 +8,7 @@ let originalOverflow = '';
 function focusable(element: HTMLElement) {
   return Array.from(
     element.querySelectorAll<HTMLElement>(
-      'button, a[href], input, select, textarea, [tabindex]',
+      'button, a[href], input, select, textarea, iframe, [tabindex]',
     ),
   ).filter(
     (node) =>

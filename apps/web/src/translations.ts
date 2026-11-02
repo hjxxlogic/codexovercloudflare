@@ -1,5 +1,6 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  '图表无法渲染，已显示源码': 'Unable to render diagram; source is shown',
   全屏: 'Fullscreen',
   退出全屏: 'Exit fullscreen',
   终端输出已截断: 'Terminal output was truncated',

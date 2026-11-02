@@ -11,7 +11,24 @@ const openAiSource = String.raw`
 L(b)=\ln\frac{P(b=0\mid y)}{P(b=1\mid y)}
 \] 本次没有覆盖的位置取 \(L_{i,\mathrm{new}}^{(t)}=0\)。
 `;
-const bytes = Buffer.from(source + openAiSource);
+const oversized =
+  '\n\n| ' +
+  Array.from({ length: 45 }, (_, i) => 'Column' + i).join(' | ') +
+  ' |\n| ' +
+  Array(45).fill('---').join(' | ') +
+  ' |\n| ' +
+  Array(45).fill('Wide cell').join(' | ') +
+  ' |\n\n```text\n' +
+  Array(60).fill('A long output line').join('\n') +
+  '\n```\n\n```mermaid\nflowchart LR\n' +
+  Array.from(
+    { length: 18 },
+    (_, i) => `N${i}[Node ${i}] --> N${i + 1}[Node ${i + 1}]`,
+  ).join('\n') +
+  '\n```\n\n```mermaid\ninvalid diagram syntax\n```\n\n```math\n' +
+  Array.from({ length: 60 }, (_, i) => `x_{${i}}`).join('+') +
+  '\n```\n';
+const bytes = Buffer.from(source + openAiSource + oversized);
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost');
   if (url.pathname.startsWith('/api/v1/')) {
@@ -105,7 +122,7 @@ try {
     page.getByRole('heading', { name: '高级 Markdown' }),
   ).toBeVisible();
   await expect(page.locator('.callout-warning')).toContainText('注意事项');
-  await expect(page.locator('table')).toHaveCount(1);
+  await expect(page.locator('table')).toHaveCount(2);
   async function enterElementFullscreen(element: Locator) {
     await element.getByRole('button', { name: '全屏', exact: true }).click();
     await expect(element).toHaveClass(/element-fullscreen/);
@@ -119,8 +136,16 @@ try {
       element.getByRole('button', { name: '退出全屏', exact: true }),
     ).toBeFocused();
   }
-  const table = page.locator('.table-scroll');
+  const smallTable = page.locator('.table-scroll').first();
+  await expect(
+    smallTable.getByRole('button', { name: '全屏', exact: true }),
+  ).toHaveCount(0);
+  const table = page.locator('.table-scroll').nth(1);
+  await table.scrollIntoViewIfNeeded();
   const tableHandle = await table.locator('table').elementHandle();
+  await expect(
+    table.getByRole('button', { name: '全屏', exact: true }),
+  ).toBeVisible({ timeout: 3000 });
   await enterElementFullscreen(table);
   await page.keyboard.press('Escape');
   await expect(table).not.toHaveClass(/element-fullscreen/);
@@ -128,6 +153,21 @@ try {
   await expect(
     table.getByRole('button', { name: '全屏', exact: true }),
   ).toBeFocused();
+  // Reflow removes the expansion control once all table content fits.
+  await table.evaluate((node) => {
+    node.style.width = '10000px';
+    node.style.maxWidth = 'none';
+  });
+  await expect(
+    table.getByRole('button', { name: '全屏', exact: true }),
+  ).toHaveCount(0);
+  await table.evaluate((node) => {
+    node.style.width = '';
+    node.style.maxWidth = '';
+  });
+  await expect(
+    table.getByRole('button', { name: '全屏', exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: '目录', exact: true }).click();
   await expect(page.locator('.document-toc button')).toHaveCount(3);
   const hash = new URL(page.url()).hash;
@@ -145,34 +185,40 @@ try {
     await page.evaluate(() => (window as any).unsafeMarkdown),
     undefined,
   );
-  const math = page.locator('.rich-code').filter({
-    has: page.locator('.code-toolbar > span', { hasText: /^math$/ }),
-  });
-  await math.getByRole('button', { name: '格式化预览' }).click();
+  const math = page.locator('.rich-code[data-language="math"]').first();
+  await math.scrollIntoViewIfNeeded();
   await expect(math.locator('.katex')).toBeVisible();
-  await enterElementFullscreen(math);
-  await math.getByRole('button', { name: '退出全屏', exact: true }).click();
-  await expect(math.locator('.katex')).toBeVisible();
-  await page.locator('.inline-math button').first().click();
-  await expect(page.locator('.inline-math .katex').first()).toBeVisible();
-  await page.locator('.display-math > button').click();
+  await expect(math.getByRole('button')).toHaveCount(0);
+  const inline = page.locator('.inline-math').first();
+  await inline.scrollIntoViewIfNeeded();
+  await expect(inline.locator('.katex')).toBeVisible();
+  await expect(inline.getByRole('button')).toHaveCount(0);
+  await page.locator('.display-math').scrollIntoViewIfNeeded();
   await expect(page.locator('.display-math .katex-display')).toBeVisible();
-  await enterElementFullscreen(page.locator('.display-math'));
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.display-math .katex-display')).toBeVisible();
-  const openAiInline = page
-    .locator('.inline-math')
-    .filter({ hasText: 'L_{i,' });
-  await openAiInline.getByRole('button').click();
+  await expect(page.locator('.display-math').getByRole('button')).toHaveCount(
+    0,
+  );
+  const openAiInline = page.locator('.inline-math').nth(1);
   await expect(openAiInline.locator('.katex')).toBeVisible();
-  await expect(
-    page.getByText('本次没有覆盖的位置取', { exact: false }),
-  ).toBeVisible();
   await expect(page.locator('.katex-error')).toHaveCount(0);
-  const diagram = page.locator('.rich-code').filter({
-    has: page.locator('.code-toolbar > span', { hasText: /^mermaid$/ }),
+  const code = page.locator('.rich-code[data-language="text"]');
+  await code.scrollIntoViewIfNeeded();
+  await enterElementFullscreen(code);
+  await page.keyboard.press('Escape');
+  const smallDiagram = page
+    .locator('.rich-code[data-language="mermaid"]')
+    .first();
+  await smallDiagram.scrollIntoViewIfNeeded();
+  await expect(smallDiagram.frameLocator('iframe').locator('svg')).toBeVisible({
+    timeout: 30000,
   });
-  await diagram.getByRole('button', { name: '格式化预览' }).click();
+  await expect(smallDiagram.getByRole('button')).toHaveCount(0);
+  assert(
+    (await smallDiagram.locator('iframe').boundingBox())!.height < 200,
+    'small diagram has compact automatic height',
+  );
+  const diagram = page.locator('.rich-code[data-language="mermaid"]').nth(1);
+  await diagram.scrollIntoViewIfNeeded();
   await expect(diagram.frameLocator('iframe').locator('svg')).toBeVisible({
     timeout: 30000,
   });
@@ -222,15 +268,52 @@ try {
     'data-expanded',
     'true',
   );
-  assert(
-    (await diagram.frameLocator('iframe').locator('svg').boundingBox())!.width >
-      1000,
-    'fullscreen uses available diagram width',
+  const graph = diagram.frameLocator('iframe');
+  const viewport = graph.locator('#diagram-viewport');
+  const initialScale = Number(await viewport.getAttribute('data-scale'));
+  await graph.getByRole('button', { name: '放大', exact: true }).click();
+  await expect
+    .poll(async () => Number(await viewport.getAttribute('data-scale')))
+    .toBeGreaterThan(initialScale);
+  await graph.getByRole('button', { name: '缩小', exact: true }).click();
+  await expect
+    .poll(async () => Number(await viewport.getAttribute('data-scale')))
+    .toBeCloseTo(initialScale);
+  await graph.getByRole('button', { name: '100%', exact: true }).click();
+  await expect(viewport).toHaveAttribute('data-scale', '1');
+  const beforePan = Number(await viewport.getAttribute('data-pan-x'));
+  const bounds = (await viewport.boundingBox())!;
+  await page.mouse.move(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height / 2,
   );
+  await page.mouse.down();
+  await page.mouse.move(
+    bounds.x + bounds.width / 2 + 80,
+    bounds.y + bounds.height / 2 + 40,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await viewport.getAttribute('data-pan-x')))
+    .toBeGreaterThan(beforePan + 60);
+  await page.mouse.wheel(0, -100);
+  await expect
+    .poll(async () => Number(await viewport.getAttribute('data-scale')))
+    .toBeGreaterThan(1);
+  await viewport.focus();
+  await page.keyboard.press('0');
+  await expect(viewport).toHaveAttribute('data-scale', '1');
+  await page.keyboard.press('+');
+  await expect(viewport).toHaveAttribute('data-scale', '1.25');
+  await graph.getByRole('button', { name: '适应窗口', exact: true }).click();
+  await expect
+    .poll(async () => Number(await viewport.getAttribute('data-scale')))
+    .toBeCloseTo(initialScale);
   await page.screenshot({
     path: join(artifacts, 'mermaid-element-fullscreen.png'),
   });
-  await diagram.frameLocator('iframe').locator('svg').click();
+  await graph.locator('#diagram-viewport').focus();
   await page.keyboard.press('Escape');
   await expect(diagram).not.toHaveClass(/element-fullscreen/);
   assert(
@@ -243,6 +326,18 @@ try {
   await expectDiagramTheme('dark');
   await page.emulateMedia({ colorScheme: 'light' });
   await expectDiagramTheme('light');
+  const invalid = page.locator('.rich-code[data-language="mermaid"]').nth(2);
+  await invalid.scrollIntoViewIfNeeded();
+  await expect(invalid.locator('.rich-fallback')).toContainText(
+    'invalid diagram syntax',
+    { timeout: 30000 },
+  );
+  const longMath = page.locator('.rich-code[data-language="math"]').nth(1);
+  await longMath.scrollIntoViewIfNeeded();
+  await expect(longMath.locator('.katex')).toBeVisible();
+  await enterElementFullscreen(longMath);
+  await page.keyboard.press('Escape');
+  await expect(longMath).not.toHaveClass(/element-fullscreen/);
   await page.getByText('展开说明', { exact: true }).click();
   await expect(page.getByText('隐藏正文', { exact: true })).toBeVisible();
   await page.screenshot({
@@ -260,6 +355,22 @@ try {
     path: join(artifacts, 'markdown-mobile.png'),
     fullPage: true,
   });
+  await diagram.scrollIntoViewIfNeeded();
+  await enterElementFullscreen(diagram);
+  await expect(
+    graph.getByRole('button', { name: '放大', exact: true }),
+  ).toBeVisible();
+  assert(
+    await graph
+      .locator('html')
+      .evaluate((node) => node.scrollWidth <= innerWidth),
+    'mobile diagram controls fit the viewport',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'mermaid-fullscreen-mobile.png'),
+  });
+  await page.keyboard.press('Escape');
+  await expect(diagram).not.toHaveClass(/element-fullscreen/);
   assert.deepEqual(external, [], 'rendering never fetches external content');
   assert.deepEqual(errors, []);
   console.log('Advanced Markdown browser checks passed');

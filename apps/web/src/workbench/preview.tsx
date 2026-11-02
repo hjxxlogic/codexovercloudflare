@@ -117,7 +117,7 @@ export function Preview({
         </pre>
       ) : type.kind === 'markdown' ? (
         <article className="markdown">
-          <MarkdownRenderer text={text} />
+          <MarkdownRenderer text={text} tools />
         </article>
       ) : (
         <pre className="file-lines">

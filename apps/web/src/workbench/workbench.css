@@ -672,3 +672,62 @@
 .element-fullscreen > table {
   flex-shrink: 0;
 }
+
+/* Keep ordinary Markdown in the reading flow; reveal expansion only on overflow. */
+.rendered-code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.element-content {
+  min-width: 0;
+}
+.element-content > .auto-rich {
+  display: block;
+}
+.table-content {
+  max-width: 100%;
+  overflow: auto;
+}
+.inline-math,
+.math-content {
+  max-width: 100%;
+}
+.math-content {
+  display: inline-block;
+  vertical-align: middle;
+}
+.rich-fallback {
+  display: block;
+  max-height: 480px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.rendered-code.element-fullscreen .element-content,
+.rendered-code.element-fullscreen .auto-rich {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.rendered-code.element-fullscreen .diagram-frame {
+  flex: 1;
+  min-height: 0;
+}
+.element-fullscreen > .element-content,
+.element-fullscreen > .table-content {
+  flex: 1;
+  min-height: 0;
+}
+.element-fullscreen .element-content > pre {
+  max-height: none;
+  height: 100%;
+}
+.formatted-document .table-content > table {
+  display: table;
+  max-width: none;
+}
+.math-result {
+  /* Keep italic glyph overhang inside the scroll box. */
+  padding: 4px;
+}

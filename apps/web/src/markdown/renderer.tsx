@@ -4,6 +4,7 @@ import {
   lazy,
   Suspense,
   useContext,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -28,6 +29,7 @@ import {
   ElementFullscreenButton,
   useElementFullscreen,
 } from '../fullscreen.tsx';
+import { useContentOverflow } from './overflow.ts';
 const RichBlock = lazy(() => import('./rich-block.tsx'));
 export function textOf(node: ReactNode): string {
   return Children.toArray(node)
@@ -59,6 +61,49 @@ export function Copy({ value }: { value: string }) {
     </>
   );
 }
+function AutoRich({
+  source,
+  kind,
+  expanded = false,
+  overflow,
+}: {
+  source: string;
+  kind: 'mermaid' | 'math' | 'inline-math';
+  expanded?: boolean;
+  overflow?: (value: boolean) => void;
+}) {
+  const target = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    if (target.current) observer.observe(target.current);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <span ref={target} className="auto-rich">
+      {visible ? (
+        <Suspense fallback={<code>{source}</code>}>
+          <RichBlock
+            source={source}
+            kind={kind}
+            expanded={expanded}
+            onOverflow={overflow}
+          />
+        </Suspense>
+      ) : (
+        <code>{source}</code>
+      )}
+    </span>
+  );
+}
 function InlineMath({
   source,
   display = false,
@@ -66,36 +111,33 @@ function InlineMath({
   source: string;
   display?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const fullscreen = useElementFullscreen<HTMLSpanElement>();
+  const content = useRef<HTMLSpanElement>(null);
+  const overflow = useContentOverflow(content, fullscreen.active);
   return (
     <span
       ref={fullscreen.ref}
       className={`${display ? 'display-math' : 'inline-math'}${fullscreen.active ? ' element-fullscreen' : ''}`}
     >
-      {display && (
+      {(fullscreen.active || overflow) && (
         <span className="element-toolbar">
-          <span>{t('公式')}</span>
           <ElementFullscreenButton
             active={fullscreen.active}
             toggle={fullscreen.toggle}
           />
         </span>
       )}
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <code>{source}</code> {t('公式')}
-      </button>
-      {open && (
-        <Suspense fallback={source}>
-          <RichBlock source={source} kind={display ? 'math' : 'inline-math'} />
-        </Suspense>
-      )}
+      <span ref={content} className="math-content">
+        <AutoRich source={source} kind={display ? 'math' : 'inline-math'} />
+      </span>
     </span>
   );
 }
 function Table({ children }: { children: ReactNode }) {
   const fullscreen = useElementFullscreen<HTMLDivElement>();
   const root = useRef<HTMLTableElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const overflow = useContentOverflow(content, fullscreen.active);
   const [status, setStatus] = useState('');
   async function copy() {
     const value = Array.from(root.current?.rows || [], (row) =>
@@ -122,19 +164,25 @@ function Table({ children }: { children: ReactNode }) {
           {t('复制表格 TSV')}
         </button>
         <small role="status">{status}</small>
-        <ElementFullscreenButton
-          active={fullscreen.active}
-          toggle={fullscreen.toggle}
-        />
+        {(fullscreen.active || overflow) && (
+          <ElementFullscreenButton
+            active={fullscreen.active}
+            toggle={fullscreen.toggle}
+          />
+        )}
       </div>
-      <table ref={root}>{children}</table>
+      <div ref={content} className="table-content">
+        <table ref={root}>{children}</table>
+      </div>
     </div>
   );
 }
 function CodeBlock({ source, language }: { source: string; language: string }) {
   const fullscreen = useElementFullscreen<HTMLDivElement>();
   const [wrap, setWrap] = useState(false);
-  const [preview, setPreview] = useState(false);
+  const content = useRef<HTMLDivElement>(null);
+  const overflow = useContentOverflow(content, fullscreen.active);
+  const [diagramOverflow, setDiagramOverflow] = useState(false);
   const [highlight, setHighlight] = useState('');
   const special = language === 'mermaid' || language === 'math';
   async function colorize() {
@@ -153,77 +201,79 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
   return (
     <div
       ref={fullscreen.ref}
-      className={`code-block rich-code${fullscreen.active ? ' element-fullscreen' : ''}`}
+      data-language={language || 'text'}
+      className={`code-block rich-code${special ? ' rendered-code' : ''}${fullscreen.active ? ' element-fullscreen' : ''}`}
     >
-      <div className="code-toolbar">
-        <span>{language || 'text'}</span>
-        <ElementFullscreenButton
-          active={fullscreen.active}
-          toggle={fullscreen.toggle}
-        />
-        <Copy value={source} />
-        <button
-          type="button"
-          onClick={() =>
-            saveFile(
-              new Blob([source], { type: 'text/plain;charset=utf-8' }),
-              `code.${language === 'mermaid' ? 'mmd' : 'txt'}`,
-            )
-          }
-        >
-          {t('下载源码')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setWrap(!wrap)}
-          aria-pressed={wrap}
-        >
-          {t('折行')}
-        </button>
+      {(!special || fullscreen.active || overflow || diagramOverflow) && (
+        <div className="code-toolbar">
+          {!special && <span>{language || 'text'}</span>}
+          {(fullscreen.active || overflow || diagramOverflow) && (
+            <ElementFullscreenButton
+              active={fullscreen.active}
+              toggle={fullscreen.toggle}
+            />
+          )}
+          {!special && (
+            <>
+              <Copy value={source} />
+              <button
+                type="button"
+                onClick={() =>
+                  saveFile(
+                    new Blob([source], { type: 'text/plain;charset=utf-8' }),
+                    `code.${language === 'mermaid' ? 'mmd' : 'txt'}`,
+                  )
+                }
+              >
+                {t('下载源码')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setWrap(!wrap)}
+                aria-pressed={wrap}
+              >
+                {t('折行')}
+              </button>
+              {language && (
+                <button type="button" onClick={() => void colorize()}>
+                  {t('语法高亮')}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      <div ref={content} className="element-content">
         {special ? (
-          <button
-            type="button"
-            onClick={() => setPreview(!preview)}
-            aria-pressed={preview}
-          >
-            {preview ? t('源码') : t('格式化预览')}
-          </button>
-        ) : (
-          language && (
-            <button type="button" onClick={() => void colorize()}>
-              {t('语法高亮')}
-            </button>
-          )
-        )}
-      </div>
-      {preview && special ? (
-        <Suspense fallback={<pre>{source}</pre>}>
-          <RichBlock
+          <AutoRich
             source={source}
             kind={language}
             expanded={fullscreen.active}
+            overflow={setDiagramOverflow}
           />
-        </Suspense>
-      ) : (
-        <pre className={wrap ? 'code-wrap' : ''}>
-          {highlight ? (
-            <code dangerouslySetInnerHTML={{ __html: highlight }} />
-          ) : (
-            <code>
-              <FileText text={source} />
-            </code>
-          )}
-        </pre>
-      )}
+        ) : (
+          <pre className={wrap ? 'code-wrap' : ''}>
+            {highlight ? (
+              <code dangerouslySetInnerHTML={{ __html: highlight }} />
+            ) : (
+              <code>
+                <FileText text={source} />
+              </code>
+            )}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
 export function MarkdownRenderer({
   text,
   scope: suppliedScope,
+  tools = false,
 }: {
   text: string;
   scope?: string;
+  tools?: boolean;
 }) {
   const generated = useId().replace(/[^a-z0-9]/gi, '');
   const scope = suppliedScope || `md-${generated}`;
@@ -294,32 +344,37 @@ export function MarkdownRenderer({
 
   return (
     <div className="formatted-document" ref={root}>
-      <div className="document-tools">
-        <button
-          type="button"
-          onClick={() => setSource(!source)}
-          aria-pressed={source}
-        >
-          {source ? t('格式化预览') : t('源码')}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setHeadings(
-              Array.from(
-                root.current?.querySelectorAll<HTMLElement>(
-                  `[id^="${scope}-heading-"]`,
-                ) || [],
-              ).map((node) => ({ title: node.textContent || '', id: node.id })),
-            );
-            setToc(!toc);
-          }}
-          aria-expanded={toc}
-        >
-          {t('目录')}
-        </button>
-        <Copy value={text} />
-      </div>
+      {tools && (
+        <div className="document-tools">
+          <button
+            type="button"
+            onClick={() => setSource(!source)}
+            aria-pressed={source}
+          >
+            {source ? t('格式化预览') : t('源码')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setHeadings(
+                Array.from(
+                  root.current?.querySelectorAll<HTMLElement>(
+                    `[id^="${scope}-heading-"]`,
+                  ) || [],
+                ).map((node) => ({
+                  title: node.textContent || '',
+                  id: node.id,
+                })),
+              );
+              setToc(!toc);
+            }}
+            aria-expanded={toc}
+          >
+            {t('目录')}
+          </button>
+          <Copy value={text} />
+        </div>
+      )}
       {source ? (
         <pre className="source-view">{text}</pre>
       ) : (

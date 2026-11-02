@@ -62,7 +62,7 @@ export function FilePreview() {
         <p role="status">{t('正在读取…')}</p>
       ) : fileType(path).kind === 'markdown' ? (
         <article className="markdown file-preview-document">
-          <MarkdownRenderer text={text} />
+          <MarkdownRenderer text={text} tools />
         </article>
       ) : (
         <pre className="file-preview-text">{text}</pre>

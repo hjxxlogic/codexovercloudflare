@@ -7,7 +7,16 @@
     <link rel="stylesheet" href="./diagram.css" />
   </head>
   <body>
-    <div id="diagram" role="img" aria-label="Diagram"></div>
+    <nav id="diagram-tools" aria-label="图表操作">
+      <button type="button" id="zoom-out">缩小</button>
+      <output id="zoom-level" aria-label="缩放比例">100%</output>
+      <button type="button" id="zoom-in">放大</button>
+      <button type="button" id="zoom-fit">适应窗口</button>
+      <button type="button" id="zoom-reset">100%</button>
+    </nav>
+    <div id="diagram-viewport" tabindex="0" aria-label="可缩放图表">
+      <div id="diagram" role="img" aria-label="Diagram"></div>
+    </div>
     <script src="./diagram-engine.js"></script>
     <script src="./diagram.js"></script>
   </body>

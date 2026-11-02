@@ -680,4 +680,6 @@ CW 遇到 PROJECT_READ_ONLY 停止自动控制重试，展示历史和显式获�
 
 OpenAI 风格的 `\(...\)` / `\[...\]` 由 micromark 文本扩展在 Markdown 转义及强调解析之前识别，代码和链接目标由原解析器隔离。公式节点仍进入统一的受限 KaTeX 按需预览；块公式以短语节点配合块级样式显示，兼容闭合分隔符后紧接正文，不在 paragraph 内插入非法的 div / pre。
 
-表格 / 代码块 / 块公式使用局部元素全屏状态，原预览状态与 DOM 保留。Mermaid frame 只接收经验证的主题和布局布尔值；沙箱内部的 Esc 消息必须匹配该 frame 的 contentWindow，且该 frame 属于当前全屏栈顶元素后才可退出。
+表格 / 代码块 / 块公式使用局部元素全屏状态，原预览状态与 DOM 保留。Mermaid frame 只接收经验证的主题、布局布尔值及白名单语言；沙箱内部的 Esc 消息必须匹配该 frame 的 contentWindow，且该 frame 属于当前全屏栈顶元素后才可退出。
+
+Markdown 的工具栏由调用方显式启用，仅文件预览启用；对话默认纯阅读。AutoRich 用 IntersectionObserver 延后离屏块，120 ms 去抖后自动调用受限渲染器。ResizeObserver / MutationObserver / FontFaceSet 事件检测内容溢出，内嵌全屏入口按需出现。Mermaid 沙箱尺寸消息必须来自对应 frame 且为有限正数，父页面仅据此限制 iframe 高度及全屏入口；全屏缩放、平移和键盘操作均留在沙箱，不传递业务请求。
