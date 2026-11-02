@@ -1,0 +1,77 @@
+{
+  "commit": "d676c1353ab6434d2571a4a9a49a05cbf3af0d1f",
+  "deploymentToolCommit": "d676c1353ab6434d2571a4a9a49a05cbf3af0d1f",
+  "localBuild": true,
+  "ciVerified": false,
+  "cloudOnlyAfterWindowsFailure": false,
+  "run": null,
+  "jobs": [],
+  "artifacts": [
+    {
+      "name": "site/_headers",
+      "digest": "sha256:47eafe1b86e64e19780f54f9357b13606ea69a87629002ef7cb147a3c3c55eed"
+    },
+    {
+      "name": "site/assets/index-Cmgp7R_d.js",
+      "digest": "sha256:69374605dd8d2e36615cb0682c44027f7767c8043013d17657b1f7dea185e39a"
+    },
+    {
+      "name": "site/assets/index-DdWY9-46.css",
+      "digest": "sha256:fad97aa9847b26186fd522816012c03d4776badd741381dbab7214fe1f55a5d0"
+    },
+    {
+      "name": "site/index.html",
+      "digest": "sha256:dbcc4cf90b02f15eb92131d0b7ab665a477a08218230588329d068c8082a229b"
+    },
+    {
+      "name": "worker/README.md",
+      "digest": "sha256:c50964d0a238b3812b55ea2c617489bbe220183dcfa5070879a96a1221f92911"
+    },
+    {
+      "name": "worker/deploy-config.jsonc",
+      "digest": "sha256:402193cdc3c23bdff45adc2510dc1a44d7ed534f60c9a8c1e29b50c29b7d06dd"
+    },
+    {
+      "name": "worker/index.js",
+      "digest": "sha256:44f70101c8eb76f849c31e883ce9ad5073722e3971d6c250f5b203e1496bf69c"
+    },
+    {
+      "name": "worker/index.js.map",
+      "digest": "sha256:a72c881a7c9dda3624e84a3c4b8e5af2dabfc3676cfd8f187888ab37cf120944"
+    },
+    {
+      "name": "worker/state-migrations/0001_relay_state.sql",
+      "digest": "sha256:be0f99f2d3194c1200ba5b715a5f2262fce61da4e55600980314ed3286134ca7"
+    }
+  ],
+  "sourceDigest": "c050b3886f456a3e0a56179115063aeed7edac6c1a71c252653cf582fd9ed494",
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.6.0",
+    "commit": "4b164c62fe93581903d5ead53d367c4675a74360",
+    "sourceDigest": "aba6d32edc08bba9c41e5fc6064a3128672294692f10a0be95fdf80eb6a9d761",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.0-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.0-linux-x86_64-musl.tar.gz",
+      "coc-0.6.0-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.0-windows-x64.zip",
+      "codex-over-cloudflare-0.6.0-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": null,
+  "applied": true,
+  "stateDatabase": "3120cc4f-de73-43b2-b2c0-26c3626b6f76",
+  "stateSchemaApplied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.1",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  }
+}
