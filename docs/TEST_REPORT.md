@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+已验证分块缓存批次：Agent 构建通过；历史预算专项 14.62 秒、引用专项 0.14 秒通过，最终来源/回收专项 3.31 秒通过；20 项共享配置用例、TypeScript 类型检查和定向 ESLint 通过。覆盖新鲜源验证要求、删除故障事务回滚、活动预留与未验证正文固定、计量退款、原引用稳定、有序分块回收及淘汰后的迟到 delta。真实 Agent 使用 `cacheMaxBytes: 0` 自动准备凭据并自动删除测试 chunks（不再由测试脚本删除），history/events 保留，原引用回源、Unicode 页、来源替换与并发背压继续通过。日志 `/tmp/coc-history-cache-verified-test.log`、`/tmp/coc-history-cache-final2-{build,test,agent-test}.log`、`/tmp/coc-history-cache-{policy-test,typecheck}.log`。未覆盖全量旧库空间效果；内联正文及事件日志仍保留，真实 Codex/线上浏览器最终验收和全量回归尚未执行。
+
 自动准备恢复凭据批次：Agent 构建通过，最终来源专项 3.22 秒通过；覆盖 128 行扫描边界、跨批次与绕回、运行中及活动预留跳过、原候选修订变化拒绝。真实 Agent 测试改为未登记状态启动，等待现有 30 秒维护周期自动准备，再删除隔离测试 chunks，原引用回源、Unicode 页、来源替换与并发背压检查通过；没有人工注入恢复元数据。定向 ESLint 与 TypeScript 类型检查通过。日志 `/tmp/coc-history-prepare-final-{build,test,agent-test}.log`、`/tmp/coc-history-prepare-typecheck.log`。仅使用确定性只读 Codex peer，无模型调用或正式库修改；缓存自动淘汰、真实 Codex/线上浏览器最终验收及全量回归尚未完成。
 
 Agent 正文回源批次：Agent 构建通过，历史预算专项 13.72 秒、来源恢复专项 2.80 秒通过，TypeScript 配置共享用例 17 项通过。新增真实 Agent 隔离测试 `tests/native-history-recovery.ts` 通过：先用 C++ Store 登记精确恢复凭据，再移除测试库 chunks，经 Agent 内容接口返回原正文；核对 Unicode 页、错误摘要、来源文件替换拒绝、并发 BACKPRESSURE 与错误后名额释放。夹具只处理只读 RPC，不调用模型。日志 `/tmp/coc-recovery-{route-build,route-test,agent-test,policy-test}.log`。自动凭据准备、缓存回收及真实 Codex/线上浏览器最终验收仍未完成；未运行全量回归或部署。

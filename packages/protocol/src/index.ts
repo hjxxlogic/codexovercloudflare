@@ -119,6 +119,19 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
 ]);
 export const historyStorageSchema = z
   .object({
+    cacheMaxBytes: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
+    cacheMaxSessionBytes: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
+    cacheTargetPercent: z.number().int().min(1).max(100).default(80),
     readPageMaxBytes: z.number().int().min(1).max(1048576).default(1048576),
     readConcurrency: z.number().int().min(1).max(4).default(2),
     maxBytes: z
@@ -164,6 +177,24 @@ export const historyStorageSchema = z
       value.maxSessionBytes <= value.maxBytes &&
       value.maxSessionRecords <= value.maxRecords,
     'Session history limits exceed global limits',
+  )
+  .transform((value) => {
+    const cacheMaxBytes =
+      value.cacheMaxBytes ?? Math.min(67108864, value.maxBytes);
+    return {
+      ...value,
+      cacheMaxBytes,
+      cacheMaxSessionBytes:
+        value.cacheMaxSessionBytes ??
+        Math.min(16777216, value.maxSessionBytes, cacheMaxBytes),
+    };
+  })
+  .refine(
+    (value) =>
+      value.cacheMaxBytes <= value.maxBytes &&
+      value.cacheMaxSessionBytes <= value.maxSessionBytes &&
+      value.cacheMaxSessionBytes <= value.cacheMaxBytes,
+    'Invalid history cache limits',
   );
 export const agentConfigSchema = z.object({
   relayUrl: z.string().url().default('https://r.xlogic.cc'),

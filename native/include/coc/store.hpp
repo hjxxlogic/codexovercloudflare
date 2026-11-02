@@ -65,6 +65,7 @@ public:
   Json history_hint(const Json &request);
   Json history_budget();
   Json history_compact();
+  Json history_cache_compact(const Json &verified = nullptr);
   Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
                                const Json &entry, const Json &expected = nullptr);
   Json history_source(const std::string &session, int64_t seq, const Json &origin);

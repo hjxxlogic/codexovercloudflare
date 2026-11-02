@@ -294,15 +294,30 @@ Json history_storage_config(Json value) {
   Json defaults = {{"maxBytes", 268435456},       {"maxSessionBytes", 67108864},
                    {"maxRecords", 250000},        {"maxSessionRecords", 64000},
                    {"maxSessions", 1024},         {"minFreeDiskBytes", 536870912},
-                   {"readPageMaxBytes", 1048576}, {"readConcurrency", 2}};
+                   {"readPageMaxBytes", 1048576}, {"readConcurrency", 2},
+                   {"cacheMaxBytes", 67108864},   {"cacheMaxSessionBytes", 16777216},
+                   {"cacheTargetPercent", 80}};
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "historyStorage must be an object");
   for (auto it = value.begin(); it != value.end(); ++it) {
-    if (!defaults.contains(it.key()) || !it.value().is_number_integer() || it.value() < 1 ||
+    if (!defaults.contains(it.key()) || !it.value().is_number_integer() ||
+        it.value() <
+            ((it.key() == "cacheMaxBytes" || it.key() == "cacheMaxSessionBytes") ? 0 : 1) ||
         it.value() > 9007199254740991LL)
       throw Error("CONFIG_ERROR", "Invalid historyStorage field: " + it.key());
     defaults[it.key()] = it.value();
   }
+  if (!value.contains("cacheMaxBytes"))
+    defaults["cacheMaxBytes"] = std::min(int64_t(67108864), defaults.at("maxBytes").get<int64_t>());
+  if (!value.contains("cacheMaxSessionBytes"))
+    defaults["cacheMaxSessionBytes"] =
+        std::min({int64_t(16777216), defaults.at("maxSessionBytes").get<int64_t>(),
+                  defaults.at("cacheMaxBytes").get<int64_t>()});
+  if (defaults["cacheMaxBytes"] > defaults["maxBytes"] ||
+      defaults["cacheMaxSessionBytes"] > defaults["maxSessionBytes"] ||
+      defaults["cacheMaxSessionBytes"] > defaults["cacheMaxBytes"] ||
+      defaults["cacheTargetPercent"] > 100)
+    throw Error("CONFIG_ERROR", "Invalid history cache limits");
   if (defaults["maxSessionBytes"] > defaults["maxBytes"] ||
       defaults["maxSessionRecords"] > defaults["maxRecords"])
     throw Error("CONFIG_ERROR", "Session history limits exceed global limits");

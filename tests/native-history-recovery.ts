@@ -70,6 +70,7 @@ try {
       codexPath: process.execPath,
       codexArgs: [resolve('tests/fixtures/history-source-peer.mjs')],
       historyStorage: {
+        cacheMaxBytes: 0,
         readConcurrency: 1,
         readPageMaxBytes: 4096,
         minFreeDiskBytes: 1,
@@ -103,7 +104,17 @@ try {
         ),
       45000,
     );
-    database.exec('DELETE FROM chunks');
+    await until(
+      () => database.prepare('SELECT COUNT(*) AS n FROM chunks').get()?.n === 0,
+    );
+    assert.equal(
+      database.prepare('SELECT COUNT(*) AS n FROM history').get()?.n,
+      1,
+    );
+    assert.equal(
+      database.prepare('SELECT COUNT(*) AS n FROM events').get()?.n,
+      1,
+    );
   } finally {
     database.close();
   }

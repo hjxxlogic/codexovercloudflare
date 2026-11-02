@@ -121,6 +121,15 @@ Json Store::history_source_register(const std::string &session, int64_t seq, con
         entry.at("completedAtMs") < 0 || entry.at("completedAtMs") > 9007199254740991LL ||
         entry.at("item").value("status", "") == "inProgress")
       throw Error("CONTENT_UNAVAILABLE", "History source item is not durably completed");
+    const auto existing_proof =
+        query("SELECT recovery FROM history WHERE seq=?", {seq}).at(0).at("recovery");
+    if (!existing_proof.is_null()) {
+      // A partially evicted body can still be verified from its immutable proof.
+      history_source_recover(session, seq, origin, entry);
+      const auto saved = history_source(session, seq, origin);
+      run(outer ? "COMMIT" : "RELEASE history_source_registration");
+      return saved;
+    }
     const auto size =
         query("SELECT COALESCE(b.bytes,length(CAST(COALESCE("
               "json_extract(h.value,'$.data.text'),json_extract(h.value,'$.data.delta'),"
@@ -235,7 +244,8 @@ Json Store::history_source_candidate() {
             "json_extract(h.value,'$.data.turnId') AS turnId,"
             "COALESCE(json_extract(h.value,'$.data.itemId'),json_extract(h.value,'$.data.item.id'))"
             " AS itemId,"
-            "h.recovery IS NULL AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
+            "(h.recovery IS NULL OR EXISTS(SELECT 1 FROM chunks WHERE seq=h.seq)) "
+            "AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
             "AND COALESCE((SELECT bytes FROM bodies WHERE seq=h.seq),length(CAST(h.value AS "
             "BLOB)))<=1048576 "
             "AND json_extract(h.value,'$.type')!='item/started' AND NOT EXISTS(SELECT 1 "

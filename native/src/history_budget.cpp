@@ -194,6 +194,71 @@ void Store::history_budget_init(bool authoritative) {
       limit("maxSessions") + " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
   run("INSERT OR IGNORE INTO transport2_history_meta VALUES(1)");
 }
+Json Store::history_cache_compact(const Json &verified) {
+  const auto policy = history_storage_config(history_policy_);
+  const int64_t global_max = policy.at("cacheMaxBytes"),
+                session_max = policy.at("cacheMaxSessionBytes");
+  const int64_t percent = policy.at("cacheTargetPercent");
+  run("BEGIN IMMEDIATE");
+  try {
+    // The existing ledger remains authoritative. Only verified, idle chunk
+    // copies are reclaimable; events, descriptors and delivery evidence stay.
+    const std::string eligible =
+        " FROM chunks c JOIN history h ON h.seq=c.seq JOIN sessions s ON s.id=h.session "
+        "JOIN transport2_history_entries e ON e.key='chunks:'||json_array(c.seq,c.start) "
+        "WHERE h.recovery IS NOT NULL AND s.source IS NOT NULL "
+        "AND COALESCE(json_extract(s.value,'$.running'),0)=0 AND NOT EXISTS "
+        "(SELECT 1 FROM transport2_history_entries WHERE key='reservation:'||h.session) ";
+    const auto usage =
+        query("SELECT h.session,SUM(e.bytes) AS bytes" + eligible + "GROUP BY h.session");
+    std::map<std::string, int64_t> bytes, targets;
+    Json pressured = Json::array();
+    int64_t total = 0;
+    for (const auto &row : usage) {
+      const std::string session = row.at("session");
+      const int64_t count = row.at("bytes");
+      bytes[session] = count;
+      total += count;
+      if (count > session_max) {
+        targets[session] = session_max * percent / 100;
+        pressured.push_back(session);
+      }
+    }
+    const bool global_pressure = total > global_max;
+    const auto global_target = global_pressure ? global_max * percent / 100 : total;
+    int64_t reclaimed = 0, records = 0;
+    if (!verified.is_null() && (global_pressure || !pressured.empty())) {
+      // Persisted proof alone is not fresh source evidence. The Agent supplies
+      // the item it just read through the source-bound read-only adapter.
+      history_source_register(verified.at("session"), verified.at("seq"), verified.at("origin"),
+                              verified.at("entry"));
+      const auto victims = query(
+          "SELECT c.seq,c.start,h.session,e.bytes" + eligible +
+              "AND (? OR h.session IN(SELECT value FROM json_each(?))) "
+              "AND c.seq=? AND h.session=? ORDER BY c.seq,c.start LIMIT 128",
+          {global_pressure ? 1 : 0, pressured.dump(), verified.at("seq"), verified.at("session")});
+      for (const auto &row : victims) {
+        const std::string session = row.at("session");
+        if (total <= global_target &&
+            (!targets.count(session) || bytes[session] <= targets.at(session)))
+          continue;
+        if (row.at("seq") != verified.at("seq") || row.at("session") != verified.at("session"))
+          continue; // Never reclaim a body without this read's fresh verification.
+        const int64_t cost = row.at("bytes");
+        run("DELETE FROM chunks WHERE seq=? AND start=?", {row.at("seq"), row.at("start")});
+        total -= cost;
+        bytes[session] -= cost;
+        reclaimed += cost;
+        ++records;
+      }
+    }
+    run("COMMIT");
+    return {{"reclaimedBytes", reclaimed}, {"reclaimedRecords", records}, {"cacheBytes", total}};
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
 // Reservations share the authoritative history ledger and its SQL quota checks.
 // Their charged bytes include bookkeeping overhead; no second credit pool exists.
 void Store::history_reserve(const std::string &session, int64_t bytes, int64_t records) {

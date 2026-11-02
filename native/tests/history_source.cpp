@@ -318,7 +318,7 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   const Json metadata = {
       {"id", "normal"}, {"createdAt", 1}, {"cwd", root.u8string()}, {"path", path.u8string()}};
   const auto origin = history_source_origin(metadata, home, root.u8string());
-  Store store((root / "state").u8string());
+  Store store((root / "state").u8string(), true, "", {{"cacheMaxBytes", 0}});
   const std::string session = "host~source";
   store.save({{"id", session},
               {"projectId", "project"},
@@ -348,10 +348,32 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   sqlite3 *db = nullptr;
   if (sqlite3_open((root / "state" / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
     throw std::runtime_error("Open recovery fixture");
-  const auto code = sqlite3_exec(db, "DELETE FROM chunks", nullptr, nullptr, nullptr);
+  const Json verified = {
+      {"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}};
+  const auto before = store.history_budget();
+  if (sqlite3_exec(db,
+                   "CREATE TRIGGER fail_cache BEFORE DELETE ON chunks "
+                   "BEGIN SELECT RAISE(ABORT,'injected cache failure'); END",
+                   nullptr, nullptr, nullptr) != SQLITE_OK)
+    throw std::runtime_error("Inject cache deletion failure");
+  rejects_source([&] { store.history_cache_compact(verified); }, "STORAGE_ERROR");
+  if (store.history_budget() != before ||
+      store.content(session, event.at("seq"), 0).at("text") != "你好🙂")
+    throw std::runtime_error("Failed cache eviction changed authoritative body or accounting");
+  if (sqlite3_exec(db, "DROP TRIGGER fail_cache", nullptr, nullptr, nullptr) != SQLITE_OK)
+    throw std::runtime_error("Remove cache fault");
   sqlite3_close(db);
-  if (code != SQLITE_OK)
-    throw std::runtime_error("Remove recovery fixture body");
+  store.history_reserve(session, 65536, 16);
+  if (store.history_cache_compact(verified).at("reclaimedRecords") != 0)
+    throw std::runtime_error("Cache eviction ignored active reservation");
+  store.history_release(session);
+  const auto reclaimed = store.history_cache_compact(verified);
+  if (reclaimed.at("reclaimedRecords") == 0 || reclaimed.at("cacheBytes") != 0 ||
+      store.history_budget().at("global").at("bytes").get<int64_t>() !=
+          before.at("global").at("bytes").get<int64_t>() -
+              reclaimed.at("reclaimedBytes").get<int64_t>() ||
+      store.history_reference(session, event.at("seq")) != reference)
+    throw std::runtime_error("Cache eviction did not refund bytes or preserve immutable reference");
   rejects_source([&] { store.history_content(session, reference, 0); }, "CONTENT_UNAVAILABLE");
   const auto page = store.history_recovered_content(session, reference, origin, entry, 1);
   if (page.at("text") != "好🙂" || page.at("nextOffset") != 3 || page.at("more") != false)
@@ -367,6 +389,13 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
                  "CONTENT_UNAVAILABLE");
   if (store.history_source_plan(session, event.at("seq")) != proof)
     throw std::runtime_error("Recovery plan changed after cache loss");
+  const auto late = store.event(session, "item/agentMessage/delta",
+                                {{"turnId", "turn"}, {"itemId", "ok"}, {"delta", "late"}});
+  if (late.at("seq") == event.at("seq") ||
+      store.content(session, late.at("seq"), 0).at("text") != "late" ||
+      store.history_reference(session, event.at("seq")) != reference ||
+      store.history_source_recover(session, event.at("seq"), origin, entry) != "你好🙂")
+    throw std::runtime_error("Late delta corrupted an evicted prefix or old immutable reference");
   return reference;
 }
 void candidate_scan_cases() {
@@ -406,6 +435,51 @@ void candidate_scan_cases() {
     found = !store.history_source_candidate().is_null() || found;
   if (!found)
     throw std::runtime_error("Idle history did not become eligible after cursor wrap");
+}
+void cache_fifo_cases() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-cache-fifo-" + uuid());
+  std::filesystem::create_directories(root);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  Store store((root / "state").u8string(), true, "",
+              {{"cacheMaxBytes", 3000}, {"cacheMaxSessionBytes", 3000}});
+  const std::string session = "host~fifo";
+  store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
+  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const auto fixed =
+      store.event(session, "item/agentMessage/delta",
+                  {{"turnId", "turn"}, {"itemId", "fixed"}, {"delta", "necessary body"}});
+  Json references = Json::array(), witnesses = Json::array();
+  for (int i = 0; i < 3; ++i) {
+    const auto item = "item" + std::to_string(i);
+    const auto event = store.event(session, "item/agentMessage/delta",
+                                   {{"turnId", "turn"}, {"itemId", item}, {"delta", "cache body"}});
+    const Json entry = {{"turnId", "turn"},
+                        {"completedAtMs", 1},
+                        {"item", {{"id", item}, {"type", "agentMessage"}, {"text", "cache body"}}}};
+    witnesses.push_back(
+        {{"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}});
+    references.push_back(
+        store.history_source_register(session, event.at("seq"), origin, entry).at("reference"));
+  }
+  if (store.history_cache_compact().at("reclaimedRecords") != 0)
+    throw std::runtime_error("Persisted proof bypassed fresh source verification");
+  const auto first = store.history_cache_compact(witnesses.at(0));
+  const auto result = store.history_cache_compact(witnesses.at(1));
+  if (first.at("reclaimedRecords") != 1 || result.at("reclaimedRecords") != 1 ||
+      result.at("cacheBytes") > 2400)
+    throw std::runtime_error("Cache did not trim oldest verified chunks to target");
+  for (int i = 0; i < 2; ++i)
+    rejects_source([&] { store.history_content(session, references.at(i), 0); },
+                   "CONTENT_UNAVAILABLE");
+  if (store.history_content(session, references.at(2), 0).at("text") != "cache body" ||
+      store.content(session, fixed.at("seq"), 0).at("text") != "necessary body")
+    throw std::runtime_error("FIFO evicted newest cache or unverified body");
+  for (const auto &reference : references)
+    if (store.history_reference(session, reference.at("seq")) != reference)
+      throw std::runtime_error("FIFO changed immutable history reference");
 }
 void recovered_page_cases() {
   const auto root = std::filesystem::temp_directory_path() / ("coc-recovered-page-" + uuid());
@@ -641,6 +715,7 @@ int main(int argc, char **argv) {
                 << '\n';
       return 0;
     }
+    cache_fifo_cases();
     candidate_scan_cases();
     recovered_page_cases();
     origin_cases();

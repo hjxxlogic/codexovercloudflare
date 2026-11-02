@@ -29,10 +29,23 @@ Json history_reference_descriptor(const Json &value) {
   return value;
 }
 Json Store::history_reference(const std::string &id, int64_t seq) {
-  const auto rows = query("SELECT revision FROM history WHERE session=? AND seq=?", {id, seq});
+  const auto rows =
+      query("SELECT revision,recovery FROM history WHERE session=? AND seq=?", {id, seq});
   if (rows.empty())
     throw Error("CONTENT_UNAVAILABLE", "Original history content is unavailable");
   const auto revision = rows.at(0).at("revision").get<int64_t>();
+  if (!rows.at(0).at("recovery").is_null()) {
+    const auto proof = Json::parse(rows.at(0).at("recovery").get<std::string>());
+    return history_reference_descriptor({{"type", "delivery-content"},
+                                         {"retention", "history"},
+                                         {"agentInstance", delivery_instance_},
+                                         {"sessionId", id},
+                                         {"seq", seq},
+                                         {"revision", revision},
+                                         {"length", proof.at("length")},
+                                         {"digest", proof.at("digest")},
+                                         {"contentId", proof.at("digest")}});
+  }
   std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> hash(EVP_MD_CTX_new(), EVP_MD_CTX_free);
   if (!hash || EVP_DigestInit_ex(hash.get(), EVP_sha256(), nullptr) != 1)
     throw Error("STORAGE_ERROR", "Cannot initialize history content digest");

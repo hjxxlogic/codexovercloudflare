@@ -1701,6 +1701,10 @@ public:
         store_.history_source_register(id, candidate.at("seq"), source.at("origin"),
                                        source.at("entry"), candidate);
         ++history_prepared_;
+        store_.history_cache_compact({{"session", id},
+                                      {"seq", candidate.at("seq")},
+                                      {"origin", source.at("origin")},
+                                      {"entry", source.at("entry")}});
       } catch (const std::exception &) {
         // Optional recovery metadata never authorizes retrying a business RPC.
         // Storage failures retain the Store's normal fail-closed callback.

@@ -83,11 +83,11 @@
     "valid": false
   },
   {
-    "name": "future cache",
+    "name": "zero cache",
     "input": {
       "cacheMaxBytes": 0
     },
-    "valid": false
+    "valid": true
   },
   {
     "name": "bounded recovery reads",
@@ -115,6 +115,28 @@
     "name": "zero recovery concurrency",
     "input": {
       "readConcurrency": 0
+    },
+    "valid": false
+  },
+  {
+    "name": "cache exceeds global",
+    "input": {
+      "cacheMaxBytes": 268435457
+    },
+    "valid": false
+  },
+  {
+    "name": "session cache exceeds global cache",
+    "input": {
+      "cacheMaxBytes": 1,
+      "cacheMaxSessionBytes": 2
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid target",
+    "input": {
+      "cacheTargetPercent": 101
     },
     "valid": false
   }

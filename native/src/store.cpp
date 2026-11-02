@@ -616,6 +616,17 @@ Json Store::project(const std::string &id, Json e) {
   auto previous = key.empty()
                       ? Json::array()
                       : query("SELECT seq FROM streams WHERE session=? AND key=?", {id, key});
+  if (!previous.empty() &&
+      !query("SELECT h.seq FROM history h JOIN bodies b ON b.seq=h.seq "
+             "WHERE h.seq=? AND h.recovery IS NOT NULL AND b.bytes!=COALESCE("
+             "(SELECT SUM(length(CAST(text AS BLOB))) FROM chunks WHERE seq=h.seq),0)",
+             {previous.at(0).at("seq")})
+           .empty()) {
+    // A late delta must not append into an evicted prefix. Start a new segment
+    // while retaining the original immutable reference and recovery proof.
+    run("DELETE FROM streams WHERE session=? AND key=?", {id, key});
+    previous = Json::array();
+  }
   if (!previous.empty()) {
     auto seq = previous[0]["seq"];
     auto body = query("SELECT size,bytes FROM bodies WHERE seq=?", {seq});
