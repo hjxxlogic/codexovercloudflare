@@ -1885,6 +1885,8 @@ public:
         check_busy(s);
       }
       auto before_send = [this, id, rt, m, guarded, method]() {
+        if (method == "turn/start" || method == "turn/steer")
+          reserve_history_turn(id, guarded.value("params", Json::object()));
         if (method == "turn/interrupt")
           store_.delivery_cancel(id, command_target(m.at("coc").at("target")));
         if (method == "turn/start") {
@@ -1952,6 +1954,14 @@ public:
             {{"code", -32001}, {"message", error_data(e)["message"]}, {"data", error_data(e)}}}});
     }
   }
+  void reserve_history_turn(const std::string &id, const Json &input) {
+    // Reserve the initial input projection and bounded output headroom before
+    // forwarding a side effect. This is not a promise of unlimited model output.
+    const auto encoded = input.dump().size();
+    if (encoded > max_frame)
+      throw Error("MESSAGE_TOO_LARGE", "Turn input exceeds history admission bound");
+    store_.history_reserve(id, 64 * 1024 + static_cast<int64_t>(encoded) * 4, 64);
+  }
   void on_codex(const std::string &id, const Json &m) {
     auto it = runtimes_.find(id);
     if (it == runtimes_.end())
@@ -1984,6 +1994,10 @@ public:
                                [](Json, Json) {});
       }
     }
+    const bool completed_active_turn =
+        method == "turn/completed" && s.contains("turnId") &&
+        m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==
+            s.at("turnId").get<std::string>();
     if (method == "turn/completed") {
       s["running"] = false;
       s.erase("turnId");
@@ -2051,6 +2065,10 @@ public:
         params["activeTask"] = s.at("activeTask");
       emit(id, method, params);
     }
+    // All final history and CC output above are durable before unused capacity
+    // can be retired. An unrelated/late terminal event cannot refund a new turn.
+    if (completed_active_turn)
+      store_.history_release(id);
   }
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {
     if (rt->busy || rt->commands.empty() || !runtimes_.count(id))
@@ -2210,6 +2228,7 @@ public:
             }
           },
           [this, id, rt, cmd, user_event]() {
+            reserve_history_turn(id, cmd);
             auto s = store_.get(id);
             s["running"] = true;
             const auto context = rt->deliveries.find(cmd.at("requestId").get<std::string>());

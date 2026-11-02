@@ -538,6 +538,15 @@ try {
         frame.payload?.event?.type === 'turn/started',
     ),
   );
+  const promisedHistory = database
+    .prepare('SELECT bytes,records FROM transport2_history_entries WHERE key=?')
+    .get('reservation:' + cancellable.id);
+  assert(
+    promisedHistory &&
+      Number(promisedHistory.bytes) > 0 &&
+      Number(promisedHistory.records) > 0,
+    'Running turn retains durable byte and record headroom',
+  );
   const runningSnapshot = await control('snapshot', {
     sessionId: cancellable.id,
     mode: 'web',
@@ -608,6 +617,15 @@ try {
     (await control('snapshot', { sessionId: cancellable.id, mode: 'web' }))
       .session.running,
     false,
+  );
+  assert.equal(
+    database
+      .prepare(
+        'SELECT COUNT(*) AS n FROM transport2_history_entries WHERE key=?',
+      )
+      .get('reservation:' + cancellable.id)?.n,
+    0,
+    'Matching completed turn releases unused headroom after durable final output',
   );
   assert(normalEnd > 0);
   const cli = await control('create', {
