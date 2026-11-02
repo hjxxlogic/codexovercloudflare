@@ -89,16 +89,23 @@ Json event_template(Json event, const std::string &projection) {
 }
 } // namespace
 Json Store::history_source_register(const std::string &session, int64_t seq, const Json &origin,
-                                    const Json &entry) {
+                                    const Json &entry, const Json &expected) {
   validate_origin(origin);
   const bool outer = sqlite3_get_autocommit(db_) != 0;
   run(outer ? "BEGIN IMMEDIATE" : "SAVEPOINT history_source_registration");
   try {
     const auto state = get(session);
+    if (state.value("running", false))
+      throw Error("BACKPRESSURE", "Running history cannot acquire optional recovery metadata");
     const auto rows =
         query("SELECT value,revision FROM history WHERE session=? AND seq=?", {session, seq});
     if (rows.empty() || !state.contains("threadId") || !state.contains("projectId"))
       throw Error("CONTENT_UNAVAILABLE", "History source has no original session association");
+    if (!expected.is_null() && (expected.at("session") != session || expected.at("seq") != seq ||
+                                expected.at("revision") != rows.at(0).at("revision") ||
+                                expected.at("threadId") != state.at("threadId") ||
+                                expected.at("projectId") != state.at("projectId")))
+      throw Error("CONTENT_UNAVAILABLE", "History changed while preparing recovery proof");
     const auto event = Json::parse(rows.at(0).at("value").get<std::string>());
     const auto &data = event.at("data");
     const auto turn = data.value("turnId", "");
@@ -218,6 +225,44 @@ Json Store::history_source(const std::string &session, int64_t seq, const Json &
                                                      {"digest", value.at("digest")},
                                                      {"contentId", value.at("digest")}});
   return value;
+}
+Json Store::history_source_candidate() {
+  // Scan a bounded slice of primary-key order, including ineligible rows. The
+  // cursor is only a scheduling hint: restarting or wrapping cannot lose proof.
+  const auto rows =
+      query("SELECT h.seq,h.revision,h.session,json_extract(s.value,'$.threadId') AS threadId,"
+            "json_extract(s.value,'$.projectId') AS projectId,s.source AS origin,"
+            "json_extract(h.value,'$.data.turnId') AS turnId,"
+            "COALESCE(json_extract(h.value,'$.data.itemId'),json_extract(h.value,'$.data.item.id'))"
+            " AS itemId,"
+            "h.recovery IS NULL AND COALESCE(json_extract(s.value,'$.running'),0)=0 "
+            "AND COALESCE((SELECT bytes FROM bodies WHERE seq=h.seq),length(CAST(h.value AS "
+            "BLOB)))<=1048576 "
+            "AND json_extract(h.value,'$.type')!='item/started' AND NOT EXISTS(SELECT 1 "
+            "FROM transport2_history_entries WHERE key='reservation:'||h.session) AS eligible "
+            "FROM history h LEFT JOIN sessions s ON s.id=h.session WHERE h.seq>? ORDER BY h.seq "
+            "LIMIT 128",
+            {history_prepare_seq_});
+  if (rows.empty()) {
+    history_prepare_seq_ = std::numeric_limits<int64_t>::min();
+    return nullptr;
+  }
+  for (auto row : rows) {
+    history_prepare_seq_ = row.at("seq");
+    if (row.at("eligible") != 1)
+      continue;
+    bool valid = true;
+    for (const auto *key : {"threadId", "projectId", "turnId", "itemId"})
+      valid = valid && row.at(key).is_string() && !row.at(key).get<std::string>().empty() &&
+              row.at(key).get<std::string>().size() <= 200;
+    if (!valid)
+      continue;
+    row.erase("eligible");
+    if (!row.at("origin").is_null())
+      row["origin"] = Json::parse(row.at("origin").get<std::string>());
+    return row;
+  }
+  return nullptr;
 }
 Json Store::history_source_plan(const std::string &session, int64_t seq) {
   const auto rows = query("SELECT source FROM sessions WHERE id=?", {session});

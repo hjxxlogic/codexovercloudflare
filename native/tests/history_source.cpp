@@ -310,7 +310,7 @@ void durable_source_cases() {
           "Optional mapping capacity refusal caused storage failure or growth");
   }
 }
-Json seed_reader(const std::filesystem::path &root) {
+Json seed_reader(const std::filesystem::path &root, bool prepared = true) {
   const auto home = root / ".codex";
   std::filesystem::create_directories(home);
   const auto path = home / "session.jsonl";
@@ -331,7 +331,19 @@ Json seed_reader(const std::filesystem::path &root) {
   const Json entry = {{"turnId", "turn"},
                       {"completedAtMs", 1},
                       {"item", {{"id", "ok"}, {"type", "agentMessage"}, {"text", "你好🙂"}}}};
-  const auto proof = store.history_source_register(session, event.at("seq"), origin, entry);
+  const auto candidate = store.history_source_candidate();
+  if (candidate.is_null() || candidate.at("seq") != event.at("seq") ||
+      candidate.at("threadId") != "normal" || candidate.at("itemId") != "ok")
+    throw std::runtime_error("Missing native-identity recovery candidate");
+  if (!prepared)
+    return store.history_reference(session, event.at("seq"));
+  auto obsolete = candidate;
+  obsolete["revision"] = -1;
+  rejects_source(
+      [&] { store.history_source_register(session, event.at("seq"), origin, entry, obsolete); },
+      "CONTENT_UNAVAILABLE");
+  const auto proof =
+      store.history_source_register(session, event.at("seq"), origin, entry, candidate);
   const auto reference = proof.at("reference");
   sqlite3 *db = nullptr;
   if (sqlite3_open((root / "state" / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
@@ -356,6 +368,44 @@ Json seed_reader(const std::filesystem::path &root) {
   if (store.history_source_plan(session, event.at("seq")) != proof)
     throw std::runtime_error("Recovery plan changed after cache loss");
   return reference;
+}
+void candidate_scan_cases() {
+  const auto root = std::filesystem::temp_directory_path() / ("coc-candidate-" + uuid());
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() { std::filesystem::remove_all(path); }
+  } cleanup{root};
+  Store store(root.u8string());
+  const std::string session = "host~candidate";
+  store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
+  for (int i = 0; i < 128; ++i)
+    store.event(session, "warning", {{"message", "not a source item"}});
+  const auto event = store.event(
+      session, "item/completed",
+      {{"turnId", "turn"}, {"item", {{"id", "item"}, {"type", "agentMessage"}, {"text", "body"}}}});
+  if (!store.history_source_candidate().is_null())
+    throw std::runtime_error("Candidate scan exceeded its bounded row slice");
+  const auto candidate = store.history_source_candidate();
+  if (candidate.is_null() || candidate.at("seq") != event.at("seq"))
+    throw std::runtime_error("Candidate scan lost its position across slices");
+  store.history_reserve(session, 65536, 16);
+  for (int i = 0; i < 4; ++i)
+    if (!store.history_source_candidate().is_null())
+      throw std::runtime_error("Candidate scan selected an active durable reservation");
+  store.history_release(session);
+  auto state = store.get(session);
+  state["running"] = true;
+  store.save(state);
+  for (int i = 0; i < 4; ++i)
+    if (!store.history_source_candidate().is_null())
+      throw std::runtime_error("Candidate scan selected a running session");
+  state["running"] = false;
+  store.save(state);
+  bool found = false;
+  for (int i = 0; i < 4; ++i)
+    found = !store.history_source_candidate().is_null() || found;
+  if (!found)
+    throw std::runtime_error("Idle history did not become eligible after cursor wrap");
 }
 void recovered_page_cases() {
   const auto root = std::filesystem::temp_directory_path() / ("coc-recovered-page-" + uuid());
@@ -583,10 +633,15 @@ void read_case(const std::string &thread, const std::string &item, size_t limit,
 } // namespace
 int main(int argc, char **argv) {
   try {
-    if (argc == 3 && std::string(argv[1]) == "--seed-reader") {
-      std::cout << seed_reader(std::filesystem::canonical(argv[2])).dump() << '\n';
+    if (argc == 3 &&
+        (std::string(argv[1]) == "--seed-reader" || std::string(argv[1]) == "--seed-unprepared")) {
+      std::cout << seed_reader(std::filesystem::canonical(argv[2]),
+                               std::string(argv[1]) == "--seed-reader")
+                       .dump()
+                << '\n';
       return 0;
     }
+    candidate_scan_cases();
     recovered_page_cases();
     origin_cases();
     durable_source_cases();

@@ -94,6 +94,7 @@ class Agent {
   bool listing_threads_ = false, negotiated_ = false;
   std::set<std::string> archive_loading_;
   size_t history_readers_ = 0;
+  uint64_t history_prepared_ = 0, history_prepare_skipped_ = 0;
   int attempts_ = 0;
 
 public:
@@ -1664,6 +1665,70 @@ public:
           done(nullptr, nullptr);
         });
   }
+  void prepare_history_source(int remaining = 8) {
+    if (stopped_ || !remaining || history_readers_ || !archive_loading_.empty())
+      return;
+    const auto candidate = store_.history_source_candidate();
+    if (candidate.is_null()) {
+      asio::post(io_, [this, remaining] { prepare_history_source(remaining - 1); });
+      return;
+    }
+    const std::string id = candidate.at("session");
+    std::string cwd;
+    std::filesystem::path home;
+    try {
+      cwd = project(candidate.at("projectId")).at("path");
+      home = history_source_home(cwd);
+    } catch (const std::exception &) {
+      ++history_prepare_skipped_;
+      asio::post(io_, [this, remaining] { prepare_history_source(remaining - 1); });
+      return;
+    }
+    auto process = std::make_shared<CodexProcess>(
+        io_, config_, cwd, [](Json) {}, [] {}, CodexProcessRole::reader);
+    auto finished = std::make_shared<bool>(false);
+    auto complete = [this, id, candidate, process, finished, remaining](Json source, Json error) {
+      if (*finished)
+        return;
+      *finished = true;
+      --history_readers_;
+      process->close();
+      if (stopped_)
+        return;
+      try {
+        if (!error.is_null())
+          throw Error(error.value("code", "CONTENT_UNAVAILABLE"), "Source preparation failed");
+        store_.history_source_register(id, candidate.at("seq"), source.at("origin"),
+                                       source.at("entry"), candidate);
+        ++history_prepared_;
+      } catch (const std::exception &) {
+        // Optional recovery metadata never authorizes retrying a business RPC.
+        // Storage failures retain the Store's normal fail-closed callback.
+        ++history_prepare_skipped_;
+      }
+      asio::post(io_, [this, remaining] { prepare_history_source(remaining - 1); });
+    };
+    ++history_readers_;
+    try {
+      process->start();
+      process->initialize([this, candidate, process, cwd, home, complete](Json, Json error) {
+        if (!error.is_null()) {
+          complete(nullptr, error);
+          return;
+        }
+        try {
+          read_history_source(process, home, candidate.at("threadId"), cwd, candidate.at("turnId"),
+                              candidate.at("itemId"),
+                              config_.at("historyStorage").at("readPageMaxBytes"), complete,
+                              candidate.at("origin"));
+        } catch (const std::exception &failure) {
+          complete(nullptr, error_data(failure));
+        }
+      });
+    } catch (const std::exception &failure) {
+      complete(nullptr, error_data(failure));
+    }
+  }
   void read_history_content(const std::string &id, const Json &query, Completion done) {
     const auto offset = query.value("offset", int64_t(0));
     try {
@@ -2635,6 +2700,8 @@ public:
                           {"runtimes", runtimes_.size()},
                           {"archiveReaders", archive_loading_.size()},
                           {"historyReaders", history_readers_},
+                          {"historyPrepared", history_prepared_},
+                          {"historyPreparationSkipped", history_prepare_skipped_},
                           {"approvals", approvals},
                           {"queuedCommands", commands},
                           {"fileRequests", file_requests_},
@@ -2655,6 +2722,7 @@ public:
         event_batches_ = event_count_ = 0;
         event_batch_max_us_ = 0;
         store_.cleanup();
+        prepare_history_source();
         if (!file_cleanup_pending_) {
           file_cleanup_pending_ = true;
           auto work = asio::make_work_guard(io_);

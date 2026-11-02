@@ -23,6 +23,7 @@ private:
   Json history_policy_;
   int64_t history_pack_seq_ = std::numeric_limits<int64_t>::min();
   int64_t history_pack_start_ = -1;
+  int64_t history_prepare_seq_ = std::numeric_limits<int64_t>::min();
   Lock lock_;
   sqlite3 *db_ = nullptr;
   std::string delivery_instance_;
@@ -65,8 +66,9 @@ public:
   Json history_budget();
   Json history_compact();
   Json history_source_register(const std::string &session, int64_t seq, const Json &origin,
-                               const Json &entry);
+                               const Json &entry, const Json &expected = nullptr);
   Json history_source(const std::string &session, int64_t seq, const Json &origin);
+  Json history_source_candidate();
   Json history_source_plan(const std::string &session, int64_t seq);
   Json history_recovered_content(const std::string &session, const Json &reference,
                                  const Json &origin, const Json &entry, int64_t offset);

@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer, type WebSocket } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-history-recovery-'));
 const server = createServer((_req, res) =>
@@ -37,8 +38,8 @@ sockets.on('connection', (ws) => {
     if (message.type === 'result') replies.set(message.requestId, message);
   });
 });
-async function until(predicate: () => boolean) {
-  const end = Date.now() + 15000;
+async function until(predicate: () => boolean, timeout = 15000) {
+  const end = Date.now() + timeout;
   while (!predicate()) {
     assert(Date.now() < end, 'Timed out: ' + output.slice(-1000));
     await new Promise((r) => setTimeout(r, 10));
@@ -50,7 +51,7 @@ let child: ReturnType<typeof spawn> | undefined;
 try {
   const seeded = spawnSync(
     executable('coc-history-source-tests'),
-    ['--seed-reader', root],
+    ['--seed-unprepared', root],
     { encoding: 'utf8' },
   );
   assert.equal(seeded.status, 0, seeded.stderr);
@@ -91,6 +92,21 @@ try {
     output += String(b);
   });
   await until(() => Boolean(peer));
+  const database = new DatabaseSync(join(root, 'state', 'agent.db'));
+  try {
+    await until(
+      () =>
+        Boolean(
+          database
+            .prepare('SELECT recovery FROM history WHERE seq=?')
+            .get(reference.seq)?.recovery,
+        ),
+      45000,
+    );
+    database.exec('DELETE FROM chunks');
+  } finally {
+    database.close();
+  }
   async function read(extra: Record<string, unknown> = {}) {
     const requestId = randomUUID();
     peer!.send(

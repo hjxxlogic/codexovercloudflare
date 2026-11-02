@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+自动准备恢复凭据批次：Agent 构建通过，最终来源专项 3.22 秒通过；覆盖 128 行扫描边界、跨批次与绕回、运行中及活动预留跳过、原候选修订变化拒绝。真实 Agent 测试改为未登记状态启动，等待现有 30 秒维护周期自动准备，再删除隔离测试 chunks，原引用回源、Unicode 页、来源替换与并发背压检查通过；没有人工注入恢复元数据。定向 ESLint 与 TypeScript 类型检查通过。日志 `/tmp/coc-history-prepare-final-{build,test,agent-test}.log`、`/tmp/coc-history-prepare-typecheck.log`。仅使用确定性只读 Codex peer，无模型调用或正式库修改；缓存自动淘汰、真实 Codex/线上浏览器最终验收及全量回归尚未完成。
+
 Agent 正文回源批次：Agent 构建通过，历史预算专项 13.72 秒、来源恢复专项 2.80 秒通过，TypeScript 配置共享用例 17 项通过。新增真实 Agent 隔离测试 `tests/native-history-recovery.ts` 通过：先用 C++ Store 登记精确恢复凭据，再移除测试库 chunks，经 Agent 内容接口返回原正文；核对 Unicode 页、错误摘要、来源文件替换拒绝、并发 BACKPRESSURE 与错误后名额释放。夹具只处理只读 RPC，不调用模型。日志 `/tmp/coc-recovery-{route-build,route-test,agent-test,policy-test}.log`。自动凭据准备、缓存回收及真实 Codex/线上浏览器最终验收仍未完成；未运行全量回归或部署。
 
 原生标识与内联恢复批次：Agent 构建通过，历史预算专项 13.71 秒、最终来源恢复专项 2.76 秒通过，原生交付专项通过。新库不存在独立来源映射表；同会话第二条恢复凭据不增加计量记录，新增计费不超过 256 字节，且不复制原生标识或事件模板。覆盖来源写入后凭据写入故障的整笔回滚、重启、重复登记、会话来源变更与退款、history 修订/替换/删除失效。原生请求恢复、精确取消、预留、输出信用和历史尾部恢复继续通过。日志 `/tmp/coc-inline-{build,test,source-test,delivery-test}.log`。旧 3367 条映射样本成本仅作为历史基线，尚未重新统计全样本新布局；未修改正式数据、启用淘汰或运行全量回归。
