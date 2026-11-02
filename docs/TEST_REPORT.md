@@ -204,3 +204,7 @@ Web 构建、类型及定向 lint 通过，日志 `/tmp/coc-history-ui-{build,te
 真实 Worker/Agent 集成还发现后台准备 reader 在共享配额已满时逃逸 BACKPRESSURE、退出 Agent。现只跳过该轮可选准备；新 Agent 复测已越过原失败点，日志记录准备跳过而原会话继续工作，完整集成尚待最终结果。更新 npm test:delivery 纳入 --retention，使 CI 常规交付组覆盖定时退休、过期与缺口，不只靠手工专项。
 
 运行清单及日志保存在 `.local/final-history-regression/`，失败首轮保留于 attempt-1/attempt-2，未覆盖或隐藏；旧 Agent 已退出的失败 e2e 仅终止其确认的隔离测试进程树后重跑。正式用户 Agent、配置与数据库未修改，未推送或部署。
+
+### 2026-11-02：0.6.1 首轮 CI Windows 夹具修复
+
+Actions 41417410092 的三套 Linux 与 sanitizers 通过；Windows 构建成功，但 native-history-source 首个用例因临时目录字符串未规范化，被来源校验拒绝。修正五处合成 origin 的 projectPath，统一使用已创建目录的 filesystem::canonical，与生产来源生成及原有持久来源夹具一致；不放宽生产路径、来源身份或权限检查。该失败运行不得用于发布，修复后以新提交的完整 CI 作为门禁。

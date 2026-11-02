@@ -505,7 +505,8 @@ void cache_fifo_cases() {
   const std::string session = "host~fifo";
   store.save(
       {{"id", session}, {"threadId", "thread"}, {"projectId", "project"}, {"external", true}});
-  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const Json origin = {{"environment", std::string(64, 'a')},
+                       {"projectPath", std::filesystem::canonical(root).u8string()}};
   const auto fixed =
       store.event(session, "item/agentMessage/delta",
                   {{"turnId", "turn"}, {"itemId", "fixed"}, {"delta", "necessary body"}});
@@ -551,7 +552,8 @@ void evicted_prefix_cases() {
   Store store((root / "state").u8string(), true, "", {{"cacheMaxBytes", 0}});
   const std::string session = "host~prefix", text(20000, 'x');
   store.save({{"id", session}, {"threadId", "thread"}, {"projectId", "project"}});
-  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const Json origin = {{"environment", std::string(64, 'a')},
+                       {"projectPath", std::filesystem::canonical(root).u8string()}};
   const auto event = store.event(session, "item/agentMessage/delta",
                                  {{"turnId", "turn"}, {"itemId", "item"}, {"delta", text}});
   const Json entry = {{"turnId", "turn"},
@@ -576,7 +578,8 @@ void over_limit_inline_cache_case() {
     ~Cleanup() { std::filesystem::remove_all(path); }
   } cleanup{root};
   const std::string session = "host~inline", text(6000, 'x');
-  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const Json origin = {{"environment", std::string(64, 'a')},
+                       {"projectPath", std::filesystem::canonical(root).u8string()}};
   const Json entry = {{"turnId", "turn"},
                       {"completedAtMs", 1},
                       {"item", {{"id", "item"}, {"type", "agentMessage"}, {"text", text}}}};
@@ -617,7 +620,8 @@ void bounded_recovery_metadata_case() {
   const auto dir = (root / "state").u8string();
   const std::string session = "host~metadata";
   const Json policy = {{"maxRecords", 64}, {"maxSessionRecords", 64}, {"cacheMaxBytes", 0}};
-  const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+  const Json origin = {{"environment", std::string(64, 'a')},
+                       {"projectPath", std::filesystem::canonical(root).u8string()}};
   Json witnesses = Json::array(), budget, history;
   bool rejected = false, failed_storage = false;
   {
@@ -689,7 +693,8 @@ void inline_cache_cases() {
     } cleanup{root};
     const auto dir = root / "state";
     const std::string session = "host~inline", text(6000, 'x');
-    const Json origin = {{"environment", std::string(64, 'a')}, {"projectPath", root.u8string()}};
+    const Json origin = {{"environment", std::string(64, 'a')},
+                         {"projectPath", std::filesystem::canonical(root).u8string()}};
     Json reference, entry, budget;
     std::string original_body;
     {
