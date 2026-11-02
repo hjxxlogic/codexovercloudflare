@@ -180,6 +180,53 @@ void inline_transition() {
   check(reopened.history_reference("host~inline", seq) == original,
         "Converted stream remains identical after restart");
 }
+void external_inline_transition() {
+  Temp temp;
+  Store store(temp.path);
+  const std::string session = "host~external-inline";
+  store.save({{"id", session}, {"external", true}});
+  Json item = {{"id", "answer"}, {"type", "agentMessage"}, {"text", std::string(5000, 'a')}};
+  const auto initial = store.external_item(session, "turn", item);
+  const auto seq = initial.at("seq");
+  const auto reference = store.history_reference(session, seq);
+  Database fixture(temp.path);
+  fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
+              "INSERT INTO assertion SELECT COUNT(*)=0 FROM chunks");
+  const auto before = store.history_budget();
+  check(store.external_item(session, "turn", item).is_null() && store.history_budget() == before,
+        "Inline external duplicate is still deduplicated");
+  item["text"] = std::string(20000, 'a');
+  fixture.sql("CREATE TRIGGER fail_external_transition BEFORE INSERT ON chunks "
+              "BEGIN SELECT RAISE(ABORT,'injected external transition failure'); END");
+  bool failed = false;
+  try {
+    store.external_item(session, "turn", item);
+  } catch (const Error &) {
+    failed = true;
+  }
+  check(failed && store.history_budget() == before &&
+            store.history_reference(session, seq) == reference,
+        "External conversion failure restores fingerprint, revision, body and accounting");
+  fixture.sql("DROP TRIGGER fail_external_transition");
+  check(store.external_item(session, "turn", item).at("seq") == seq,
+        "External growth keeps item identity");
+  fixture.sql(
+      "INSERT INTO assertion SELECT json_extract(value,'$.data.append')=1 AND "
+      "length(json_extract(value,'$.data.text'))=15000 FROM events ORDER BY seq DESC LIMIT 1");
+  item["text"] = "short";
+  const auto shrunk = store.external_item(session, "turn", item);
+  check(shrunk.at("seq") == seq && store.content(session, seq, 0).at("text") == "short",
+        "External replacement returns to a single inline copy");
+  fixture.sql("INSERT INTO assertion SELECT COUNT(*)=0 FROM chunks");
+  Json tool = {{"id", "tool"},
+               {"type", "commandExecution"},
+               {"status", "completed"},
+               {"aggregatedOutput", "output"},
+               {"command", "echo output"}};
+  const auto tool_event = store.external_item(session, "turn", tool);
+  check(store.content(session, tool_event.at("seq"), 0).at("text") == tool.dump(),
+        "Generic external inline body retains item JSON, not only command output");
+}
 void packed_deltas() {
   Temp temp;
   int64_t seq = 0, revision = 0;
@@ -544,6 +591,7 @@ int main() {
   try {
     legacy_packing();
     inline_transition();
+    external_inline_transition();
     packed_deltas();
     configurable_policy();
     durable_reservations();

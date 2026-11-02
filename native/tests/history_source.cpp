@@ -458,7 +458,7 @@ void cache_fifo_cases() {
     ~Cleanup() { std::filesystem::remove_all(path); }
   } cleanup{root};
   Store store((root / "state").u8string(), true, "",
-              {{"cacheMaxBytes", 3000}, {"cacheMaxSessionBytes", 3000}});
+              {{"cacheMaxBytes", 20000}, {"cacheMaxSessionBytes", 20000}});
   const std::string session = "host~fifo";
   store.save(
       {{"id", session}, {"threadId", "thread"}, {"projectId", "project"}, {"external", true}});
@@ -466,14 +466,15 @@ void cache_fifo_cases() {
   const auto fixed =
       store.event(session, "item/agentMessage/delta",
                   {{"turnId", "turn"}, {"itemId", "fixed"}, {"delta", "necessary body"}});
+  const std::string cache_body(13000, 'c');
   Json references = Json::array(), witnesses = Json::array();
   for (int i = 0; i < 3; ++i) {
     const auto item = "item" + std::to_string(i);
     const auto event = store.external_item(
-        session, "turn", {{"id", item}, {"type", "agentMessage"}, {"text", "cache body"}});
+        session, "turn", {{"id", item}, {"type", "agentMessage"}, {"text", cache_body}});
     const Json entry = {{"turnId", "turn"},
                         {"completedAtMs", 1},
-                        {"item", {{"id", item}, {"type", "agentMessage"}, {"text", "cache body"}}}};
+                        {"item", {{"id", item}, {"type", "agentMessage"}, {"text", cache_body}}}};
     witnesses.push_back(
         {{"session", session}, {"seq", event.at("seq")}, {"origin", origin}, {"entry", entry}});
     references.push_back(
@@ -484,12 +485,13 @@ void cache_fifo_cases() {
   const auto first = store.history_cache_compact(witnesses.at(0));
   const auto result = store.history_cache_compact(witnesses.at(1));
   if (first.at("reclaimedRecords") != 1 || result.at("reclaimedRecords") != 1 ||
-      result.at("cacheBytes") > 2400)
+      result.at("cacheBytes") > 16000)
     throw std::runtime_error("Cache did not trim oldest verified chunks to target");
   for (int i = 0; i < 2; ++i)
-    if (store.history_content(session, references.at(i), 0).at("text") != "cache body")
-      throw std::runtime_error("Evicting duplicate chunks lost intact inline content");
-  if (store.history_content(session, references.at(2), 0).at("text") != "cache body" ||
+    rejects_source([&] { store.history_content(session, references.at(i), 0); },
+                   "CONTENT_UNAVAILABLE");
+  if (store.history_content(session, references.at(2), 0).at("text") !=
+          cache_body.substr(0, 4096) ||
       store.content(session, fixed.at("seq"), 0).at("text") != "necessary body")
     throw std::runtime_error("FIFO evicted newest cache or unverified body");
   for (const auto &reference : references)

@@ -509,10 +509,42 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
   try {
     int64_t seq = existing.empty() ? 0 : existing[0]["seq"].get<int64_t>();
     std::string previous;
-    if (!existing.empty())
-      for (auto &part : query("SELECT text FROM chunks WHERE seq=? ORDER BY start", {seq}))
-        previous += part["text"].get<std::string>();
-    const bool append = !existing.empty() && text.compare(0, previous.size(), previous) == 0;
+    bool previous_available = false, previous_chunked = false;
+    if (!existing.empty()) {
+      const auto body = query("SELECT size,bytes FROM bodies WHERE seq=?", {seq});
+      int64_t characters = 0;
+      bool contiguous = true;
+      for (auto &part : query("SELECT start,text FROM chunks WHERE seq=? ORDER BY start", {seq})) {
+        previous_chunked = true;
+        contiguous = contiguous && part.at("start") == characters;
+        const auto text_part = part.at("text").get<std::string>();
+        previous += text_part;
+        for (unsigned char c : text_part)
+          if ((c & 0xc0) != 0x80)
+            ++characters;
+      }
+      previous_available = !body.empty() && contiguous &&
+                           body.at(0).at("bytes") == previous.size() &&
+                           body.at(0).at("size") == characters;
+      if (!previous_available && !body.empty() && body.at(0).at("bytes") <= 12000) {
+        previous.clear();
+        try {
+          for (int64_t offset = 0;;) {
+            const auto page = content(id, seq, offset);
+            previous += page.at("text").get<std::string>();
+            if (!page.at("more").get<bool>())
+              break;
+            offset = page.at("nextOffset");
+          }
+          previous_available = true;
+          previous_chunked = false;
+        } catch (const Error &error) {
+          if (error.code != "CONTENT_UNAVAILABLE")
+            throw;
+        }
+      }
+    }
+    const bool append = previous_available && text.compare(0, previous.size(), previous) == 0;
     Json raw = {{"type", "external/itemUpdate"},
                 {"time", now()},
                 {"data",
@@ -541,24 +573,13 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
     } else
       run("UPDATE external_items SET fingerprint=? WHERE session=? AND turn=? AND item=?",
           {fingerprint, id, turn, item_id});
-    if (!append) {
-      run("DELETE FROM chunks WHERE seq=?", {seq});
-      run("INSERT OR REPLACE INTO bodies VALUES(?,length(?),length(CAST(? AS BLOB)))",
-          {seq, text, text});
-      if (!text.empty())
-        run("INSERT INTO chunks VALUES(?,0,?)", {seq, text});
-    } else if (text.size() > previous.size()) {
-      auto suffix = text.substr(previous.size());
-      run("INSERT INTO chunks SELECT seq,size,? FROM bodies WHERE seq=?", {suffix, seq});
-      run("UPDATE bodies SET size=size+length(?),bytes=bytes+length(CAST(? AS BLOB)) WHERE seq=?",
-          {suffix, suffix, seq});
-    }
     Json event = {{"seq", seq},
                   {"revision", revision},
                   {"time", raw["time"]},
                   {"type", type},
                   {"data", data}};
-    if (event.dump().size() > 12000) {
+    const bool inline_body = event.dump().size() <= 12000;
+    if (!inline_body) {
       event["contentSeq"] = seq;
       event["data"] = {{"turnId", turn},
                        {"itemId", item_id},
@@ -567,8 +588,21 @@ Json Store::external_item(const std::string &id, const std::string &turn, Json i
         event["data"]["item"] = {
             {"id", item_id}, {"type", kind}, {"status", item.value("status", "")}};
     }
+    if (inline_body || !append || !previous_chunked)
+      run("DELETE FROM chunks WHERE seq=?", {seq});
     run("INSERT OR REPLACE INTO history(seq,session,value,revision) VALUES(?,?,?,?)",
         {seq, id, event.dump(), revision});
+    if (inline_body || !append || !previous_chunked) {
+      run("INSERT OR REPLACE INTO bodies VALUES(?,length(?),length(CAST(? AS BLOB)))",
+          {seq, text, text});
+      if (!inline_body && !text.empty())
+        run("INSERT INTO chunks VALUES(?,0,?)", {seq, text});
+    } else if (text.size() > previous.size()) {
+      const auto suffix = text.substr(previous.size());
+      run("INSERT INTO chunks SELECT seq,size,? FROM bodies WHERE seq=?", {suffix, seq});
+      run("UPDATE bodies SET size=size+length(?),bytes=bytes+length(CAST(? AS BLOB)) WHERE seq=?",
+          {suffix, suffix, seq});
+    }
     if (type == "user")
       run("UPDATE sessions SET "
           "value=json_set(value,'$.title',COALESCE(json_extract(value,'$.title'),substr(?,1,160))) "
@@ -821,12 +855,19 @@ Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t 
     if (characters != std::min(int64_t(4096), size - offset)) {
       // Chunk eviction must not make an intact local inline copy depend on
       // Codex availability. Validate its size and any durable recovery proof.
-      const auto local = query(
+      auto local = query(
           "SELECT COALESCE(json_extract(value,'$.data.text'),json_extract(value,'$.data.delta'),"
-          "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text FROM history "
+          "json_extract(value,'$.data.item.aggregatedOutput'),value) AS text,"
+          "CASE WHEN json_type(value,'$.data.item')='object' AND EXISTS(SELECT 1 FROM "
+          "external_items "
+          "WHERE session=history.session AND turn=json_extract(history.value,'$.data.turnId') "
+          "AND item=json_extract(history.value,'$.data.itemId') AND seq=history.seq) "
+          "THEN json_extract(value,'$.data.item') ELSE NULL END AS external_item FROM history "
           "WHERE session=? AND seq=? AND length(CAST(value AS "
           "BLOB))<=1048576",
           {id, seq});
+      if (!local.empty() && !local.at(0).at("external_item").is_null())
+        local[0]["text"] = Json::parse(local.at(0).at("external_item").get<std::string>()).dump();
       if (local.empty() || !local.at(0).at("text").is_string() ||
           local.at(0).at("text").get<std::string>().size() !=
               body.at(0).at("bytes").get<size_t>() ||
