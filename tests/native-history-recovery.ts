@@ -52,11 +52,13 @@ try {
   const seeded = spawnSync(
     executable('coc-history-source-tests'),
     [
-      process.argv.includes('--file')
-        ? '--seed-file'
-        : process.argv.includes('--inline')
-          ? '--seed-inline'
-          : '--seed-unprepared',
+      process.argv.includes('--file-started')
+        ? '--seed-file-started'
+        : process.argv.includes('--file')
+          ? '--seed-file'
+          : process.argv.includes('--inline')
+            ? '--seed-inline'
+            : '--seed-unprepared',
       root,
     ],
     { encoding: 'utf8' },
@@ -64,7 +66,10 @@ try {
   assert.equal(seeded.status, 0, seeded.stderr);
   const reference = JSON.parse(seeded.stdout);
   let fileBody: string | undefined;
-  if (process.argv.includes('--file')) {
+  if (
+    process.argv.includes('--file') ||
+    process.argv.includes('--file-started')
+  ) {
     const fixture = new DatabaseSync(join(root, 'state', 'agent.db'));
     fileBody = String(
       fixture

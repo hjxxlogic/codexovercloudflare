@@ -311,7 +311,7 @@ void durable_source_cases() {
   }
 }
 Json seed_reader(const std::filesystem::path &root, bool prepared = true, bool inline_body = false,
-                 bool file_body = false) {
+                 bool file_body = false, bool started = false) {
   const auto home = root / ".codex";
   std::filesystem::create_directories(home);
   const auto path = home / "session.jsonl";
@@ -339,13 +339,14 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true, bool i
   const Json patch = {
       {"id", item},
       {"type", "fileChange"},
-      {"status", "completed"},
+      {"status", started ? "inProgress" : "completed"},
       {"changes",
        Json::array({{{"path", "original.txt"}, {"kind", {{"type", "update"}}}, {"diff", body}}})}};
-  const auto event =
-      file_body ? store.event(session, "item/completed", {{"turnId", "turn"}, {"item", patch}})
-                : store.event(session, "item/agentMessage/delta",
-                              {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
+  const auto event = file_body
+                         ? store.event(session, started ? "item/started" : "item/completed",
+                                       {{"turnId", "turn"}, {"item", patch}})
+                         : store.event(session, "item/agentMessage/delta",
+                                       {{"turnId", "turn"}, {"itemId", item}, {"delta", body}});
   const Json entry = {{"turnId", "turn"},
                       {"completedAtMs", 1},
                       {"item", {{"id", item}, {"type", "agentMessage"}, {"text", body}}}};
@@ -460,6 +461,23 @@ void candidate_scan_cases() {
     found = !store.history_source_candidate().is_null() || found;
   if (!found)
     throw std::runtime_error("Idle history did not become eligible after cursor wrap");
+  const auto other_start = store.event(
+      session, "item/started",
+      {{"turnId", "turn"}, {"item", {{"id", "command"}, {"type", "commandExecution"}}}});
+  const auto file_start =
+      store.event(session, "item/started",
+                  {{"turnId", "turn"}, {"item", {{"id", "file"}, {"type", "fileChange"}}}});
+  bool found_file = false;
+  for (int i = 0; i < 8; ++i) {
+    const auto selected = store.history_source_candidate();
+    if (selected.is_null())
+      continue;
+    if (selected.at("seq") == other_start.at("seq"))
+      throw std::runtime_error("Unclassified start event selected for recovery preparation");
+    found_file = selected.at("seq") == file_start.at("seq") || found_file;
+  }
+  if (!found_file)
+    throw std::runtime_error("File-change start was skipped by automatic preparation");
 }
 void cache_fifo_cases() {
   const auto root = std::filesystem::temp_directory_path() / ("coc-cache-fifo-" + uuid());
@@ -963,11 +981,14 @@ int main(int argc, char **argv) {
   try {
     if (argc == 3 &&
         (std::string(argv[1]) == "--seed-reader" || std::string(argv[1]) == "--seed-unprepared" ||
-         std::string(argv[1]) == "--seed-inline" || std::string(argv[1]) == "--seed-file")) {
+         std::string(argv[1]) == "--seed-inline" || std::string(argv[1]) == "--seed-file" ||
+         std::string(argv[1]) == "--seed-file-started")) {
       std::cout << seed_reader(std::filesystem::canonical(argv[2]),
                                std::string(argv[1]) == "--seed-reader",
                                std::string(argv[1]) == "--seed-inline",
-                               std::string(argv[1]) == "--seed-file")
+                               std::string(argv[1]) == "--seed-file" ||
+                                   std::string(argv[1]) == "--seed-file-started",
+                               std::string(argv[1]) == "--seed-file-started")
                        .dump()
                 << '\n';
       return 0;

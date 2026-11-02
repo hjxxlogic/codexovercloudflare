@@ -6,6 +6,8 @@
 
 ## 历史优化阶段验证 · 2026-11-02（开发中）
 
+文件开始态后台接入：Agent/测试构建通过，来源专项 4.06 秒通过，类型检查和定向 ESLint 通过；真实 Agent 的 `npx tsx tests/native-history-recovery.ts --file-started` 自动准备、淘汰及原引用回源通过，覆盖 Unicode 多页、并发预算、来源替换拒绝。日志 `/tmp/coc-file-auto-{build,source,agent,typecheck,lint}.log`。另外真实 Codex 类型专项核验 4316 条候选，3407 条可恢复（1421 条实际回收、1986 条验证保留），909 条保留；净计费减少 4190908 字节，Store 重开复核与完整性通过。[完整类型矩阵](assets/history-storage-2026-11-02/source-type-coverage.json)。类型审计绕过后台候选调度，不能证明所有记录均会自动回收；缺少真实 MCP/plan/dynamicToolCall 样本，未运行最终浏览器/全量回归或修改正式数据库。
+
 文件开始态恢复：Agent/来源测试构建通过，`native-history-source` 4.09 秒通过，新增未完成源及 diff 变化拒绝。真实本机 Codex 只读核验 106 条文件变更，原先 40 条开始态仅状态不同；按原事件重建状态后，106 条均能登记、淘汰并按原引用/摘要恢复，Store 重开复核通过，两份隔离库完整性均通过。[脱敏前后证据](assets/history-storage-2026-11-02/file-change-recovery.json)。构建/专项日志 `/tmp/coc-file-start-{build,test,audit-build}.log`；私有审计工具及输入在 `.local/history-implementation/{structured-cache-audit,file-start-audit}/`。没有模型调用、正式库替换或全量回归；重开 Store 使用已读取源证据，不证明源进程重启后的恢复，亦不覆盖真实 MCP。
 
 结构化正文缓存：Agent/来源专项构建通过，最终 `native-history-source` 3.99 秒通过，类型检查及定向 ESLint 通过。新增普通和外部 fileChange/MCP 四类案例，验证原正文 JSON、引用、非正文元数据、退款、回滚、重启和源变化拒绝。真实本机 Agent 配合确定性 peer 的 `npx tsx tests/native-history-recovery.ts --file` 通过自动准备/淘汰、原引用 Unicode 多页读取、并发预算及来源替换拒绝。日志 `/tmp/coc-structured-cache-{build,final-build,final-source-test,agent-test,typecheck,lint}.log`。未使用真实 Codex 结构化历史作为该批集成来源，未执行全量回归或正式库迁移；真实来源及浏览器验收仍待完成。
