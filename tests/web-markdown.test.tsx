@@ -37,6 +37,39 @@ describe('shared Markdown rendering', () => {
     expect(html).toContain('<summary>More</summary>');
     expect(html).toContain('<details>');
   });
+  it('supports OpenAI TeX delimiters without parsing math as Markdown', () => {
+    const html = render(String.raw`\[
+L(b)=\ln\frac{P(b=0\mid y)}{P(b=1\mid y)}
+\] 本次没有覆盖的位置取 \(L_{i,\mathrm{new}}^{(t)}=0\)。`);
+    expect(html.match(/class="display-math"/g)).toHaveLength(1);
+    expect(html.match(/class="inline-math"/g)).toHaveLength(1);
+    expect(html).toContain(String.raw`L_{i,\mathrm{new}}^{(t)}=0`);
+    expect(html).toContain(String.raw`\ln\frac`);
+    expect(html).not.toContain('<em>');
+    expect(html).toContain('本次没有覆盖的位置取');
+    const aligned = render(
+      String.raw`\[\begin{aligned}a_i&amp;=1\\b_j&amp;=2\end{aligned}\]`,
+    );
+    expect(aligned).toContain('class="display-math"');
+    expect(aligned).toContain(String.raw`1\\b_j`);
+  });
+  it('preserves code, escaped delimiters and incomplete streamed formulas', () => {
+    const html = render(
+      'Inline code `\\(x_i\\)`.\n' +
+        String.raw`
+~~~text
+\[
+x_i
+\]
+~~~
+
+\\(literal\\) and \(incomplete and $100.`,
+    );
+    expect(html).not.toContain('class="inline-math"');
+    expect(html).not.toContain('class="display-math"');
+    expect(html).toContain('$100');
+    expect(html).toContain('incomplete');
+  });
   it('keeps code literals and incomplete extensions readable', () => {
     const html = render(
       '```text\n$code$\n[!NOTE]\n:::details Raw\n```\n\n:::details Incomplete',

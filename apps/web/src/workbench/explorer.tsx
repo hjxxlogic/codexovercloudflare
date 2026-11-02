@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { queryApi } from '../api.ts';
 import { t } from '../i18n.ts';
+import { FullscreenButton } from './fullscreen.tsx';
 export type Entry = { name: string; directory: boolean; size: number };
 export function Explorer({
   host,
@@ -60,6 +61,7 @@ export function Explorer({
     >
       <header className="pane-heading">
         <h2>{t('文件浏览器')}</h2>
+        <FullscreenButton pane="files" />
         <button onClick={close} aria-label={t('关闭文件浏览器')}>
           {t('关闭')}
         </button>

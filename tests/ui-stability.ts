@@ -64,6 +64,8 @@ let toolRevision = 90,
   toolReads = 0,
   historyPages = 0;
 let controlSyncCalls = 0;
+let probeCalls = 0;
+let hostNotificationConnections = 0;
 const submitted = new Set<string>();
 const promptCommands: { requestId: string; text: string; model?: string }[] =
   [];
@@ -281,9 +283,10 @@ const server = createServer((req, res) => {
         return;
       }
       body = { identity };
-    } else if (path === '/hosts/sample/probe')
+    } else if (path === '/hosts/sample/probe') {
+      probeCalls++;
       body = { online, confirmedAt: Date.now() };
-    else if (path === '/hosts/sample/projects') body = availableProjects;
+    } else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
@@ -371,13 +374,23 @@ const server = createServer((req, res) => {
   const root = resolve(process.env.COC_WEB_DIR || 'dist/web');
   const file = resolve(
     root,
-    '.' + (url.pathname === '/' ? '/index.html' : url.pathname),
+    '.' +
+      (url.pathname === '/'
+        ? '/index.html'
+        : url.pathname === '/diagram'
+          ? '/diagram.html'
+          : url.pathname),
   );
   if (!file.startsWith(root + '/')) {
     res.statusCode = 403;
     res.end();
     return;
   }
+  if (url.pathname === '/diagram')
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src data:; sandbox allow-scripts",
+    );
   try {
     res.setHeader(
       'Content-Type',
@@ -447,6 +460,7 @@ wss.on('connection', (ws, request) => {
     request.url?.split('?')[0] === '/ws/v1/admin' ||
     request.url?.startsWith('/ws/v1/hosts/')
   ) {
+    if (request.url?.startsWith('/ws/v1/hosts/')) hostNotificationConnections++;
     ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
     ws.on('close', () => sockets.delete(ws));
     return;
@@ -882,6 +896,8 @@ try {
   }
   let languageAttachCalls = attachCalls;
   const beforeControlSync = controlSyncCalls;
+  const beforeProbe = probeCalls;
+  const beforeNotifications = hostNotificationConnections;
   // Persist a message without delivering a live notification on either channel.
   events.push({
     seq: 8,
@@ -908,6 +924,16 @@ try {
     attachCalls,
     languageAttachCalls,
     'manual refresh preserves the active controller',
+  );
+  assert.equal(
+    probeCalls,
+    beforeProbe,
+    'fresh session snapshot replaces redundant probe',
+  );
+  assert.equal(
+    hostNotificationConnections,
+    beforeNotifications,
+    'healthy notification socket survives refresh',
   );
   // A request error during a live conversation is not a logout signal.
   for (const error of [
@@ -1235,7 +1261,7 @@ try {
     });
   }
   const markdown =
-    '# Rendered report\n\n| Result | Value |\n| --- | --- |\n| Status | OK |\n\n```js\nconst safe = true;\n```\n\n<script>window.previewUnsafe = true</script>\n[bad](javascript:alert(1))';
+    '# Rendered report\n\n| Result | Value |\n| --- | --- |\n| Status | OK |\n\n```js\nconst safe = true;\n```\n\n```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```\n\n<script>window.previewUnsafe = true</script>\n[bad](javascript:alert(1))';
   const plain =
     '<script>window.previewUnsafe = true</script>\n正文 <img src=x onerror=alert(1)>';
   previewFiles.set('docs/report.md', Buffer.from(markdown));
@@ -1289,6 +1315,50 @@ try {
   );
   assert(savedWidth > sidebarBefore + 64);
 
+  async function enterFullscreen(selector: string) {
+    const pane = page.locator(selector);
+    await pane
+      .locator('.pane-heading')
+      .getByRole('button', { name: '全屏', exact: true })
+      .click();
+    await expect(
+      pane.getByRole('button', { name: '退出全屏', exact: true }),
+    ).toBeFocused();
+    await expect
+      .poll(async () => {
+        const box = (await pane.boundingBox())!;
+        const viewport = page.viewportSize()!;
+        return (
+          Math.abs(box.x) +
+          Math.abs(box.y) +
+          Math.abs(box.width - viewport.width) +
+          Math.abs(box.height - viewport.height)
+        );
+      })
+      .toBeLessThan(2);
+    await expect(pane.locator(':scope > .pane-resizer')).not.toBeVisible();
+    assert(
+      await page
+        .getByRole('button', { name: '刷新状态', exact: true })
+        .evaluate((node) => !!node.closest('[inert]')),
+      'background is inert',
+    );
+  }
+  await page.getByLabel('筛选已加载项').fill('report');
+  await enterFullscreen('.workbench-sidebar');
+  await page.keyboard.press('Escape');
+  await expect(
+    page
+      .locator('.workbench-sidebar')
+      .getByRole('button', { name: '全屏', exact: true }),
+  ).toBeFocused();
+  await expect(page.getByLabel('筛选已加载项')).toHaveValue('report');
+  assert.equal(
+    (await page.locator('.workbench-sidebar').boundingBox())!.width,
+    savedWidth,
+  );
+  // Opening a file from fullscreen returns to the split view.
+  await enterFullscreen('.workbench-sidebar');
   await page
     .getByRole('button', { name: /report.md.*KiB|report.md.*B/ })
     .click();
@@ -1297,10 +1367,74 @@ try {
     sidePreview.getByRole('heading', { name: 'Rendered report' }),
   ).toBeVisible();
   await expect(sidePreview.locator('a[href^="javascript:"]')).toHaveCount(0);
+  const previewDiagram = sidePreview.locator('.rich-code').filter({
+    has: page.locator('.code-toolbar > span', { hasText: /^mermaid$/ }),
+  });
+  await previewDiagram.getByRole('button', { name: '格式化预览' }).click();
+  await expect(
+    previewDiagram.frameLocator('iframe').locator('html'),
+  ).toHaveAttribute('data-theme', 'light');
+  await expect(
+    previewDiagram.frameLocator('iframe').locator('svg'),
+  ).toBeVisible();
+  await page.getByLabel('主题', { exact: true }).selectOption('dark');
+  await expect(
+    previewDiagram.frameLocator('iframe').locator('html'),
+  ).toHaveAttribute('data-theme', 'dark');
+  await expect(
+    previewDiagram.frameLocator('iframe').locator('svg'),
+  ).toBeVisible();
+  await page.getByLabel('主题', { exact: true }).selectOption('light');
+  await expect(
+    previewDiagram.frameLocator('iframe').locator('html'),
+  ).toHaveAttribute('data-theme', 'light');
   const previewBefore = (await sidePreview.boundingBox())!.width;
   await dragPane('调整文件预览宽度', -64, 0);
   assert((await sidePreview.boundingBox())!.width > previewBefore + 50);
 
+  await expect(page.locator('.cw-workbench')).not.toHaveAttribute(
+    'data-fullscreen',
+  );
+  await enterFullscreen('.workbench-preview');
+  const nestedTable = sidePreview.locator('.table-scroll');
+  await nestedTable.getByRole('button', { name: '全屏', exact: true }).click();
+  await expect(nestedTable).toHaveClass(/element-fullscreen/);
+  assert.equal((await nestedTable.boundingBox())!.width, 1440);
+  await page.keyboard.press('Escape');
+  await expect(nestedTable).not.toHaveClass(/element-fullscreen/);
+  await expect(page.locator('.cw-workbench')).toHaveAttribute(
+    'data-fullscreen',
+    'preview',
+  );
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.cw-workbench')).not.toHaveAttribute(
+    'data-fullscreen',
+  );
+  assert.equal(
+    await page.locator('[inert]').count(),
+    0,
+    'nested exit restores background interactivity',
+  );
+  await sidePreview.getByLabel('本文件查找').fill('Status');
+  await enterFullscreen('.workbench-preview');
+  await page.screenshot({
+    path: join(artifacts, 'preview-fullscreen-desktop.png'),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileFullscreen = (await sidePreview.boundingBox())!;
+  assert.equal(mobileFullscreen.width, 390);
+  assert.equal(mobileFullscreen.height, 844);
+  await page.screenshot({
+    path: join(artifacts, 'preview-fullscreen-mobile.png'),
+  });
+  await sidePreview
+    .getByRole('button', { name: '退出全屏', exact: true })
+    .click();
+  await expect(sidePreview.getByLabel('本文件查找')).toHaveValue('Status');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(
+    page.getByRole('separator', { name: '调整文件预览宽度' }),
+  ).toBeVisible();
   await sidePreview.getByRole('button', { name: '引用到对话' }).click();
   await expect(page.getByLabel('任务内容')).toHaveValue('report.md');
   await page.getByLabel('任务内容').fill('');
@@ -1314,12 +1448,35 @@ try {
       outputBefore + 45,
   );
 
+  const restoredOutputHeight = (await page
+    .locator('.output-shell')
+    .boundingBox())!.height;
+  await enterFullscreen('.output-shell');
+  await page.keyboard.press('Escape');
+  assert.equal(
+    (await page.locator('.output-shell').boundingBox())!.height,
+    restoredOutputHeight,
+  );
   await page.screenshot({ path: join(artifacts, 'workbench-light-1440.png') });
   await page
     .locator('.command-output')
     .getByRole('button', { name: '收起' })
     .click();
+  await workbenchAction('Terminal');
+  await expect(page.locator('.interactive-terminal')).toBeVisible();
+  await enterFullscreen('.terminal-shell');
+  await page
+    .locator('.interactive-terminal')
+    .getByRole('button', { name: '收起', exact: true })
+    .click();
+  await expect(page.locator('.cw-workbench')).not.toHaveAttribute(
+    'data-fullscreen',
+  );
+  await expect(
+    page.getByRole('button', { name: '刷新状态', exact: true }),
+  ).toBeEnabled();
   await workbenchAction('文件浏览器');
+  await workbenchAction('外观');
   await page.getByLabel('主题', { exact: true }).selectOption('dark');
   await page.getByRole('button', { name: '快捷操作', exact: true }).click();
   const quick = page.getByRole('dialog', { name: '快捷操作', exact: true });
@@ -1376,7 +1533,7 @@ try {
         preview.getByRole('heading', { name: 'Rendered report' }),
       ).toBeVisible();
       await expect(preview.locator('table')).toHaveCount(1);
-      await expect(preview.locator('pre code')).toContainText(
+      await expect(preview.locator('pre code').first()).toContainText(
         'const safe = true;',
       );
       await expect(preview.locator('a[href^="javascript:"]')).toHaveCount(0);

@@ -6,6 +6,7 @@ import { api, queryApi, ApiError } from '../api.ts';
 import type { OperationClient } from '../operations.ts';
 import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import { t } from '../i18n.ts';
+import { FullscreenButton } from './fullscreen.tsx';
 type Props = {
   host: string;
   project: string;
@@ -270,6 +271,7 @@ export default function InteractiveTerminal({
     >
       <header className="pane-heading">
         <h2>Terminal · {connected ? t('已连接') : t('未连接')}</h2>
+        <FullscreenButton pane="terminal" />
         <button onClick={close}>{t('收起')}</button>
       </header>
       <p className="terminal-scope">

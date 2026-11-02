@@ -2305,6 +2305,35 @@ try {
     await expect(terminal.locator('.xterm-rows')).toContainText(
       'BROWSER_TERMINAL_OK',
     );
+    const splitTerminalHeight = (await terminal.boundingBox())!.height;
+    const terminalElement = await terminal.elementHandle();
+    await terminal.getByRole('button', { name: '全屏', exact: true }).click();
+    await expect(
+      terminal.getByRole('button', { name: '退出全屏', exact: true }),
+    ).toBeVisible();
+    assert.equal(
+      (await terminal.boundingBox())!.height,
+      visitorPage.viewportSize()!.height,
+    );
+    await expect(terminal.getByRole('heading')).toContainText('已连接');
+    await terminal.locator('.xterm-helper-textarea').focus();
+    await visitorPage.keyboard.type("printf 'FULLSCREEN_%s\\n' TERMINAL_OK");
+    await visitorPage.keyboard.press('Enter');
+    await expect(terminal.locator('.xterm-rows')).toContainText(
+      'FULLSCREEN_TERMINAL_OK',
+    );
+    await visitorPage.keyboard.press('Escape');
+    await expect(
+      terminal.getByRole('button', { name: '全屏', exact: true }),
+    ).toBeVisible();
+    assert.equal((await terminal.boundingBox())!.height, splitTerminalHeight);
+    assert(
+      await terminalElement!.evaluate(
+        (node) => node === document.querySelector('.interactive-terminal'),
+      ),
+      'fullscreen preserves terminal DOM',
+    );
+    await expect(terminal.getByRole('heading')).toContainText('已连接');
     const terminalViewport = visitorPage.viewportSize()!;
     await visitorPage.setViewportSize({ width: 390, height: 480 });
     await expect(

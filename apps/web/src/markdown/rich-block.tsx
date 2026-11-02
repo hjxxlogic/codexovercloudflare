@@ -1,26 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import { relayPath } from '../routes.ts';
 import { t } from '../i18n.ts';
+import { useResolvedTheme } from '../theme.ts';
+import { exitTopFullscreen } from '../fullscreen.tsx';
 
 // Expensive engines are loaded only after a user explicitly opens a block.
 export default function RichBlock({
   source,
   kind,
+  expanded = false,
 }: {
   source: string;
   kind: 'mermaid' | 'math' | 'inline-math';
+  expanded?: boolean;
 }) {
+  const theme = useResolvedTheme();
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
   const frame = useRef<HTMLIFrameElement>(null);
   const deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
+    frame.current?.contentWindow?.postMessage(
+      { type: 'cw-diagram-layout', expanded },
+      '*',
+    );
+  }, [expanded]);
+  useEffect(() => {
     const receive = (event: MessageEvent) => {
-      if (
-        event.source !== frame.current?.contentWindow ||
-        event.data?.type !== 'cw-diagram-result'
-      )
+      if (event.source !== frame.current?.contentWindow) return;
+      if (event.data?.type === 'cw-fullscreen-escape') {
+        if (frame.current) exitTopFullscreen(frame.current);
         return;
+      }
+      if (event.data?.type !== 'cw-diagram-result') return;
       clearTimeout(deadline.current);
       if (event.data.error) setError(t('图表无法渲染，请切回源码'));
     };
@@ -29,7 +41,7 @@ export default function RichBlock({
       window.removeEventListener('message', receive);
       clearTimeout(deadline.current);
     };
-  }, [source, kind]);
+  }, [source, kind, theme]);
   useEffect(() => {
     let active = true;
     setResult('');
@@ -65,12 +77,13 @@ export default function RichBlock({
     return () => {
       active = false;
     };
-  }, [source, kind]);
+  }, [source, kind, theme]);
   if (error) return <span role="status">{error}</span>;
   if (!result) return <span role="status">{t('正在读取…')}</span>;
   if (kind === 'mermaid')
     return (
       <iframe
+        key={JSON.stringify([source, theme])}
         ref={frame}
         title={t('Mermaid 图表')}
         sandbox="allow-scripts"
@@ -83,7 +96,7 @@ export default function RichBlock({
             2000,
           );
           frame.current?.contentWindow?.postMessage(
-            { type: 'cw-diagram', source },
+            { type: 'cw-diagram', source, theme, expanded },
             '*',
           );
         }}

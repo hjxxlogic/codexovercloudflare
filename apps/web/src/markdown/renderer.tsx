@@ -5,11 +5,12 @@ import {
   Suspense,
   useContext,
   useId,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import Markdown, { defaultUrlTransform } from 'react-markdown';
+import Markdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import {
@@ -22,6 +23,11 @@ import {
 import { t } from '../i18n.ts';
 import { saveFile } from '../download.ts';
 import { remarkStructure, remarkInlineMath } from './structure.ts';
+import { remarkOpenAiMath } from './openai-math.ts';
+import {
+  ElementFullscreenButton,
+  useElementFullscreen,
+} from '../fullscreen.tsx';
 const RichBlock = lazy(() => import('./rich-block.tsx'));
 export function textOf(node: ReactNode): string {
   return Children.toArray(node)
@@ -53,22 +59,42 @@ export function Copy({ value }: { value: string }) {
     </>
   );
 }
-function InlineMath({ source }: { source: string }) {
+function InlineMath({
+  source,
+  display = false,
+}: {
+  source: string;
+  display?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const fullscreen = useElementFullscreen<HTMLSpanElement>();
   return (
-    <span className="inline-math">
+    <span
+      ref={fullscreen.ref}
+      className={`${display ? 'display-math' : 'inline-math'}${fullscreen.active ? ' element-fullscreen' : ''}`}
+    >
+      {display && (
+        <span className="element-toolbar">
+          <span>{t('公式')}</span>
+          <ElementFullscreenButton
+            active={fullscreen.active}
+            toggle={fullscreen.toggle}
+          />
+        </span>
+      )}
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
         <code>{source}</code> {t('公式')}
       </button>
       {open && (
         <Suspense fallback={source}>
-          <RichBlock source={source} kind="inline-math" />
+          <RichBlock source={source} kind={display ? 'math' : 'inline-math'} />
         </Suspense>
       )}
     </span>
   );
 }
 function Table({ children }: { children: ReactNode }) {
+  const fullscreen = useElementFullscreen<HTMLDivElement>();
   const root = useRef<HTMLTableElement>(null);
   const [status, setStatus] = useState('');
   async function copy() {
@@ -86,16 +112,27 @@ function Table({ children }: { children: ReactNode }) {
     }
   }
   return (
-    <div className="table-scroll">
-      <button type="button" onClick={() => void copy()}>
-        {t('复制表格 TSV')}
-      </button>
-      <small role="status">{status}</small>
+    <div
+      ref={fullscreen.ref}
+      className={`table-scroll${fullscreen.active ? ' element-fullscreen' : ''}`}
+    >
+      <div className="element-toolbar">
+        <span>{t('表格')}</span>
+        <button type="button" onClick={() => void copy()}>
+          {t('复制表格 TSV')}
+        </button>
+        <small role="status">{status}</small>
+        <ElementFullscreenButton
+          active={fullscreen.active}
+          toggle={fullscreen.toggle}
+        />
+      </div>
       <table ref={root}>{children}</table>
     </div>
   );
 }
 function CodeBlock({ source, language }: { source: string; language: string }) {
+  const fullscreen = useElementFullscreen<HTMLDivElement>();
   const [wrap, setWrap] = useState(false);
   const [preview, setPreview] = useState(false);
   const [highlight, setHighlight] = useState('');
@@ -114,9 +151,16 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
       );
   }
   return (
-    <div className="code-block rich-code">
+    <div
+      ref={fullscreen.ref}
+      className={`code-block rich-code${fullscreen.active ? ' element-fullscreen' : ''}`}
+    >
       <div className="code-toolbar">
         <span>{language || 'text'}</span>
+        <ElementFullscreenButton
+          active={fullscreen.active}
+          toggle={fullscreen.toggle}
+        />
         <Copy value={source} />
         <button
           type="button"
@@ -154,7 +198,11 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
       </div>
       {preview && special ? (
         <Suspense fallback={<pre>{source}</pre>}>
-          <RichBlock source={source} kind={language} />
+          <RichBlock
+            source={source}
+            kind={language}
+            expanded={fullscreen.active}
+          />
         </Suspense>
       ) : (
         <pre className={wrap ? 'code-wrap' : ''}>
@@ -184,6 +232,66 @@ export function MarkdownRenderer({
   const [source, setSource] = useState(false);
   const [toc, setToc] = useState(false);
   const [headings, setHeadings] = useState<{ title: string; id: string }[]>([]);
+  // Stable renderer types preserve open previews across Workbench/theme renders.
+  const components = useMemo<Components>(
+    () => ({
+      pre: ({ children }) => {
+        const child = Children.toArray(children)[0];
+        const language = isValidElement<{ className?: string }>(child)
+          ? child.props.className?.match(/language-([^\s]+)/)?.[1] || ''
+          : '';
+        return (
+          <CodeBlock
+            key={textOf(children)}
+            source={textOf(children)}
+            language={language}
+          />
+        );
+      },
+      code: ({ children, className }) =>
+        className?.includes('math-inline') ||
+        className?.includes('math-display') ? (
+          <InlineMath
+            source={textOf(children)}
+            display={className.includes('math-display')}
+          />
+        ) : (
+          <code className={className}>
+            <FileText text={textOf(children)} />
+          </code>
+        ),
+      a: ({ href, children, node: _node, ...props }) =>
+        href?.startsWith('#') ? (
+          <a
+            {...props}
+            href={href}
+            onClick={(event) => {
+              event.preventDefault();
+              const target = root.current?.querySelector(
+                `[id="${CSS.escape(href.slice(1))}"]`,
+              );
+              target?.scrollIntoView({ block: 'nearest' });
+              if (target instanceof HTMLElement) {
+                target.tabIndex = -1;
+                target.focus({ preventScroll: true });
+              }
+            }}
+          >
+            {children}
+          </a>
+        ) : (
+          <FileLink href={href}>{children}</FileLink>
+        ),
+      img: ({ alt, src }) => (
+        <FileLink href={typeof src === 'string' ? src : undefined}>
+          {alt || t('图片')}
+        </FileLink>
+      ),
+      table: ({ children }) => <Table>{children}</Table>,
+    }),
+    [],
+  );
+
   return (
     <div className="formatted-document" ref={root}>
       <div className="document-tools">
@@ -219,6 +327,7 @@ export function MarkdownRenderer({
           remarkPlugins={[
             remarkGfm,
             [remarkMath, { singleDollarTextMath: false }],
+            remarkOpenAiMath,
             [remarkStructure, { scope }],
             remarkInlineMath,
             ...(context ? [remarkFileLinks] : []),
@@ -230,57 +339,7 @@ export function MarkdownRenderer({
               ? url
               : defaultUrlTransform(url)
           }
-          components={{
-            pre: ({ children }) => {
-              const child = Children.toArray(children)[0];
-              const language = isValidElement<{ className?: string }>(child)
-                ? child.props.className?.match(/language-([^\s]+)/)?.[1] || ''
-                : '';
-              return (
-                <CodeBlock
-                  key={textOf(children)}
-                  source={textOf(children)}
-                  language={language}
-                />
-              );
-            },
-            code: ({ children, className }) =>
-              className?.includes('math-inline') ? (
-                <InlineMath source={textOf(children)} />
-              ) : (
-                <code className={className}>
-                  <FileText text={textOf(children)} />
-                </code>
-              ),
-            a: ({ href, children, node: _node, ...props }) =>
-              href?.startsWith('#') ? (
-                <a
-                  {...props}
-                  href={href}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    const target = root.current?.querySelector(
-                      `[id="${CSS.escape(href.slice(1))}"]`,
-                    );
-                    target?.scrollIntoView({ block: 'nearest' });
-                    if (target instanceof HTMLElement) {
-                      target.tabIndex = -1;
-                      target.focus({ preventScroll: true });
-                    }
-                  }}
-                >
-                  {children}
-                </a>
-              ) : (
-                <FileLink href={href}>{children}</FileLink>
-              ),
-            img: ({ alt, src }) => (
-              <FileLink href={typeof src === 'string' ? src : undefined}>
-                {alt || t('图片')}
-              </FileLink>
-            ),
-            table: ({ children }) => <Table>{children}</Table>,
-          }}
+          components={components}
         >
           {text}
         </Markdown>

@@ -3,6 +3,7 @@ import { readFile, downloadFile } from '../download.ts';
 import { fileType, filePreviewUrl } from '../file-types.ts';
 import { MarkdownRenderer, Copy } from '../markdown/renderer.tsx';
 import { t } from '../i18n.ts';
+import { FullscreenButton } from './fullscreen.tsx';
 export function Preview({
   host,
   project,
@@ -52,10 +53,15 @@ export function Preview({
     return () => controller.abort();
   }, [host, project, path, type.kind, retry]);
   return (
-    <section className="workbench-preview" aria-label={t('文件预览')}>
+    <section
+      className="workbench-preview"
+      data-pane="preview"
+      aria-label={t('文件预览')}
+    >
       {resize}
       <header className="pane-heading">
         <h2 title={path}>{path}</h2>
+        <FullscreenButton pane="preview" />
         <button onClick={close} aria-label={t('关闭预览')}>
           {t('关闭')}
         </button>

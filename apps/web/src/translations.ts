@@ -1,5 +1,7 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  全屏: 'Fullscreen',
+  退出全屏: 'Exit fullscreen',
   终端输出已截断: 'Terminal output was truncated',
   '将多行文本粘贴到远程终端？其中可能包含命令。':
     'Paste multiple lines into the remote terminal? They may contain commands.',

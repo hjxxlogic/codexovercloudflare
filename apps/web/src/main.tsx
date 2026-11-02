@@ -585,7 +585,7 @@ function App() {
     const work = (async () => {
       setRefreshing(true);
       setRefreshed('');
-      recoverNotifications(true);
+      recoverNotifications();
       try {
         await boundedRefresh(async (signal) => {
           if (mode === 'cw' && host && refreshSession.current) {
@@ -594,19 +594,8 @@ function App() {
               void refresh().catch(report);
               void recoverCatalog.current?.().catch(report);
             }
-            await Promise.all([
-              refreshSession.current(signal),
-              ...(sessionOnly
-                ? []
-                : [
-                    api(`/hosts/${host}/probe`, {}, signal).then(
-                      (confirmation) => {
-                        if (!confirmation.online)
-                          throw new Error('未确认服务器可达，请重试');
-                      },
-                    ),
-                  ]),
-            ]);
+            // A fresh Agent snapshot also confirms reachability.
+            await refreshSession.current(signal);
           } else {
             await refresh();
             signal.throwIfAborted();
@@ -632,6 +621,7 @@ function App() {
           setRefreshed(new Date().toLocaleTimeString());
         });
       } catch (error) {
+        recoverNotifications(true);
         report(error);
       } finally {
         setRefreshing(false);

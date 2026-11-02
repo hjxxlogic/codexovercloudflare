@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect, type Locator } from '@playwright/test';
 const source = `# 高级 Markdown\n\n[跳转](#高级-markdown)\n\n> [!WARNING]\n> 注意事项\n\n正文脚注[^note]，价格 $100，代码 \`$x$\`。\n\n[^note]: 脚注正文\n\n## 表格\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |\n\n## 公式\n\n$$\n\\frac{a}{b} + \\sqrt{x}\n$$\n\n行内 $x^2$。\n\n\`\`\`mermaid\nflowchart LR\n  A[开始] --> B[结束]\n\`\`\`\n\n:::details 展开说明\n\n隐藏正文\n\n:::\n\n<script>window.unsafeMarkdown=true</script>\n[bad](javascript:alert(1))\n![remote](https://untrusted.invalid/pixel.png)\n`;
-const bytes = Buffer.from(source);
+const openAiSource = String.raw`
+
+\[
+L(b)=\ln\frac{P(b=0\mid y)}{P(b=1\mid y)}
+\] 本次没有覆盖的位置取 \(L_{i,\mathrm{new}}^{(t)}=0\)。
+`;
+const bytes = Buffer.from(source + openAiSource);
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost');
   if (url.pathname.startsWith('/api/v1/')) {
@@ -91,6 +97,7 @@ try {
     )
       external.push(req.url());
   });
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.goto(
     `http://127.0.0.1:${port}/#preview=file&host=host&project=project&path=report.md`,
   );
@@ -99,6 +106,28 @@ try {
   ).toBeVisible();
   await expect(page.locator('.callout-warning')).toContainText('注意事项');
   await expect(page.locator('table')).toHaveCount(1);
+  async function enterElementFullscreen(element: Locator) {
+    await element.getByRole('button', { name: '全屏', exact: true }).click();
+    await expect(element).toHaveClass(/element-fullscreen/);
+    const bounds = (await element.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    assert.equal(bounds.x, 0);
+    assert.equal(bounds.y, 0);
+    assert.equal(bounds.width, viewport.width);
+    assert.equal(bounds.height, viewport.height);
+    await expect(
+      element.getByRole('button', { name: '退出全屏', exact: true }),
+    ).toBeFocused();
+  }
+  const table = page.locator('.table-scroll');
+  const tableHandle = await table.locator('table').elementHandle();
+  await enterElementFullscreen(table);
+  await page.keyboard.press('Escape');
+  await expect(table).not.toHaveClass(/element-fullscreen/);
+  assert(await tableHandle!.evaluate((node) => node.isConnected));
+  await expect(
+    table.getByRole('button', { name: '全屏', exact: true }),
+  ).toBeFocused();
   await page.getByRole('button', { name: '目录', exact: true }).click();
   await expect(page.locator('.document-toc button')).toHaveCount(3);
   const hash = new URL(page.url()).hash;
@@ -121,8 +150,25 @@ try {
   });
   await math.getByRole('button', { name: '格式化预览' }).click();
   await expect(math.locator('.katex')).toBeVisible();
-  await page.locator('.inline-math button').click();
-  await expect(page.locator('.inline-math .katex')).toBeVisible();
+  await enterElementFullscreen(math);
+  await math.getByRole('button', { name: '退出全屏', exact: true }).click();
+  await expect(math.locator('.katex')).toBeVisible();
+  await page.locator('.inline-math button').first().click();
+  await expect(page.locator('.inline-math .katex').first()).toBeVisible();
+  await page.locator('.display-math > button').click();
+  await expect(page.locator('.display-math .katex-display')).toBeVisible();
+  await enterElementFullscreen(page.locator('.display-math'));
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.display-math .katex-display')).toBeVisible();
+  const openAiInline = page
+    .locator('.inline-math')
+    .filter({ hasText: 'L_{i,' });
+  await openAiInline.getByRole('button').click();
+  await expect(openAiInline.locator('.katex')).toBeVisible();
+  await expect(
+    page.getByText('本次没有覆盖的位置取', { exact: false }),
+  ).toBeVisible();
+  await expect(page.locator('.katex-error')).toHaveCount(0);
   const diagram = page.locator('.rich-code').filter({
     has: page.locator('.code-toolbar > span', { hasText: /^mermaid$/ }),
   });
@@ -134,6 +180,69 @@ try {
     'sandbox',
     'allow-scripts',
   );
+  async function expectDiagramTheme(theme: 'dark' | 'light') {
+    const frame = diagram.frameLocator('iframe');
+    await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(frame.locator('svg')).toBeVisible();
+    assert.equal(
+      await frame
+        .locator('body')
+        .evaluate((node) => getComputedStyle(node).backgroundColor),
+      theme === 'dark' ? 'rgb(25, 31, 42)' : 'rgb(255, 255, 255)',
+    );
+    return frame.locator('svg .node rect').first().getAttribute('style');
+  }
+  await expectDiagramTheme('light');
+  const lightFill = await diagram
+    .frameLocator('iframe')
+    .locator('svg .node rect')
+    .first()
+    .evaluate((node) => getComputedStyle(node).fill);
+  async function preference(theme: string) {
+    await page.evaluate((theme) => {
+      localStorage.setItem('coc-workbench-v1', JSON.stringify({ theme }));
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'coc-workbench-v1' }),
+      );
+    }, theme);
+  }
+  await preference('dark');
+  await expectDiagramTheme('dark');
+  assert.notEqual(
+    await diagram
+      .frameLocator('iframe')
+      .locator('svg .node rect')
+      .first()
+      .evaluate((node) => getComputedStyle(node).fill),
+    lightFill,
+  );
+  const diagramFrame = await diagram.locator('iframe').elementHandle();
+  await enterElementFullscreen(diagram);
+  await expect(diagram.frameLocator('iframe').locator('html')).toHaveAttribute(
+    'data-expanded',
+    'true',
+  );
+  assert(
+    (await diagram.frameLocator('iframe').locator('svg').boundingBox())!.width >
+      1000,
+    'fullscreen uses available diagram width',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'mermaid-element-fullscreen.png'),
+  });
+  await diagram.frameLocator('iframe').locator('svg').click();
+  await page.keyboard.press('Escape');
+  await expect(diagram).not.toHaveClass(/element-fullscreen/);
+  assert(
+    await diagramFrame!.evaluate((node) => node.isConnected),
+    'fullscreen does not reload the iframe',
+  );
+  await preference('system');
+  await expectDiagramTheme('light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expectDiagramTheme('dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expectDiagramTheme('light');
   await page.getByText('展开说明', { exact: true }).click();
   await expect(page.getByText('隐藏正文', { exact: true })).toBeVisible();
   await page.screenshot({

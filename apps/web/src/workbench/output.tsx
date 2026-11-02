@@ -5,6 +5,7 @@ import { eventText, eventTitle, type ContentChunk } from '../conversation.tsx';
 import { Copy } from '../markdown/renderer.tsx';
 import { saveFile } from '../download.ts';
 import { t } from '../i18n.ts';
+import { FullscreenButton } from './fullscreen.tsx';
 export function commandEvents(events: Event[]) {
   return visibleEvents(events).filter(
     (event) =>
@@ -56,6 +57,7 @@ export function OutputPanel({
     <section className="command-output" aria-label={t('命令输出')}>
       <header className="pane-heading">
         <h2>{t('命令输出')}</h2>
+        <FullscreenButton pane="output" />
         <button onClick={close}>{t('收起')}</button>
       </header>
       <div className="row">

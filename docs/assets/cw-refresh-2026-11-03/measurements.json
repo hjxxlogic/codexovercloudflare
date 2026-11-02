@@ -1,0 +1,152 @@
+{
+  "date": "2026-11-03",
+  "target": "https://r.xlogic.cc",
+  "webCommit": "8e2ae8a447ef599c0e33d1f25b70bad6f1eb0a8e",
+  "agentCommit": "ce22d38f5a3b3766439113530c7de8ced45699c9",
+  "environment": "same Ubuntu machine, headless Chromium with existing real email authorization; no shared service token",
+  "scenario": "existing ended test session; no new sessions, shell commands, model tasks or takeover",
+  "uiRefreshes": [
+    {
+      "durationMs": 4370.2,
+      "httpStartedDuringButtonWait": 13,
+      "requests": {
+        "GET /api/v1/auth/email": 1,
+        "GET /api/v1/hosts/HOST/operations/OP": 3,
+        "POST /api/v1/hosts/HOST/probe": 1,
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "GET /api/v1/auth/me": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 3,
+        "GET /api/v1/hosts": 1,
+        "GET /api/v1/sessions": 1,
+        "GET /api/v1/hosts/HOST/projects": 1
+      },
+      "newHostNotificationSockets": 1
+    },
+    {
+      "durationMs": 5375.4,
+      "httpStartedDuringButtonWait": 10,
+      "requests": {
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "POST /api/v1/hosts/HOST/probe": 1,
+        "GET /api/v1/auth/me": 1,
+        "GET /api/v1/hosts/HOST/operations/OP": 2,
+        "GET /api/v1/hosts": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 2,
+        "GET /api/v1/sessions": 1,
+        "GET /api/v1/hosts/HOST/projects": 1
+      },
+      "newHostNotificationSockets": 1
+    },
+    {
+      "durationMs": 9399.2,
+      "httpStartedDuringButtonWait": 10,
+      "requests": {
+        "GET /api/v1/sessions/HOST~SESSION/snapshot": 1,
+        "POST /api/v1/hosts/HOST/probe": 1,
+        "GET /api/v1/auth/me": 1,
+        "GET /api/v1/hosts/HOST/operations/OP": 3,
+        "GET /api/v1/hosts/HOST/projects": 1,
+        "GET /api/v1/sessions": 1,
+        "POST /api/v1/hosts/HOST/operations/OP": 2
+      },
+      "newHostNotificationSockets": 1
+    }
+  ],
+  "apiSamples": [
+    {
+      "kind": "snapshot",
+      "acceptedMs": 2737.4,
+      "receiptReads": [
+        {
+          "startMs": 2737.4,
+          "durationMs": 1726.8,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 4464.2,
+      "ackIncluded": false
+    },
+    {
+      "kind": "probe",
+      "acceptedMs": 2736.9,
+      "receiptReads": [
+        {
+          "startMs": 2736.9,
+          "durationMs": 1700.8,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 4437.7,
+      "ackIncluded": false
+    },
+    {
+      "kind": "probe",
+      "acceptedMs": 2838.9,
+      "receiptReads": [
+        {
+          "startMs": 2838.9,
+          "durationMs": 2766.4,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 5605.2,
+      "ackIncluded": false
+    },
+    {
+      "kind": "snapshot",
+      "acceptedMs": 2836.3,
+      "receiptReads": [
+        {
+          "startMs": 2836.3,
+          "durationMs": 2472.7,
+          "state": "pending"
+        },
+        {
+          "startMs": 5559.6,
+          "durationMs": 1626.4,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 7185.9,
+      "ackIncluded": false
+    },
+    {
+      "kind": "snapshot",
+      "acceptedMs": 2784.8,
+      "receiptReads": [
+        {
+          "startMs": 2784.8,
+          "durationMs": 1717.6,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 4502.4,
+      "ackIncluded": false
+    },
+    {
+      "kind": "probe",
+      "acceptedMs": 2781.6,
+      "receiptReads": [
+        {
+          "startMs": 2781.6,
+          "durationMs": 1674.4,
+          "state": "pending"
+        },
+        {
+          "startMs": 4706.7,
+          "durationMs": 1659.9,
+          "state": "completed"
+        }
+      ],
+      "resultAvailableMs": 6366.6,
+      "ackIncluded": false
+    }
+  ],
+  "measurementNotes": [
+    "API samples use Playwright APIRequestContext and do not exactly match Chromium HTTP/2 transport",
+    "API resultAvailableMs excludes awaited acknowledgement in measurement helper; real web acknowledgement is asynchronous",
+    "HTTP counts cover request starts during button wait, not all background work after the button unlocks",
+    "Only three UI samples; no p95 claim or user-device latency equivalence",
+    "Concurrent Agent logs show snapshot 0–1 ms, probe 0 ms, list 2–3 ms; no distributed span correlation, so no exact per-tier percentages"
+  ]
+}

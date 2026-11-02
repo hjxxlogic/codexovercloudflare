@@ -72,3 +72,5 @@
 - [CW 工作台实施与验收](CW_WORKBENCH.md)：高级 Markdown、文件浏览及 Linux 交互终端的实现边界和验证。
 
 - [CW 工作台本机构建部署（2026-11-03）](CW_DEPLOYMENT_2026-11-03.md)：菜单与分隔条上线、本机 Agent 升级和 Terminal 启用、D1 故障恢复及本次跳过 CI 的明确边界。
+
+- [CW 线上刷新耗时与优化方案（2026-11-03）](CW_REFRESH_PERFORMANCE_2026-11-03.md)：真实按钮分段采样、HTTP 结果回收成本及网页优先的优化路径。
