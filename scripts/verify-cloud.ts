@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { readFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
@@ -80,11 +81,21 @@ try {
   const health = await call(admission, '/healthz');
   assert.equal(health.ok, true);
   report.health = health;
-  for (const path of ['/hosts', '/sessions', '/admin/hosts', '/auth/me']) {
+  for (const [path, status, code] of [
+    ['/hosts', 403, 'ACCESS_USER_REQUIRED'],
+    ['/sessions?hostId=verification', 401, 'UNAUTHORIZED'],
+    ['/admin/hosts', 401, 'UNAUTHORIZED'],
+    ['/auth/me', 401, 'UNAUTHORIZED'],
+  ] as const) {
     const result = await json(admission, path);
     assert.equal(
       result.response.status(),
-      401,
+      status,
+      'Unexpected rejection status: ' + path,
+    );
+    assert.equal(
+      result.data.error?.code,
+      code,
       'Entry token must not grant CoC roles',
     );
     checks.push({ name: path, status: result.response.status() });
@@ -94,11 +105,19 @@ try {
     '/ws/v1/hosts/verification',
     '/ws/v1/hosts/verification/terminal',
   ]) {
-    const response = await admission.get(base + path, { maxRedirects: 0 });
+    const response = await admission.get(base + path, {
+      maxRedirects: 0,
+      headers: {
+        Upgrade: 'websocket',
+        Connection: 'Upgrade',
+        'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+        'Sec-WebSocket-Version': '13',
+      },
+    });
     assert.equal(
       response.status(),
       401,
-      'WebSocket must require CoC credentials',
+      'WebSocket must require CoC credentials: ' + path,
     );
     checks.push({ name: path, status: response.status() });
   }
@@ -165,6 +184,28 @@ try {
       viewport: { width: 1280, height: 900 },
     });
     const page = await context.newPage();
+    const transportErrors: string[] = [];
+    report.webSocketTransportErrors = transportErrors;
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /WebSocket/i.test(message.text()))
+        transportErrors.push(
+          message
+            .text()
+            .replace(/(?:https?|wss?):\/\/[^' \n]+/g, '[URL]')
+            .slice(0, 500),
+        );
+    });
+    const socketStatuses: number[] = [];
+    report.webSocketHandshakeStatuses = socketStatuses;
+    const network = await context.newCDPSession(page);
+    await network.send('Network.enable');
+    network.on('Network.webSocketFrameError', (event) =>
+      transportErrors.push(event.errorMessage),
+    );
+    network.on('Network.webSocketHandshakeResponseReceived', (event) =>
+      socketStatuses.push(event.response.status),
+    );
+
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.name));
     await page.goto(base, { waitUntil: 'networkidle', timeout: 60000 });
@@ -182,7 +223,7 @@ try {
         (host) =>
           new Promise<void>((resolve, reject) => {
             const socket = new WebSocket(
-              'wss://' + location.host + '/ws/v1/hosts/' + host,
+              'wss://' + location.host + '/ws/v1/hosts/' + host + '?delivery=2',
             );
             const deadline = setTimeout(() => {
               socket.close();

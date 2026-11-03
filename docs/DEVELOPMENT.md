@@ -445,7 +445,7 @@ Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只
 
 Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路径；CreateProcessW 的显式 applicationName 不搜索 PATH。CI 通过 setup-node 固定 Node 22.17.0，仅测试需要 Node，运行 Agent/CLI 不需要。Windows 项目/操作磁盘事务测试与 sanitizers 使用 240 秒 CTest 上限：原 60 秒附近已有 53–57 秒成功样本及一次超时；完整断言与业务超时不变。
 
-用户显式要求本地云端发布时，`scripts/deploy-cloud.py --local-build --apply` 提供可复查入口。该模式不等待 CI，不发布原生包，记录 clean HEAD、sourceDigest 与产物 SHA-256，复用下载保留及线上字节校验。默认 CI 路径不变。
+用户显式要求本地云端发布时，`scripts/deploy-cloud.py --local-build --apply` 提供可复查入口。该模式不等待 CI，不发布原生包，记录 clean HEAD、sourceDigest 与产物 SHA-256，复用下载保留及线上字节校验。默认 CI 路径不变。`--replace-vars` 显式以制品配置替换全部普通变量，用于移除已废弃变量；Secret 继续由 Wrangler 保留，使用前须核对既有普通变量均已列入配置。
 
 ### 原生包分阶段发布
 

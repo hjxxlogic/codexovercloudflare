@@ -219,6 +219,8 @@ def main():
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--replace-vars', action='store_true',
+                        help='Replace plain-text/JSON variables with the verified configuration; Worker secrets are preserved')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
                         help='Explicit staged rollout: require the other five checks to pass; preserve all native downloads')
     parser.add_argument('--delete-secret', action='append', default=[],
@@ -313,6 +315,8 @@ def main():
     cache = ROOT / '.local/deploy-cloud/download-cache'
     cache.mkdir(parents=True, exist_ok=True)
     manifest = preserve_downloads(base, output / 'site', cache, args.preserved_downloads)
+    if args.local_build:
+        shutil.copyfile(ROOT / 'docs/USER_GUIDE.md', output / 'site/downloads/USER_GUIDE.md')
     published = None
     if args.publish_downloads:
         bundles = {}
@@ -333,6 +337,7 @@ def main():
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
                 'localBuild': args.local_build, 'ciVerified': not args.local_build,
+                'replaceVariables': args.replace_vars,
                 'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure,
                 'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
@@ -345,7 +350,8 @@ def main():
         print('Verified artifacts prepared: ' + str(output))
         return
     command = ['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'), 'deploy',
-               '--config', str(config_path), '--no-bundle', '--keep-vars',
+               '--config', str(config_path), '--no-bundle',
+               *([] if args.replace_vars else ['--keep-vars']),
                '--message', 'Actions ' + str(run['id']) + ' commit ' + commit]
     result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (output / 'wrangler.log').write_text(result.stdout)
