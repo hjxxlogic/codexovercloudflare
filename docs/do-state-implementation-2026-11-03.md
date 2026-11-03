@@ -10,6 +10,8 @@ Registry 首次使用前分批复制 D1，完成后提交 `@doState`，失败不
 
 本次按用户明确要求跳过 GitHub Actions，通过本地构建的仓库部署脚本发布，证据必须标记 `ciVerified: false`；不发布原生下载站或发送自动升级通知。生产 D1 导出保存在忽略目录 `.local/do-migration-2026-11-03/`，导入内存 SQLite 完整性检查为 ok，423 条状态、19 个 scope；该快照不含活动 DO。
 
-验证与上线结果在发布后补记。完整设计取舍见 [评估](d1-do-simplification-review-2026-11-03.md)。
+验证：35 个 Vitest 文件 / 493 项、10 项 CTest、15 项部署脚本回归、类型与格式检查通过；真实 Wrangler 反向迁移含完整主机完成标记、完整原生 / Chromium E2E、终端 65 秒空闲存活且无应用帧均通过。完整设计取舍见 [评估](d1-do-simplification-review-2026-11-03.md)。
 
 运维可显式读取 `/api/v1/healthz?stateMigration=1`，仅返回后端和全部主机迁移是否完成，不返回业务状态或凭据；普通 health 不访问 DO。`scripts/deploy-cloud.py --local-build --retire-state-db --apply` 会先读取线上完成状态，未完成拒绝移除绑定；只有完成后才发布无 D1 绑定的 Worker。该操作保留数据库本身。根配置应同步去除绑定，防止后续发布重新引入。
+
+第一阶段源码 `d9451b46063de69fe19ad2abd9b7d4d220733d80` 已部署至 `https://r.xlogic.cc`，Worker 版本 `b9814c9b-cdae-45ee-87f6-ea5cd552071d`。健康及资源字节校验通过，线上明确返回 `{"backend":"do","complete":true}`。随后根配置移除 D1 绑定，由部署脚本再次在线验证完成标记后发布。原数据库保留，不执行 DROP / DELETE。最终部署身份和摘要见后续证据。

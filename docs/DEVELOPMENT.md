@@ -453,7 +453,7 @@ Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路
 
 Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆盖、CI 来源与回滚边界由 `python3 tests/agent-deploy.py` 验证。
 
-生产根 Wrangler 配置使用 `STATE_BACKEND=do`，过渡期保留原 D1 绑定只作迁移来源。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。
+生产根 Wrangler 配置使用 `STATE_BACKEND=do`，已移除 D1 绑定及清理 Cron。其它仍使用 D1 的部署升级时须先通过部署脚本 `--state-db-id` 保留其原库，确认迁移完成后再使用 `--retire-state-db`。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。
 
 工作台菜单 / 分隔条回归：`npm run test:ui` 覆盖四个入口只在功能菜单出现、菜单自动关闭、文件树 / 预览 / 输出拖动、分隔条键盘调整和偏好保存；`COC_TEST_TERMINAL=1 npm run test:e2e` 覆盖菜单打开真实终端、调整高度后输出保留及 390×480 布局。
 
