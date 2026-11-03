@@ -1,3 +1,4 @@
+import { nativeState } from './do-migration.ts';
 import { requireProjectManager } from './project-auth.ts';
 import {
   accessEnabled,
@@ -167,8 +168,11 @@ export default {
         p.startsWith('/downloads') ||
         (env.ACCESS_PUBLIC_HEALTH === 'true' && p === '/api/v1/healthz');
       if (!publicAccessPath) await verifyAccess(req, env);
-      if (p === '/api/v1/healthz' && req.method === 'GET')
+      if (p === '/api/v1/healthz' && req.method === 'GET') {
+        if (u.searchParams.get('stateMigration') === '1' && nativeState(env))
+          return registry(env).fetch('https://internal/migration-status');
         return json({ ok: true, version, demand: 1, protocol: 1 });
+      }
       if (!p.startsWith('/api/') && !p.startsWith('/ws/')) {
         const assetRequest = guest ? new Request(u, req) : req;
         const response = await env.ASSETS.fetch(assetRequest);
@@ -565,10 +569,10 @@ export default {
           );
         }
         if (p === '/api/v1/admin/state/migrate' && req.method === 'POST') {
-          if (!d1Enabled(env))
+          if (!d1Enabled(env) && !nativeState(env))
             throw new AppError(
               'NOT_CONFIGURED',
-              'Enable D1 state before migration',
+              'Enable a supported state backend before migration',
               409,
             );
           const d = z

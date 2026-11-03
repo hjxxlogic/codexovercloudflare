@@ -161,7 +161,7 @@ struct Terminals::Impl : std::enable_shared_from_this<Terminals::Impl> {
       timer.async_wait([self](auto ec) {
         if (ec)
           return;
-        if (now() - self->touched > 60000)
+        if (self->route.empty() && now() - self->touched > 60000)
           self->stop();
         int status = 0;
         const auto child = ::waitpid(self->pid, &status, WNOHANG);
@@ -336,7 +336,7 @@ Terminals::Terminals(boost::asio::io_context &io, const Json &config)
     : impl_(std::make_shared<Impl>(io, config)) {}
 Terminals::~Terminals() { clear(); }
 Json Terminals::metadata() const {
-  return {{"enabled", impl_->enabled}, {"streaming", 1},        {"platform", "linux-bubblewrap"},
+  return {{"enabled", impl_->enabled}, {"streaming", 2},        {"platform", "linux-bubblewrap"},
           {"graceMs", 60000},          {"maxInputBytes", 4096}, {"maxOutputBytes", 262144}};
 }
 bool Terminals::busy(const std::string &project) const {
@@ -448,6 +448,7 @@ void Terminals::detach(const std::string &route) {
     if (entry.second->route == route) {
       entry.second->emit = {};
       entry.second->route.clear();
+      entry.second->touched = now();
       entry.second->read();
     }
 #else

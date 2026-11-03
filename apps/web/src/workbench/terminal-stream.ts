@@ -12,7 +12,6 @@ export class TerminalStream {
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   };
-  private heartbeat: ReturnType<typeof setInterval>;
   private deadline: ReturnType<typeof setTimeout>;
   private stopped = false;
   private bound = false;
@@ -43,10 +42,6 @@ export class TerminalStream {
       () => this.fail(new Error('Terminal stream handshake timed out')),
       20000,
     );
-    this.heartbeat = setInterval(() => {
-      if (this.socket.readyState === WebSocket.OPEN)
-        this.send({ type: 'ping' });
-    }, 15000);
     this.socket.onopen = () => this.send({ type: 'bind', ...scope });
     this.socket.onmessage = (event) => {
       if (this.stopped) return;
@@ -175,7 +170,6 @@ export class TerminalStream {
     if (this.stopped) return;
     this.stopped = true;
     clearTimeout(this.deadline);
-    clearInterval(this.heartbeat);
     if (this.pending) {
       clearTimeout(this.pending.timer);
       this.pending.reject(

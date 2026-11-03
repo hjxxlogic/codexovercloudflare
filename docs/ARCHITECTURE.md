@@ -97,9 +97,11 @@ Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理�
 
 Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
 
-## D1 持久状态与在线中转 · 2026-10-29
+## DO 持久状态与 D1 迁移 · 2026-11-03
 
-活动 Host 会话状态由 DO 原生持久存储负责；全部连接及在途工作结束并持续空闲 60 秒后，分批将完整快照归档到 D1。D1 的 `@location` 和 DO 本地进度标记共同约束权威位置，先发布完整快照再清理源副本；激活先领取所有权，再恢复后处理会话。Registry 授权 / 目录元数据继续保存在 D1。活动回执转发 DO、已归档回执直接读取 D1，离线确认和清理须在事务内检查位置。DO 休眠不触发搬迁；活动本地存储和 D1 都需要备份。完整机制、迁移与旧版本回滚限制见 [D1 说明](d1-relay-state.md)和[方案评估](d1-active-session-review.md)。
+Registry 与 Host 均使用所属 DO 原生存储，业务接口不再走 D1 直读/确认，离线 Host 不归档搬迁。兼容版本保留 D1 读取器及 HostLifecycle，仅用于一次性恢复旧权威状态；本地 `@doState` 提交后重建不再读取 D1。Registry 一次性 alarm 分页恢复目录和孤立 D1 Host scope，完成后记录 `@doHostsDone` 并停止；失败保留游标。不能用旧 Worker 继续写已过期 D1，完整数据迁移后才能移除原绑定。
+
+WebSocket 继续使用 Hibernation API 和 attachment。终端 `streaming:2` 将 PTY 超时改为未绑定流才计时，移除网页应用心跳；断开时更新宽限起点。安全期限 alarm 与在途管理超时继续保留。详见 [实施记录](do-state-implementation-2026-11-03.md)。
 
 ## 空对象存储边界 · 2026-10-29
 

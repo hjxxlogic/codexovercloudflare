@@ -1,3 +1,4 @@
+import { nativeState, restoreRegistry } from './do-migration.ts';
 import { effectiveAdminEmail, requireProjectManager } from './project-auth.ts';
 import {
   D1State,
@@ -1173,6 +1174,30 @@ export class RegistryCore {
           ).filter((host) => host.version === 2),
         );
       if (op === 'migrationHosts') {
+        if (nativeState(this.env) && this.env.STATE_DB) {
+          const after = d.after ? idSchema.parse(d.after) : '';
+          const archived = await this.env.STATE_DB.prepare(
+            "SELECT DISTINCT scope FROM relay_state WHERE scope > ? AND scope < 'host;' ORDER BY scope LIMIT 4",
+          )
+            .bind('host:' + after)
+            .all<{ scope: string }>();
+          const local = await s.list<Host>({
+            prefix: 'host:',
+            startAfter: 'host:' + after,
+            limit: 4,
+          });
+          const ids = [
+            ...new Set([
+              ...archived.results.map((row) =>
+                idSchema.parse(row.scope.slice(5)),
+              ),
+              ...[...local.keys()].map((key) => idSchema.parse(key.slice(5))),
+            ]),
+          ]
+            .sort()
+            .slice(0, 4);
+          return json({ ids, after: ids.at(-1), done: ids.length < 4 });
+        }
         const after = d.after ? 'host:' + idSchema.parse(d.after) : undefined;
         const hosts = await s.list<Host>({
           prefix: 'host:',
@@ -1291,6 +1316,25 @@ export class RegistryDO extends DurableObject<Env> {
   private preparing?: Promise<void>;
   private async prepare() {
     if (this.core) return;
+    if (nativeState(this.env)) {
+      if (!this.preparing)
+        this.preparing = this.ctx
+          .blockConcurrencyWhile(async () => {
+            const storage = this.ctx.storage as unknown as StateStorage;
+            await restoreRegistry(storage, this.env.STATE_DB);
+            await nextExpiry(storage);
+            if (this.env.STATE_DB && !(await storage.get('@doHostsDone')))
+              await storage.setAlarm(Date.now());
+            if (!this.env.STATE_DB)
+              await storage.put('@doHostsDone', { version: 1 });
+            this.core = new RegistryCore(this.ctx, this.env, storage);
+          })
+          .finally(() => {
+            this.preparing = undefined;
+          });
+      await this.preparing;
+      return;
+    }
     if (!d1Enabled(this.env)) {
       if (await this.ctx.storage.get('@d1Migrated'))
         throw new AppError(
@@ -1349,6 +1393,14 @@ export class RegistryDO extends DurableObject<Env> {
   async fetch(req: Request) {
     try {
       await this.prepare();
+      if (
+        nativeState(this.env) &&
+        new URL(req.url).pathname === '/migration-status'
+      )
+        return json({
+          backend: 'do',
+          complete: !!(await this.ctx.storage.get('@doHostsDone')),
+        });
       // Native storage supplies input gates in legacy mode. Do not hold an
       // extra queue across publish(): a notified Host can call back for auth.
       if (!d1Enabled(this.env)) return this.core!.fetch(req);
@@ -1361,6 +1413,49 @@ export class RegistryDO extends DurableObject<Env> {
   }
   async alarm() {
     await this.prepare();
+    if (
+      nativeState(this.env) &&
+      this.env.STATE_DB &&
+      !(await this.ctx.storage.get('@doHostsDone'))
+    ) {
+      try {
+        const after = await this.ctx.storage.get<string>('@doHostsCursor');
+        const response = await this.core!.fetch(
+          new Request('https://internal/migrationHosts', {
+            method: 'POST',
+            body: JSON.stringify({ after }),
+          }),
+        );
+        if (!response.ok) throw new Error('Migration enumeration failed');
+        const page = (await response.json()) as {
+          ids: string[];
+          after?: string;
+          done: boolean;
+        };
+        for (const id of page.ids) {
+          const result = await hostStub(this.env, id).fetch(
+            'https://internal/migrate-native',
+            { headers: { 'x-host': id } },
+          );
+          if (!result.ok) throw new Error('Host migration failed');
+        }
+        await this.ctx.storage.put('@doHostsCursor', page.after || after || '');
+        if (page.done) {
+          await this.ctx.storage.put('@doHostsDone', {
+            version: 1,
+            at: Date.now(),
+          });
+          console.log(JSON.stringify({ event: 'do_migration_complete' }));
+        } else {
+          await this.ctx.storage.setAlarm(Date.now());
+          return;
+        }
+      } catch {
+        console.log(JSON.stringify({ event: 'do_migration_retry' }));
+        await this.ctx.storage.setAlarm(Date.now() + 60_000);
+        return;
+      }
+    }
     if (!d1Enabled(this.env)) return this.core!.alarm();
     const result = this.requests.then(() => this.core!.alarm());
     this.requests = result.catch(() => {});

@@ -285,7 +285,7 @@ export default function InteractiveTerminal({
           )}
         </p>
       )}
-      {metadata?.enabled && metadata.streaming !== 1 && (
+      {metadata?.enabled && (metadata.streaming || 0) < 2 && (
         <p role="status">{t('请升级 Agent 以支持流式 Terminal。')}</p>
       )}
       {!enabled && (
@@ -295,7 +295,7 @@ export default function InteractiveTerminal({
         <button
           disabled={
             !metadata?.enabled ||
-            metadata.streaming !== 1 ||
+            (metadata.streaming || 0) < 2 ||
             !enabled ||
             starting ||
             !!runtime

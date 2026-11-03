@@ -1,5 +1,7 @@
 # D1 归档与活动 DO 会话
 
+> 2026-11-03：本文保留旧 D1 后端与迁移来源说明。当前目标为 `STATE_BACKEND=do`，实施及退役步骤见 [DO 实施记录](do-state-implementation-2026-11-03.md)。
+
 2026-10-29：新的活动 / 归档分层已通过源码 `fc89396` 的 [GitHub Actions 全部必需检查](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40866589978) 并部署，替代此前 `b7ef5b7` 的 D1 在线状态方案。基础线上检查通过，真实 CW 及长期稳定性仍待使用中验收。问题评估、性能比较和验收边界见 [方案评估](d1-active-session-review.md)，实际部署见 [发布状态](DEPLOYMENT_STATUS.md)。
 
 ## 状态归属

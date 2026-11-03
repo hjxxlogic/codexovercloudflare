@@ -62,6 +62,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('streaming Terminal', () => {
+  it('sends no application frames while a bound terminal is idle', () => {
+    const { stream, socket } = setup();
+    const sent = structuredClone(socket.sent);
+    vi.advanceTimersByTime(30 * 60 * 1000);
+    expect(socket.sent).toEqual(sent);
+    stream.close();
+  });
   it('acknowledges output only after rendering and accepts explicit gaps', () => {
     const { stream, socket, callbacks } = setup();
     socket.receive(

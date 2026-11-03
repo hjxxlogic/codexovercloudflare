@@ -195,6 +195,20 @@ try {
     ).error.code,
     'PROJECT_BUSY',
   );
+  const rejected = frames.find(
+    (f) => f.payload?.type === 'delivery-result' && f.payload.stream === stream,
+  ).payload;
+  send({
+    type: 'delivery-receipt',
+    sessionId: session.id,
+    mode: 'web',
+    stream,
+    instance: window.instance,
+    streamSerial: window.streamSerial,
+    creditGeneration: window.creditGeneration,
+    received: rejected.resultSeq,
+    receivedBytes: rejected.resultEnd,
+  });
   const input = {
     ...scoped,
     operation: 'input',
@@ -216,7 +230,7 @@ try {
     return output.includes('AGENT_TERMINAL_OK\r\n');
   });
   assert.equal(output.split('AGENT_TERMINAL_OK\r\n').length, 2);
-  assert.equal(info.streaming, 1);
+  assert.equal(info.streaming, 2);
   let route = randomUUID();
   const streaming = (frame: object) =>
     send({
@@ -233,6 +247,19 @@ try {
   await until(() =>
     streamFrames().some((f) => f.type === 'ready' && f.next === 2),
   );
+  if (process.env.COC_TEST_TERMINAL_IDLE === '1') {
+    // Only native protocol Ping/Pong may run during this interval.
+    await new Promise((done) => setTimeout(done, 500));
+    const before = frames.length;
+    await new Promise((done) => setTimeout(done, 35000));
+    await new Promise((done) => setTimeout(done, 30000));
+    assert.equal(
+      frames.length,
+      before,
+      'Idle bound PTY generates no application frames: ' +
+        JSON.stringify(frames.slice(before)),
+    );
+  }
   const streamInput = {
     type: 'input',
     seq: 2,

@@ -21,12 +21,12 @@ class CloudArtifactTests(unittest.TestCase):
     def test_production_config_keeps_the_migrated_d1_binding(self):
         import re
         config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))
-        self.assertEqual(config['vars']['STATE_BACKEND'], 'd1')
+        self.assertEqual(config['vars']['STATE_BACKEND'], 'do')
         bindings = [entry for entry in config['d1_databases'] if entry['binding'] == 'STATE_DB']
         self.assertEqual(len(bindings), 1)
         self.assertEqual(bindings[0]['database_id'], '3120cc4f-de73-43b2-b2c0-26c3626b6f76')
         self.assertTrue((ROOT / bindings[0]['migrations_dir'] / '0001_relay_state.sql').is_file())
-        self.assertIn('17 * * * *', config['triggers']['crons'])
+        self.assertEqual(config['triggers']['crons'], [])
 
     def test_local_mode_cannot_publish_native_or_claim_a_ci_run(self):
         for options in (['--run-id', '1'], ['--cloud-only-after-windows-failure'],
@@ -104,9 +104,9 @@ class CloudArtifactTests(unittest.TestCase):
             (worker / 'state-migrations').mkdir()
             (worker / 'state-migrations/0001_relay_state.sql').write_text('CREATE TABLE test(id);')
             cloud.configure_state_db(config, worker, database_id)
-            self.assertEqual(config['vars'], {'ACCESS_ENABLED': 'true', 'STATE_BACKEND': 'd1'})
+            self.assertEqual(config['vars'], {'ACCESS_ENABLED': 'true', 'STATE_BACKEND': 'do'})
             self.assertEqual(config['d1_databases'][0]['database_id'], database_id)
-            self.assertEqual(config['triggers']['crons'], ['17 * * * *'])
+            self.assertEqual(config['triggers']['crons'], [])
 
     def artifact(self, root, extra=None, commit=COMMIT, dirty=False):
         path = root / 'artifact.zip'

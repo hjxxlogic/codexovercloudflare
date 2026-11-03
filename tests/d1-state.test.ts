@@ -876,3 +876,86 @@ describe('D1 relay lifecycle', () => {
     expect(await live.get('permission-operation:expired')).toBeDefined();
   });
 });
+
+describe('native DO migration', () => {
+  it('restores archived Host state once and never reads D1 after reconstruction', async () => {
+    const h = runtime();
+    const archive = new D1State(h.db.binding(), 'host:host-a');
+    await archive.put({
+      '@migrated': { version: 2 },
+      '@location': { version: 1, owner: 'd1', token: 'old' },
+      agentEpoch: 42,
+      'lease:session': { epoch: 9, active: false },
+    });
+    h.env.STATE_BACKEND = 'do';
+    const create = () =>
+      new HostRelayDO(h.ctx as unknown as DurableObjectState, h.env) as any;
+    await create().prepare('host-a');
+    expect(await h.legacy.get('agentEpoch')).toBe(42);
+    expect(await h.legacy.get('lease:session')).toEqual({
+      epoch: 9,
+      active: false,
+    });
+    expect(await h.legacy.get('@hostState')).toBeUndefined();
+    await h.legacy.put('agentEpoch', 43);
+    const read = vi.spyOn(h.db, 'prepare').mockImplementation(() => {
+      throw new Error('D1 unavailable');
+    });
+    const restored = create();
+    await restored.prepare('host-a');
+    await restored.cleanup();
+    expect(await h.legacy.get('agentEpoch')).toBe(43);
+    expect(h.deleteAll).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+  });
+  it('keeps active DO epochs over stale archive data', async () => {
+    const h = runtime();
+    const old = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await old.prepare('host-a');
+    await h.legacy.put('agentEpoch', 99);
+    await new D1State(h.db.binding(), 'host:host-a').put('agentEpoch', 1);
+    h.env.STATE_BACKEND = 'do';
+    const relay = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await relay.prepare('host-a');
+    expect(await h.legacy.get('agentEpoch')).toBe(99);
+  });
+});
+
+it('schedules finite native migration and includes orphan D1 scopes before completion', async () => {
+  const h = runtime();
+  await new D1State(h.db.binding(), 'registry').put({
+    '@migrated': { version: 1 },
+    'host:listed': { id: 'listed', version: 2 },
+  });
+  await new D1State(h.db.binding(), 'host:orphan').put('agentEpoch', 7);
+  h.env.STATE_BACKEND = 'do';
+  const visited: string[] = [];
+  h.env.HOSTS = {
+    idFromName: (id: string) => id,
+    get: (id: string) => ({
+      fetch: async () => {
+        visited.push(id);
+        return Response.json({ ok: true });
+      },
+    }),
+  } as unknown as DurableObjectNamespace;
+  const registry = new RegistryDO(
+    h.ctx as unknown as DurableObjectState,
+    h.env,
+  ) as any;
+  await registry.prepare();
+  expect(h.legacy.alarm).not.toBeNull();
+  h.legacy.alarm = null;
+  await registry.alarm();
+  expect(visited).toEqual(['listed', 'orphan']);
+  expect(await h.legacy.get('@doHostsDone')).toMatchObject({ version: 1 });
+  const count = visited.length;
+  await registry.alarm();
+  expect(visited).toHaveLength(count);
+});

@@ -623,7 +623,7 @@ public:
                            {"build", Json::parse(COC_BUILD_JSON)},
                            {"protocol", 1},
                            {"delivery", 2},
-                           {"terminalStreaming", 1},
+                           {"terminalStreaming", 2},
                            {"deliveryInstance", store_.delivery_instance()},
                            {"management", remote_config_.metadata()}};
       if (config_.contains("wakeUrl"))

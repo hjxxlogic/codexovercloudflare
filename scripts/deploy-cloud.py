@@ -191,13 +191,14 @@ def configure_state_db(config, worker, database_id):
     migrations = worker / 'state-migrations'
     if not (migrations / '0001_relay_state.sql').is_file():
         raise RuntimeError('Verified Worker artifact does not include the D1 schema')
-    config.setdefault('vars', {})['STATE_BACKEND'] = 'd1'
+    backend = config.setdefault('vars', {}).get('STATE_BACKEND', 'do')
+    config['vars']['STATE_BACKEND'] = backend
     config['d1_databases'] = [entry for entry in config.get('d1_databases', []) if entry['binding'] != 'STATE_DB'] + [{
         'binding': 'STATE_DB', 'database_name': 'coc-relay-state',
         'database_id': database_id, 'migrations_dir': str(migrations),
     }]
     crons = config.setdefault('triggers', {}).setdefault('crons', [])
-    if '17 * * * *' not in crons:
+    if backend == 'd1' and '17 * * * *' not in crons:
         crons.append('17 * * * *')
 
 def completed_cloud_run(repository, commit, run_id):
@@ -229,6 +230,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
                         help='Explicit staged rollout: require the other five checks to pass; preserve all native downloads')
+    parser.add_argument('--retire-state-db', action='store_true', help='Remove D1 binding only after live confirmation of completed DO migration')
     parser.add_argument('--state-db-id', help='Override the existing production D1 database UUID in the deployment configuration')
     parser.add_argument('--delete-secret', action='append', default=[],
                         help='Remove an obsolete Worker secret after publishing the verified code')
@@ -317,6 +319,17 @@ def main():
     args.state_db_id = args.state_db_id or next((entry['database_id'] for entry in
         config.get('d1_databases', []) if entry['binding'] == 'STATE_DB'), None)
     configure_state_db(config, output / 'worker', args.state_db_id)
+    if args.retire_state_db:
+        if config.get('vars', {}).get('STATE_BACKEND') != 'do':
+            raise RuntimeError('D1 retirement requires DO mode')
+        migration_base = 'https://' + config['routes'][0]['pattern']
+        migration_status = json.loads(agent.curl(migration_base + '/api/v1/healthz?stateMigration=1'))
+        if migration_status != {'backend': 'do', 'complete': True}:
+            raise RuntimeError('Live DO migration is not complete; D1 binding retained')
+        config['d1_databases'] = [entry for entry in config.get('d1_databases', []) if entry['binding'] != 'STATE_DB']
+        config.setdefault('triggers', {})['crons'] = []
+        args.state_db_id = None
+
     routes = config['routes']
     if len(routes) != 1 or not routes[0].get('custom_domain') or not re.fullmatch(r'[a-zA-Z0-9.-]+', routes[0]['pattern']):
         raise RuntimeError('Expected one explicit custom domain deployment target')
@@ -348,6 +361,9 @@ def main():
                 'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
+    if args.retire_state_db:
+        evidence['retiredStateDatabaseBinding'] = True
+        evidence['migrationVerification'] = migration_status
     if args.state_db_id:
         evidence['stateDatabase'] = args.state_db_id
     if args.preserved_downloads:

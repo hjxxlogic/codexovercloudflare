@@ -223,7 +223,7 @@ Vitest 的 delivery、delivery-identity 与 relay-order 用例覆盖两条独立
 
 Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
 
-## D1 模式开发
+## DO 存储与旧 D1 模式开发
 
 `python3 scripts/d1-usage.py --database coc-relay-state [--period 7d]` 通过 Wrangler 只读读取线上使用数据，原始证据保存在忽略目录 `.local/d1-usage/`。`info` 的 24 小时滚动窗口与 Insights 采集时刻不同，Insights 可能采样且最多保留 100 种 SQL，不能将其总量等同于账单。D1 事务读取缓存仅在单次 CAS 尝试内有效，返回独立对象；相同值 UPSERT 跳过状态行写入，scope 修订仍推进。
 
@@ -453,6 +453,8 @@ Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路
 
 Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆盖、CI 来源与回滚边界由 `python3 tests/agent-deploy.py` 验证。
 
-生产根 Wrangler 配置保留已迁移的 D1 绑定。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。
+生产根 Wrangler 配置使用 `STATE_BACKEND=do`，过渡期保留原 D1 绑定只作迁移来源。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。
 
 工作台菜单 / 分隔条回归：`npm run test:ui` 覆盖四个入口只在功能菜单出现、菜单自动关闭、文件树 / 预览 / 输出拖动、分隔条键盘调整和偏好保存；`COC_TEST_TERMINAL=1 npm run test:e2e` 覆盖菜单打开真实终端、调整高度后输出保留及 390×480 布局。
+
+纯 DO 反向迁移回归运行 `npm run test:do:migration`；`COC_TEST_TERMINAL_IDLE=1 npm run test:terminal` 验证已绑定 PTY 空闲超过 60 秒不退出、不发送应用帧。`streaming:2` Agent 才支持无应用心跳终端。

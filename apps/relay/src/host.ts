@@ -1,3 +1,4 @@
+import { DO_STATE_KEY, nativeState } from './do-migration.ts';
 import { TransientOperations } from './transient-operations.ts';
 import { ManagementRequests } from './management.ts';
 import {
@@ -184,6 +185,53 @@ export class HostRelayDO extends DurableObject<Env> {
     return this.ctx.storage as unknown as StateStorage;
   }
   private async prepare(hostId?: string, activity = true) {
+    if (nativeState(this.env)) {
+      if (this.migrationReady) return;
+      if (!this.preparing)
+        this.preparing = (async () => {
+          if (!(await this.storage.get(DO_STATE_KEY))) {
+            const legacy = await this.storage.get<{ hostId: string }>(
+              HOST_STATE_KEY,
+            );
+            const id =
+              hostId ||
+              legacy?.hostId ||
+              (
+                this.ctx.getWebSockets()[0]?.deserializeAttachment() as
+                  Attachment | undefined
+              )?.hostId ||
+              (await this.storage.get<string>('@d1Host'));
+            if (this.env.STATE_DB && id) {
+              const migration = new HostLifecycle(
+                this.ctx.storage as unknown as StateStorage & {
+                  deleteAll(): Promise<void>;
+                },
+                this.env.STATE_DB,
+                idSchema.parse(id),
+              );
+              await migration.activate();
+            } else if (legacy || (await this.storage.get('@d1Host'))) {
+              throw new AppError(
+                'STATE_MIGRATED',
+                'Restore the original D1 binding for migration',
+                503,
+              );
+            } else if (this.env.STATE_DB) {
+              return; // Empty alarm with no host identity: do not materialize state.
+            }
+            await this.storage.transaction(async (tx) => {
+              await tx.put(DO_STATE_KEY, { version: 1 });
+              await tx.delete([HOST_STATE_KEY, '@d1Host']);
+            });
+          }
+          await nextExpiry(this.storage);
+          this.migrationReady = true;
+        })().finally(() => {
+          this.preparing = undefined;
+        });
+      await this.preparing;
+      return;
+    }
     if (!d1Enabled(this.env)) {
       if (await this.ctx.storage.get(HOST_STATE_KEY))
         throw new AppError(
@@ -644,7 +692,7 @@ export class HostRelayDO extends DurableObject<Env> {
     const agent = this.agent();
     if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline');
     const aa = agent.deserializeAttachment() as Attachment;
-    if (aa.terminalStreaming !== 1)
+    if ((aa.terminalStreaming || 0) < 2)
       throw new AppError(
         'UPGRADE_REQUIRED',
         'Upgrade Agent for streaming Terminal',
@@ -1398,6 +1446,8 @@ export class HostRelayDO extends DurableObject<Env> {
         }
         return json({ state: 'requested', retryAfterMs: 60000 });
       }
+      if (u.pathname === '/migrate-native' && nativeState(this.env))
+        return json({ ok: true });
       if (u.pathname === '/status') {
         const agent = this.agent();
         const a = agent?.deserializeAttachment() as Attachment | undefined;
@@ -2337,7 +2387,9 @@ export class HostRelayDO extends DurableObject<Env> {
           }
           a.protocol = d.protocol;
           a.deliveryVersion = 2;
-          a.terminalStreaming = d.terminalStreaming === 1 ? 1 : undefined;
+          a.terminalStreaming = [1, 2].includes(d.terminalStreaming)
+            ? d.terminalStreaming
+            : undefined;
           a.deliveryInstance = idSchema.parse(d.deliveryInstance);
           a.build = agentBuildSchema.parse(d.build);
           if (d.wakeUrl !== undefined)
@@ -2813,7 +2865,8 @@ export class HostRelayDO extends DurableObject<Env> {
           const pending = await this.loadOperation(o.id);
           if (pending?.reservation) await this.releaseReservation(pending);
         }
-        if (!this.state) await this.deleteOperation(o.id);
+        if (!this.state && !nativeState(this.env))
+          await this.deleteOperation(o.id);
       }
     if (a.terminalStream) {
       const agent = this.agent();

@@ -723,15 +723,15 @@ A、Relay 与客户端均升级并协商新能力后，CW / CC 会在本机保�
 
 Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
 
-## 可选 D1 存储模式
+## DO 存储与迁移
 
-运维可运行 `python3 scripts/d1-usage.py --database coc-relay-state`，只读采集最近一天的使用量、热点 SQL、表结构与执行计划；`--period 7d` 查看七天热点。私有原始证据写入 `.local/d1-usage/`，采集本身会产生少量计费读取。D1 在单次事务尝试内复用重复读取，相同 JSON 值跳过物理重写；冲突重试与下一请求重新读取，不延长授权缓存。详见 [线上分析](d1-usage-2026-10-31.md)。
+`STATE_BACKEND=do` 使用 RegistryDO 保存授权与目录、每主机 HostRelayDO 保存控制状态和权限回执；离线状态原地保留，不再进行 60 秒 D1 归档。业务历史仍由 Agent 保存。WebSocket 使用 Hibernation API，保留数据不阻止休眠；原生协议 Ping/Pong 不唤醒 DO。网页终端要求 `streaming:2` Agent，无周期 JSON 心跳；流断开后才开始 60 秒 PTY 恢复宽限，仍会按控制权撤销、会话结束或 Agent 断线清理。
 
-活动会话的握手、控制租约、调用关联和临时结果由 DO 原生持久存储处理；对象休眠不会丢失这些信息。全部 Agent / CW / CC / 订阅连接和在途工作结束、连续空闲 60 秒后，服务端分批把完整快照归档到 D1。短暂断线会取消未发布的归档；新的连接先恢复完整状态，再处理会话。共享授权和主机目录仍保存在 D1。
+首次升级必须保留原 `STATE_DB` UUID。Registry 在提供授权服务前完整恢复 D1；一次性迁移 alarm 分页遍历目录及 D1 中全部 Host scope，Host 按权威位置恢复，活动 DO 不被旧归档覆盖。失败保留游标并重试；完成日志为 `do_migration_complete`，之后不再调度迁移 alarm。不能在未完成迁移时删除绑定，也不能回滚到继续读写旧 D1 的 Worker。数据库备份不包含活动 DO，必须保留活动 DO 数据。
 
-若出现 `BACKPRESSURE` 或 `RESULT_UNKNOWN: Handshake unconfirmed`，保留待确认请求，使用“重新连接并查询结果”核对原请求，不要重复发送任务。CW 控制与历史握手仍为 15 秒；异步 HTTP 操作会对原回执有界查询至多 30 秒，漏通知时也可恢复已完成结果，超时不自动重发任务。正在运行的 Agent 任务不会因为页面断线而被重启。
+用户请求、真实业务消息、连接关闭、撤销和有限到期 alarm 仍产生计算用量。稳定空闲、无到期事件时不应有应用心跳、后台查询或周期 alarm；存储有独立计费用量，不能将休眠解释为所有费用为零。浏览器空闲断链由连接关闭、恢复页面或下一次实际操作发现，结果未知的终端输入不重放。
 
-部署方应同时备份活动 DO 状态和 D1 归档，不能仅凭 D1 快照删除活动 DO。新版本不允许退回忽略权威位置的旧 Worker；保留原 `STATE_DB` UUID。现网已启用 D1，本次“活动 DO / 空闲 D1”分层已通过完整 CI 并部署；主机在后续业务请求时接入，真实 CW 与长期稳定性继续在使用中验收。使用 `npm run dev:d1` 本地开发；发布和恢复见 [存储说明](d1-relay-state.md)。
+旧 D1 模式只用于迁移兼容与历史回归：`npm run dev:d1`、`npm run test:d1:migration`。反向迁移验收运行 `npm run test:do:migration`。详见 [简化评估](d1-do-simplification-review-2026-11-03.md)及 [实施记录](do-state-implementation-2026-11-03.md)。
 
 ## Cloudflare Access、邮箱授权与管理员邮箱
 
@@ -975,6 +975,6 @@ CW 历史保存在浏览器 IndexedDB，已缓存的旧页再次打开优先本�
 
 仅经明确授权跳过 CI 的本机更新使用 `deploy-agent.py --local --local-build --binary /absolute/path/coc-agent --apply`；本机编译、来源核对、终端专项及备份重启仍执行，记录中注明未验证 CI。默认部署流程继续使用 Actions 制品。
 
-生产部署配置现固定原有 `STATE_DB`、`STATE_BACKEND=d1` 和清理 Cron。若管理员看到 `STATE_MIGRATED: Restore the D1 binding`，须恢复原数据库绑定，不能删除迁移标记或切回旧 DO；不会通过重新配对修复。直接 `npx wrangler deploy` 仍可能遗漏完整下载站，日常部署使用上述脚本。
+生产部署配置使用 `STATE_BACKEND=do`，迁移过渡期保留原有 `STATE_DB`，停用 D1 清理 Cron。若管理员看到 `STATE_MIGRATED: Restore the D1 binding`，须恢复原数据库绑定，不能删除迁移标记或切回旧 DO；不会通过重新配对修复。直接 `npx wrangler deploy` 仍可能遗漏完整下载站，日常部署使用上述脚本。
 
 图表预览兼容生产静态资源的规范 URL，公式使用本站提供或构建时内联的字体；无需放宽浏览器安全设置。

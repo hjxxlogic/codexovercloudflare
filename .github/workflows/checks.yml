@@ -81,6 +81,8 @@ jobs:
         run: python3 scripts/ci-command.py npm run test:d1:migration
         env:
           COC_ARTIFACT_DIR: .local/screenshots-d1
+      - name: D1 to native DO recovery
+        run: python3 scripts/ci-command.py npm run test:do:migration
       - name: D1 native and Chromium end-to-end regression
         run: python3 scripts/ci-command.py npm run test:e2e:d1
         env:

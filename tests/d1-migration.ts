@@ -75,10 +75,16 @@ async function stop() {
   await exited;
   worker = undefined;
 }
-async function start(d1: boolean) {
+async function start(d1: boolean, native = false) {
   const config = join(directory, 'wrangler.json');
   if (d1) {
     localStateConfig(config);
+    if (native) {
+      const overlay = JSON.parse(readFileSync(config, 'utf8'));
+      overlay.vars.STATE_BACKEND = 'do';
+      overlay.triggers = { crons: [] };
+      writeFileSync(config, JSON.stringify(overlay));
+    }
     const result = spawnSync(
       process.execPath,
       [
@@ -279,7 +285,12 @@ try {
     90000,
   );
   await stop();
-  await start(true);
+  await start(true, process.env.COC_REVERSE_MIGRATION === '1');
+  if (process.env.COC_REVERSE_MIGRATION === '1')
+    await wait(async () => {
+      const status = await fetch(origin + '/api/v1/healthz?stateMigration=1');
+      return ((await status.json()) as any).complete === true;
+    }, 'all DO host migrations complete');
   assert.equal(
     (await request(receiptPath, cli.apiKey)).result.ticket,
     originalTicket,

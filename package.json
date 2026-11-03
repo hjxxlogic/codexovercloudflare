@@ -19,6 +19,7 @@
     "test:e2e": "tsx tests/e2e.ts",
     "test:e2e:d1": "COC_STATE_BACKEND=d1 tsx tests/e2e.ts",
     "test:d1:migration": "tsx tests/d1-migration.ts",
+    "test:do:migration": "COC_REVERSE_MIGRATION=1 tsx tests/d1-migration.ts",
     "test:codex": "./build/coc-tests --codex",
     "setup:local": "tsx scripts/setup-local.ts",
     "test:native": "tsx scripts/native-cli-smoke.ts",

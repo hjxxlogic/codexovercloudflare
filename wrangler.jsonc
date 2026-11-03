@@ -16,7 +16,7 @@
     "ACCESS_AUD": "ae1eaf2eaabc17690f8f7b86fd9f87046c688ab255e2e3883fb74b411d99f87a",
     "ACCESS_ENABLED": "true",
     "ACCESS_TEAM_DOMAIN": "https://x1x3.cloudflareaccess.com",
-    "STATE_BACKEND": "d1",
+    "STATE_BACKEND": "do",
   },
   "assets": {
     "directory": "./dist/web",
@@ -44,7 +44,7 @@
     },
   ],
   "triggers": {
-    "crons": ["17 * * * *"],
+    "crons": [],
   },
   "migrations": [
     {
