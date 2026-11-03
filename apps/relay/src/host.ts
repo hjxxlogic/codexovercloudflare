@@ -185,6 +185,12 @@ export class HostRelayDO extends DurableObject<Env> {
     return this.ctx.storage as unknown as StateStorage;
   }
   private async prepare(hostId?: string, activity = true) {
+    if (!nativeState(this.env) && (await this.storage.get(DO_STATE_KEY)))
+      throw new AppError(
+        'STATE_MIGRATED',
+        'DO state is authoritative; retain STATE_BACKEND=do',
+        503,
+      );
     if (nativeState(this.env)) {
       if (this.migrationReady) return;
       if (!this.preparing)

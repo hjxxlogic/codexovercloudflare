@@ -1,4 +1,4 @@
-import { nativeState, restoreRegistry } from './do-migration.ts';
+import { DO_STATE_KEY, nativeState, restoreRegistry } from './do-migration.ts';
 import { effectiveAdminEmail, requireProjectManager } from './project-auth.ts';
 import {
   D1State,
@@ -1316,6 +1316,12 @@ export class RegistryDO extends DurableObject<Env> {
   private preparing?: Promise<void>;
   private async prepare() {
     if (this.core) return;
+    if (!nativeState(this.env) && (await this.ctx.storage.get(DO_STATE_KEY)))
+      throw new AppError(
+        'STATE_MIGRATED',
+        'DO state is authoritative; retain STATE_BACKEND=do',
+        503,
+      );
     if (nativeState(this.env)) {
       if (!this.preparing)
         this.preparing = this.ctx
@@ -1325,7 +1331,7 @@ export class RegistryDO extends DurableObject<Env> {
             await nextExpiry(storage);
             if (this.env.STATE_DB && !(await storage.get('@doHostsDone')))
               await storage.setAlarm(Date.now());
-            if (!this.env.STATE_DB)
+            if (!this.env.STATE_DB && !(await storage.get('@doHostsDone')))
               await storage.put('@doHostsDone', { version: 1 });
             this.core = new RegistryCore(this.ctx, this.env, storage);
           })

@@ -959,3 +959,25 @@ it('schedules finite native migration and includes orphan D1 scopes before compl
   await registry.alarm();
   expect(visited).toHaveLength(count);
 });
+
+it('rejects switching migrated native state back to stale D1 or legacy state', async () => {
+  const h = runtime();
+  await h.legacy.put('@doState', { version: 1 });
+  for (const backend of ['d1', 'legacy']) {
+    h.env.STATE_BACKEND = backend;
+    const registry = new RegistryDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await expect(registry.prepare()).rejects.toMatchObject({
+      code: 'STATE_MIGRATED',
+    });
+    const host = new HostRelayDO(
+      h.ctx as unknown as DurableObjectState,
+      h.env,
+    ) as any;
+    await expect(host.prepare('host-a')).rejects.toMatchObject({
+      code: 'STATE_MIGRATED',
+    });
+  }
+});

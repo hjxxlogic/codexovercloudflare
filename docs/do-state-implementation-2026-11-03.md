@@ -15,3 +15,5 @@ Registry 首次使用前分批复制 D1，完成后提交 `@doState`，失败不
 运维可显式读取 `/api/v1/healthz?stateMigration=1`，仅返回后端和全部主机迁移是否完成，不返回业务状态或凭据；普通 health 不访问 DO。`scripts/deploy-cloud.py --local-build --retire-state-db --apply` 会先读取线上完成状态，未完成拒绝移除绑定；只有完成后才发布无 D1 绑定的 Worker。该操作保留数据库本身。根配置应同步去除绑定，防止后续发布重新引入。
 
 第一阶段源码 `d9451b46063de69fe19ad2abd9b7d4d220733d80` 已部署至 `https://r.xlogic.cc`，Worker 版本 `b9814c9b-cdae-45ee-87f6-ea5cd552071d`。健康及资源字节校验通过，线上明确返回 `{"backend":"do","complete":true}`。随后根配置移除 D1 绑定，由部署脚本再次在线验证完成标记后发布。原数据库保留，不执行 DROP / DELETE。最终部署身份和摘要见后续证据。
+
+迁移完成后，新代码拒绝把已有 `@doState` 的对象切回 `d1` 或旧模式，防止配置误改复活旧授权；无 D1 时也只在首次初始化写主机迁移完成标记，避免每次休眠重建重写。
