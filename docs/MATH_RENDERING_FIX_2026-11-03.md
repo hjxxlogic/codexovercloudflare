@@ -15,4 +15,8 @@
 
 ## 发布
 
-沿用用户明确授权：跳过 GitHub Actions，通过 `scripts/deploy-cloud.py --local-build --apply` 发布网页 / Worker。发布身份、静态资源摘要及线上原消息渲染验证在部署后补记；不将本机构建描述为 CI 制品。原生 Agent 不升级或重启，不取得会话控制权，不调用模型或打开现场 Shell。
+沿用用户明确授权：跳过 GitHub Actions，通过 `scripts/deploy-cloud.py --local-build --apply` 发布网页 / Worker。源码 `73847e852f1a55c542fb83197d3fe2fc212cb63f` 已于 `2026-11-03T04:05:53Z` 发布至 `https://r.xlogic.cc`，Worker `3cb29650-0724-48b0-96f7-3ee5781d1434`，部署 `89d3fc86-5b8d-4a51-ab5b-588445cb935e` 为 100%。健康与静态资源逐字节校验通过，DO namespace 与 Secret 绑定保持，线上仅有 DO 存储。这里不将本机构建描述为 CI 制品。原生 Agent 不升级或重启，不取得会话控制权，不调用模型或打开现场 Shell。
+
+线上重新验证健康、API / WebSocket 授权边界、实际管理员身份、Agent probe、会话只读列表及通知连接（101，持续超过 6 秒）通过。使用实际线上 JS / CSS 和只读取得的原消息，通过本地文件 API 夹具隔离展示，在 1280 px 与 390 px 视口逐一滚动验证：17 个行内与 16 个块公式均出现 KaTeX，无失败回退、错误标题、公式外的残留分隔符或未捕获异常。此项是原消息在生产资源中的渲染验收，不冒充生产会话接管或新的模型任务。
+
+[发布来源、制品 SHA256 与脱敏验证结果](assets/math-rendering-2026-11-03/deployment.json)。刷新网页后即可使用；会话内容无需修改或重新生成。

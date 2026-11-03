@@ -2,6 +2,10 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## OpenAI 多行公式修复 · 2026-11-03
+
+按此前明确授权跳过 Actions，通过仓库部署脚本本机构建发布源码 `73847e8`，Worker `3cb29650-0724-48b0-96f7-3ee5781d1434` 已在 `https://r.xlogic.cc` 承载 100% 流量。健康、静态资源字节、真实身份与只读 Agent / 通知检查通过；原消息在生产资源中以桌面 / 手机视口逐项验证，17 个行内及 16 个块公式全部渲染，无回退或异常。现有 DO namespace、Secret 和原生下载保留；Agent 未更新或重启，无模型、PTY 或会话控制操作。[问题与验证范围](MATH_RENDERING_FIX_2026-11-03.md) · [制品 SHA256 与发布身份](assets/math-rendering-2026-11-03/deployment.json)。
+
 ## DO 唯一路径与连接授权 · 2026-11-03
 
 按用户明确要求跳过 GitHub Actions，通过仓库脚本本地构建发布源码 `5ed8debda615387db4e573b28f8c83f30c0165da`，部署 ID `6dd828bb-3b4f-4814-89dc-ed7fe550680a`，Worker `d1c64f46-d57b-4b95-ba96-921222216475` 接收 100% 流量。证据明确标记 `localBuild: true` / `ciVerified: false`；未推送或触发 CI，不发布原生包和更新通知。
