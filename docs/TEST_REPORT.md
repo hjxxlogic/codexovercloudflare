@@ -4,7 +4,7 @@
 
 ## 2026-11-03：网页断网后的控制凭证恢复
 
-针对 `STALE_CONTROLLER: Resume proof does not match the original controller`，新增回归在旧实现上复现两项失败；修复后 Relay、网页 delivery 和 API 共 176 项通过，包含连续丢失确认、DO 重建、旧损坏租约恢复，以及错误 owner / claim / stream、后续接管和未决接管拒绝。TypeScript、ESLint / Prettier 通过。浏览器用真实 Chromium 模拟超过三次连接失败、断流与网络恢复事件，检查重连合并、草稿保留、不提交新任务和不自动抢回控制权。
+针对 `STALE_CONTROLLER: Resume proof does not match the original controller`，新增回归在旧实现上复现两项失败；修复后 Relay、网页 delivery 和 API 共 176 项通过，包含连续丢失确认、DO 重建、旧损坏租约恢复，以及错误 owner / claim / stream、后续接管和未决接管拒绝。TypeScript、ESLint / Prettier 通过。浏览器用真实 Chromium 模拟超过三次连接失败、断流与网络恢复事件，检查重连合并、草稿保留、不提交新任务和不自动抢回控制权；定向检查及完整 UI 稳定性全部通过。
 
 用户要求跳过 GitHub Actions，针对问题验证后先部署 Worker / 网页；准确源码与线上核验记录见 [发布记录](DEPLOYMENT_STATUS.md)，[修复边界](WEB_RECONNECT_2026-11-03.md)。现场仅执行只读检查，不关闭 `tmpwork`、接管其控制权或重启 busy Agent。
 

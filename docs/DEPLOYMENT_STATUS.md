@@ -2,6 +2,14 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## 网页断网恢复修复 · 2026-11-03
+
+按用户明确要求跳过 GitHub Actions，针对问题验证后通过 `scripts/deploy-cloud.py --local-build --apply` 发布源码 `b08abb7182b58e775d15536ce158eb237464ec7e`。部署 ID `322c240b-beac-4691-9efc-1c53bad7d9ba`，Worker `1d10ce6e-5fa2-44a6-b60f-5544be630963` 在 `https://r.xlogic.cc` 承载 100% 流量。证据标记 `localBuild: true`、`ciVerified: false`，提交使用 `[skip ci]`，没有 Actions 运行或新原生发布。
+
+修复重连确认丢失后原 controller 被遗漏导致的 `STALE_CONTROLLER`，支持同 owner、当前随机 claim 及原消息流恢复已受影响租约；接管与未决接管的隔离继续有效。控制连接在三次快速退避后每 30–60 秒重试，网络恢复事件提前唤起并合并。旧代码的新增回归有两项失败，修复后 176 项 Relay / delivery / API、真实 Chromium 定向故障及完整 UI 稳定性、类型与格式检查通过。
+
+线上健康、全部静态资源字节、管理员身份、认证边界、`x0` Agent probe、6 条会话查询、`tmpwork` 快照 / 历史和通知 WebSocket 验证通过，浏览器无未捕获异常。全部云端 bindings 与前一版本一致，5 个原生 / 源码包逐字节摘要匹配原 0.6.5 验证制品。没有停止或接管现场会话、调用模型或重启 Agent。用户浏览器仍须刷新并点击原会话“重新连接”；现场发送恢复待用户确认。[修复与操作说明](WEB_RECONNECT_2026-11-03.md) · [来源、摘要、部署与验证证据](assets/web-reconnect-2026-11-03/deployment.json)。
+
 ## 0.6.5 Agent 一周保留、客户端恢复与本机升级 · 2026-11-03
 
 源码 `875e771c56e61908062be6f06320ef23b0455a16` 的 [tag Actions 41598718938](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41598718938) 中 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 和发布作业全部成功，已生成 [v0.6.5 Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.6.5)。0.6.3 / 0.6.4 候选未发布、未部署；不复用候选标签。制品来自最终 tag CI，核对 GitHub artifact SHA256 和源码身份；剩余三个平台通过 GH Proxy 下载，校验规则未变。
