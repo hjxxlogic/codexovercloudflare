@@ -14,9 +14,13 @@
 - `test:operations`、`test:delivery` 通过，真实 Agent / CLI 配确定性 Codex peer，不调用模型；新增真实只读 adapter 在投影删除后使用客户端凭证恢复 Unicode 原文，错误账号 / MAC 被拒绝。SIGKILL、旧引用过期、代际缺口与来源替换检查保留。
 - TypeScript、ESLint / Prettier、C++ 格式、协议生成一致性通过；原生构建通过。跨平台、sanitizer、完整 Worker / Chromium 集成以准确源码提交的 Actions 结果为准。
 
-用户要求完成后发布 0.6.5；推送、六项必需 CI、GitHub Release、云端部署与制品摘要另记 [发布记录](DEPLOYMENT_STATUS.md)。本机测试不代替 CI 制品；未修改现场数据库、配置或正在运行的 Agent。
+用户要求完成后发布 0.6.5；推送、六项必需 CI、GitHub Release、云端部署与制品摘要另记 [发布记录](DEPLOYMENT_STATUS.md)。本机测试不代替 CI 制品；上述本机测试阶段未直接修改现场数据库、配置或运行中的 Agent，之后的明确升级请求与结果见下文。
 
 发布前复核发现控制头压缩后的同代次重连未被底层 SQL 校验识别；现已使准入与 started 边界读取压缩计数，并补充跨重启完整接收 / 开始断言。0.6.3 / 0.6.4 候选未发布，已删除远端候选标签并停止其云端发布脚本。完整 CI 又发现网页上传混用了请求准入代次与稳定 Agent 身份；已将两者分别持久保存，上传状态 / chunk 绑定稳定身份，finish 独立获取当前准入代次，Terminal 也使用该规则。上传测试在每个 chunk 后轮换代次，并覆盖 ACK 尾部清理后的恢复和 Agent 替换拒绝。最终版本改为 0.6.5，不复用旧候选标签。
+
+最终源码 `875e771` 的 [tag Actions 41598718938](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41598718938) 六项必需检查及发布作业全部成功，包含完整 Terminal / 上传 / 历史 / 多浏览器 E2E。0.6.5 已发布 GitHub Release、网页 / Relay、四平台下载与源码，所有线上资源及五份新归档摘要通过。三份剩余原生 artifact 经 GH Proxy 下载并与 GitHub 独立 SHA256 核对。真实身份 / Agent / Chromium 只读验收通过。
+
+用户随后要求更新本机 Agent；空闲状态下安装同一 CI 的 musl 制品，实际进程为 0.6.5，源码身份、连接及 120 秒稳定性检查通过，升级后线上只读验收通过。配置 / Access 摘要保持不变，数据库私有备份完整性通过；一周、256 MiB 已使用页、80% / 60% 策略已从实际数据库确认。当前低于水位，没有强制删除旧历史；不将迁移初始化时间或 SQLite 可复用空间称为文件缩小。[完整发布与升级证据](assets/retention-release-0.6.5-2026-11-03/deployment.json)。
 
 ## 2026-11-03：0.6.2 Terminal 响应与 Actions 发布
 

@@ -2,6 +2,18 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## 0.6.5 Agent 一周保留、客户端恢复与本机升级 · 2026-11-03
+
+源码 `875e771c56e61908062be6f06320ef23b0455a16` 的 [tag Actions 41598718938](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41598718938) 中 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 和发布作业全部成功，已生成 [v0.6.5 Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.6.5)。0.6.3 / 0.6.4 候选未发布、未部署；不复用候选标签。制品来自最终 tag CI，核对 GitHub artifact SHA256 和源码身份；剩余三个平台通过 GH Proxy 下载，校验规则未变。
+
+UTC `08:23:54` 部署到 `https://r.xlogic.cc`，部署 ID `447c07e7-1297-4b63-aee8-6c06d65b0bbb`，Worker `95ca4246-84fb-44ec-8235-46ddc69c74cc` 接收 100% 流量。健康返回 0.6.5，全部网页资源 / 手册 / 下载元数据逐字节一致，五份新归档在线重下 SHA256 校验通过。全部绑定与上一版相同；保留 DO namespace、Secret、变量与旧下载。真实管理员、权限边界、现有 Agent、Chromium 页面及通知连接检查通过，无模型调用、PTY 创建或会话接管。
+
+随后按用户明确要求升级本机 systemd user-service Agent。使用 `scripts/deploy-agent.py --push --local --apply` 和同一 run 的 musl 制品，安装前确认 runtime / 排队命令 / 审批均为零；保存私有配置、账本和 SQLite 完整备份（integrity check 通过），helper 保留原运行二进制。安装后实际进程版本 / commit / sourceDigest 一致，连接与 120 秒稳定性验证通过，线上只读复测通过。配置及 Access 文件摘要不变，未强制中断活动任务、未手工删库或 VACUUM。
+
+有效策略为 `retentionSeconds=604800`、`storageMaxBytes=268435456`、80% 触发 / 60% 目标；旧 `retainedRecords=0` 保持原样，不影响新增自动清理。升级后已初始化历史保留时间；实际使用 SQLite 页约 31 MiB，其余历史配额也未达到水位，本次没有强制清空旧历史。旧数据按升级迁移后的一周期限或提前容量清理处理；SQLite 页可复用不表示文件立即缩小，整盘写满时仍可能需要先腾空间。配置和恢复限制见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
+
+[源码、全部制品与在线归档 SHA256、云端和本机升级验证](assets/retention-release-0.6.5-2026-11-03/deployment.json)。含凭据的备份、目标路径及完整日志仅保存在忽略目录 `.local/retention-release-0.6.5/`。
+
 ## 0.6.2 Terminal 响应与完整 Actions 发布 · 2026-11-03
 
 源码 `9b6d7230c66eac4f212d40bfde4bf819838a064c` 的 [tag Actions 41581045170](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41581045170) 中 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，发布作业已生成 [v0.6.2 Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.6.2)。首次失败候选未发布、未部署。仅使用最终 tag CI 制品，经 GitHub 摘要、包内 SHA256 和统一源码身份校验后，由仓库脚本发布。
