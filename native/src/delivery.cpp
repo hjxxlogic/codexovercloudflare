@@ -68,10 +68,6 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
   run("BEGIN IMMEDIATE");
   try {
     const auto previous = control_state(session);
-    if (previous.is_null() &&
-        query("SELECT COUNT(*) AS count FROM transport2_control").at(0).at("count") >=
-            credit::flow_limit)
-      throw Error("BACKPRESSURE", "Control namespace metadata budget exhausted");
     if (!previous.is_null()) {
       if (epoch < previous.at("controlEpoch").get<int64_t>())
         throw Error("STALE_CONTROLLER", "Control epoch has already advanced");
@@ -82,6 +78,10 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
         return previous;
       }
     }
+    if (query("SELECT 1 FROM transport2_control WHERE session=?", {session}).empty() &&
+        query("SELECT COUNT(*) AS count FROM transport2_control").at(0).at("count") >=
+            credit::flow_limit)
+      throw Error("BACKPRESSURE", "Control namespace metadata budget exhausted");
     const auto ready = Json{{"controlEpoch", epoch},
                             {"controlId", control_id},
                             {"owner", owner},
@@ -229,10 +229,13 @@ Json Store::delivery_cancel(const std::string &session, const Json &target) {
   }
 }
 void Store::delivery_check_control(const std::string &stream) {
-  const auto rows =
-      query("SELECT f.closed,f.epoch,c.epoch AS active_epoch FROM transport2_flow_control f "
-            "LEFT JOIN transport2_control c ON c.session=f.session WHERE f.stream=?",
-            {stream});
+  const auto rows = query(
+      "SELECT "
+      "f.closed,f.epoch,COALESCE(c.epoch,json_extract(s.value,'$.controlCoverage.controlEpoch')) "
+      "AS active_epoch FROM transport2_flow_control f "
+      "LEFT JOIN transport2_control c ON c.session=f.session "
+      "LEFT JOIN sessions s ON s.id=f.session WHERE f.stream=?",
+      {stream});
   if (!rows.empty() &&
       (rows.at(0).at("closed") != 0 || rows.at(0).at("epoch") != rows.at(0).at("active_epoch")))
     throw Error("STALE_CONTROLLER", "The delivery stream control epoch is retired");
@@ -417,8 +420,10 @@ bool Store::delivery_start(const std::string &stream, int64_t seq) {
   run("UPDATE transport2_commands SET phase='started' WHERE stream=? AND seq=? AND "
       "phase='received' AND NOT EXISTS (SELECT 1 FROM transport2_credit WHERE stream=? AND "
       "closed=1) AND NOT EXISTS (SELECT 1 FROM transport2_flow_control f LEFT JOIN "
-      "transport2_control c ON c.session=f.session WHERE f.stream=? AND (f.closed!=0 OR "
-      "c.epoch IS NULL OR f.epoch!=c.epoch))",
+      "transport2_control c ON c.session=f.session LEFT JOIN sessions s ON s.id=f.session "
+      "WHERE f.stream=? AND (f.closed!=0 OR "
+      "COALESCE(c.epoch,json_extract(s.value,'$.controlCoverage.controlEpoch')) IS NULL OR "
+      "f.epoch!=COALESCE(c.epoch,json_extract(s.value,'$.controlCoverage.controlEpoch'))))",
       {stream, seq, stream, stream});
   return sqlite3_changes(db_) == 1;
 }

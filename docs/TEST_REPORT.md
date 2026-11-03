@@ -2,7 +2,7 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
-## 2026-11-03：0.6.3 Agent 保留与客户端恢复
+## 2026-11-03：0.6.4 Agent 保留与客户端恢复
 
 新增一周上限及 80% / 60% 清理水位，覆盖历史正文 / 投影、旧订阅、未决操作、交付流 / 输出、上传回执与项目修改账本；空 scope、输出及控制头压缩后归还额度，保留单调防重放计数。客户端保存 HMAC 恢复凭证；CW 缺口恢复保留有界旧事件及正文。完整配置、无法回源内容、活跃任务保护、SQLite 页复用与遗留上传临时文件限制见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
 
@@ -14,7 +14,9 @@
 - `test:operations`、`test:delivery` 通过，真实 Agent / CLI 配确定性 Codex peer，不调用模型；新增真实只读 adapter 在投影删除后使用客户端凭证恢复 Unicode 原文，错误账号 / MAC 被拒绝。SIGKILL、旧引用过期、代际缺口与来源替换检查保留。
 - TypeScript、ESLint / Prettier、C++ 格式、协议生成一致性通过；原生构建通过。跨平台、sanitizer、完整 Worker / Chromium 集成以准确源码提交的 Actions 结果为准。
 
-用户要求完成后发布 0.6.3；推送、六项必需 CI、GitHub Release、云端部署与制品摘要另记 [发布记录](DEPLOYMENT_STATUS.md)。本机测试不代替 CI 制品；未修改现场数据库、配置或正在运行的 Agent。
+用户要求完成后发布 0.6.4；推送、六项必需 CI、GitHub Release、云端部署与制品摘要另记 [发布记录](DEPLOYMENT_STATUS.md)。本机测试不代替 CI 制品；未修改现场数据库、配置或正在运行的 Agent。
+
+发布前复核发现控制头压缩后的同代次重连未被底层 SQL 校验识别；现已使准入与 started 边界读取压缩计数，并补充跨重启完整接收 / 开始断言。0.6.3 候选未发布，已删除远端候选标签并停止其云端发布脚本；最终版本改为 0.6.4，不复用旧候选标签。
 
 ## 2026-11-03：0.6.2 Terminal 响应与 Actions 发布
 

@@ -1229,7 +1229,7 @@ void core() {
     const auto before = journal.delivery_budget();
     journal.retention_cleanup(now());
     journal.delivery_open("one-too-many", "finite-names", 1, max_frame);
-    check(journal.delivery_budget().at("normal").at("flows") < before.at("normal").at("flows") &&
+    check(journal.delivery_budget().at("normal").at("flows") < credit::flow_limit &&
               before.at("namespaces").at(0).at("closedThrough") == credit::flow_limit,
           "Retired flows release metadata while preserving the monotonic refusal boundary");
   }

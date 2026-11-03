@@ -1,6 +1,6 @@
 # 用户手册
 
-## Agent 一周保留与容量清理（0.6.3，需配套升级）
+## Agent 一周保留与容量清理（0.6.4，需配套升级）
 
 Agent 历史、遗留未决和未交付积压现在默认最多保留一周。`historyStorage.retentionSeconds` 默认 `604800`、最大一周；`storageMaxBytes` 默认 `268435456`（256 MiB SQLite 已使用页），`cleanupThresholdPercent` 默认 `80`，`cleanupTargetPercent` 默认 `60`。达到各类预算水位即可提前清理，旧订阅不再永久阻止回收；活动任务及必要配置保留。`retainedRecords: 0` 仅关闭原来的按条数退休，不关闭新策略。清理释放可复用页，不自动缩小数据库文件。
 

@@ -219,6 +219,14 @@ void compact_transport_counters() {
   }
   Store reopened(temp.dir());
   rejects([&] { reopened.control_apply("host~counters", 1, "old", "owner"); }, "STALE_CONTROLLER");
+  check(reopened.control_apply("host~counters", 2, "control", "owner") == original,
+        "Compaction rejected the original current controller");
+  reopened.delivery_open("reopened-control", "host~counters", 1, max_frame);
+  reopened.delivery_bind("reopened-control", 2, "control");
+  const auto body = Json{{"id", 1}, {"method", "noop"}}.dump();
+  reopened.delivery_receive("reopened-control", 1, body.size(), body);
+  check(reopened.delivery_start("reopened-control", 1),
+        "Compacted control fencing prevented a newly admitted command");
   check(reopened.output_append("rpc-output:host~counters", {{"event", "new"}}).at("seq") == 2,
         "Compacted output counters reused an identity");
 }
