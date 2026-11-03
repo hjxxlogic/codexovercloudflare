@@ -14,6 +14,9 @@ const proxyEnvironment = () =>
       'NO_PROXY',
       'no_proxy',
       'COC_PROXY_TEST',
+      'CODEX_HOME',
+      'SSL_CERT_FILE',
+      'CODEX_SUB2_KEY',
     ].map((key) => [key, process.env[key] ?? null]),
   );
 function externalState() {

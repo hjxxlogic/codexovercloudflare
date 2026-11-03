@@ -77,9 +77,9 @@ export function SessionHistory({
         const { session, thread } = row;
         const active = session?.state === 'ready';
         const title =
-          session?.title ||
           thread?.name ||
           thread?.preview ||
+          session?.title ||
           (active ? t('进行中的对话') : t('历史会话（只读）'));
         const current =
           !!selected &&

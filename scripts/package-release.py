@@ -18,6 +18,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', default='build')
 parser.add_argument('--dependency-dir', help='Windows vcpkg installed triplet directory (for license notices)')
 parser.add_argument('--platform', required=True, help='Distribution identifier: ubuntu20.04, debian12, musl or windows-x64')
+parser.add_argument('--output', type=pathlib.Path, default=pathlib.Path('dist/web/downloads'))
+parser.add_argument('--static-linux', action='store_true', help='Verify static ELF and use it for Linux distribution aliases')
 args = parser.parse_args()
 if not re.fullmatch(r'[a-zA-Z0-9._-]+', args.platform):
     parser.error('Invalid platform identifier')
@@ -31,12 +33,14 @@ if metadata['dirty']:
 version = metadata['version']
 windows = args.platform == 'windows-x64'
 suffix = '.exe' if windows else ''
+if windows and args.static_linux:
+    parser.error('--static-linux requires a Linux platform')
 if windows and metadata['target'] != 'windows-x86_64':
     parser.error('Windows releases must be packaged and validated on Windows x64')
 if not windows and metadata['target'] != 'linux-x86_64':
     parser.error('Linux releases must be packaged and validated on Linux x86_64')
 for executable in ('coc-client', 'coc-agent'):
-    if args.platform == 'musl':
+    if args.platform == 'musl' or args.static_linux:
         # Inspect ELF directly: ldd output and exit codes vary between libc implementations.
         data = (pathlib.Path(args.build_dir) / executable).read_bytes()
         if len(data) < 64 or data[:7] != b'\x7fELF\x02\x01\x01':
@@ -66,7 +70,7 @@ for executable in ('coc-client', 'coc-agent'):
     built = json.loads(subprocess.check_output([str(pathlib.Path(args.build_dir).resolve() / (executable + suffix)), '--version'], text=True))
     if any(built.get(key) != metadata[key] for key in ('version', 'commit', 'sourceDigest', 'protocol', 'dirty', 'target')):
         parser.error(f'{executable} build identity does not match the clean source tree')
-output = pathlib.Path('dist/web/downloads')
+output = args.output
 output.mkdir(parents=True, exist_ok=True)
 name = f'coc-{version}-windows-x64' if windows else f'coc-{version}-linux-x86_64-{args.platform}'
 with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
@@ -74,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
     root.mkdir()
     for executable in ('coc-client', 'coc-agent'):
         shutil.copy2(pathlib.Path(args.build_dir) / (executable + suffix), root / (executable + suffix))
-    if args.platform == 'musl':
+    if args.platform == 'musl' or args.static_linux:
         # Static executables otherwise carry large symbol tables into the site
         # archive. Strip staged copies only; retain build outputs for diagnostics.
         for executable in ('coc-client', 'coc-agent'):
@@ -116,7 +120,7 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
         runtime = (
             'Fully static musl binaries: no shared libraries or musl installation required. '
             'Install system CA certificates for TLS verification. '
-            if args.platform == 'musl' else
+            if args.platform == 'musl' or args.static_linux else
             'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, '
             'libstdc++ and CA certificates. Check dependencies with ldd. '
         )

@@ -470,3 +470,7 @@ Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆�
 `tests/web-terminal-stream.test.ts` 验证多帧在前序 ACK 未到时发送、逐序确认、帧 / 字节双限额、容量恢复及未知输入不重放。`npm run test:ui` 阻塞 Terminal 引擎下载，确认 info 已发起且挂载不重复请求；`npm run test:terminal:e2e` 覆盖真实 Worker / 原生 PTY / Chromium。`npm run test:tls` 验证原生 TLS 与 Access，CI 另覆盖 Windows、musl 及 sanitizer。`npm run test:release` 确认 musl 发布副本裁剪后身份有效、原始构建不被修改，归档仍兼容旧更新器。具体结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。
 
 GitHub-hosted Ubuntu 回归机先运行 `scripts/prepare-ci-sandbox.py`，仅在 `GITHUB_ACTIONS=true` 且 `RUNNER_ENVIRONMENT=github-hosted` 时临时允许 AppArmor 受限的用户命名空间，并执行真实隔离网络 smoke；不更改开发机 / 生产配置，不移除 `--unshare-net` 或跳过 PTY 断言。Ubuntu 的机制说明见 [官方文档](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces)。
+
+### 明确授权的本机静态 Linux 发布
+
+仅在用户明确要求跳过 Actions 时，使用干净源码构建 `COC_STATIC_MUSL=ON`，完成原生测试后执行 `python3 scripts/deploy-cloud.py --local-build --local-native-build-dir build-musl-local --apply`。脚本逐一核对两种程序的源码身份并验证静态 ELF，将同一静态 musl 构建打包为 musl / Ubuntu 20.04 / Debian 12 下载入口；Windows 沿用前一版本并写入 deferredPlatforms。此例外标记 localBuild=true、ciVerified=false，不表示完成跨平台 CI。`package-release.py --static-linux --output PATH` 只允许 Linux，动态 ELF 拒绝打包，认证配置及旧下载保留。需要更新通知时在验证全部线上归档后使用管理员“通知所有 coc-agent 更新”；安装仍等待空闲。

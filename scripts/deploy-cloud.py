@@ -10,6 +10,7 @@ import stat
 import subprocess
 import zipfile
 import os
+import sys
 import urllib.error
 import urllib.request
 
@@ -192,6 +193,43 @@ def validate_storage_config(config):
         raise RuntimeError('Worker artifact must bind RegistryDO and HostRelayDO')
 
 
+def publish_local_native(build_dir, identity, output, site, previous):
+    """Explicit local static Linux release; keep the previous Windows download."""
+    staged = output / 'local-native'
+    staged.mkdir(exist_ok=True)
+    if any(staged.iterdir()):
+        shutil.rmtree(staged)
+        staged.mkdir()
+    for platform in ('musl', 'ubuntu20.04', 'debian12'):
+        subprocess.run([sys.executable, 'scripts/package-release.py', '--build-dir', str(build_dir),
+                        '--platform', platform, '--static-linux', '--output', str(staged)],
+                       cwd=ROOT, check=True)
+    manifest = json.loads((staged / 'index.json').read_text())
+    for field in ('version', 'commit', 'sourceDigest', 'protocol'):
+        if manifest[field] != identity[field]:
+            raise RuntimeError('Local native identity mismatch: ' + field)
+    manifest.update(localBuild=True, ciVerified=False, linuxRuntime='static-musl')
+    target = site / 'downloads'
+    windows = [name for name in previous['files'] if name.endswith('-windows-x64.zip')]
+    if len(windows) != 1:
+        raise RuntimeError('Expected one previous Windows download')
+    name = windows[0]
+    manifest['files'].append(name)
+    manifest['deferredPlatforms'] = {'windows-x64': {'version': previous['version'],
+                                    'commit': previous['commit'], 'file': name}}
+    for path in staged.iterdir():
+        if path.is_file():
+            shutil.copyfile(path, target / path.name)
+    (target / 'index.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    (target / 'SHA256SUMS').write_text(''.join(hashlib.sha256((target / name).read_bytes()).hexdigest()
+                                             + '  ' + name + '\n' for name in sorted(manifest['files'])))
+    html = (target / 'index.html').read_text()
+    html += '<p>Local static Linux build; GitHub Actions skipped by explicit request. Windows remains at the previous release.</p>'
+    html += '<a href="' + name + '">Windows ' + previous['version'] + '</a>'
+    (target / 'index.html').write_text(html)
+    return manifest
+
+
 def completed_cloud_run(repository, commit, run_id):
     """Explicit cloud-only exception: all checks except Windows must succeed."""
     run = agent.api(repository, 'runs/' + str(run_id))
@@ -217,6 +255,7 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true',
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
+    parser.add_argument('--local-native-build-dir', type=pathlib.Path, help='Explicit local static Linux release; requires --local-build; preserves previous Windows')
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--replace-vars', action='store_true',
@@ -232,6 +271,8 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.local_native_build_dir and not args.local_build:
+        parser.error('--local-native-build-dir requires --local-build')
     if args.local_build and (args.run_id or args.cloud_only_after_windows_failure or args.publish_downloads or args.notify_release):
         parser.error('--local-build forbids CI run selection and native publication/notification')
     if args.cloud_only_after_windows_failure and (args.publish_downloads or args.notify_release or not args.run_id):
@@ -318,6 +359,8 @@ def main():
     if args.local_build:
         shutil.copyfile(ROOT / 'docs/USER_GUIDE.md', output / 'site/downloads/USER_GUIDE.md')
     published = None
+    if args.local_native_build_dir:
+        published = publish_local_native(args.local_native_build_dir.resolve(), identities[0], output, output / 'site', manifest)
     if args.publish_downloads:
         bundles = {}
         for name in ('linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'):

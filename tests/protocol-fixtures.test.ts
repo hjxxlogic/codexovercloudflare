@@ -146,6 +146,25 @@ it('preserves update opt-out and validates the Codex proxy opt-in in Agent confi
   };
   expect(agentConfigSchema.parse(input).autoUpdate).toBe(false);
   expect(agentConfigSchema.parse(input).codexUseProxy).toBe(false);
+  expect(agentConfigSchema.parse(input).codexProxyMode).toBe('inherit');
+  for (const [legacy, mode] of [
+    [true, 'agent'],
+    [false, 'direct'],
+  ] as const)
+    expect(
+      agentConfigSchema.parse({ ...input, codexUseProxy: legacy })
+        .codexProxyMode,
+    ).toBe(mode);
+  for (const codexProxyMode of ['inherit', 'direct', 'agent'] as const)
+    expect(
+      agentConfigSchema.parse({ ...input, codexUseProxy: true, codexProxyMode })
+        .codexProxyMode,
+    ).toBe(codexProxyMode);
+  for (const codexProxyMode of ['', 'invalid', null, false, 1])
+    expect(
+      agentConfigSchema.safeParse({ ...input, codexProxyMode }).success,
+    ).toBe(false);
+
   expect(
     agentConfigSchema.parse({ ...input, codexUseProxy: true }).codexUseProxy,
   ).toBe(true);

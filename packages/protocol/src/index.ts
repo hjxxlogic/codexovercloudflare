@@ -239,45 +239,60 @@ export const historyStorageSchema = z
       value.writeWindowRecords <= value.maxSessionRecords,
     'History write window exceeds session limits',
   );
-export const agentConfigSchema = z.object({
-  relayUrl: z.string().url().default('https://r.xlogic.cc'),
-  hostId: idSchema,
-  token: z.string().min(20),
-  historyStorage: historyStorageSchema.optional(),
-  wakeUrl: wakeUrlSchema.optional(),
-  accessEmails: accessEmailsSchema.optional(),
-  adminEmail: z.union([z.literal(''), accessEmailSchema]).optional(),
-  autoUpdate: z
-    .union([
-      z.boolean(),
-      z.object({
-        enabled: z.boolean().optional(),
-        intervalHours: z.number().int().min(1).max(168).optional(),
-        platform: z
-          .enum(['', 'ubuntu20.04', 'debian12', 'windows-x64'])
-          .optional(),
-      }),
-    ])
-    .optional(),
-  externalSessions: z
-    .object({
-      allowQueue: z.boolean().default(false),
-      allowApprovals: z.boolean().optional(),
-      approvalEndpoint: z.string().max(4096).optional(),
-      approvalTokenFile: z.string().max(4096).optional(),
-    })
-    .optional(),
-  codexPath: z.string().default('codex'),
-  codexArgs: z.array(z.string()).default([]),
-  codexUseProxy: z.boolean().default(false),
-  terminal: z
-    .object({ enabled: z.boolean().default(false) })
-    .strict()
-    .optional(),
-  dataDir: z.string().min(1),
-  projects: z.array(projectSchema),
-  sandbox: z.enum(['read-only', 'workspace-write']).default('workspace-write'),
-});
+export const agentConfigSchema = z
+  .object({
+    relayUrl: z.string().url().default('https://r.xlogic.cc'),
+    hostId: idSchema,
+    token: z.string().min(20),
+    historyStorage: historyStorageSchema.optional(),
+    wakeUrl: wakeUrlSchema.optional(),
+    accessEmails: accessEmailsSchema.optional(),
+    adminEmail: z.union([z.literal(''), accessEmailSchema]).optional(),
+    autoUpdate: z
+      .union([
+        z.boolean(),
+        z.object({
+          enabled: z.boolean().optional(),
+          intervalHours: z.number().int().min(1).max(168).optional(),
+          platform: z
+            .enum(['', 'ubuntu20.04', 'debian12', 'windows-x64'])
+            .optional(),
+        }),
+      ])
+      .optional(),
+    externalSessions: z
+      .object({
+        allowQueue: z.boolean().default(false),
+        allowApprovals: z.boolean().optional(),
+        approvalEndpoint: z.string().max(4096).optional(),
+        approvalTokenFile: z.string().max(4096).optional(),
+      })
+      .optional(),
+    codexPath: z.string().default('codex'),
+    codexArgs: z.array(z.string()).default([]),
+    codexUseProxy: z.boolean().optional(),
+    codexProxyMode: z.enum(['inherit', 'direct', 'agent']).optional(),
+    terminal: z
+      .object({ enabled: z.boolean().default(false) })
+      .strict()
+      .optional(),
+    dataDir: z.string().min(1),
+    projects: z.array(projectSchema),
+    sandbox: z
+      .enum(['read-only', 'workspace-write'])
+      .default('workspace-write'),
+  })
+  .transform((config) => ({
+    ...config,
+    codexProxyMode:
+      config.codexProxyMode ??
+      (config.codexUseProxy === undefined
+        ? 'inherit'
+        : config.codexUseProxy
+          ? 'agent'
+          : 'direct'),
+    codexUseProxy: config.codexUseProxy ?? false,
+  }));
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export const commandTargetSchema = z.object({

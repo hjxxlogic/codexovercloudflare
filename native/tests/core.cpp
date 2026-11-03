@@ -1498,7 +1498,12 @@ void external_test() {
        {"token", std::string(24, 'x')},
        {"dataDir", temp.path + "/state"},
        {"projects", Json::array({{{"id", "project"}, {"name", "Project"}, {"path", temp.path}}})}});
-  check(config["codexUseProxy"] == false, "Codex proxy is opt-in by default");
+  check(config["codexProxyMode"] == "inherit", "Codex inherits the launch environment by default");
+  for (const auto &mode : {Json(""), Json("invalid"), Json(false), Json(1), Json()}) {
+    auto invalid = config;
+    invalid["codexProxyMode"] = mode;
+    rejects([&] { agent_config(invalid); }, "CONFIG_ERROR");
+  }
   auto proxy_config = config;
   proxy_config["codexUseProxy"] = true;
   check(agent_config(proxy_config)["codexUseProxy"] == true, "Preserve Codex proxy opt-in");

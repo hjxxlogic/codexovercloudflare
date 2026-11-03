@@ -181,18 +181,32 @@ coc-agent proxy ''
 
 优先级：`--proxy` 高于配置文件；未设置或空字符串为直连，不自动读取系统代理环境变量。`proxy` 命令持久保存配置，运行中的 Agent 需重启。支持 `http://host:port`（CONNECT）、`socks5://host:port`，`socks://` 与 `socks5h://` 为 SOCKS5 别名。端口必须显式指定；IPv6 使用 `[::1]:1080`。可选 `user:password@` 认证，特殊字符使用百分号编码。HTTP 使用 Basic，SOCKS5 使用用户名密码认证；密码仅写入私有本地配置，不输出代理 URL，不上传 Relay。应使用可信代理，代理认证本身不加密。
 
-Agent 的 `codexUseProxy` 默认为 `false`：配置的代理只供 Agent 使用，启动 Codex 时清除继承的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及其小写形式，其它环境保留。此规则同样适用于 Agent 的 Codex 版本探测、会话和历史读取进程，不修改 Codex 自己的配置文件。
+Agent 的 Codex 代理由 `codexProxyMode` 控制：
 
-需要 Codex 也使用 Agent 代理时，在 `agent.json` 设置：
+| 模式      | Codex 子进程行为                                                                      |
+| --------- | ------------------------------------------------------------------------------------- |
+| `inherit` | 原样继承 Agent 启动环境中的代理及 `NO_PROXY`；不自动把 Agent 自身配置的代理传给 Codex |
+| `direct`  | 清除大小写 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`                       |
+| `agent`   | 清除继承代理，使用当前有效 Agent `proxy`，并设置本机绕过；Agent 代理为空时直连        |
+
+两项开关都省略时默认 `inherit`，适合 Muse 等通过启动环境提供出站代理的平台。新字段优先；旧配置未设置新字段时，显式 `codexUseProxy:true` 等价于 `agent`，显式 `false` 等价于 `direct`，保持旧行为。旧版本登录生成的配置可能包含 `false`，希望继承时须显式增加 `"codexProxyMode":"inherit"`。新登录保存解析后的模式，避免再次读取时因兼容字段改变含义。
+
+例如保留平台启动环境中的代理：
+
+```json
+{ "codexProxyMode": "inherit" }
+```
+
+使用 Agent 配置的代理：
 
 ```json
 {
   "proxy": "http://127.0.0.1:7890",
-  "codexUseProxy": true
+  "codexProxyMode": "agent"
 }
 ```
 
-开启后，将当前有效代理（包括 `run --proxy` 覆盖值）写入 Codex 子进程的 HTTP / HTTPS / ALL 代理环境变量，`NO_PROXY` 设为 `localhost,127.0.0.1,::1`；代理协议的实际支持由安装的 Codex 决定。Agent 未配置代理时仍清除子进程代理环境，不回退到系统代理。选项在 Agent 启动时读取；修改后等待任务结束再重启 Agent，对新启动的 Codex 生效。不会修改 Agent 父进程环境，也不改变 coc-client TUI 的代理策略。
+策略同时覆盖版本探测、会话与历史读取进程，不修改父进程环境或 Codex 配置；认证变量、`CODEX_HOME`、CA 等其他环境保留。继承只能保留 Agent 启动时已有的环境，无法补齐交互式 shell 才导出的变量。包装脚本仍可能自行修改子进程环境。修改配置后等待会话结束再重启 Agent，对新启动的 Codex 生效。代理协议支持取决于 Codex，不改变 coc-client TUI 策略。
 
 代理覆盖登录、状态、更新下载、业务 HTTP、Agent/客户端 WebSocket、历史流及 `connect` / `attach` 的远程 TUI。TUI 通过仅监听 `127.0.0.1` 随机端口、凭票据鉴权的本地 WebSocket 转接外部流量；TLS 校验在 coc-client 访问目标服务器时完成，不修改 Codex 子进程的代理环境。未启用代理的 TUI 地址始终显式包含 `:443` / `:80`，避免 Codex 的 `invalid remote address` 错误。遇到该错误时可用 `coc-client attach <Remote session 中的完整 ID>` 重连已有会话。
 
@@ -243,7 +257,7 @@ Windows 支持授权、审批、Agent 会话、CC 历史和工作区文件传输
 
 Windows 当前使用手动整包升级：结束会话、停止 Agent、备份配置与状态，校验新版 ZIP 后替换两个程序，再重新运行；不改变凭据或数据库。Windows 不执行自动替换，`update` 返回手动升级提示。后台常驻可由任务计划程序以同一普通用户身份运行 `coc-agent.exe run`；当前不提供 Windows Service 注册命令。源码构建和测试见 [开发说明](DEVELOPMENT.md)。
 
-`coc-agent login` 保存 `agent.json` 时会写出全部默认选项，包括 `wakeUrl`、`codexPath`、`codexArgs`、`codexUseProxy`、`sandbox`、`terminal.enabled=false`、`externalSessions` 的四个字段及 `autoUpdate` 的 enabled / intervalHours / platform。默认外部入队和审批均关闭；审批地址和令牌文件为空，平台为空表示自动匹配；自动更新 Linux 默认开启、Windows 默认关闭。使用已有无令牌配置登录时，补齐缺失项并保留自定义值；不会在 Agent 运行时重写配置。完整字段示例见 `examples/agent.example.json`。
+`coc-agent login` 保存 `agent.json` 时会写出全部默认选项，包括 `wakeUrl`、`codexPath`、`codexArgs`、`codexUseProxy` / `codexProxyMode`、`sandbox`、`terminal.enabled=false`、`externalSessions` 的四个字段及 `autoUpdate` 的 enabled / intervalHours / platform。默认外部入队和审批均关闭；审批地址和令牌文件为空，平台为空表示自动匹配；自动更新 Linux 默认开启、Windows 默认关闭。使用已有无令牌配置登录时，补齐缺失项并保留自定义值；不会在 Agent 运行时重写配置。完整字段示例见 `examples/agent.example.json`。
 
 ### 原生程序自动更新
 
@@ -992,3 +1006,7 @@ CW 历史保存在浏览器 IndexedDB，已缓存的旧页再次打开优先本�
 ### 网页断网后恢复控制连接
 
 网页控制连接断开后先进行三次快速重试，之后每 30–60 秒抖动重试；网络恢复或重新显示页面可提前恢复，健康连接不新增周期请求。恢复沿用原控制身份和未确认消息记录，不创建新任务。重连确认在断网时丢失也能使用同一用户、当前随机控制凭证及原消息流继续恢复；其他设备确实接管后，旧端仍须显式接管。若遇到 `STALE_CONTROLLER: Resume proof does not match the original controller`，部署本修复后刷新网页，在原会话点击“重新连接”，不要先清理浏览器缓存。认证撤销、项目只读和其他设备接管不会自动重试抢占。[原因与验证](WEB_RECONNECT_2026-11-03.md)。
+
+### 与 Codex `/resume` 对齐的会话名称
+
+CW 按线程 ID 合并当前项目的 Codex 线程和 CoC 会话，优先显示 Codex 名称，未命名时显示 Codex 预览；目录缺少可用名称和预览时才回退旧 CoC 标题。恢复生成的新连接不覆盖 Codex 名称。对比时须使用同一系统用户、`CODEX_HOME`、提供方与目录；刷新状态重新读取目录，不修改 Codex 线程名。

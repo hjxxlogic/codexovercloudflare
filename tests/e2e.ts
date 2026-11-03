@@ -644,6 +644,7 @@ try {
   );
   agent = new Agent({
     codexUseProxy: false,
+    codexProxyMode: 'direct',
     relayUrl: origin,
     hostId: enrolled.hostId,
     token: enrolled.token,
@@ -723,6 +724,7 @@ try {
   );
   otherAgent = new Agent({
     codexUseProxy: false,
+    codexProxyMode: 'direct',
     relayUrl: origin,
     hostId: other.hostId,
     token: other.token,

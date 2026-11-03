@@ -8,7 +8,8 @@ int main(int argc, char **argv) {
   const auto environment = [] {
     coc::Json result = coc::Json::object();
     for (const auto key : {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
-                           "all_proxy", "NO_PROXY", "no_proxy", "COC_PROXY_TEST"}) {
+                           "all_proxy", "NO_PROXY", "no_proxy", "COC_PROXY_TEST", "CODEX_HOME",
+                           "SSL_CERT_FILE", "CODEX_SUB2_KEY"}) {
       const auto value = std::getenv(key);
       result[key] = value ? coc::Json(value) : coc::Json();
     }

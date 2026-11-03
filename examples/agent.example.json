@@ -8,7 +8,7 @@
   "accessEmails": [],
   "codexPath": "codex",
   "codexArgs": [],
-  "codexUseProxy": false,
+  "codexProxyMode": "inherit",
   "sandbox": "workspace-write",
   "externalSessions": {
     "allowQueue": false,

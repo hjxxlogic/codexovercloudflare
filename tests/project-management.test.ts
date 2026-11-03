@@ -403,7 +403,9 @@ describe('project management identities', () => {
     expect((await op('auth', { token: grant.token })).status).toBe(403);
   });
   it('validates revisions, directory strings and optional empty catalogs', () => {
-    expect(agentConfigSchema.shape.projects.safeParse([]).success).toBe(true);
+    expect(agentConfigSchema.in.shape.projects.safeParse([]).success).toBe(
+      true,
+    );
     for (const d of [
       { operation: 'add', path: '/work', requestId: 'id' },
       { operation: 'remove', id: 'p', requestId: 'id', revision: -1 },

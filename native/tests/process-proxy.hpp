@@ -19,7 +19,8 @@ inline void codex_proxy_fixture(coc::Json config, const std::string &cwd) {
     }
     Environment() {
       for (const auto key : {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
-                             "all_proxy", "NO_PROXY", "no_proxy", "COC_PROXY_TEST"}) {
+                             "all_proxy", "NO_PROXY", "no_proxy", "COC_PROXY_TEST", "CODEX_HOME",
+                             "SSL_CERT_FILE", "CODEX_SUB2_KEY"}) {
         const auto value = std::getenv(key);
         saved[key] = value ? Json(value) : Json();
       }
@@ -37,21 +38,43 @@ inline void codex_proxy_fixture(coc::Json config, const std::string &cwd) {
   };
   config["codexArgs"].push_back("--proxy-env");
   const std::string proxy = "http://configured.invalid:8080";
-  for (int mode = 0; mode < 4; ++mode) {
+  for (int mode = 0; mode < 8; ++mode) {
     config["proxy"] = mode == 3 ? "" : proxy;
     config.erase("codexUseProxy");
-    if (mode)
+    config.erase("codexProxyMode");
+    if (mode > 0 && mode < 4)
       config["codexUseProxy"] = mode >= 2;
+    if (mode >= 4) {
+      config["codexProxyMode"] = mode == 4 || mode == 7 ? "inherit"
+                                 : mode == 5            ? "direct"
+                                                        : "agent";
+      // Explicit modes override the legacy switch in either direction.
+      config["codexUseProxy"] = mode != 6;
+    }
+    const bool inherit = mode == 0 || mode == 4 || mode == 7;
+    const bool agent = mode == 2 || mode == 6;
+    if (mode == 7) {
+      config["hostId"] = "proxy-test";
+      config["token"] = std::string(24, 'x');
+      config["dataDir"] = cwd + "/proxy-fixture-state";
+      config["projects"] = Json::array();
+      config = agent_config(config);
+    }
     const auto verify = [&](const Json &seen) {
       for (const auto key :
            {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"})
-        check(mode == 2 ? seen.at(key) == proxy : seen.at(key).is_null(),
+        check(inherit ? seen.at(key) == "ambient-proxy-test"
+              : agent ? seen.at(key) == proxy
+                      : seen.at(key).is_null(),
               "Codex proxy environment must follow explicit configuration");
       for (const auto key : {"NO_PROXY", "no_proxy"})
-        check(mode == 2 ? seen.at(key) == "localhost,127.0.0.1,::1" : seen.at(key).is_null(),
+        check(inherit ? seen.at(key) == "ambient-proxy-test"
+              : agent ? seen.at(key) == "localhost,127.0.0.1,::1"
+                      : seen.at(key).is_null(),
               "Codex loopback bypass must not inherit ambient proxy policy");
-      check(seen.at("COC_PROXY_TEST") == "ambient-proxy-test",
-            "Preserve unrelated child environment");
+      for (const auto key : {"COC_PROXY_TEST", "CODEX_HOME", "SSL_CERT_FILE", "CODEX_SUB2_KEY"})
+        check(seen.at(key) == "ambient-proxy-test",
+              "Preserve authentication, CA and home environment");
     };
     verify(Json::parse(verify_codex(config)));
     asio::io_context io;

@@ -46,7 +46,13 @@ bool priority_message(const Json &message) {
 }
 Json codex_environment(const Json &config) {
   Json environment = Json::object();
-  const auto proxy = config.value("codexUseProxy", false) ? config.value("proxy", "") : "";
+  const auto mode = config.value("codexProxyMode",
+                                 config.contains("codexUseProxy")
+                                     ? (config.value("codexUseProxy", false) ? "agent" : "direct")
+                                     : "inherit");
+  if (mode == "inherit")
+    return environment;
+  const auto proxy = mode == "agent" ? config.value("proxy", "") : "";
   for (const auto key : {"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
                          "all_proxy", "NO_PROXY", "no_proxy"})
     environment[key] = nullptr;
@@ -150,8 +156,7 @@ std::string verify_codex(const Json &c) {
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
   args.push_back("--version");
-  const auto changes =
-      c.contains("codexUseProxy") || c.contains("proxy") ? codex_environment(c) : Json::object();
+  const auto changes = codex_environment(c);
   auto environment = child_environment(changes);
   std::vector<char *> envp;
   for (auto &entry : environment)
@@ -304,8 +309,7 @@ std::string verify_codex(const Json &c) {
   for (auto &a : c.at("codexArgs"))
     args.push_back(a);
   args.push_back("--version");
-  const auto changes =
-      c.contains("codexUseProxy") || c.contains("proxy") ? codex_environment(c) : Json::object();
+  const auto changes = codex_environment(c);
   auto text = windows_capture(args, 4096, changes);
   while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
     text.pop_back();

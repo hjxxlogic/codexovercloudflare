@@ -119,6 +119,7 @@ export async function localRelay(dir: string) {
       codexPath: 'codex',
       codexArgs: [],
       codexUseProxy: false,
+      codexProxyMode: 'direct',
       sandbox: 'read-only',
       dataDir: dir + '/agent',
       projects: [{ id: 'smoke', name: 'Smoke', path: dir }],

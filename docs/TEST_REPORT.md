@@ -2,6 +2,14 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：Muse Codex 出站环境差异与 CW 名称
+
+远端诊断报告指出模型、提供方、实际 Codex 版本及 CA 一致；Agent 清除代理环境是主要嫌疑。诊断 curl 受沙箱限制，不能作为 VM 网络因果验证，未据此认定整台 VM 断网。现场根因和最小模型请求验证仍待完成。
+
+新增 `codexProxyMode`（inherit / direct / agent），省略新旧开关默认 inherit，保留旧显式布尔行为。测试覆盖真实子进程环境、版本探测与 app-server 一致性、配置规范化 / 保存往返、新字段优先、错误类型及模式校验，以及认证 / CA / CODEX_HOME 与父进程环境保留。本机 11 项 CTest（核心项重新编译后复验通过）、484 项 Vitest、7 项登录保存回归、类型、协议与格式检查通过。版本 0.6.6 按用户明确要求跳过 Actions，发布前另验证静态 Linux 构建；现场模型请求结果将在部署后补记。
+
+线上 `/home/ubuntu/work/codexovercloudflare` 已只读比对：本机 Codex `thread/list` 与现有 Agent `/threads` 返回相同 6 个线程，name / preview 逐项相等。CW 标题调整为 Codex name、Codex preview、旧 CoC title 的顺序，避免恢复会话的旧标题遮盖 Codex 改名；组件回归通过。发布后验证实际 CW 列表。
+
 ## 2026-11-03：网页断网后的控制凭证恢复
 
 针对 `STALE_CONTROLLER: Resume proof does not match the original controller`，新增回归在旧实现上复现两项失败；修复后 Relay、网页 delivery 和 API 共 176 项通过，包含连续丢失确认、DO 重建、旧损坏租约恢复，以及错误 owner / claim / stream、后续接管和未决接管拒绝。TypeScript、ESLint / Prettier 通过。浏览器用真实 Chromium 模拟超过三次连接失败、断流与网络恢复事件，检查重连合并、草稿保留、不提交新任务和不自动抢回控制权；定向检查及完整 UI 稳定性全部通过。

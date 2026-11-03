@@ -98,7 +98,8 @@ int main() {
                                                               {"name", "Windows project"},
                                                               {"path", project.u8string()}}})}});
     auto path = validated.at("projects").at(0).at("path").get<std::string>();
-    check(validated["codexUseProxy"] == false, "Codex proxy is opt-in on Windows");
+    check(validated["codexProxyMode"] == "inherit",
+          "Codex inherits the launch environment on Windows");
     auto invalid_proxy = validated;
     invalid_proxy["codexUseProxy"] = "true";
     rejects([&] { agent_config(invalid_proxy); }, "CONFIG_ERROR");

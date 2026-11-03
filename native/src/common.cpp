@@ -390,6 +390,14 @@ Json agent_config(Json c) {
   c["codexArgs"] = c.value("codexArgs", Json::array());
   if (!c.value("codexUseProxy", Json(false)).is_boolean())
     throw Error("CONFIG_ERROR", "codexUseProxy must be boolean");
+  const auto proxy_mode =
+      c.value("codexProxyMode", Json(c.contains("codexUseProxy")
+                                         ? (c.value("codexUseProxy", false) ? "agent" : "direct")
+                                         : "inherit"));
+  if (!proxy_mode.is_string() ||
+      (proxy_mode != "inherit" && proxy_mode != "direct" && proxy_mode != "agent"))
+    throw Error("CONFIG_ERROR", "codexProxyMode must be inherit, direct or agent");
+  c["codexProxyMode"] = proxy_mode;
   c["codexUseProxy"] = c.value("codexUseProxy", false);
   c["sandbox"] = c.value("sandbox", "workspace-write");
   if (c["sandbox"] != "workspace-write" && c["sandbox"] != "read-only")
