@@ -6,7 +6,7 @@
 
 ## DO 存储迁移与终端休眠 · 2026-11-03
 
-本次按用户明确要求跳过 Actions。35 个 Vitest 文件、493 项通过；10 项 CTest 全部通过；类型检查、ESLint / Prettier、C++ 格式和 15 项部署脚本回归通过。真实 Wrangler 反向迁移已验证旧授权、离线权限回执确认及 epoch，新增完整主机迁移完成状态检查也通过。终端配套 `streaming:2` Agent，浏览器无应用保活；65 秒终端空闲无应用帧及完整原生 / Chromium 端到端验证通过，线上发布结果见 [实施记录](do-state-implementation-2026-11-03.md)。未运行模型任务，未取得新的 Cloudflare 30 分钟计费实测。
+本次按用户明确要求跳过 Actions。35 个 Vitest 文件、494 项通过；10 项 CTest 全部通过；类型检查、ESLint / Prettier、C++ 格式和 15 项部署脚本回归通过。真实 Wrangler 反向迁移已验证旧授权、离线权限回执确认及 epoch，新增完整主机迁移完成状态检查也通过。终端配套 `streaming:2` Agent，浏览器无应用保活；65 秒终端空闲无应用帧及完整原生 / Chromium 端到端验证通过，线上发布结果见 [实施记录](do-state-implementation-2026-11-03.md)。未运行模型任务，未取得新的 Cloudflare 30 分钟计费实测。
 
 ## CW Markdown 阅读简化与图表操作 · 2026-11-03
 
