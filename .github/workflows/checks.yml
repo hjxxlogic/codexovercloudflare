@@ -22,6 +22,8 @@ jobs:
           node-version: 22.17.0
           cache: npm
       - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format bubblewrap
+      - name: Prepare isolated Terminal test namespaces
+        run: python3 scripts/prepare-ci-sandbox.py
       - uses: actions/cache/restore@v4
         id: compiler-cache
         with:

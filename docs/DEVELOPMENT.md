@@ -468,3 +468,5 @@ Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆�
 ## 0.6.2 交互与发布回归
 
 `tests/web-terminal-stream.test.ts` 验证多帧在前序 ACK 未到时发送、逐序确认、帧 / 字节双限额、容量恢复及未知输入不重放。`npm run test:ui` 阻塞 Terminal 引擎下载，确认 info 已发起且挂载不重复请求；`npm run test:terminal:e2e` 覆盖真实 Worker / 原生 PTY / Chromium。`npm run test:tls` 验证原生 TLS 与 Access，CI 另覆盖 Windows、musl 及 sanitizer。`npm run test:release` 确认 musl 发布副本裁剪后身份有效、原始构建不被修改，归档仍兼容旧更新器。具体结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。
+
+GitHub-hosted Ubuntu 回归机先运行 `scripts/prepare-ci-sandbox.py`，仅在 `GITHUB_ACTIONS=true` 且 `RUNNER_ENVIRONMENT=github-hosted` 时临时允许 AppArmor 受限的用户命名空间，并执行真实隔离网络 smoke；不更改开发机 / 生产配置，不移除 `--unshare-net` 或跳过 PTY 断言。Ubuntu 的机制说明见 [官方文档](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces)。

@@ -127,14 +127,11 @@ export function Workbench({
   );
   const [terminalShown, setTerminalShown] = useState(false);
   const [terminalLoaded, setTerminalLoaded] = useState(false);
-  const terminalScope = JSON.stringify([
-    host,
-    project,
-    terminal.control?.owner,
-  ]);
+  const terminalScope = JSON.stringify([host, project]);
   const preparation = useRef<{
     scope: string;
     time: number;
+    operations: OperationClient | null | undefined;
     promise: Promise<TerminalMetadata>;
   }>(undefined);
   function prepareTerminal() {
@@ -142,6 +139,7 @@ export function Workbench({
     if (terminalLoaded || !host || !project) return;
     if (
       preparation.current?.scope === terminalScope &&
+      preparation.current.operations === terminal.operations &&
       Date.now() - preparation.current.time < 5000
     )
       return;
@@ -151,7 +149,12 @@ export function Workbench({
     });
     // A failed speculative read is shown if the user opens the terminal.
     void promise.catch(() => {});
-    preparation.current = { scope: terminalScope, time: Date.now(), promise };
+    preparation.current = {
+      scope: terminalScope,
+      time: Date.now(),
+      operations: terminal.operations,
+      promise,
+    };
   }
   const [appearance, setAppearance] = useState(false);
   const [search, setSearch] = useState('');
@@ -500,7 +503,8 @@ export function Workbench({
                       session={session}
                       {...terminal}
                       prepared={
-                        preparation.current?.scope === terminalScope
+                        preparation.current?.scope === terminalScope &&
+                        preparation.current.operations === terminal.operations
                           ? preparation.current.promise
                           : undefined
                       }

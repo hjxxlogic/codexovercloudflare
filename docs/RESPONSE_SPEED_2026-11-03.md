@@ -41,3 +41,5 @@
 用户要求本次使用 GitHub Actions 并生成新版本：统一版本 0.6.2，准确提交通过全部 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 后才使用对应制品发布。不得用此前本机构建代替本次发行。原生服务升级继续等待空闲，未授权重启活动会话。最终提交、Actions、制品 SHA256、部署与上线后复测在完成后补记。
 
 [部署前脱敏样本](assets/response-speed-2026-11-03/baseline.json)。
+
+首个未发布候选 `e363d9c` 的 Actions 41579765503 在 Ubuntu 回归机 bubblewrap loopback 配置失败，报 `Operation not permitted`；对应 tag 尚未生成 Release、未部署。已新增仅限 GitHub-hosted 一次性运行机的命名空间准备和真实隔离 smoke，再以修订后的准确提交重新执行全部作业；失败候选不作为发布依据。终端预读绑定 OperationClient 的 owner 作用域，不因最初控制握手从无到有而重发 info。
