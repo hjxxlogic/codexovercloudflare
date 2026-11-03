@@ -282,3 +282,5 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 ### 历史后端恢复说明
 
 旧后端恢复步骤只适用于历史版本。当前版本无后端切换或迁移 API；恢复依赖既有 DO 状态及已验证源码制品。不要使用旧 D1 快照覆盖当前 DO 授权或控制状态。
+
+0.6.2 已使用准确提交 `9b6d723` 的完整 tag Actions 发布四平台包、源码及云端，实际制品和复测结果见 [发布记录](DEPLOYMENT_STATUS.md) 与 [响应分析](RESPONSE_SPEED_2026-11-03.md)。下载包发布不代表现场 Agent 已安装；活动会话重启仍需明确授权。

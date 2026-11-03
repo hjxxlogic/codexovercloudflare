@@ -2,11 +2,13 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
-## 2026-11-03：0.6.2 Terminal 响应与发布准备
+## 2026-11-03：0.6.2 Terminal 响应与 Actions 发布
 
 线上复现菜单等待约 6 秒、打开再约 3.9 秒，单字符 0.93–2.06 秒；完整接口、页面、独立终端采样及清理结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。本机 33 文件 / 468 项 Vitest、10 项 CTest、完整网页 / 原生构建及 Worker dry-run 通过；完整 Terminal E2E 通过（当时原生 transport 改动前），整页 Chromium 增加阻塞终端模块下载期间 info 已发起及挂载不重复读取的断言并通过。musl 发布回归验证暂存副本裁剪、运行身份和构建原件不变。
 
-本次按用户新指令生成 0.6.2，并以准确提交的全部必需 GitHub Actions 为发布门禁；此处本机结果不代表 CI 已通过或已部署。原生 TCP_NODELAY 的跨平台与 sanitizer 覆盖由该运行提供。最终 Actions / 制品 / 线上复测在发布后补记。
+最终源码 `9b6d723` 的 [tag Actions 41581045170](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41581045170) 六项必需作业及发布作业全部成功，包含完整 Terminal / Chromium E2E、TLS / 代理、Windows 和 sanitizer；本机结果没有代替 CI。首个候选因 GitHub runner 的 AppArmor 命名空间限制失败，修正一次性 CI 环境后重新全量通过，未跳过隔离断言。
+
+CI 制品已部署为 0.6.2：健康、全部网页资源和五份新归档在线字节 / 摘要校验通过；真实管理员、只读 Agent 和通知检查通过。独立 PTY 复测确认三次 Enter 按键到发送均约 14–15 ms，旧样本最高 796 ms；单字符回显仍约一秒，未承诺实时网络响应。菜单计时拆分新会话初始 sync，已就绪会话单次为 1.44 秒；全部临时终端、会话、项目和空目录清理。现场 Agent 仍为 0.6.1，有活动 runtime，未重启；原生 TCP_NODELAY 仅经 CI 验证，线上收益未测。完整数字和限制见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。
 
 ## 2026-11-03：多行 OpenAI 公式修复
 

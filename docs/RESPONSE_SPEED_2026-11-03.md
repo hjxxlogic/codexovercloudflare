@@ -38,8 +38,41 @@
 
 ## 验证与发布
 
-用户要求本次使用 GitHub Actions 并生成新版本：统一版本 0.6.2，准确提交通过全部 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 后才使用对应制品发布。不得用此前本机构建代替本次发行。原生服务升级继续等待空闲，未授权重启活动会话。最终提交、Actions、制品 SHA256、部署与上线后复测在完成后补记。
+本次按用户要求使用 GitHub Actions 并生成新版本 0.6.2：准确提交通过全部 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 后才使用对应制品发布，没有用此前本机构建代替发行。原生服务升级继续等待空闲，未授权重启活动会话。最终提交、Actions、制品 SHA256、部署与上线后复测记录如下。
 
 [部署前脱敏样本](assets/response-speed-2026-11-03/baseline.json)。
 
-首个未发布候选 `e363d9c` 的 Actions 41579765503 在 Ubuntu 回归机 bubblewrap loopback 配置失败，报 `Operation not permitted`；对应 tag 尚未生成 Release、未部署。已新增仅限 GitHub-hosted 一次性运行机的命名空间准备和真实隔离 smoke，再以修订后的准确提交重新执行全部作业；失败候选不作为发布依据。终端预读绑定 OperationClient 的 owner 作用域，不因最初控制握手从无到有而重发 info。
+首个候选 `e363d9c` 的 Actions 41579765503 在 Ubuntu 回归机 bubblewrap loopback 配置失败，报 `Operation not permitted`。在该候选尚无 Release、尚未部署时，将本次新建 tag 更正为修订源码；新增仅限 GitHub-hosted 一次性运行机的命名空间准备和真实隔离 smoke，重新执行全部作业。失败候选不作为发布依据。终端预读绑定 OperationClient 的 owner 作用域，不因最初控制握手从无到有而重发 info。
+
+## 正式发布与上线结果
+
+最终源码 `9b6d7230c66eac4f212d40bfde4bf819838a064c` 的 [tag Actions 41581045170](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41581045170) 六项必需作业全部成功，包含真实隔离 PTY 和 Chromium Terminal E2E；`publish-release` 成功生成 [v0.6.2](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.6.2)。同一源码的分支运行 41581045460 也全部成功。本次只使用 tag 运行的制品，GitHub artifact 摘要、包内 SHA256、提交和 sourceDigest 全部匹配；没有使用本机构建或跳过失败项。
+
+通过 `scripts/deploy-cloud.py --commit 9b6d7230c66eac4f212d40bfde4bf819838a064c --run-id 41581045170 --publish-downloads --apply` 于 UTC `2026-11-03T05:23:32.854002Z` 部署。部署 ID `a7c4e96c-f63c-43a2-862f-556d4717d2fb`，Worker `5ad122c3-c1c4-4058-af10-a82c4275bb41` 接收 100% 流量。健康返回 0.6.2，网页 / 手册 / 下载清单逐字节匹配 CI；Ubuntu 20.04、Debian 12、musl、Windows x64 和源码共五份归档在线重新下载后 SHA256 全部匹配。musl 实际归档为 12,749,037 字节（12.16 MiB），四个平台均符合 25 MiB 限制。
+
+与发布前 Worker 逐项比较，所有 binding 完全一致，包括两个 DO namespace、Secret 和普通变量；没有 D1 binding 或后端选择变量。真实已有邮箱身份、管理员、Agent probe、会话只读查询、streaming:2 元数据、旧迁移入口 404 及 API / WebSocket 入口权限检查通过；通知连接返回 101、保持超过 6 秒，无浏览器未捕获异常。未发模型任务或接管既有用户会话。
+
+## 上线后 Terminal 复测
+
+以下三次测试均使用现场仍在运行的 **0.6.1 Agent**；新原生 TCP_NODELAY 尚未安装，不能将结果归功于该改动。每次使用独立临时项目 / 会话，并确认终端、会话、项目和空目录全部清理。
+
+| 指标                             | 旧网页，立即打开新会话菜单 |  0.6.2 网页，同样流程 |
+| -------------------------------- | -------------------------: | --------------------: |
+| 菜单到打开按钮可用，1 次         |                   6,460 ms |              6,447 ms |
+| 打开到流连接成功，1 次           |                   3,830 ms |              3,832 ms |
+| 单字符回显最近秩中位数，6 次     |                     926 ms |              1,001 ms |
+| Enter 到 printf 输出中位数，3 次 |                   1,118 ms |                956 ms |
+| 三次 Enter 从按键到发出          |          12 / 796 / 192 ms | 15.3 / 14.2 / 14.2 ms |
+| 无 PTY 的流式 ping，4 次         |                 705–713 ms |            731–888 ms |
+
+前端等待前一 ACK 的排队已消除；单字符仍需约一秒回显，启动链路也未出现明确下降。网络波动和小样本不支持把 Enter 输出中位数差异当作稳定收益。
+
+另一次测试先等新会话收到完整初始 sync，再点击菜单：会话创建到就绪 9,092 ms，菜单到打开按钮可用 **1,440 ms**，打开到连接 **3,354 ms**。终端 JS 下载 1,097 ms，与 info 读取并行。该次 6 个单字符中位数 911 ms、最大 2,088 ms；流式 ping 为 703–1,290 ms。前两列菜单计时包含新会话控制初始化，不能直接宣称从 6.4 秒优化到 1.4 秒；后者只说明已就绪会话的单次实际等待。
+
+## 现场原生升级与后续测量
+
+`scripts/deploy-agent.py` 已准备并核验同一 tag 运行的 0.6.2 musl 候选，二进制 SHA256 为 `c1cdbf83632d4656ed1812b785a7929f9c65387735689f5cccae3e33a4add1a8`。现场仍有一个活动 runtime，按 `AGENTS.md` 的明确授权规则保持原进程，没有安装或重启。候选准备不等于现场升级；TCP_NODELAY 的线上收益待空闲安装或取得活动重启授权后复测。
+
+尚未实施的下一步是取得同请求分段 trace，区分浏览器入口、HostRelayDO、Agent 的等待；再评估在用户确认打开时并行建立未绑定 WebSocket、待可靠 open 结果后绑定的方案，保留控制校验、超时及清理。当前数据不支持承诺实时远端回显，也不以本机网络代表用户浏览器的网络。
+
+[完整 CI、制品 SHA256、部署与脱敏复测证据](assets/response-speed-2026-11-03/deployment.json)。凭据、原始会话、截图和机器本地日志仅保存在 ignored `.local/response-speed-2026-11-03/`。

@@ -2,6 +2,16 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## 0.6.2 Terminal 响应与完整 Actions 发布 · 2026-11-03
+
+源码 `9b6d7230c66eac4f212d40bfde4bf819838a064c` 的 [tag Actions 41581045170](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41581045170) 中 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，发布作业已生成 [v0.6.2 Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.6.2)。首次失败候选未发布、未部署。仅使用最终 tag CI 制品，经 GitHub 摘要、包内 SHA256 和统一源码身份校验后，由仓库脚本发布。
+
+UTC `05:23:32` 部署至 `https://r.xlogic.cc`，部署 ID `a7c4e96c-f63c-43a2-862f-556d4717d2fb`，Worker `5ad122c3-c1c4-4058-af10-a82c4275bb41` 接收 100% 流量。健康为 0.6.2，网页 / 手册 / 下载元数据字节一致；五份新归档在线重下校验通过，musl 为 12.16 MiB。全部 binding 与此前一致，保留 DO namespace、Secret 和变量，无 D1。真实身份、只读 Agent、权限边界与 Chromium 通知检查通过。
+
+Terminal 并行预读和输入窗口已上线，三次 Enter 按键到发出为 14–15 ms，旧样本曾排队 796 ms；实际单字符回显仍约 0.9–1 秒，已就绪会话打开菜单约 1.44 秒、确认打开后连接约 3.35 秒，均为小样本。新会话初始化另计，不能把混合计时当作菜单优化收益。线上独立 PTY 测试资源全部清理，无模型调用或既有会话接管。
+
+原生 0.6.2 候选已核验，但现场 0.6.1 Agent 有一个活动 runtime，未获活动重启授权，尚未安装；因此 TCP_NODELAY 线上收益未验证。未发送自动更新通知。[响应、限制与后续测量](RESPONSE_SPEED_2026-11-03.md) · [来源、全部制品摘要和线上证据](assets/response-speed-2026-11-03/deployment.json)。
+
 ## OpenAI 多行公式修复 · 2026-11-03
 
 按此前明确授权跳过 Actions，通过仓库部署脚本本机构建发布源码 `73847e8`，Worker `3cb29650-0724-48b0-96f7-3ee5781d1434` 已在 `https://r.xlogic.cc` 承载 100% 流量。健康、静态资源字节、真实身份与只读 Agent / 通知检查通过；原消息在生产资源中以桌面 / 手机视口逐项验证，17 个行内及 16 个块公式全部渲染，无回退或异常。现有 DO namespace、Secret 和原生下载保留；Agent 未更新或重启，无模型、PTY 或会话控制操作。[问题与验证范围](MATH_RENDERING_FIX_2026-11-03.md) · [制品 SHA256 与发布身份](assets/math-rendering-2026-11-03/deployment.json)。
