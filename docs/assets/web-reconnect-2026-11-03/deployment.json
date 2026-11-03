@@ -422,11 +422,16 @@
       "historyReadable": true,
       "restarted": false,
       "takenOver": false
+    },
+    "userConfirmation": {
+      "recovered": true,
+      "observation": "User reported a timeout prompt followed by normal recovery",
+      "messageSendingSeparatelyVerified": false
     }
   },
   "limitations": [
     "No native release or Agent update; existing native/source download archives are unchanged",
     "Focused browser fault tests use a deterministic peer; production verification is read-only and does not attach to or take over the user session",
-    "User browser refresh and reconnect confirmation remains pending"
+    "The transient timeout reported during recovery was not traced; user confirmed subsequent normal operation"
   ]
 }

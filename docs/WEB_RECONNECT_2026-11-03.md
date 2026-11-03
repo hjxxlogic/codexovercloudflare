@@ -16,3 +16,5 @@
 旧实现运行新增 Relay 回归时有两项失败：丢失确认后未保留原 controller，以及已损坏租约无法使用正确的稳定 claim 恢复。修复后对应回归通过；完整 Relay、网页 delivery 和 API 三组共 176 项通过。真实 Chromium 另外验证超过三次失败后的恢复、网络恢复事件合并、草稿保留和恢复不提交新任务。具体最终执行结果见 [测试报告](TEST_REPORT.md)。
 
 用户明确要求针对问题测试通过后先部署，并跳过 GitHub Actions。本次使用 `scripts/deploy-cloud.py --local-build --apply` 发布 Worker / 网页；记录 `localBuild: true`、`ciVerified: false`，沿用既有原生下载，不发布新的原生版本或重启 Agent。准确源码、摘要、部署 ID 及线上验证另记 [发布记录](DEPLOYMENT_STATUS.md)。刷新网页载入新资源后，在原会话点击“重新连接”；无需清理缓存。若其他设备确实接管过，仍须显式接管。
+
+部署后用户现场反馈：“提示超时然后恢复正常了”。已确认重连恢复；瞬时超时原因未单独追踪，未另行验证发送新任务。部署和验证结果见发布记录。
