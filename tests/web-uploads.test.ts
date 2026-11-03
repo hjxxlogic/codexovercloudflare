@@ -60,6 +60,7 @@ function harness() {
     lostChunk = false;
   let remoteState = 'uploading',
     instance = 'agent-store';
+  let generation = 1;
   const chunks: number[] = [],
     confirmations: string[] = [];
   const request = vi.fn(
@@ -71,7 +72,11 @@ function harness() {
       _headers?: unknown,
       exchange?: OperationExchange,
     ) => {
-      if (path.endsWith('/probe')) return { deliveryInstance: instance };
+      if (path.endsWith('/probe'))
+        return {
+          deliveryInstance: instance,
+          operationInstance: instance + '_' + generation,
+        };
       const stored = (await uploadRecords(journal))[0];
       if (body.operation !== 'begin') expect(body.agentInstance).toBeDefined();
       if (body.agentInstance && body.agentInstance !== instance)
@@ -85,6 +90,7 @@ function harness() {
         return { confirmed: true };
       }
       expect(stored.chunks?.join('')).toBeDefined();
+      if (exchange) expect(exchange.instance).toBe(instance + '_' + generation);
       let result: any;
       if (body.operation === 'begin') {
         expect(stored.phase).toBe('queued');
@@ -96,6 +102,7 @@ function harness() {
       } else if (body.operation === 'status')
         result = { state: remoteState, offset, sha256, size: data.length };
       else if (body.operation === 'chunk') {
+        generation++;
         const bytes = Buffer.from(body.data, 'base64');
         expect(bytes).toEqual(
           data.subarray(body.offset, body.offset + bytes.length),
@@ -172,7 +179,7 @@ function harness() {
     },
   };
 }
-it('persists the complete fixed file before begin and confirms only a verified published result', async () => {
+it('keeps the upload receiver stable across admission rotations and confirms only a verified published result', async () => {
   const h = harness(),
     client = h.client();
   const id = await h.prepare(client);

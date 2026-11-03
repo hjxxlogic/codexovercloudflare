@@ -4,9 +4,9 @@
 
 本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。0.6.0 本机与 CI 验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
 
-## 0.6.4 Agent 一周保留与客户端恢复
+## 0.6.5 Agent 一周保留与客户端恢复
 
-本轮用户已要求完成后发布新版本。Agent / CC / CW / Relay 配套发布 0.6.4，必须等待准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，再从 CI 制品发布 Worker、网页、四平台下载和源码。不得用本机二进制替代 CI，不重写旧版本标签。保留线上 DO、Secret、配置、项目文件与活动任务，不强制更新现场 Agent。新保留策略、客户端凭证与旧客户端兼容边界见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
+本轮用户已要求完成后发布新版本。Agent / CC / CW / Relay 配套发布 0.6.5，必须等待准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，再从 CI 制品发布 Worker、网页、四平台下载和源码。不得用本机二进制替代 CI，不重写旧版本标签。保留线上 DO、Secret、配置、项目文件与活动任务，不强制更新现场 Agent。新保留策略、客户端凭证与旧客户端兼容边界见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
 
 ## 0.6.2 Terminal 响应与 DO 唯一路径
 

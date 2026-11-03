@@ -35,6 +35,7 @@ export type OriginalOperation = {
   body?: Record<string, unknown>;
   digest: string;
   instance: string;
+  agentInstance?: string;
   state: 'pending' | 'completed' | 'confirmed';
   result?: Envelope;
   receipt?: OperationIntent;
@@ -234,8 +235,8 @@ export class OperationClient {
         if (original) {
           if (
             expectedInstance &&
-            original.instance &&
-            original.instance !== expectedInstance
+            (original.agentInstance || original.instance) &&
+            (original.agentInstance || original.instance) !== expectedInstance
           )
             throw new ApiError(
               'DELIVERY_STATE_MISMATCH',
@@ -269,7 +270,8 @@ export class OperationClient {
             path,
             body,
             digest: fingerprint,
-            instance: expectedInstance || '',
+            instance: '',
+            ...(expectedInstance ? { agentInstance: expectedInstance } : {}),
             state: 'pending',
             ...(meta ? { meta } : {}),
           },
@@ -422,6 +424,13 @@ export class OperationClient {
       const instance = idSchema.parse(
         result.operationInstance ?? result.deliveryInstance,
       );
+      const agentInstance = idSchema.parse(result.deliveryInstance);
+      if (record.agentInstance && record.agentInstance !== agentInstance)
+        throw new ApiError(
+          'DELIVERY_STATE_MISMATCH',
+          'Original intention belongs to another Agent store',
+          409,
+        );
       const bound = await this.update((latest) => {
         const original = latest.records[requestId];
         if (
@@ -434,7 +443,10 @@ export class OperationClient {
             'Original intention changed before discovery',
             409,
           );
-        if (!original.instance) original.instance = instance;
+        if (!original.instance) {
+          original.instance = instance;
+          original.agentInstance = agentInstance;
+        }
       });
       record = bound.records[requestId];
     }

@@ -47,7 +47,7 @@ export class OriginalHttpRequests {
       // Let the requested endpoint report authentication/availability failures.
       if (typeof state?.deliveryInstance !== 'string') return;
       original = {
-        instance: state.deliveryInstance,
+        instance: state.operationInstance ?? state.deliveryInstance,
         body: JSON.stringify(data),
       };
       this.originals.set(key, original);

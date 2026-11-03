@@ -254,15 +254,16 @@ export async function resumeUpload(
           );
           if (!original?.instance)
             throw mismatch('Upload receiver binding is missing');
+          const instance = original.agentInstance ?? original.instance;
           await update(journal, id, (current) => {
             if (current.phase !== 'queued')
               throw mismatch('Original upload changed during begin');
-            current.instance = original.instance;
+            current.instance = instance;
             current.phase = 'uploading';
           });
           record = {
             ...record,
-            instance: original.instance,
+            instance,
             phase: 'uploading',
           };
         }
