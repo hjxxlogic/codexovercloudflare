@@ -1193,11 +1193,15 @@ export class HostRelayDO extends DurableObject<Env> {
           const current = await this.storage.get<Lease>(
             'lease:' + o.data.sessionId,
           );
+          // The attachment confirmation may have been lost after committing a
+          // new socket ID. The durable claim is another proof, still bound to
+          // this credential and stream; a later takeover replaces the claim.
           if (
             !current?.delivery ||
             current.owner !== o.auth.hash ||
             (current?.controllerId !== o.data.resume.controller &&
-              current?.previousControllerId !== o.data.resume.controller) ||
+              current?.previousControllerId !== o.data.resume.controller &&
+              (!o.data.claimId || current.controlId !== o.data.claimId)) ||
             current?.delivery?.id !== o.data.resume.stream
           )
             throw new AppError(
@@ -1270,7 +1274,7 @@ export class HostRelayDO extends DurableObject<Env> {
           owner: o.auth.hash,
           controllerId: o.socketId || lease.controllerId,
           ...(o.data.resume
-            ? { previousControllerId: lease.previousControllerId }
+            ? { previousControllerId: o.data.resume.controller }
             : {}),
           ...(lease.controlId === o.reservation!.controlId
             ? { delivery: lease.delivery }
@@ -1985,7 +1989,8 @@ export class HostRelayDO extends DurableObject<Env> {
       if (
         expectedController &&
         lease.controllerId !== expectedController &&
-        lease.previousControllerId !== expectedController
+        lease.previousControllerId !== expectedController &&
+        !(claimId && lease.controlId === claimId && lease.owner === owner)
       )
         throw new AppError(
           'STALE_CONTROLLER',

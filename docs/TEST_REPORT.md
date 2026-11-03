@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：网页断网后的控制凭证恢复
+
+针对 `STALE_CONTROLLER: Resume proof does not match the original controller`，新增回归在旧实现上复现两项失败；修复后 Relay、网页 delivery 和 API 共 176 项通过，包含连续丢失确认、DO 重建、旧损坏租约恢复，以及错误 owner / claim / stream、后续接管和未决接管拒绝。TypeScript、ESLint / Prettier 通过。浏览器用真实 Chromium 模拟超过三次连接失败、断流与网络恢复事件，检查重连合并、草稿保留、不提交新任务和不自动抢回控制权。
+
+用户要求跳过 GitHub Actions，针对问题验证后先部署 Worker / 网页；准确源码与线上核验记录见 [发布记录](DEPLOYMENT_STATUS.md)，[修复边界](WEB_RECONNECT_2026-11-03.md)。现场仅执行只读检查，不关闭 `tmpwork`、接管其控制权或重启 busy Agent。
+
 ## 2026-11-03：0.6.5 Agent 保留与客户端恢复
 
 新增一周上限及 80% / 60% 清理水位，覆盖历史正文 / 投影、旧订阅、未决操作、交付流 / 输出、上传回执与项目修改账本；空 scope、输出及控制头压缩后归还额度，保留单调防重放计数。客户端保存 HMAC 恢复凭证；CW 缺口恢复保留有界旧事件及正文。完整配置、无法回源内容、活跃任务保护、SQLite 页复用与遗留上传临时文件限制见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。

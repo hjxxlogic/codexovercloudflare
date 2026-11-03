@@ -754,17 +754,64 @@ try {
   historyHandshakeFailures = 1;
   await openMenu(page);
   await page.getByRole('button', { name: /^会话记录/ }).click();
-  attachFailures = 2;
+  attachFailures = 4;
   await page.getByRole('button', { name: /进行中的对话/ }).click();
   await page
     .locator('.workspace-context')
     .getByText('已连接', { exact: true })
-    .waitFor({ timeout: 20000 });
-  assert(attachCalls >= 3, 'temporary ticket failures retry');
+    .waitFor({ timeout: 90000 });
+  assert(attachCalls >= 5, 'ticket recovery continues after three failures');
   await expect
     .poll(() => historyConnections, { timeout: 25000 })
     .toBeGreaterThan(1);
   await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
+  const reconnectDraft = '断网后保留的草稿';
+  await page.getByLabel('任务内容').fill(reconnectDraft);
+  const beforeNetworkLoss = attachCalls;
+  attachFailures = 3;
+  for (const ws of controls) ws.terminate();
+  await expect
+    .poll(() => attachCalls, { timeout: 20000 })
+    .toBe(beforeNetworkLoss + 3);
+  attachFailures = 0;
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) window.dispatchEvent(new Event('online'));
+  });
+  await page
+    .locator('.workspace-context')
+    .getByText('已连接', { exact: true })
+    .waitFor({ timeout: 10000 });
+  assert.equal(
+    attachCalls,
+    beforeNetworkLoss + 4,
+    'online events coalesce one reconnect',
+  );
+  await expect(page.getByLabel('任务内容')).toHaveValue(reconnectDraft);
+  assert.equal(promptCommands.length, 0, 'recovery does not submit a task');
+  for (const ws of controls) ws.close(4009, 'Control taken over');
+  await expect(page.locator('.workspace-context')).toContainText(
+    '其他设备控制',
+  );
+  const afterTakeover = attachCalls;
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(1200);
+  assert.equal(
+    attachCalls,
+    afterTakeover,
+    'recovery does not override a takeover',
+  );
+  await page.reload();
+  await page
+    .locator('.workspace-context')
+    .getByText('已连接', { exact: true })
+    .waitFor();
+  console.log(
+    'PASS: repeated ticket failures, online recovery coalescing, draft preservation, no model submissions and no automatic takeover',
+  );
+  await page.getByLabel('任务内容').fill('');
   const group = page.locator('.tool-group');
   assert.equal(await group.count(), 1);
   assert.equal(await group.getAttribute('open'), null);

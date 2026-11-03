@@ -1288,6 +1288,126 @@ describe('recoverable asynchronous controls', () => {
     expect(resumed.controlId).toBe('claim');
     expect(resumed.epoch).toBe(9);
   });
+  it('preserves the original web resume proof across repeatedly lost attachment confirmations and reconstruction', async () => {
+    const h = harness();
+    const sessionId = 'host~session';
+    await h.storage.put('lease:' + sessionId, {
+      epoch: 8,
+      controlEpoch: 3,
+      controlId: 'claim',
+      controllerId: 'original-controller',
+      owner: auth.hash,
+      active: false,
+      delivery: { id: 'browser', normal: 'normal', priority: 'priority' },
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const client = socket({
+        id: 'reconnect-' + attempt,
+        auth,
+        role: 'web',
+        sessionId,
+        authenticated: false,
+        epoch: 0,
+        deadline: Number.MAX_SAFE_INTEGER,
+      });
+      h.sockets.push(client);
+      await (h.relay as any).start({
+        auth,
+        hostId: 'host',
+        socketId: 'reconnect-' + attempt,
+        kind: 'attach',
+        stage: 'get',
+        action: 'attach',
+        data: {
+          sessionId,
+          claimId: 'claim',
+          resume: { stream: 'browser', controller: 'original-controller' },
+        },
+      });
+      await h.reply(h.frames().at(-1), {
+        mode: 'web',
+        state: 'ready',
+        projectId: 'project',
+      });
+      expect(h.frames().at(-1).action).toBe('attach');
+      await h.reply(h.frames().at(-1), {});
+      const confirmation = JSON.parse(client.send.mock.calls.at(-1)![0]);
+      expect(confirmation.type).toBe('attached');
+      expect(confirmation.control.controlEpoch).toBe(3);
+      expect(h.storage.values.get('lease:' + sessionId)).toMatchObject({
+        controllerId: 'reconnect-' + attempt,
+        previousControllerId: 'original-controller',
+      });
+      // The server committed, but the browser never receives this confirmation.
+      client.readyState = 3;
+      await h.relay.webSocketClose(client as unknown as WebSocket);
+      h.recreate();
+    }
+  });
+  it.each(['valid', 'owner', 'claim', 'stream', 'replaced', 'pending'])(
+    'recovers an old lost-confirmation lease only with its current owner, claim and stream (%s)',
+    async (variant) => {
+      const h = harness();
+      const sessionId = 'host~session';
+      await h.storage.put('lease:' + sessionId, {
+        epoch: 8,
+        controlEpoch: 3,
+        controlId: variant === 'replaced' ? 'new-claim' : 'claim',
+        controllerId: 'lost-controller',
+        owner: variant === 'owner' ? 'b'.repeat(64) : auth.hash,
+        active: false,
+        delivery: { id: 'browser', normal: 'normal', priority: 'priority' },
+        ...(variant === 'pending'
+          ? {
+              pending: {
+                controlEpoch: 4,
+                epoch: 9,
+                expires: Date.now() + 15000,
+              },
+            }
+          : {}),
+      });
+      const client = socket({
+        id: 'next-controller',
+        auth,
+        role: 'web',
+        sessionId,
+        authenticated: false,
+        epoch: 0,
+        deadline: Number.MAX_SAFE_INTEGER,
+      });
+      h.sockets.push(client);
+      await (h.relay as any).start({
+        auth,
+        hostId: 'host',
+        socketId: 'next-controller',
+        kind: 'attach',
+        stage: 'get',
+        action: 'attach',
+        data: {
+          sessionId,
+          claimId: variant === 'claim' ? 'forged' : 'claim',
+          resume: {
+            stream: variant === 'stream' ? 'forged' : 'browser',
+            controller: 'original-controller',
+          },
+        },
+      });
+      await h.reply(h.frames().at(-1), { mode: 'web', state: 'ready' });
+      if (variant === 'valid') {
+        expect(h.frames().at(-1).action).toBe('attach');
+        await h.reply(h.frames().at(-1), {});
+        expect(JSON.parse(client.send.mock.calls.at(-1)![0]).type).toBe(
+          'attached',
+        );
+      } else {
+        expect(h.frames()).toHaveLength(1);
+        expect(JSON.parse(client.send.mock.calls.at(-1)![0]).error.code).toBe(
+          'STALE_CONTROLLER',
+        );
+      }
+    },
+  );
   it('requires negotiation and gives old clients an explicit upgrade error', async () => {
     const h = harness();
     h.agent.serializeAttachment({

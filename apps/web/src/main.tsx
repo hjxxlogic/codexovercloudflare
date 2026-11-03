@@ -1,5 +1,6 @@
 import { Workbench } from './workbench/workbench.tsx';
 import { promptAcknowledged } from './prompt-state.ts';
+import { recoveryDelay } from './recovery.ts';
 import { boundedRefresh, requestErrorMessage } from './refresh.ts';
 import { deliveryIdentity } from './delivery-identity.ts';
 import { CommandDelivery } from './delivery.ts';
@@ -1222,14 +1223,12 @@ function App() {
     };
     const controller = new AbortController();
     let terminal = false;
+    let connecting = false;
     const retry = () => {
-      if (disposed || terminal || attempt >= 3) return;
+      if (disposed || terminal) return;
       clearTimeout(timer);
-      timer = setTimeout(
-        () => void connect(),
-        Math.min(15000, 1000 * 2 ** Math.min(attempt++, 5)) *
-          (0.8 + Math.random() * 0.4),
-      );
+      timer = setTimeout(() => void connect(), recoveryDelay(attempt));
+      attempt = Math.min(attempt + 1, 3);
     };
     const checkPending = async () => {
       // Recovery belongs to the durable command journal, including saved results.
@@ -1253,6 +1252,9 @@ function App() {
       if (id === selected.id) observeHeads(heads);
     };
     const connect = async () => {
+      if (disposed || terminal || connecting) return;
+      clearTimeout(timer);
+      connecting = true;
       setStatus(attempt ? '正在重连' : '正在连接');
       setReady(false);
       try {
@@ -1542,6 +1544,8 @@ function App() {
           if (retryable(e)) retry();
           else terminal = true;
         }
+      } finally {
+        connecting = false;
       }
     };
     let historyTimer: ReturnType<typeof setTimeout>;
@@ -2170,11 +2174,27 @@ function App() {
         });
       return sessionSync;
     };
+    const recoverControl = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        selected.state === 'ready' &&
+        !socket.current &&
+        !connecting &&
+        !terminal
+      ) {
+        attempt = 0;
+        void connect();
+      }
+    };
+    window.addEventListener('online', recoverControl);
+    document.addEventListener('visibilitychange', recoverControl);
     void connectHistory();
     if (selected.state === 'ready') void connect();
     else setStatus('查看已结束会话的历史');
     return () => {
       disposed = true;
+      window.removeEventListener('online', recoverControl);
+      document.removeEventListener('visibilitychange', recoverControl);
       refreshSession.current = undefined;
       observeSessionHeads.current = undefined;
       deliverCommand.current = undefined;

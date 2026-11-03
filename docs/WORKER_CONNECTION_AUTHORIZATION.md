@@ -35,3 +35,7 @@ Attachment 保存授权配置摘要、退休状态及绑定信息。休眠恢复
 源码：`apps/relay/src/connections.ts`、`host.ts`、`registry.ts`。Agent 的校验位于 `native/src/agent.cpp` 与 `delivery.cpp`，本次无需修改原生协议。
 
 测试覆盖超过旧 5 秒缓存窗口及 DO 重建后的双向转发、无权限存储读取、后端故障、退休连接晚到数据、授权控制事件、active 连接到期及持久事件失败重试。Worker 的传输封装仍保留，不新增业务持久 ACK。实际检查结果与尚未验证范围见 [TEST_REPORT](TEST_REPORT.md)。
+
+## 重连确认丢失
+
+重连的 socket 身份提交先于客户端收到确认。租约保留本次已经验证的原 controller；同一认证 owner 也可用当前 controlId 的随机 claim 与原 delivery stream 恢复，修复旧实现遗漏 controller 后的租约。检查不能跨 owner、消息流或已被接管的新 claim；pending 接管的代际隔离继续生效。普通恢复不提高控制代际，只分配新连接代次。详见 [断网恢复修复](WEB_RECONNECT_2026-11-03.md)。
