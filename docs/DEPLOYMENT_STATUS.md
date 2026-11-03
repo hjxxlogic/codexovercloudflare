@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## Terminal 全流式传输 · 2026-11-03
+
+按明确授权跳过 Actions，源码 `de93dc7` 已本地构建并部署网页、Relay 与本机 Agent。Worker `9938aa32-193b-4f8f-9753-58a2889239f3`；Agent 安装及 Relay 发布后的重新握手均通过 30 秒连接核验。健康、73 项资源字节、真实邮箱身份下 streaming:1 元数据和 WebSocket 控制权拒绝通过。原 D1、Secret、Agent 配置及数据库、原生公开下载保留，无更新通知。
+
+486 项 Vitest、10 项 CTest、实际 PTY 与普通 Worker / D1 完整 E2E 已本地通过；本次没有生产 Shell 或按键延迟实测，不将本地回显样本作为线上承诺。首次中断恢复及重连原因见 [部署记录](CW_DEPLOYMENT_2026-11-03.md#terminal-全流式部署)，[来源、摘要与验证证据](assets/cw-terminal-stream-2026-11-03/deployment.json)。刷新 CW 加载新版。
+
 ## CW Markdown 阅读简化与图表操作 · 2026-11-03
 
 按用户要求跳过 Actions，本地构建源码 `91577f1` 已部署至 https://r.xlogic.cc，Worker `88cdbff7-49ee-488f-874d-4dcc14cf06d6`。公式 / 图表自动渲染，元素全屏入口只在确有显示限制时出现，对话移除逐条文档工具栏；Mermaid 全屏提供缩放、平移、适应窗口和 100%。480 项 Vitest、类型、lint、整页 UI、Markdown 专项与生产资源 / CSP 浏览器验证通过，健康和 73 项资源字节一致。

@@ -72,3 +72,14 @@ D1 绑定 / 数据、配置、Secret 和现有原生下载保留，无待执行�
 云端通过 `scripts/deploy-cloud.py --local-build --apply` 构建、暂存、部署并核验。此次是明确授权的本机构建例外，不将本地二进制标为 CI 发行制品；完整跨平台和长期性能验证不在本次结论内。
 
 刷新 CW 标签页即可加载最新功能菜单和分隔条，无需清空历史缓存。通过“功能菜单 → Terminal”进入，选择具有控制权的空闲普通 Web 会话后点击“打开终端”；仍保持项目隔离和终端 / 助手任务互斥规则。
+
+
+## Terminal 全流式部署
+
+按用户明确授权跳过 Actions，使用本地干净源码 `de93dc7ebf49df9ac6ea85a969d4300f42aac782` 同时发布网页、Relay 和本机 Agent。Worker version 为 `9938aa32-193b-4f8f-9753-58a2889239f3`；本机 Agent 二进制 SHA-256 为 `65413079c2e02ae07970663cf99c16a7bf3e891fd5569c972662d1759b2c03b8`，源码摘要为 `ea8beb4b046102b43a90ec7590252def8a9840fedf2ff4bfbddb57193ab011d7`。本次没有 Actions URL，`ciVerified=false`；不能作为已验证跨平台发行制品。
+
+通过 `scripts/deploy-agent.py --local --local-build --allow-restart-active --apply` 与 `scripts/deploy-cloud.py --local-build --apply` 部署。用户明确允许活动会话重启。首次操作被用户中断，停在旧 Agent 已停止、候选文件尚未替换阶段；恢复旧服务后重新经脚本安装成功。网页及 Relay 发布后，旧连接未登记新增能力，专用通道正确返回 UPGRADE_REQUIRED；再次经脚本重连并完成 30 秒稳定连接核验。二进制备份和原始记录留在 ignored `.local/`；原 D1 UUID、Secret、Agent 配置 / 凭据 / 数据库保留，未发布新原生下载或更新通知。后续同类升级应先发布 Relay，再让新版 Agent 握手。
+
+线上健康检查与 73 项首页 / assets / 手册 / 下载清单及校验和逐字节核验通过。真实邮箱身份正常续期后，读取已结束测试会话所属项目的 Terminal 元数据并验证专用 WebSocket；没有打开 Shell、接管会话、发送输入或调用模型。探测脚本初次遗漏 delivery=2 导致 HTTP 409，修正后才检查流式能力；不将此夹具错误计作产品缺陷。完整脱敏结果见 [部署证据](assets/cw-terminal-stream-2026-11-03/deployment.json)。
+
+本地 486 项 Vitest、10 项 CTest、真实隔离 PTY 和普通 Worker / D1 完整 Chromium E2E 等结果见 [测试报告](TEST_REPORT.md)。未在线测试真实按键回显，因此不将本地 115–165 ms 样本作为生产性能承诺。刷新 CW 后通过“功能菜单 → Terminal”进入，持续输入 / 输出 / resize 走 WebSocket；创建 / 终止仍使用可靠 HTTP，首次开启仍可能等待鉴权及创建。
