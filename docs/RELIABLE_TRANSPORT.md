@@ -8,9 +8,15 @@ Worker 持久保存授权、撤销、租约和控制代际；业务正文、结�
 
 `POST /api/v1/hosts/:host/terminal` 的 `info/open/read/input/resize/close` 只开放给 Web 凭据。除 info 外，均绑定 projectId、sessionId 与完整 control proof；read/input/resize/close 还绑定 terminalId。Relay 验证当前项目 writer 及账号，Agent 独立验证持久控制代次、运行时连接代次和归属。
 
-open/close 属于可靠 HTTP 业务写入口，沿用原 requestId、Agent deliveryInstance 和端点操作账本。输入与缩放属于独立易失 PTY runtime 的有序流：正安全整数 seq 从 1 连续递增，只保留最近一项摘要；完全相同的上一项可返回原 next，失序/不同内容拒绝。单次输入最多 4096 解码字节；部分 write 或结果不确定不能换身份重放，runtime 会终止。浏览器错误后冻结输入，显式重新连接只查询尚存 runtime，不恢复旧按键。
+open/close 属于可靠 HTTP 业务写入口，沿用原 requestId、Agent deliveryInstance 和端点操作账本。输入与缩放属于独立易失 PTY runtime 的有序流：正安全整数 seq 从 1 连续递增，只保留最近一项摘要；完全相同的上一项可返回原 next，失序/不同内容拒绝。单次输入最多 4096 解码字节；部分 write 或结果不确定不能换身份重放，runtime 会终止。浏览器错误后冻结输入，显式重新连接按已渲染 offset 接续尚存 runtime，不恢复旧按键。
 
-read 使用非负字节 offset，返回 base64 data、下一 offset、more、gap、exited/exitCode 与 next。每次最多 32 KiB，保留最近 256 KiB；缺口不重建历史，也不伪造完整日志。输入/输出不注册成 delivery:2 会话正文，不新增 ACK 或持久云端进度。detach、控制代次变化、会话结束或 Agent 断开终止终端，60 秒无授权读取也终止；进程状态不可从浏览器缓存恢复。详见 [工作台实现](CW_WORKBENCH.md)。
+read 使用非负字节 offset，返回 base64 data、下一 offset、more、gap、exited/exitCode 与 next。每次最多 32 KiB，保留最近 256 KiB；缺口不重建历史，也不伪造完整日志。输入/输出不注册成 delivery:2 会话正文，不新增 delivery:2 持久 ACK 或云端进度。detach、控制代次变化、会话结束或 Agent 断开终止终端，60 秒无授权读取 / 流式活动也终止；进程状态不可从浏览器缓存恢复。详见 [工作台实现](CW_WORKBENCH.md)。
+
+### streaming:1 扩展
+
+新版网页使用独立 `GET /ws/v1/hosts/:host/terminal` 字节流；原 HTTP read/input/resize 保留给兼容端点，但新版浏览器不再轮询。bind 固定 projectId/sessionId/terminalId/control/offset，input/resize 继续使用 runtime seq；ready/ack 确认 next，output 携带 base64、结束 offset 和 gap，输出 ack 确认已渲染位置。Agent 每帧至多发送 16 KiB，最多 64 KiB 未渲染，256 KiB 缓冲接近满时暂停 PTY read；不得用发送成功替代渲染完成。输出 ACK 和心跳不落盘，不能确认或推进 delivery:2 业务日志。具体 schema 为 terminalStreamClientSchema / terminalStreamServerSchema。
+
+纯字节流断开后保留 runtime 到原 60 秒空闲上限，按浏览器已渲染 offset 重新绑定；Agent 重启不可恢复，按键只在内存排队，不复用或重发未确认输入。控制权撤销与代次变化继续拒绝旧流，浏览器冻结输入。open/close 原可靠 HTTP 语义及 Linux 隔离不变。
 
 ## 原请求与控制权
 

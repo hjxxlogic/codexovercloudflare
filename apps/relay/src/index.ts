@@ -1320,6 +1320,15 @@ export default {
           internal(req, '/history?sessionId=' + historySocket[1], auth, hostId),
         );
       }
+      const terminalSocket = p.match(/^\/ws\/v1\/hosts\/([\w-]+)\/terminal$/);
+      if (terminalSocket && req.method === 'GET') {
+        const auth = await authenticate(req, env, terminalSocket[1]);
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        return hostStub(env, terminalSocket[1]).fetch(
+          internal(req, '/terminal-stream', auth, terminalSocket[1]),
+        );
+      }
       const web = p.match(/^\/ws\/v1\/web\/([\w~-]+)$/);
       if (web && req.method === 'GET') {
         const hostId = idSchema.parse(web[1].split('~')[0]);

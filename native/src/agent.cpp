@@ -529,11 +529,64 @@ public:
       }
     throw Error("PROJECT_NOT_FOUND", "Project not registered");
   }
+  void validate_terminal(const Json &d) {
+    const auto p = project(d.at("projectId"));
+    const auto id = d.at("sessionId").get<std::string>();
+    const auto session = store_.get(id);
+    const auto control = store_.control_state(id);
+    const auto rt = runtimes_.find(id);
+    const auto proof = d.at("control");
+    if (session.at("projectId") != p.at("id") || session.at("mode") != "web" ||
+        session.value("external", false) || session.at("state") != "ready" || control.is_null() ||
+        proof.at("controlEpoch") != control.at("controlEpoch") ||
+        proof.at("controlId") != control.at("controlId") ||
+        proof.at("owner") != control.at("owner") || d.at("owner") != control.at("owner") ||
+        rt == runtimes_.end() || proof.at("connectionGeneration") != rt->second->epoch ||
+        rt->second->detached)
+      throw Error("STALE_CONTROLLER", "Terminal requires active web project controller");
+    if (d.at("operation") == "open") {
+      if (session.value("running", false) || rt->second->busy)
+        throw Error("PROJECT_BUSY", "Assistant is executing in this project");
+      check_busy(session);
+    }
+  }
+  void terminal_stream(const Json &d) {
+    const auto route = d.value("route", "");
+    if (d.value("detached", false)) {
+      terminals_.detach(route);
+      return;
+    }
+    const auto scope = d.at("scope");
+    const auto emit = [this, route, scope](Json frame) {
+      try {
+        validate_terminal(scope);
+      } catch (const std::exception &error) {
+        terminals_.detach(route);
+        frame = {{"type", "error"}, {"error", error_data(error)}};
+      }
+      send({{"type", "terminal-stream"},
+            {"route", route},
+            {"terminalId", scope.at("terminalId")},
+            {"sessionId", scope.at("sessionId")},
+            {"frame", frame}});
+    };
+    try {
+      validate_terminal(scope);
+      terminals_.stream(scope, route, d.at("frame"), emit);
+    } catch (const std::exception &error) {
+      emit({{"type", "error"}, {"error", error_data(error)}});
+      terminals_.detach(route);
+    }
+  }
   void receive(const Json &d) {
     flush_events();
     if (d.value("v", 1) != 1)
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
+    if (type == "terminal-stream") {
+      terminal_stream(d);
+      return;
+    }
     if (type == "history-detached") {
       history_routes_.erase(d.value("route", ""));
       history_schedule();
@@ -570,6 +623,7 @@ public:
                            {"build", Json::parse(COC_BUILD_JSON)},
                            {"protocol", 1},
                            {"delivery", 2},
+                           {"terminalStreaming", 1},
                            {"deliveryInstance", store_.delivery_instance()},
                            {"management", remote_config_.metadata()}};
       if (config_.contains("wakeUrl"))
@@ -1100,24 +1154,7 @@ public:
         done(result, nullptr);
         return;
       }
-      const auto id = d.at("sessionId").get<std::string>();
-      const auto session = store_.get(id);
-      const auto control = store_.control_state(id);
-      const auto rt = runtimes_.find(id);
-      const auto proof = d.at("control");
-      if (session.at("projectId") != p.at("id") || session.at("mode") != "web" ||
-          session.value("external", false) || session.at("state") != "ready" || control.is_null() ||
-          proof.at("controlEpoch") != control.at("controlEpoch") ||
-          proof.at("controlId") != control.at("controlId") ||
-          proof.at("owner") != control.at("owner") || d.at("owner") != control.at("owner") ||
-          rt == runtimes_.end() || proof.at("connectionGeneration") != rt->second->epoch ||
-          rt->second->detached)
-        throw Error("STALE_CONTROLLER", "Terminal requires active web project controller");
-      if (d.at("operation") == "open") {
-        if (session.value("running", false) || rt->second->busy)
-          throw Error("PROJECT_BUSY", "Assistant is executing in this project");
-        check_busy(session);
-      }
+      validate_terminal(d);
       done(terminals_.request(d, p.at("path")), nullptr);
       return;
     }

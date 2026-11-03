@@ -535,6 +535,63 @@ export const terminalCommandSchema = z
         message: 'Terminal input requires sequence and data',
       });
   });
+// Ephemeral Terminal byte stream; lifecycle operations retain their existing journal.
+const terminalBase64 = (max: number) =>
+  z
+    .string()
+    .min(4)
+    .max(max)
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/);
+export const terminalStreamClientSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('bind'),
+      projectId: idSchema,
+      sessionId: sessionIdSchema,
+      terminalId: idSchema,
+      control: controlProofSchema,
+      offset: sequenceSchema.nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('input'),
+      seq: sequenceSchema.positive(),
+      data: terminalBase64(5464),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('resize'),
+      seq: sequenceSchema.positive(),
+      cols: z.number().int().min(2).max(500),
+      rows: z.number().int().min(2).max(500),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal('ack'), offset: sequenceSchema.nonnegative() })
+    .strict(),
+  z.object({ type: z.literal('ping') }).strict(),
+]);
+export const terminalStreamServerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('ready'), next: sequenceSchema.positive() }),
+  z.object({ type: z.literal('ack'), next: sequenceSchema.positive() }),
+  z.object({
+    type: z.literal('output'),
+    offset: sequenceSchema.nonnegative(),
+    data: terminalBase64(21848),
+    gap: z.boolean(),
+  }),
+  z.object({ type: z.literal('exit'), exitCode: z.number().int() }),
+  z.object({ type: z.literal('pong') }),
+  z.object({
+    type: z.literal('error'),
+    error: z.object({
+      code: z.string().max(100),
+      message: z.string().max(2000),
+    }),
+  }),
+]);
 export const controlCommandSchema = z.discriminatedUnion('action', [
   control('probe', z.object({})),
   control(

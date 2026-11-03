@@ -2253,6 +2253,30 @@ try {
       .locator('.workbench-menu-items')
       .getByRole('button', { name: 'Terminal', exact: true })
       .click();
+    const terminalRequests: string[] = [];
+    let terminalStreamUrl = '',
+      terminalBind: any;
+    visitorPage.on('websocket', (socket) => {
+      if (!new URL(socket.url()).pathname.endsWith('/terminal')) return;
+      terminalStreamUrl = socket.url();
+      socket.on('framesent', (event) => {
+        const value = JSON.parse(String(event.payload));
+        if (
+          value.type === 'terminal-stream' &&
+          value.frame?.type === 'bind' &&
+          !terminalBind
+        )
+          terminalBind = value.frame;
+      });
+    });
+    visitorPage.on('request', (req) => {
+      if (
+        new URL(req.url()).pathname.endsWith('/terminal') &&
+        req.method() === 'POST'
+      ) {
+        terminalRequests.push(req.postDataJSON()?.operation);
+      }
+    });
     const terminal = visitorPage.getByLabel('Terminal', { exact: true });
     await expect(
       terminal.getByRole('button', { name: '打开终端' }),
@@ -2262,12 +2286,74 @@ try {
     await expect(terminal.getByRole('heading')).toContainText('已连接', {
       timeout: 15000,
     });
+    assert(terminalBind && terminalStreamUrl);
+    const denied = await visitorPage.evaluate(
+      async ({ url, bind }) => {
+        const codes: string[] = [];
+        for (const value of [
+          { type: 'web', payload: {} },
+          {
+            type: 'terminal-stream',
+            frame: {
+              ...bind,
+              control: { ...bind.control, owner: 'b'.repeat(64) },
+            },
+          },
+          {
+            type: 'terminal-stream',
+            frame: { ...bind, offset: Number.MAX_SAFE_INTEGER },
+          },
+        ]) {
+          codes.push(
+            await new Promise<string>((resolve, reject) => {
+              const ws = new WebSocket(url);
+              const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error('Terminal rejection timed out'));
+              }, 15000);
+              ws.onopen = () => ws.send(JSON.stringify(value));
+              ws.onmessage = (event) => {
+                const reply = JSON.parse(String(event.data));
+                const error = reply.error ?? reply.frame?.error;
+                if (error) {
+                  clearTimeout(timeout);
+                  ws.close();
+                  resolve(error.code);
+                }
+              };
+              ws.onerror = () => {
+                clearTimeout(timeout);
+                ws.close();
+                reject(new Error('Terminal rejection transport error'));
+              };
+            }),
+          );
+        }
+        return codes;
+      },
+      { url: terminalStreamUrl, bind: terminalBind },
+    );
+    assert.deepEqual(denied, [
+      'FORBIDDEN',
+      'PROJECT_READ_ONLY',
+      'INVALID_REQUEST',
+    ]);
+    await expect(terminal.getByRole('heading')).toContainText('已连接');
     await terminal.locator('.xterm-helper-textarea').focus();
+    const echoStarted = performance.now();
     await visitorPage.keyboard.type("printf 'BROWSER_%s\\n' TERMINAL_OK");
     await visitorPage.keyboard.press('Enter');
     await expect(terminal.locator('.xterm-rows')).toContainText(
       'BROWSER_TERMINAL_OK',
       { timeout: 15000 },
+    );
+    console.log(
+      'Streaming Terminal command echo ms:',
+      Math.round(performance.now() - echoStarted),
+    );
+    assert(
+      !terminalRequests.some((op) => ['read', 'input', 'resize'].includes(op)),
+      'Terminal byte traffic uses the stream, not HTTP polling',
     );
     await visitorPage.screenshot({
       path: join(artifacts, 'interactive-terminal.png'),

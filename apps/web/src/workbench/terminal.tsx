@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { api, queryApi, ApiError } from '../api.ts';
+import { queryApi, ApiError } from '../api.ts';
 import type { OperationClient } from '../operations.ts';
 import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import { t } from '../i18n.ts';
+import { TerminalStream } from './terminal-stream.ts';
 import { FullscreenButton } from './fullscreen.tsx';
 type Props = {
   host: string;
@@ -33,6 +34,7 @@ export default function InteractiveTerminal({
   const [metadata, setMetadata] = useState<{
     enabled: boolean;
     deliveryInstance: string;
+    streaming?: number;
   }>();
   const [error, setError] = useState('');
   const [runtime, setRuntime] = useState<string>();
@@ -42,8 +44,9 @@ export default function InteractiveTerminal({
   const pending = useRef<
     { id: string; body: Record<string, unknown> } | undefined
   >(undefined);
-  const next = useRef(1),
-    offset = useRef(0);
+  const offset = useRef(0);
+  const renderRuntime = useRef<string | undefined>(undefined);
+  const stream = useRef<TerminalStream | null>(null);
   const queue = useRef('');
   const sending = useRef(false);
   const active = useRef(true);
@@ -102,62 +105,54 @@ export default function InteractiveTerminal({
       setConnected(false);
       return;
     }
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const read = async () => {
-      try {
-        const result = await queryApi(
-          path,
-          {
-            ...scope(),
-            operation: 'read',
-            terminalId: runtime,
-            offset: offset.current,
+    let disposed = false;
+    let connection: TerminalStream | undefined;
+    // Drain queued writes before capturing the resume offset for a new socket.
+    terminal.current?.write('', () => {
+      if (disposed) return;
+      connection = new TerminalStream(
+        host,
+        {
+          projectId: project,
+          sessionId: session!,
+          control,
+          terminalId: runtime,
+          offset: offset.current,
+        },
+        {
+          ready: () => setConnected(true),
+          output: (bytes, gap, rendered) => {
+            if (gap) terminal.current?.writeln('\r\n' + t('终端输出已截断'));
+            if (terminal.current) terminal.current.write(bytes, rendered);
           },
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        if (result.gap) terminal.current?.writeln('\r\n' + t('终端输出已截断'));
-        if (result.data)
-          terminal.current?.write(
-            Uint8Array.from(atob(result.data), (ch) => ch.charCodeAt(0)),
-          );
-        offset.current = result.offset;
-        next.current = Math.max(next.current, result.next);
-        if (result.exited && !result.more) {
-          setConnected(false);
-          terminal.current?.writeln(`\r\n${t('退出码：')}${result.exitCode}`);
-          return;
-        }
-        setConnected(!result.exited);
-        timer = setTimeout(() => void read(), result.more ? 0 : 500);
-      } catch (e: unknown) {
-        if (!controller.signal.aborted) {
-          setConnected(false);
-          setError(String(e));
-        }
-      }
-    };
-    void read();
+          offset: (value) => {
+            if (renderRuntime.current === runtime)
+              offset.current = Math.max(offset.current, value);
+          },
+          exit: (code) => {
+            setConnected(false);
+            terminal.current?.writeln(`\r\n${t('退出码：')}${code}`);
+          },
+          error: (error) => {
+            setConnected(false);
+            setError(String(error));
+          },
+        },
+      );
+      stream.current = connection;
+    });
     return () => {
-      controller.abort();
-      clearTimeout(timer);
+      disposed = true;
+      stream.current = null;
+      connection?.close();
+      setConnected(false);
     };
-    // Controller changes invalidate all outstanding terminal reads.
+    // A controller change closes the old byte stream; input is never replayed.
   }, [runtime, enabled, host, project, session, control, retry]);
   useEffect(() => {
     const term = terminal.current;
     if (!term || !runtime || !enabled || !connected) return;
     const controller = new AbortController();
-    async function send(data: Record<string, unknown>) {
-      const result = await api(
-        path,
-        { ...scope(), terminalId: runtime, seq: next.current, ...data },
-        controller.signal,
-      );
-      if (!controller.signal.aborted)
-        next.current = Math.max(next.current, result.next);
-    }
     const input = term.onData((value) => {
       if (value.includes('\n') || (value.length > 1 && value.includes('\r'))) {
         if (!confirm(t('将多行文本粘贴到远程终端？其中可能包含命令。'))) return;
@@ -179,20 +174,25 @@ export default function InteractiveTerminal({
       queue.current = '';
       sending.current = true;
       // Input remains memory-only; unknown writes are never replayed.
-      let request: Record<string, unknown>;
+      let request:
+        | { type: 'input'; data: string }
+        | { type: 'resize'; cols: number; rows: number };
       if (value) {
         const bytes = new TextEncoder().encode(value);
         request = {
-          operation: 'input',
+          type: 'input',
           data: btoa(
             Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''),
           ),
         };
       } else {
         resizePending = false;
-        request = { operation: 'resize', ...size };
+        request = { type: 'resize', ...size };
       }
-      void send(request)
+      void (
+        stream.current?.write(request) ??
+        Promise.reject(new Error('Terminal stream disconnected'))
+      )
         .catch((e: unknown) => {
           if (!controller.signal.aborted) {
             setError(String(e));
@@ -202,7 +202,7 @@ export default function InteractiveTerminal({
         .finally(() => {
           sending.current = false;
         });
-    }, 100);
+    }, 16);
     const resized = term.onResize(({ cols, rows }) => {
       if (cols < 2 || rows < 2) return;
       size = { cols: Math.min(cols, 500), rows: Math.min(rows, 500) };
@@ -245,10 +245,11 @@ export default function InteractiveTerminal({
       pending.current = undefined;
       if (!active.current) return;
       if (operation === 'open') {
-        next.current = result.next;
+        renderRuntime.current = result.terminalId;
         offset.current = 0;
         setRuntime(result.terminalId);
       } else {
+        renderRuntime.current = undefined;
         setRuntime(undefined);
         setConnected(false);
       }
@@ -284,12 +285,21 @@ export default function InteractiveTerminal({
           )}
         </p>
       )}
+      {metadata?.enabled && metadata.streaming !== 1 && (
+        <p role="status">{t('请升级 Agent 以支持流式 Terminal。')}</p>
+      )}
       {!enabled && (
         <p role="status">{t('终端需要当前项目写权限和空闲的助手会话。')}</p>
       )}
       <div className="row">
         <button
-          disabled={!metadata?.enabled || !enabled || starting || !!runtime}
+          disabled={
+            !metadata?.enabled ||
+            metadata.streaming !== 1 ||
+            !enabled ||
+            starting ||
+            !!runtime
+          }
           onClick={() => {
             if (
               confirm(

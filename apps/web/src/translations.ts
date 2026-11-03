@@ -199,6 +199,8 @@ export const english: Record<string, string> = {
     'Your browser does not support this media format. Download it to play.',
   '由 Agent 执行，关闭网页后继续生效；仅当前会话，停止会话后关闭。包含命令、文件修改和本轮额外权限。':
     'Runs on the Agent, including after this page closes. Applies only to this session and ends when it stops. Includes commands, file changes and extra permissions for the current turn.',
+  '请升级 Agent 以支持流式 Terminal。':
+    'Upgrade the Agent to use streaming Terminal.',
   '请升级 Agent 以使用会话自动批准。':
     'Upgrade the Agent to use session automatic approval.',
   '正在保存…': 'Saving\u2026',

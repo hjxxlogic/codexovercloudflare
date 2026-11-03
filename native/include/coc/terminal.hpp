@@ -1,6 +1,7 @@
 #pragma once
 #include "coc/common.hpp"
 #include <boost/asio.hpp>
+#include <functional>
 #include <memory>
 namespace coc {
 // Linux-only sandboxed PTYs. Other platforms fail closed until their isolation
@@ -14,6 +15,9 @@ public:
   ~Terminals();
   Json metadata() const;
   Json request(const Json &, const std::string &root);
+  void stream(const Json &, const std::string &route, const Json &frame,
+              std::function<void(Json)> emit);
+  void detach(const std::string &route);
   bool busy(const std::string &project) const;
   void close_session(const std::string &session);
   void clear();

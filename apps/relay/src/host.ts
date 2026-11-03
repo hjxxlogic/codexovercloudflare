@@ -25,6 +25,8 @@ import {
   agentBuildSchema,
   controlCommandSchema,
   controlProofSchema,
+  terminalStreamClientSchema,
+  terminalStreamServerSchema,
   operationIntentSchema,
   operationWrite,
   type OperationIntent,
@@ -52,6 +54,16 @@ type Attachment = {
   id?: string;
   subscription?: boolean;
   management?: boolean;
+  terminalStream?: boolean;
+  terminalScope?: {
+    projectId: string;
+    sessionId: string;
+    terminalId: string;
+    control: ControlProof;
+    owner: string;
+    operation: 'read';
+  };
+  terminalStreaming?: number;
   managementMetadata?: unknown;
   receipts?: { sent: number; acked: number; seq: number; ack: number };
   role: 'agent' | 'web' | 'cli';
@@ -591,6 +603,74 @@ export class HostRelayDO extends DurableObject<Env> {
         this.forward(ws, { type: 'change', scope, revision, operationId }, 200);
     }
   }
+  private closeTerminalStreams(sessionId: string) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment;
+      if (a.terminalStream && a.terminalScope?.sessionId === sessionId)
+        ws.close(4009, 'Terminal controller ended');
+    }
+  }
+  private async validateTerminal(
+    data: NonNullable<Attachment['terminalScope']>,
+    owner: string,
+    hostId: string,
+  ) {
+    await this.authorized(owner);
+    await this.storage.transaction(async (tx) => {
+      const lease = await tx.get<Lease>('lease:' + data.sessionId);
+      if (
+        !lease ||
+        !lease.active ||
+        lease.pending ||
+        lease.owner !== owner ||
+        lease.projectId !== data.projectId ||
+        data.owner !== owner ||
+        !data.sessionId.startsWith(hostId + '~') ||
+        Object.entries(data.control).some(
+          ([key, value]) =>
+            this.proof(lease)[key as keyof ControlProof] !== value,
+        ) ||
+        (await tx.get('project-writer:' + data.projectId)) !== data.sessionId
+      )
+        throw new AppError(
+          'PROJECT_READ_ONLY',
+          'Terminal requires current project writer',
+          409,
+        );
+    });
+  }
+  private async terminalFrame(ws: WebSocket, a: Attachment, value: unknown) {
+    const frame = terminalStreamClientSchema.parse(value);
+    const agent = this.agent();
+    if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline');
+    const aa = agent.deserializeAttachment() as Attachment;
+    if (aa.terminalStreaming !== 1)
+      throw new AppError(
+        'UPGRADE_REQUIRED',
+        'Upgrade Agent for streaming Terminal',
+        409,
+      );
+    await this.authorized(aa.auth.hash);
+    if (frame.type === 'bind') {
+      if (a.terminalScope)
+        throw new AppError('INVALID_REQUEST', 'Terminal already bound');
+      const { type: _type, offset: _offset, ...scope } = frame;
+      a.terminalScope = { ...scope, owner: a.auth.hash, operation: 'read' };
+      a.sessionId = scope.sessionId;
+    }
+    if (!a.terminalScope)
+      throw new AppError('FORBIDDEN', 'Bind Terminal first', 403);
+    await this.validateTerminal(a.terminalScope, a.auth.hash, a.hostId);
+    a.authenticated = true;
+    a.deadline = a.auth.expires;
+    ws.serializeAttachment(a);
+    this.send(agent, {
+      type: 'terminal-stream',
+      route: a.id,
+      scope: a.terminalScope,
+      frame,
+    });
+  }
   async command(action: string, data: any, operation: Operation) {
     const parsed = controlCommandSchema.safeParse({ action, data });
     if (!parsed.success)
@@ -608,31 +688,8 @@ export class HostRelayDO extends DurableObject<Env> {
         );
       data = { ...data, owner: operation.auth.hash, route: operation.socketId };
     }
-    if (action === 'terminal' && data.operation !== 'info') {
-      await this.authorized(operation.auth.hash);
-      await this.storage.transaction(async (tx) => {
-        const lease = await tx.get<Lease>('lease:' + data.sessionId);
-        if (
-          !lease ||
-          !lease.active ||
-          lease.pending ||
-          lease.owner !== operation.auth.hash ||
-          lease.projectId !== data.projectId ||
-          data.owner !== operation.auth.hash ||
-          !data.sessionId.startsWith(operation.hostId + '~') ||
-          Object.entries(data.control).some(
-            ([key, value]) =>
-              this.proof(lease)[key as keyof ControlProof] !== value,
-          ) ||
-          (await tx.get('project-writer:' + data.projectId)) !== data.sessionId
-        )
-          throw new AppError(
-            'PROJECT_READ_ONLY',
-            'Terminal requires current project writer',
-            409,
-          );
-      });
-    }
+    if (action === 'terminal' && data.operation !== 'info')
+      await this.validateTerminal(data, operation.auth.hash, operation.hostId);
     if (action === 'projectManage') {
       const current: Auth = await registryCall(this.env, 'authHash', {
         hash: operation.auth.hash,
@@ -1054,6 +1111,7 @@ export class HostRelayDO extends DurableObject<Env> {
       const a = ws.deserializeAttachment() as Attachment;
       if (!a.history) ws.close(4000, 'Session ended');
     }
+    this.closeTerminalStreams(sessionId);
   }
   private async result(o: Operation, data: any, error?: any) {
     if (o.kind === 'attach' && o.socketId) {
@@ -1222,6 +1280,7 @@ export class HostRelayDO extends DurableObject<Env> {
         if (a.authenticated && !a.history && a.id !== o.socketId)
           ws.close(4009, 'Control taken over');
       }
+      this.closeTerminalStreams(o.data.sessionId);
       if (o.kind === 'ticket') return this.issueTicket(o);
     }
     if (
@@ -1823,6 +1882,19 @@ export class HostRelayDO extends DurableObject<Env> {
         });
         return response;
       }
+      if (u.pathname === '/terminal-stream') {
+        if (auth.role !== 'web')
+          throw new AppError('FORBIDDEN', 'Web credential required', 403);
+        return this.upgrade(req, {
+          role: 'web',
+          auth,
+          hostId,
+          epoch: 0,
+          terminalStream: true,
+          authenticated: false,
+          deadline: Date.now() + 15000,
+        });
+      }
       if (u.pathname === '/history') {
         return this.upgrade(req, {
           role: auth.role as 'web' | 'cli',
@@ -2203,6 +2275,12 @@ export class HostRelayDO extends DurableObject<Env> {
         }
         return;
       }
+      if (a.terminalStream) {
+        if (d.type !== 'terminal-stream')
+          throw new AppError('FORBIDDEN', 'Terminal frames only', 403);
+        await this.terminalFrame(ws, a, d.frame);
+        return;
+      }
       if (a.subscription)
         throw new AppError(
           'FORBIDDEN',
@@ -2214,6 +2292,32 @@ export class HostRelayDO extends DurableObject<Env> {
           throw new AppError('PROTOCOL_MISMATCH', 'Unsupported protocol', 409);
         if (a.epoch !== (await this.fence('agentEpoch')))
           throw new AppError('STALE_AGENT', 'Old Agent connection');
+        if (d.type === 'terminal-stream') {
+          const target = this.socket(idSchema.parse(d.route));
+          const client = target?.deserializeAttachment() as
+            Attachment | undefined;
+          if (!target || target.readyState >= 2 || !client?.terminalScope)
+            return;
+          const scope = client.terminalScope;
+          if (
+            scope.terminalId !== d.terminalId ||
+            scope.sessionId !== d.sessionId
+          )
+            throw new AppError('FORBIDDEN', 'Terminal route mismatch', 403);
+          if (client.deadline <= Date.now()) {
+            target.close(4001, 'Authorization expired');
+            return;
+          }
+          try {
+            await this.validateTerminal(scope, client.auth.hash, client.hostId);
+          } catch {
+            target.close(4001, 'Terminal authorization changed');
+            return;
+          }
+          const frame = terminalStreamServerSchema.parse(d.frame);
+          this.forward(target, { type: 'terminal-stream', frame }, raw.length);
+          return;
+        }
         if (d.type === 'projects-changed') {
           await this.changed('projects');
           return;
@@ -2233,6 +2337,7 @@ export class HostRelayDO extends DurableObject<Env> {
           }
           a.protocol = d.protocol;
           a.deliveryVersion = 2;
+          a.terminalStreaming = d.terminalStreaming === 1 ? 1 : undefined;
           a.deliveryInstance = idSchema.parse(d.deliveryInstance);
           a.build = agentBuildSchema.parse(d.build);
           if (d.wakeUrl !== undefined)
@@ -2710,6 +2815,16 @@ export class HostRelayDO extends DurableObject<Env> {
         }
         if (!this.state) await this.deleteOperation(o.id);
       }
+    if (a.terminalStream) {
+      const agent = this.agent();
+      if (agent)
+        this.send(agent, {
+          type: 'terminal-stream',
+          route: a.id,
+          detached: true,
+        });
+      return;
+    }
     if (a.history) {
       const agent = this.agent();
       if (agent) this.send(agent, { type: 'history-detached', route: a.id });
@@ -2733,6 +2848,7 @@ export class HostRelayDO extends DurableObject<Env> {
       return true;
     });
     if (detached) {
+      this.closeTerminalStreams(a.sessionId!);
       const agent = this.agent();
       if (agent) {
         await this.authorized(

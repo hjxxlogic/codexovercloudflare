@@ -216,6 +216,138 @@ try {
     return output.includes('AGENT_TERMINAL_OK\r\n');
   });
   assert.equal(output.split('AGENT_TERMINAL_OK\r\n').length, 2);
+  assert.equal(info.streaming, 1);
+  let route = randomUUID();
+  const streaming = (frame: object) =>
+    send({
+      type: 'terminal-stream',
+      route,
+      scope: { ...scoped, operation: 'read' },
+      frame,
+    });
+  const streamFrames = () =>
+    frames
+      .filter((f) => f.type === 'terminal-stream' && f.route === route)
+      .map((f) => f.frame);
+  streaming({ type: 'bind', offset });
+  await until(() =>
+    streamFrames().some((f) => f.type === 'ready' && f.next === 2),
+  );
+  const streamInput = {
+    type: 'input',
+    seq: 2,
+    data: Buffer.from("printf 'STREAM_%s\\n' OK\n").toString('base64'),
+  };
+  streaming(streamInput);
+  streaming(streamInput);
+  const streamText = () =>
+    streamFrames()
+      .filter((f) => f.type === 'output')
+      .map((f) => Buffer.from(f.data, 'base64').toString())
+      .join('');
+  await until(() => streamText().includes('STREAM_OK\r\n'));
+  assert.equal(
+    streamText().split('STREAM_OK\r\n').length,
+    2,
+    'duplicate stream input executes once',
+  );
+  assert(streamFrames().some((f) => f.type === 'ack' && f.next === 3));
+  offset = streamFrames()
+    .filter((f) => f.type === 'output')
+    .at(-1).offset;
+  streaming({ type: 'ack', offset });
+  const before = streamFrames().filter((f) => f.type === 'output').length;
+  streaming({
+    type: 'input',
+    seq: 3,
+    data: Buffer.from("printf '%100000s' X\n").toString('base64'),
+  });
+  const burst = () =>
+    streamFrames()
+      .filter((f) => f.type === 'output')
+      .slice(before);
+  const bytes = () =>
+    burst().reduce((n, f) => n + Buffer.from(f.data, 'base64').length, 0);
+  await until(() => bytes() === 65536);
+  await new Promise((done) => setTimeout(done, 200));
+  assert.equal(
+    bytes(),
+    65536,
+    'PTY output stops at the unacknowledged byte window',
+  );
+  offset = burst().at(-1).offset;
+  streaming({ type: 'ack', offset });
+  await until(() => bytes() > 100000);
+  offset = burst().at(-1).offset;
+  streaming({ type: 'ack', offset });
+  const bulkStart = streamFrames().filter((f) => f.type === 'output').length;
+  streaming({
+    type: 'input',
+    seq: 4,
+    data: Buffer.from(
+      "printf '%1000000s\\n' X; printf 'BULK_DONE\\n'\n",
+    ).toString('base64'),
+  });
+  let consumed = bulkStart,
+    bulk = '';
+  await until(() => {
+    const pending = streamFrames()
+      .filter((f) => f.type === 'output')
+      .slice(consumed);
+    for (const frame of pending) {
+      assert.equal(
+        frame.gap,
+        false,
+        'a live slow stream applies PTY backpressure rather than truncating',
+      );
+      bulk += Buffer.from(frame.data, 'base64').toString();
+      offset = frame.offset;
+      consumed++;
+      streaming({ type: 'ack', offset });
+    }
+    return bulk.includes('BULK_DONE\r\n');
+  });
+  assert(
+    bulk.length > 1000000,
+    'output larger than the ring buffer is delivered completely',
+  );
+  streaming({ type: 'resize', seq: 5, cols: 100, rows: 30 });
+  await until(() =>
+    streamFrames().some((f) => f.type === 'ack' && f.next === 6),
+  );
+  streaming({ type: 'ack', offset: Number.MAX_SAFE_INTEGER });
+  await until(() =>
+    streamFrames().some(
+      (f) => f.type === 'error' && f.error.code === 'INVALID_REQUEST',
+    ),
+  );
+  route = randomUUID();
+  streaming({ type: 'bind', offset });
+  await until(() =>
+    streamFrames().some((f) => f.type === 'ready' && f.next === 6),
+  );
+  streaming({ type: 'ack', offset: 0.5 });
+  await until(() =>
+    streamFrames().some(
+      (f) => f.type === 'error' && f.error.code === 'INVALID_REQUEST',
+    ),
+  );
+  route = randomUUID();
+  streaming({ type: 'bind', offset });
+  await until(() =>
+    streamFrames().some((f) => f.type === 'ready' && f.next === 6),
+  );
+  send({ type: 'terminal-stream', route, detached: true });
+  streaming({
+    type: 'input',
+    seq: 6,
+    data: Buffer.from('must not execute\n').toString('base64'),
+  });
+  await until(() =>
+    streamFrames().some(
+      (f) => f.type === 'error' && f.error.code === 'STREAM_CLOSED',
+    ),
+  );
   await control('terminal', { ...scoped, operation: 'close' });
   await until(
     async () =>
@@ -249,7 +381,7 @@ try {
   );
   await control('stop', { sessionId: session.id });
   console.log(
-    'Native Agent terminal: original open, controller fencing, assistant exclusion, PTY output, input deduplication and close passed',
+    'Native Agent terminal: original open, controller fencing, assistant exclusion, PTY output, streaming credit/acks, reconnect, input deduplication and close passed',
   );
 } finally {
   child?.kill('SIGTERM');

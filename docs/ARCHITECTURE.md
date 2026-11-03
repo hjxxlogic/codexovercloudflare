@@ -683,3 +683,11 @@ OpenAI 风格的 `\(...\)` / `\[...\]` 由 micromark 文本扩展在 Markdown �
 表格 / 代码块 / 块公式使用局部元素全屏状态，原预览状态与 DOM 保留。Mermaid frame 只接收经验证的主题、布局布尔值及白名单语言；沙箱内部的 Esc 消息必须匹配该 frame 的 contentWindow，且该 frame 属于当前全屏栈顶元素后才可退出。
 
 Markdown 的工具栏由调用方显式启用，仅文件预览启用；对话默认纯阅读。AutoRich 用 IntersectionObserver 延后离屏块，120 ms 去抖后自动调用受限渲染器。ResizeObserver / MutationObserver / FontFaceSet 事件检测内容溢出，内嵌全屏入口按需出现。Mermaid 沙箱尺寸消息必须来自对应 frame 且为有限正数，父页面仅据此限制 iframe 高度及全屏入口；全屏缩放、平移和键盘操作均留在沙箱，不传递业务请求。
+
+### Terminal 流式字节通道
+
+`GET /ws/v1/hosts/:host/terminal` 以 Web Cookie / Origin 鉴权升级；首帧 bind 固定 project/session/runtime/control 与输出 offset。Agent 通过 terminalStreaming:1 能力和 info.streaming:1 协商支持。后续 input/resize 带严格递增 seq，ready/ack 返回 next；output 为有界 base64 字节与结束 offset/gap，ack 只允许已发送范围，另有 ping/pong 与 exit/error。Relay 不把此帧开放给通知 / 历史 / CLI socket，也不允许终端 socket 执行其它业务；使用 socket route 与 runtime/session 双重匹配回包。Agent 每次操作及输出推送再次验证真实控制状态。
+
+字节流沿既有 Agent WebSocket 转发，不创建临时 operation、正文日志或云端持久进度；原 delivery:2 助手正文与 lifecycle HTTP 不改变。Relay 沿用短期鉴权缓存及撤销 / 到期校验，租约与 writer 从本地权威活动状态复核，输出仅发给仍获授权的目标。终端 socket 关闭不走控制连接的 detach 路径，不会把整个会话设为 inactive；父控制连接 detach / 接管 / 会话结束会关闭对应终端流。
+
+64 KiB 输出信用由浏览器 xterm.write 完成回调释放；Agent 输出环最多 256 KiB，在线接收方慢时暂停异步 PTY read，内核进一步背压 Shell。仅断线或历史尾部不足时允许显式 gap。输入仍按序确认且不自动重放，超过 15 秒未知输入关闭流；20 秒握手时限、15 秒 WebSocket 心跳，Agent 60 秒无授权活动终止 runtime。所有字节 / 确认均易失，不能与原可靠操作的持久 ACK 混淆。

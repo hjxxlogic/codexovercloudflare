@@ -43,6 +43,12 @@ std::string decode(const std::string &text) {
     throw Error("INVALID_REQUEST", "Noncanonical terminal input encoding");
   return bytes;
 }
+int64_t stream_offset(const Json &frame) {
+  if (!frame.contains("offset") || !frame.at("offset").is_number_integer() ||
+      frame.at("offset") < 0 || frame.at("offset") > 9007199254740991LL)
+    throw Error("INVALID_REQUEST", "Terminal offset must be a nonnegative safe integer");
+  return frame.at("offset").get<int64_t>();
+}
 int dimension(const Json &d, const char *key, int fallback) {
   if (d.contains(key) && !d.at(key).is_number_integer())
     throw Error("INVALID_REQUEST", "Terminal dimensions must be integers");
@@ -79,6 +85,36 @@ struct Terminals::Impl : std::enable_shared_from_this<Terminals::Impl> {
     int pid = -1, status = -1;
     int64_t start = 0, end = 0, next = 1, touched = now();
     bool exited = false, closing = false;
+    std::string route;
+    std::function<void(Json)> emit;
+    int64_t sent = 0, acknowledged = 0;
+    bool exit_sent = false, reading = false;
+    void pump() {
+      if (!emit)
+        return;
+      // Credit covers bytes sent but not yet rendered by the browser.
+      while (sent < end && sent - acknowledged < 65536) {
+        const bool gap = sent < start;
+        if (gap) {
+          if (acknowledged < sent)
+            return;
+          sent = start;
+          acknowledged = start;
+        }
+        const auto count = std::min<int64_t>({16384, end - sent, 65536 - (sent - acknowledged)});
+        const auto data = output.substr(size_t(sent - start), size_t(count));
+        sent += count;
+        const auto reply = emit;
+        reply({{"type", "output"}, {"data", encode(data)}, {"offset", sent}, { "gap", gap }});
+        if (!emit)
+          return;
+      }
+      if (exited && sent == end && !exit_sent) {
+        exit_sent = true;
+        const auto reply = emit;
+        reply({{"type", "exit"}, { "exitCode", status }});
+      }
+    }
     std::array<char, 16384> buffer{};
     Process(boost::asio::io_context &io) : pty(io), timer(io) {}
     void stop() {
@@ -99,8 +135,12 @@ struct Terminals::Impl : std::enable_shared_from_this<Terminals::Impl> {
       }
     }
     void read() {
+      if (reading || exited || closing || (emit && end - acknowledged >= 256 * 1024 - 16384))
+        return;
+      reading = true;
       auto self = shared_from_this();
       pty.async_read_some(boost::asio::buffer(buffer), [self](auto ec, size_t count) {
+        self->reading = false;
         if (count) {
           self->output.append(self->buffer.data(), count);
           self->end += int64_t(count);
@@ -110,6 +150,7 @@ struct Terminals::Impl : std::enable_shared_from_this<Terminals::Impl> {
             self->start += int64_t(remove);
           }
         }
+        self->pump();
         if (!ec)
           self->read();
       });
@@ -133,6 +174,7 @@ struct Terminals::Impl : std::enable_shared_from_this<Terminals::Impl> {
           self->pid = -1;
           boost::system::error_code ignored;
           self->pty.close(ignored);
+          self->pump();
         } else
           self->poll();
       });
@@ -294,11 +336,8 @@ Terminals::Terminals(boost::asio::io_context &io, const Json &config)
     : impl_(std::make_shared<Impl>(io, config)) {}
 Terminals::~Terminals() { clear(); }
 Json Terminals::metadata() const {
-  return {{"enabled", impl_->enabled},
-          {"platform", "linux-bubblewrap"},
-          {"graceMs", 60000},
-          {"maxInputBytes", 4096},
-          {"maxOutputBytes", 262144}};
+  return {{"enabled", impl_->enabled}, {"streaming", 1},        {"platform", "linux-bubblewrap"},
+          {"graceMs", 60000},          {"maxInputBytes", 4096}, {"maxOutputBytes", 262144}};
 }
 bool Terminals::busy(const std::string &project) const {
 #ifdef __linux__
@@ -397,6 +436,81 @@ Json Terminals::request(const Json &d, const std::string &root) {
   return {{"next", process->next}};
 #else
   (void)root;
+  throw Error("TERMINAL_DISABLED", "Terminal isolation is not implemented on this platform");
+#endif
+}
+} // namespace coc
+
+namespace coc {
+void Terminals::detach(const std::string &route) {
+#ifdef __linux__
+  for (auto &entry : impl_->processes)
+    if (entry.second->route == route) {
+      entry.second->emit = {};
+      entry.second->route.clear();
+      entry.second->read();
+    }
+#else
+  (void)route;
+#endif
+}
+void Terminals::stream(const Json &scope, const std::string &route, const Json &frame,
+                       std::function<void(Json)> emit) {
+#ifdef __linux__
+  const auto found = impl_->processes.find(scope.at("terminalId"));
+  if (found == impl_->processes.end())
+    throw Error("TERMINAL_GONE", "Terminal runtime no longer exists");
+  auto process = found->second;
+  if (process->owner != scope.at("owner") || process->project != scope.at("projectId") ||
+      process->session != scope.at("sessionId") || process->control != scope.at("control").dump())
+    throw Error("FORBIDDEN", "Terminal belongs to another controller");
+  process->touched = now();
+  const auto type = frame.value("type", "");
+  if (route.empty() || route.size() > 100)
+    throw Error("INVALID_REQUEST", "Invalid terminal route");
+  if (type == "bind") {
+    const auto offset = stream_offset(frame);
+    if (offset < 0 || offset > process->end)
+      throw Error("INVALID_REQUEST", "Invalid output offset");
+    if (process->emit && process->route != route) {
+      const auto previous = process->emit;
+      previous({{"type", "error"},
+                {"error", {{"code", "STREAM_REPLACED"}, {"message", "Terminal stream replaced"}}}});
+    }
+    process->route = route;
+    process->emit = std::move(emit);
+    process->sent = process->acknowledged = offset;
+    process->exit_sent = false;
+    const auto reply = process->emit;
+    reply({{"type", "ready"}, {"next", process->next}});
+  } else {
+    if (process->route != route || !process->emit)
+      throw Error("STREAM_CLOSED", "Terminal stream is not bound");
+    if (type == "ack") {
+      const auto offset = stream_offset(frame);
+      if (offset < process->acknowledged || offset > process->sent)
+        throw Error("INVALID_REQUEST", "Invalid output acknowledgment");
+      process->acknowledged = offset;
+    } else if (type == "input" || type == "resize") {
+      auto command = scope;
+      command.update(frame);
+      command["operation"] = type;
+      const auto result = request(command, "");
+      const auto reply = process->emit;
+      reply({{"type", "ack"}, {"next", result.at("next")}});
+    } else if (type == "ping") {
+      const auto reply = process->emit;
+      reply({{"type", "pong"}});
+    } else
+      throw Error("INVALID_REQUEST", "Unknown terminal frame");
+  }
+  process->pump();
+  process->read();
+#else
+  (void)scope;
+  (void)route;
+  (void)frame;
+  (void)emit;
   throw Error("TERMINAL_DISABLED", "Terminal isolation is not implemented on this platform");
 #endif
 }
