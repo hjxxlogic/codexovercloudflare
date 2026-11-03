@@ -666,6 +666,8 @@ export class HostRelayDO extends DurableObject<Env> {
     if (!parsed.success)
       throw new AppError('INVALID_REQUEST', 'Invalid control command');
     data = parsed.data.data;
+    if (action === 'history' || action === 'snapshot')
+      data = { ...data, owner: operation.auth.hash };
     if (
       action === 'history' &&
       ['subscribe', 'ack', 'retire'].includes(data.operation)
@@ -711,7 +713,8 @@ export class HostRelayDO extends DurableObject<Env> {
       );
     if (
       operation.intent &&
-      operation.intent.instance !== agent.deliveryInstance
+      operation.intent.instance !== agent.deliveryInstance &&
+      !operation.intent.instance.startsWith(agent.deliveryInstance + '_')
     )
       throw new AppError(
         'DELIVERY_STATE_MISMATCH',

@@ -2,6 +2,20 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：0.6.3 Agent 保留与客户端恢复
+
+新增一周上限及 80% / 60% 清理水位，覆盖历史正文 / 投影、旧订阅、未决操作、交付流 / 输出、上传回执与项目修改账本；空 scope、输出及控制头压缩后归还额度，保留单调防重放计数。客户端保存 HMAC 恢复凭证；CW 缺口恢复保留有界旧事件及正文。完整配置、无法回源内容、活跃任务保护、SQLite 页复用与遗留上传临时文件限制见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
+
+本机验证：
+
+- CTest 11 项通过；新增期限、80% 水位 / 全库已使用页压力、容量再准入、原请求与流防重放、删除失败事务回滚、scope / 控制 / 输出计数压缩、客户端原结果保留及重启未知上传回收。
+- Vitest 33 文件 / 477 项通过；覆盖过期订阅重建、原请求过期后继续独立请求、ACK 到期保留本地结果及共享配置边界。
+- 真实 Chromium IndexedDB 测试通过：跨标签页预算、客户端归档与恢复凭证、空快照仍读取旧缓存、草稿 / outbox 保留、事务失败回滚。
+- `test:operations`、`test:delivery` 通过，真实 Agent / CLI 配确定性 Codex peer，不调用模型；新增真实只读 adapter 在投影删除后使用客户端凭证恢复 Unicode 原文，错误账号 / MAC 被拒绝。SIGKILL、旧引用过期、代际缺口与来源替换检查保留。
+- TypeScript、ESLint / Prettier、C++ 格式、协议生成一致性通过；原生构建通过。跨平台、sanitizer、完整 Worker / Chromium 集成以准确源码提交的 Actions 结果为准。
+
+用户要求完成后发布 0.6.3；推送、六项必需 CI、GitHub Release、云端部署与制品摘要另记 [发布记录](DEPLOYMENT_STATUS.md)。本机测试不代替 CI 制品；未修改现场数据库、配置或正在运行的 Agent。
+
 ## 2026-11-03：0.6.2 Terminal 响应与 Actions 发布
 
 线上复现菜单等待约 6 秒、打开再约 3.9 秒，单字符 0.93–2.06 秒；完整接口、页面、独立终端采样及清理结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。本机 33 文件 / 468 项 Vitest、10 项 CTest、完整网页 / 原生构建及 Worker dry-run 通过；完整 Terminal E2E 通过（当时原生 transport 改动前），整页 Chromium 增加阻塞终端模块下载期间 info 已发起及挂载不重复读取的断言并通过。musl 发布回归验证暂存副本裁剪、运行身份和构建原件不变。

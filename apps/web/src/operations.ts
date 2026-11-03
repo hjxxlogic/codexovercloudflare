@@ -419,7 +419,9 @@ export class OperationClient {
         signal,
       );
       this.check();
-      const instance = idSchema.parse(result.deliveryInstance);
+      const instance = idSchema.parse(
+        result.operationInstance ?? result.deliveryInstance,
+      );
       const bound = await this.update((latest) => {
         const original = latest.records[requestId];
         if (
@@ -559,6 +561,22 @@ export class OperationClient {
           : undefined;
         if (current && current.state !== selected?.state) {
           this.publish(current);
+          this.attempts = 0;
+          continue;
+        }
+        if (
+          selected &&
+          error instanceof ApiError &&
+          error.code === 'REQUEST_EXPIRED'
+        ) {
+          const retired = await this.update((state) => {
+            const record = state.records[selected!.requestId];
+            record.state = 'confirmed';
+            record.result ??= {
+              error: { code: error.code, message: error.message },
+            };
+          });
+          this.publish(retired.records[selected.requestId]);
           this.attempts = 0;
           continue;
         }

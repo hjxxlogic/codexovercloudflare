@@ -218,13 +218,19 @@ void WorkspaceFiles::clear() { uploads_.clear(); }
 void WorkspaceFiles::cleanup() {
   for (auto it = uploads_.begin(); it != uploads_.end();) {
     if (now() - it->second->touched > 600000) {
-      const auto &upload = *it->second;
+      auto &upload = *it->second;
+      FILE_DISPOSITION_INFO disposition{TRUE};
+      const bool reclaimed = !upload.published && upload.file &&
+                             SetFileInformationByHandle(upload.file.get(), FileDispositionInfo,
+                                                        &disposition, sizeof(disposition));
+      if (reclaimed)
+        upload.file.reset();
       finish_receipt(upload.root, upload.owner, upload.id,
                      {{"state", "unknown"},
                       {"error",
                        {{"code", "RESULT_UNKNOWN"},
                         {"message", "Original upload expired; reconcile its target"}}}},
-                     false);
+                     reclaimed);
       it = uploads_.erase(it);
     } else
       ++it;

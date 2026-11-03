@@ -116,7 +116,8 @@ class Cli {
       if (!probe.contains("deliveryInstance") || !probe.at("deliveryInstance").is_string())
         throw Error("UPGRADE_REQUIRED",
                     "Agent must provide its persistent original-operation instance");
-      record = journal->local_operation_prepare(request, path, body, probe.at("deliveryInstance"));
+      record = journal->local_operation_prepare(
+          request, path, body, probe.value("operationInstance", probe.at("deliveryInstance")));
     } else
       record = journal->local_operation_prepare(request, path, body, record.at("instance"));
     const auto url = relay_url(credential.at("relay"));
@@ -133,6 +134,10 @@ class Cli {
       try {
         http_json(url, "/api/v1" + path, body, token, request, std::chrono::seconds(30), &intent);
       } catch (const Error &error) {
+        if (error.code == "REQUEST_EXPIRED") {
+          journal->local_operation_expire(request);
+          throw;
+        }
         record = journal->local_operation(request);
         if (record.at("state") != "pending")
           break;
@@ -170,6 +175,11 @@ class Cli {
                     &confirmation);
           break;
         } catch (const Error &error) {
+          if (error.code == "REQUEST_EXPIRED") {
+            journal->local_operation_expire(request);
+            std::cerr << "Agent confirmation expired; the original result remains saved locally\n";
+            break;
+          }
           if (journal->local_operation(request).at("state") == "confirmed")
             break;
           if (!retry_original_operation(error.code))
@@ -274,6 +284,9 @@ class Cli {
         throw Error("REVISION_REQUIRED", "Read offset zero first or specify --revision");
       if (!version.is_null())
         request["revision"] = version;
+      const auto reference = cache->cache_get(id + ":reference:" + option("seq"));
+      if (!reference.is_null() && (version.is_null() || reference.at("revision") == version))
+        request["reference"] = reference;
       key = id + ":content:" + option("seq") + ":" +
             (version.is_null() ? "initial" : version.dump()) + ":" +
             std::to_string(cursor_option("offset"));
@@ -317,6 +330,11 @@ class Cli {
               cache->cache_put(id + ":revision:" + option("seq"), d.at("revision"));
               key = id + ":content:" + option("seq") + ":" + d.at("revision").dump() + ":" +
                     std::to_string(cursor_option("offset"));
+            } else {
+              for (const auto &event : d.value("events", Json::array()))
+                if (event.contains("contentReference"))
+                  cache->cache_put(id + ":reference:" + event.at("seq").dump(),
+                                   event.at("contentReference"));
             }
             cache->cache_put(key, result);
             timeout.cancel();

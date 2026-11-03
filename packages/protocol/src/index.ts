@@ -121,6 +121,15 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
 ]);
 export const historyStorageSchema = z
   .object({
+    retentionSeconds: z.number().int().min(1).max(604800).default(604800),
+    storageMaxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(268435456),
+    cleanupThresholdPercent: z.number().int().min(1).max(100).default(80),
+    cleanupTargetPercent: z.number().int().min(1).max(99).default(60),
     retainedRecords: z
       .number()
       .int()
@@ -192,6 +201,10 @@ export const historyStorageSchema = z
       .default(536870912),
   })
   .strict()
+  .refine(
+    (value) => value.cleanupTargetPercent < value.cleanupThresholdPercent,
+    'Cleanup target must be below its threshold',
+  )
   .refine(
     (value) =>
       value.maxSessionBytes <= value.maxBytes &&
@@ -370,6 +383,13 @@ export const historyReferenceSchema = z
     length: sequenceSchema.nonnegative().max(64 * 1024 * 1024),
     contentId: z.string().regex(/^[a-f0-9]{64}$/),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
+    recovery: z
+      .object({
+        payload: z.string().min(1).max(16384),
+        mac: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
   })
   .refine(
     (v) => v.contentId === v.digest,
@@ -483,6 +503,7 @@ export const eventSchema = z.object({
   time: sequenceSchema.nonnegative(),
   contentSeq: sequenceSchema.optional(),
   revision: sequenceSchema.nonnegative().optional(),
+  contentReference: historyReferenceSchema.optional(),
 });
 export type Event = z.infer<typeof eventSchema>;
 export const agentBuildSchema = z.object({

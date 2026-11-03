@@ -407,7 +407,27 @@ public:
   void history_notify(Json &route) {
     if (route.value("retryAt", int64_t(0)) > now())
       return;
-    auto state = store_.history_hint(route);
+    Json state;
+    try {
+      state = store_.history_hint(route);
+    } catch (const Error &error) {
+      if (error.code != "STREAM_CLOSED")
+        throw;
+      route.erase("retryAt");
+      route["expired"] = true;
+      send({{"type", "history-notice"},
+            {"sessionId", route.at("sessionId")},
+            {"route", route.at("route")},
+            {"payload",
+             {{"type", "error"},
+              {"requestId", route.at("requestId")},
+              {"stream", route.at("stream")},
+              {"instance", route.at("instance")},
+              {"error",
+               {{"code", "HISTORY_SUBSCRIPTION_EXPIRED"},
+                {"message", "History subscription exceeded its retention window"}}}}}});
+      return;
+    }
     if (state.at("maxRevision") <= state.at("receivedRevision")) {
       route.erase("retryAt");
       route["attempts"] = 0;
@@ -1042,6 +1062,7 @@ public:
       done({{"online", true},
             {"confirmedAt", now()},
             {"deliveryInstance", store_.delivery_instance()},
+            {"operationInstance", store_.operation_instance()},
             {"runtimeResources", runtime_usage()}},
            nullptr);
       return;
@@ -1066,6 +1087,8 @@ public:
       for (const auto *field : {"after", "historyVersion", "snapshotGeneration"})
         if (d.contains(field))
           history[field] = d.at(field);
+      if (d.contains("owner"))
+        history["owner"] = d.at("owner");
       control("history", history, [session, approvals, done](Json page, Json error) {
         done({{"session", session}, {"approvals", approvals}, {"history", page}}, error);
       });
@@ -1120,9 +1143,9 @@ public:
         }
         return;
       }
-      auto page =
-          store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)),
-                         d.value("historyVersion", 1), d.value("snapshotGeneration", int64_t(-1)));
+      auto page = store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)),
+                                 d.value("historyVersion", 1),
+                                 d.value("snapshotGeneration", int64_t(-1)), d.value("owner", ""));
       if (d.contains("after") || s.value("archiveDone", true)) {
         done(page, nullptr);
         return;
@@ -1139,7 +1162,7 @@ public:
         }
         auto page =
             store_.history(id, d.value("before", int64_t(0)), -1, d.value("historyVersion", 1),
-                           d.value("snapshotGeneration", int64_t(-1)));
+                           d.value("snapshotGeneration", int64_t(-1)), d.value("owner", ""));
         if (!store_.get(id).value("archiveDone", true))
           page["more"] = true;
         done(page, nullptr);
@@ -1964,7 +1987,7 @@ public:
     try {
       auto result =
           query.contains("reference")
-              ? store_.history_content(id, query.at("reference"), offset)
+              ? store_.history_content(id, query.at("reference"), offset, query.value("owner", ""))
               : store_.content(id, query.at("seq"), offset, query.value("revision", int64_t(-1)));
       done(result, nullptr);
       return;
@@ -1974,7 +1997,8 @@ public:
     }
     if (offset < 0)
       throw Error("INVALID_REQUEST", "Invalid content offset");
-    const auto plan = store_.history_source_plan(id, query.at("seq"));
+    const auto plan = store_.history_source_plan(
+        id, query.at("seq"), query.value("reference", Json()), query.value("owner", ""));
     const auto reference = plan.at("reference");
     if ((query.contains("reference") && query.at("reference") != reference) ||
         (query.contains("revision") && query.at("revision") != reference.at("revision")))
@@ -2000,7 +2024,7 @@ public:
     try {
       process->start();
       process->initialize([this, id, plan, reference, offset, process, home, cwd, policy,
-                           complete](Json, Json error) {
+                           owner = query.value("owner", ""), complete](Json, Json error) {
         if (!error.is_null()) {
           complete(nullptr, error);
           return;
@@ -2009,7 +2033,7 @@ public:
           read_history_source(
               process, home, plan.at("threadId"), cwd, plan.at("turnId"), plan.at("itemId"),
               policy.at("readPageMaxBytes"),
-              [this, id, reference, offset, complete](Json source, Json error) {
+              [this, id, reference, offset, complete, owner](Json source, Json error) {
                 if (!error.is_null()) {
                   complete(nullptr, error);
                   return;
@@ -2017,7 +2041,7 @@ public:
                 Json page;
                 try {
                   page = store_.history_recovered_content(id, reference, source.at("origin"),
-                                                          source.at("entry"), offset);
+                                                          source.at("entry"), offset, owner);
                 } catch (const std::exception &failure) {
                   complete(nullptr, error_data(failure));
                   return;
@@ -2991,6 +3015,15 @@ public:
         event_batches_ = event_count_ = 0;
         event_batch_max_us_ = 0;
         store_.cleanup();
+        projects_.cleanup();
+        for (auto route = history_routes_.begin(); route != history_routes_.end();) {
+          history_notify(route->second);
+          if (route->second.value("expired", false))
+            route = history_routes_.erase(route);
+          else
+            ++route;
+        }
+        history_schedule();
         store_.history_retire_next();
         recover_queue_promise();
         if (!file_cleanup_pending_) {

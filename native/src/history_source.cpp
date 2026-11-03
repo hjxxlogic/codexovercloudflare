@@ -1,9 +1,27 @@
 #include "coc/delivery.hpp"
 #include "coc/history_projection.hpp"
 #include "coc/store.hpp"
+#include <openssl/crypto.h>
+#include <openssl/hmac.h>
 #include <vector>
 namespace coc {
 namespace {
+std::string recovery_mac(const std::string &secret, const std::string &payload) {
+  unsigned char bytes[EVP_MAX_MD_SIZE];
+  unsigned length = 0;
+  if (!HMAC(EVP_sha256(), secret.data(), static_cast<int>(secret.size()),
+            reinterpret_cast<const unsigned char *>(payload.data()), payload.size(), bytes,
+            &length) ||
+      length != 32)
+    throw Error("STORAGE_ERROR", "Cannot authenticate history recovery credential");
+  static const char hex[] = "0123456789abcdef";
+  std::string result;
+  for (unsigned i = 0; i < length; ++i) {
+    result += hex[bytes[i] >> 4];
+    result += hex[bytes[i] & 15];
+  }
+  return result;
+}
 size_t source_offset(const std::string &body, const std::string &source) {
   if (body.size() > source.size())
     return std::string::npos;
@@ -90,6 +108,13 @@ Json event_template(Json event, const std::string &projection) {
 } // namespace
 Json Store::history_source_register(const std::string &session, int64_t seq, const Json &origin,
                                     const Json &entry, const Json &expected) {
+  const auto previous = protected_history_seq_;
+  protected_history_seq_ = seq;
+  struct Restore {
+    int64_t &target;
+    int64_t previous;
+    ~Restore() { target = previous; }
+  } restore{protected_history_seq_, previous};
   validate_origin(origin);
   const bool outer = sqlite3_get_autocommit(db_) != 0;
   run(outer ? "BEGIN IMMEDIATE" : "SAVEPOINT history_source_registration");
@@ -287,7 +312,71 @@ Json Store::history_source_candidate() {
   }
   return nullptr;
 }
-Json Store::history_source_plan(const std::string &session, int64_t seq) {
+Json Store::history_client_reference(const std::string &session, int64_t seq,
+                                     const std::string &owner) {
+  if (owner.empty() || owner.size() > 128)
+    throw Error("INVALID_REQUEST", "History recovery credential requires its authenticated owner");
+  const auto state = get(session);
+  auto plan = history_source_plan(session, seq);
+  const auto project = state.at("projectId");
+  run("CREATE TABLE IF NOT EXISTS transport2_recovery_projects(project TEXT PRIMARY KEY,"
+      "generation TEXT NOT NULL)");
+  run("INSERT OR IGNORE INTO transport2_recovery_projects VALUES(?,?)", {project, uuid()});
+  const auto generation = query("SELECT generation FROM transport2_recovery_projects WHERE "
+                                "project=?",
+                                {project})
+                              .at(0)
+                              .at("generation");
+  auto reference = plan.at("reference");
+  const auto payload = Json{
+      {"version", 1},
+      {"owner", owner},
+      {"project", project},
+      {"generation", generation},
+      {"plan", plan}}.dump();
+  if (payload.size() > 16384)
+    throw Error("BACKPRESSURE", "History recovery credential exceeds its metadata budget");
+  const auto secret = query("SELECT secret FROM transport2_retention WHERE id=1")
+                          .at(0)
+                          .at("secret")
+                          .get<std::string>();
+  reference["recovery"] = {{"payload", payload}, {"mac", recovery_mac(secret, payload)}};
+  return reference;
+}
+Json Store::history_source_plan(const std::string &session, int64_t seq, const Json &input,
+                                const std::string &owner) {
+  if (!input.is_null() && input.contains("recovery")) {
+    const auto reference = history_reference_descriptor(input);
+    const auto &credential = reference.at("recovery");
+    const auto payload = credential.at("payload").get<std::string>();
+    const auto mac = credential.at("mac").get<std::string>();
+    const auto secret = query("SELECT secret FROM transport2_retention WHERE id=1")
+                            .at(0)
+                            .at("secret")
+                            .get<std::string>();
+    const auto expected = recovery_mac(secret, payload);
+    if (mac.size() != expected.size() ||
+        CRYPTO_memcmp(mac.data(), expected.data(), expected.size()) != 0)
+      throw Error("FORBIDDEN", "History recovery credential authentication failed");
+    const auto value = Json::parse(payload);
+    const auto state = get(session);
+    auto base = reference;
+    base.erase("recovery");
+    if (reference.at("agentInstance") != delivery_instance_ ||
+        reference.at("sessionId") != session || reference.at("seq") != seq ||
+        value.at("version") != 1 || value.at("owner") != owner ||
+        value.at("project") != state.at("projectId") || value.at("plan").at("reference") != base ||
+        value.at("plan").at("threadId") != state.at("threadId"))
+      throw Error("FORBIDDEN", "History recovery credential scope does not match this read");
+    const auto generations = query("SELECT generation FROM transport2_recovery_projects WHERE "
+                                   "project=?",
+                                   {value.at("project")});
+    if (generations.empty() || generations.at(0).at("generation") != value.at("generation"))
+      throw Error("CONTENT_EXPIRED", "Project history recovery credentials have expired");
+    auto plan = value.at("plan");
+    plan["reference"] = reference;
+    return plan;
+  }
   const auto rows = query("SELECT source FROM sessions WHERE id=?", {session});
   if (rows.empty() || rows.at(0).at("source").is_null())
     throw Error("CONTENT_UNAVAILABLE", "History has no verified recovery source");
@@ -296,14 +385,22 @@ Json Store::history_source_plan(const std::string &session, int64_t seq) {
   return history_source(session, seq, Json::parse(rows.at(0).at("source").get<std::string>()));
 }
 Json Store::history_recovered_content(const std::string &session, const Json &input,
-                                      const Json &origin, const Json &entry, int64_t offset) {
+                                      const Json &origin, const Json &entry, int64_t offset,
+                                      const std::string &owner) {
   const auto reference = history_reference_descriptor(input);
   if (reference.at("sessionId") != session)
     throw Error("FORBIDDEN", "History reference belongs to another session");
-  const auto plan = history_source(session, reference.at("seq"), origin);
+  const auto plan = reference.contains("recovery")
+                        ? history_source_plan(session, reference.at("seq"), reference, owner)
+                        : history_source(session, reference.at("seq"), origin);
   if (reference != plan.at("reference"))
     throw Error("CONTENT_UNAVAILABLE", "Original history reference changed during recovery");
-  const auto text = history_source_recover(session, reference.at("seq"), origin, entry);
+  if (plan.at("origin") != origin)
+    throw Error("DELIVERY_STATE_MISMATCH", "History source origin changed");
+  validate_entry(entry, plan.at("turnId"), plan.at("itemId"));
+  const auto text =
+      recover_history_content(plan.at("event"), entry.at("item"), plan.at("projection"), reference,
+                              plan.at("offset").get<size_t>());
   const auto page =
       query("SELECT length(?) AS size,substr(?,?+1,4096) AS text", {text, text, offset});
   const auto size = page.at(0).at("size").get<int64_t>();

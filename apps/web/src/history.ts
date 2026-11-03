@@ -1,4 +1,4 @@
-import { eventBytes } from './events.ts';
+import { eventBytes, eventWindow } from './events.ts';
 import { CacheBudget, cacheLimits } from './cache-budget.ts';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
@@ -158,6 +158,33 @@ export class HistoryCache {
       void this.db.then((db) => db.close()).catch(() => {});
     });
   }
+  async reference(seq: number, revision: number) {
+    await this.flushLive();
+    const db = await this.db;
+    return new Promise<Event['contentReference']>((resolve, reject) => {
+      const tx = db.transaction(['events', 'pages']);
+      const read = tx.objectStore('events').get([this.scope, seq]);
+      let reference: Event['contentReference'];
+      read.onsuccess = () => {
+        const event = read.result?.event as Event | undefined;
+        if (event && (event.revision ?? event.seq) === revision)
+          reference = event.contentReference;
+        if (!reference) {
+          const archive = tx
+            .objectStore('pages')
+            .get([this.scope, 'history-archive']);
+          archive.onsuccess = () => {
+            reference = (archive.result as Event[] | undefined)?.find(
+              (item) =>
+                item.seq === seq && (item.revision ?? item.seq) === revision,
+            )?.contentReference;
+          };
+        }
+      };
+      tx.oncomplete = () => resolve(reference);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
   async latest(): Promise<{ events: Event[]; checkpoint?: number }> {
     await this.flushLive();
     const db = await this.db;
@@ -281,13 +308,31 @@ export class HistoryCache {
         }
         // Remove only replaceable history. Drafts, subscriptions and outboxes survive.
         // Newer live events stay in the same transaction as the replacement checkpoint.
-        let remaining = 2;
+        let remaining = 3;
+        const archived: Event[] = [];
+        const finish = () => {
+          if (--remaining) return;
+          budget.put(
+            'pages',
+            [this.scope, 'history-archive'],
+            eventWindow(archived, 2048, 4 * 1024 * 1024),
+            this.scope,
+          );
+          persist();
+        };
+        const archive = tx
+          .objectStore('pages')
+          .get([this.scope, 'history-archive']);
+        archive.onsuccess = () => {
+          archived.push(...((archive.result ?? []) as Event[]));
+          finish();
+        };
         for (const name of ['events', 'pages']) {
           const scan = tx.objectStore(name).openCursor(this.range());
           scan.onsuccess = () => {
             const row = scan.result;
             if (!row) {
-              if (--remaining === 0) persist();
+              finish();
               return;
             }
             const key = (row.key as IDBValidKey[])[1];
@@ -295,9 +340,11 @@ export class HistoryCache {
               name === 'events'
                 ? (row.value.event.revision ?? row.value.event.seq) <=
                   page.snapshotSeq
-                : typeof key === 'number' || String(key).startsWith('content:')
-            )
+                : typeof key === 'number'
+            ) {
+              if (name === 'events') archived.push(row.value.event as Event);
               budget.remove(name, row.key, this.scope);
+            }
             row.continue();
           };
         }
@@ -339,7 +386,7 @@ export class HistoryCache {
     const page = await this.page(0);
     if (page && page.events.at(-1)?.seq === latest.events.at(-1)?.seq)
       return page;
-    if (!latest.events.length) return undefined;
+    if (!latest.events.length) return page;
     return {
       events: latest.events,
       more: true,
@@ -353,6 +400,30 @@ export class HistoryCache {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['events', 'pages']);
       let page: HistoryPage | undefined;
+      const findArchive = () => {
+        const read = tx
+          .objectStore('pages')
+          .get([this.scope, 'history-archive']);
+        read.onsuccess = () => {
+          const events = ((read.result ?? []) as Event[])
+            .filter((event) => !before || event.seq < before)
+            .slice(-200);
+          if (!events.length) return;
+          const coverage = tx
+            .objectStore('pages')
+            .get([this.scope, 'history-coverage']);
+          coverage.onsuccess = () => {
+            page = {
+              events,
+              more: events.length === 200,
+              cursor: events[0].seq,
+              snapshotSeq: this.durableRevision ?? 0,
+              direction: 'before',
+              snapshotGeneration: coverage.result?.generation,
+            };
+          };
+        };
+      };
       const use = (stored: HistoryPage, exact: boolean) => {
         const events = exact
           ? stored.events
@@ -378,17 +449,23 @@ export class HistoryCache {
           );
         cursor.onsuccess = () => {
           const row = cursor.result;
-          if (!row) return;
+          if (!row) {
+            findArchive();
+            return;
+          }
           if (!use(row.value, false)) row.continue();
         };
       };
       const request = tx.objectStore('pages').get([this.scope, before]);
       request.onsuccess = () => {
-        if (request.result) {
+        if (request.result?.events.length) {
           use(request.result, true);
           return;
         }
-        if (!before) return;
+        if (!before) {
+          findArchive();
+          return;
+        }
         const recent = tx.objectStore('pages').get([this.scope, 0]);
         recent.onsuccess = () => {
           if (

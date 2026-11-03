@@ -129,7 +129,8 @@ Json unwrap(const Json &value) {
 }
 } // namespace
 Projects::Projects(const Json &config)
-    : file_(std::filesystem::u8path(config.at("dataDir").get<std::string>()) / "projects.json") {
+    : file_(std::filesystem::u8path(config.at("dataDir").get<std::string>()) / "projects.json"),
+      retention_policy_(history_storage_config(config.value("historyStorage", Json::object()))) {
   const bool exists = std::filesystem::exists(file_);
   state_ = exists ? load_catalog(file_)
                   : Json{{"version", 1},
@@ -160,6 +161,10 @@ Projects::Projects(const Json &config)
   static const std::regex digest_pattern("^[0-9a-f]{64}$");
   for (auto it = journal.at("keys").begin(); it != journal.at("keys").end(); ++it) {
     auto &entry = it.value();
+    if (!entry.contains("retainedAt")) {
+      entry["retainedAt"] = now();
+      interrupted = true;
+    }
     const auto phase = entry.value("phase", "");
     if (!valid_id(it.key()) || !entry.contains("owner") || !entry.at("owner").is_string() ||
         !valid_id(entry.at("owner")) || !entry.contains("requestId") ||
@@ -182,6 +187,48 @@ Projects::Projects(const Json &config)
   cleanup_catalog(file_);
   if (!exists || interrupted)
     commit(state_);
+  cleanup();
+}
+void Projects::cleanup(int64_t time) {
+  if (failed_)
+    throw Error("STORAGE_ERROR", "Project storage failed; restart before cleanup");
+  if (time < 0)
+    time = now();
+  auto next = state_;
+  auto &keys = next["journal"]["keys"];
+  const auto cutoff = time - retention_policy_.at("retentionSeconds").get<int64_t>() * 1000;
+  const auto above = [&](int64_t percent) {
+    return keys.size() >= size_t(credit::project_records * percent / 100) ||
+           project_bytes(next) >= size_t(credit::project_budget * percent / 100);
+  };
+  const bool pressure = above(retention_policy_.at("cleanupThresholdPercent"));
+  std::vector<std::pair<int64_t, std::string>> candidates;
+  for (auto it = keys.begin(); it != keys.end(); ++it)
+    if (it.value().at("retainedAt") <= cutoff || (pressure && it.value().at("phase") != "started"))
+      candidates.emplace_back(it.value().at("retainedAt").get<int64_t>(), it.key());
+  std::sort(candidates.begin(), candidates.end());
+  size_t removed = 0;
+  for (const auto &[age, key] : candidates) {
+    if (removed >= 128 || (age > cutoff && !above(retention_policy_.at("cleanupTargetPercent"))))
+      break;
+    keys.erase(key);
+    auto &tail = next["journal"]["tail"];
+    for (auto it = tail.begin(); it != tail.end();)
+      if (it->at("id") == key)
+        it = tail.erase(it);
+      else
+        ++it;
+    ++removed;
+  }
+  if (!removed)
+    return;
+  if (state_.at("revision") == 9007199254740991LL)
+    throw Error("BACKPRESSURE", "Project revision space exhausted");
+  // The client's original revision is immutable. Retiring identities advances
+  // one durable admission fence rather than keeping a tombstone per request.
+  next["retiredRevision"] = state_.at("revision");
+  next["revision"] = state_.at("revision").get<int64_t>() + 1;
+  commit(std::move(next));
 }
 void Projects::commit(Json next) {
   if (failed_)
@@ -229,6 +276,7 @@ Json Projects::list() const {
 Json Projects::request(const Json &d, const std::function<bool(const std::string &)> &busy,
                        const std::string &owner) {
   try {
+    cleanup();
     return execute(d, busy, owner);
   } catch (const std::filesystem::filesystem_error &error) {
     throw Error("PROJECT_PATH", "Cannot access project directory: " + error.code().message());
@@ -291,6 +339,9 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   const auto &journal = state_.at("journal");
   if (journal.at("keys").contains(key)) {
     const auto &entry = journal.at("keys").at(key);
+    if (entry.at("retainedAt").get<int64_t>() <=
+        now() - retention_policy_.at("retentionSeconds").get<int64_t>() * 1000)
+      throw Error("REQUEST_EXPIRED", "Original project request exceeded its retention window");
     if (entry.at("digest") != digest)
       throw Error("IDEMPOTENCY_CONFLICT", "Project request ID reused with different arguments");
     if (entry.at("phase") == "started" || entry.at("phase") == "unknown")
@@ -306,6 +357,8 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
     throw Error("RESULT_UNAVAILABLE",
                 "Original project result was retired; the request cannot reopen");
   }
+  if (d.at("revision") <= state_.value("retiredRevision", int64_t(-1)))
+    throw Error("REQUEST_EXPIRED", "Original project request exceeded its retention window");
   if (d.at("revision") != state_.at("revision"))
     throw Error("PROJECT_CONFLICT", "Projects changed; refresh before retrying");
   if (state_.at("revision") == 9007199254740991LL)
@@ -373,8 +426,11 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   Json result = {{"revision", next["revision"]}, {"projects", next["projects"]}};
   check_catalog(next);
   auto started = state_;
-  started["journal"]["keys"][key] = {
-      {"owner", owner}, {"requestId", request_id}, {"digest", digest}, {"phase", "started"}};
+  started["journal"]["keys"][key] = {{"owner", owner},
+                                     {"requestId", request_id},
+                                     {"digest", digest},
+                                     {"phase", "started"},
+                                     {"retainedAt", now()}};
   trim_tail(started["journal"]["tail"], max_frame + next.at("projects").size() * 512);
   if (project_bytes(started) + result_reservation(started) > credit::project_budget)
     throw Error("BACKPRESSURE", "Project result reservation exhausted");

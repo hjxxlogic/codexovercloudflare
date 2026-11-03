@@ -4,6 +4,10 @@
 
 本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。0.6.0 本机与 CI 验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
 
+## 0.6.3 Agent 一周保留与客户端恢复
+
+本轮用户已要求完成后发布新版本。Agent / CC / CW / Relay 配套发布 0.6.3，必须等待准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，再从 CI 制品发布 Worker、网页、四平台下载和源码。不得用本机二进制替代 CI，不重写旧版本标签。保留线上 DO、Secret、配置、项目文件与活动任务，不强制更新现场 Agent。新保留策略、客户端凭证与旧客户端兼容边界见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
+
 ## 0.6.2 Terminal 响应与 DO 唯一路径
 
 本次明确使用准确提交的 GitHub Actions 制品发布网页 / Worker、Ubuntu 20.04、Debian 12、musl 与 Windows x64 新版本，含之前已上线的连接授权、DO 唯一路径和公式修复。六项必需作业全部成功后才部署；tag 流程组装同源校验和并生成 GitHub Release。musl 暂存副本使用 strip 并复核 `--version` 身份，原始构建保留；静态归档必须小于 Cloudflare 25 MiB 单文件限制，不再沿用旧版 musl 暂缓作为本次四平台完成证明。现场服务只在空闲时升级，不中断活动会话。采样与发布结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。

@@ -102,7 +102,8 @@ Json Store::upload_prepare(const std::string &root, const std::string &owner, co
         all.at("active").get<int64_t>() >= 4 || owned.at("active").get<int64_t>() >= 2 ||
         all.at("bytes").get<int64_t>() + size + credit::upload_metadata > credit::upload_budget)
       throw Error("BACKPRESSURE", "Upload resource or refusal identity budget exhausted");
-    run("INSERT INTO transport2_uploads VALUES(?,?,?,'started',NULL,?,1)",
+    run("INSERT INTO transport2_uploads(key,owner,digest,phase,result,reserved,active) "
+        "VALUES(?,?,?,'started',NULL,?,1)",
         {key, owner, digest, size + credit::upload_metadata});
     run("COMMIT");
     return {{"new", true}};

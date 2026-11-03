@@ -1706,6 +1706,9 @@ function App() {
         const stored = await cache
           ?.content(seq, offset, revision)
           .catch(() => undefined);
+        const reference = await cache
+          ?.reference(seq, revision)
+          .catch(() => undefined);
         if (disposed || contentReads.get(seq)?.requestId !== requestId) return;
         if (stored) {
           finishRead(seq);
@@ -1733,6 +1736,7 @@ function App() {
             offset,
             revision,
             requestId,
+            ...(reference ? { reference } : {}),
           }),
         );
       })();

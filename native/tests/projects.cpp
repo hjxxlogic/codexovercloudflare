@@ -170,24 +170,25 @@ void journal_limits(const std::filesystem::path &root) {
     Projects projects(config);
     projects.request(first, idle);
     for (int64_t n = 1; n < credit::project_records; ++n) {
-      last = rename_request("request-" + std::to_string(n), n);
+      // Pressure cleanup can advance the catalogue fence between requests.
+      projects.cleanup();
+      last = rename_request("request-" + std::to_string(n), projects.list().at("revision"));
       last_result = projects.request(last, idle);
     }
-    check(projects.usage().at("requests") == credit::project_records,
-          "All original project identities are retained independently of the result tail");
+    check(projects.usage().at("requests") < credit::project_records,
+          "Pressure cleanup releases old project identities before the hard limit");
     check(projects.usage().at("bytes") <= credit::project_budget &&
               projects.usage().at("receiptBytes") <= credit::project_tail_bytes,
           "Project identities, results and metadata share finite storage budgets");
-    rejects([&] { projects.request(first, idle); }, "RESULT_UNAVAILABLE");
+    rejects([&] { projects.request(first, idle); }, "REQUEST_EXPIRED");
   }
   Projects resumed(config);
   check(resumed.request(last, idle) == last_result,
         "A full journal still returns the original result");
-  rejects([&] { resumed.request(first, idle); }, "RESULT_UNAVAILABLE");
+  rejects([&] { resumed.request(first, idle); }, "REQUEST_EXPIRED");
   auto conflict = first;
   conflict["name"] = "Changed after eviction";
-  conflict["revision"] = credit::project_records;
-  rejects([&] { resumed.request(conflict, idle); }, "IDEMPOTENCY_CONFLICT");
+  rejects([&] { resumed.request(conflict, idle); }, "REQUEST_EXPIRED");
   const auto directory = root / "must-not-create-at-full";
   const Json overflow = {{"operation", "add"},
                          {"id", "overflow"},
@@ -195,14 +196,16 @@ void journal_limits(const std::filesystem::path &root) {
                          {"path", directory.u8string()},
                          {"mkdir", true},
                          {"requestId", "overflow"},
-                         {"revision", credit::project_records}};
-  const auto before = read_json(root / "bounded" / "projects.json");
-  rejects([&] { resumed.request(overflow, idle); }, "BACKPRESSURE");
-  check(!std::filesystem::exists(directory) &&
-            read_json(root / "bounded" / "projects.json") == before,
-        "A full project journal refuses mkdir without changing durable identity or catalog");
-  check(resumed.list().at("revision") == credit::project_records,
-        "A full project journal remains readable");
+                         {"revision", resumed.list().at("revision")}};
+  resumed.request(overflow, idle);
+  check(std::filesystem::exists(directory), "Reclaimed project journal still refuses new work");
+  for (int i = 0; i < 10 && resumed.usage().at("requests") != 0; ++i)
+    resumed.cleanup(now() + 8 * 86400000LL);
+  check(resumed.usage().at("requests") == 0, "Project identities exceeded one week");
+  rejects([&] { resumed.request(last, idle); }, "REQUEST_EXPIRED");
+  Projects reopened(config);
+  rejects([&] { reopened.request(last, idle); }, "REQUEST_EXPIRED");
+  check(reopened.list().at("projects").size() == 2, "Cleanup deleted project configuration");
 }
 void owner_isolation(const std::filesystem::path &root) {
   const auto config = catalog_config(

@@ -2,6 +2,19 @@
 #include "coc/delivery.hpp"
 #include "coc/store.hpp"
 namespace coc {
+void Store::local_operation_expire(const std::string &request) {
+  auto record = local_operation(request);
+  if (record.is_null())
+    throw Error("NOT_FOUND", "Unknown local original operation");
+  record["state"] = "confirmed";
+  record["finished"] = now();
+  if (!record.contains("result"))
+    record["result"] = {
+        {"error",
+         {{"code", "REQUEST_EXPIRED"},
+          {"message", "Agent no longer retains this request; inspect its side effects"}}}};
+  local_operation_save(request, record);
+}
 namespace {
 const std::string allocation_name = "http-operations:v2";
 const std::string identity_prefix = "http-operation:";

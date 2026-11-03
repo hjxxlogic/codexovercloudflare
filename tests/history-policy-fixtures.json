@@ -189,5 +189,51 @@
       "retainedRecords": -1
     },
     "valid": false
+  },
+  {
+    "name": "week retention and pressure thresholds",
+    "input": {
+      "retentionSeconds": 604800,
+      "cleanupThresholdPercent": 80,
+      "cleanupTargetPercent": 60,
+      "storageMaxBytes": 268435456
+    },
+    "valid": true
+  },
+  {
+    "name": "retention cannot exceed one week",
+    "input": {
+      "retentionSeconds": 604801
+    },
+    "valid": false
+  },
+  {
+    "name": "retention cannot be disabled",
+    "input": {
+      "retentionSeconds": 0
+    },
+    "valid": false
+  },
+  {
+    "name": "cleanup target must be lower",
+    "input": {
+      "cleanupThresholdPercent": 60,
+      "cleanupTargetPercent": 60
+    },
+    "valid": false
+  },
+  {
+    "name": "cleanup threshold cannot exceed percentage",
+    "input": {
+      "cleanupThresholdPercent": 101
+    },
+    "valid": false
+  },
+  {
+    "name": "total storage threshold must be positive",
+    "input": {
+      "storageMaxBytes": 0
+    },
+    "valid": false
   }
 ]

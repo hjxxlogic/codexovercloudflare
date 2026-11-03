@@ -81,7 +81,15 @@ try {
       type: 'user',
       data: { text },
     });
-    await cache.writeSnapshot([event(1), event(9)], 9);
+    const original = {
+      ...event(1),
+      contentReference: {
+        seq: 1,
+        revision: 1,
+        recovery: { payload: 'saved credential', mac: 'a'.repeat(64) },
+      },
+    };
+    await cache.writeSnapshot([original, event(9)], 9);
     await cache.record('draft', 'keep draft');
     await cache.record('history-subscription', { stream: 'keep identity' });
     await cache.record('delivery-outbox:test', {
@@ -109,6 +117,8 @@ try {
       await cache.record('delivery-outbox:test'),
     ];
     const expired = await cache.content(1, 0, 1);
+    const archived = await cache.page(5);
+    const reference = await cache.reference(1, 1);
     let failed = false;
     try {
       const huge = {
@@ -133,14 +143,26 @@ try {
     } catch {
       staleRejected = true;
     }
+    const empty = {
+      ...snapshot,
+      events: [],
+      snapshotSeq: 10,
+      snapshotGeneration: 2,
+      retainedAfter: 10,
+    };
+    await cache.writeSnapshot([], 10, 0, empty);
+    const afterEmptySnapshot = await cache.recent();
     cache.close();
     return {
       restored,
       preserved,
       expired,
+      archived,
+      reference,
       failed,
       afterFailure,
       staleRejected,
+      afterEmptySnapshot,
     };
   });
   assert.deepEqual(
@@ -157,7 +179,16 @@ try {
     { stream: 'keep identity' },
     { requestId: 'keep original request' },
   ]);
-  assert.equal(gapRecovery.expired, undefined);
+  assert.deepEqual(gapRecovery.expired, { text: 'expired cached body' });
+  assert.deepEqual(
+    gapRecovery.archived?.events.map((event: any) => event.seq),
+    [1],
+  );
+  assert.equal(gapRecovery.reference?.recovery.payload, 'saved credential');
+  assert.deepEqual(
+    gapRecovery.afterEmptySnapshot?.events.map((event: any) => event.seq),
+    [1, 5, 9],
+  );
   assert.equal(gapRecovery.failed, true);
   assert.deepEqual(
     gapRecovery.afterFailure,

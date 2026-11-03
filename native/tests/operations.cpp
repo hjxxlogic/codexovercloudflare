@@ -27,7 +27,7 @@ struct Temp {
 Json identity(Store &store, const std::string &request, char owner = 'a') {
   return {{"requestId", request},
           {"owner", std::string(64, owner)},
-          {"instance", store.delivery_instance()}};
+          {"instance", store.operation_instance()}};
 }
 void web_queue_recovery_facts() {
   for (const bool acknowledged : {false, true}) {
@@ -373,7 +373,7 @@ void reservations() {
     for (; count < 200; ++count) {
       auto request = identity(journal, "operation-" + std::to_string(count), owner);
       try {
-        const auto result = journal.operation_begin(request, "stop", Json::object());
+        const auto result = journal.operation_begin(request, "create", Json::object());
         if (!admitted) {
           first = request;
           first_key = result.at("key");
@@ -397,30 +397,29 @@ void reservations() {
   journal.operation_finish(first_key, {{"error", {{"code", "BACKPRESSURE"}}}});
   check(journal.operation_budget() == full,
         "Completing an unconfirmed result does not free its slot");
-  journal.operation_ack(first, "stop", Json::object());
-  check(journal.operation_begin(identity(journal, "freed", 'e'), "stop", Json::object())
+  journal.operation_ack(first, "create", Json::object());
+  check(journal.operation_begin(identity(journal, "freed", 'e'), "create", Json::object())
                 .at("state") == "new",
         "Durable client confirmation permits a new reservation");
 }
 void retirement() {
   Temp temp;
   Store journal(temp.path);
+  const auto old = identity(journal, "retired-0");
   for (int i = 0; i < credit::operation_records; ++i) {
+    journal.retention_cleanup(now());
     auto request = identity(journal, "retired-" + std::to_string(i));
     const auto result = journal.operation_begin(request, "create", Json::object());
     journal.operation_finish(result.at("key"), {{"data", i}});
     journal.operation_ack(request, "create", Json::object());
   }
   const auto full = journal.operation_budget();
-  check(full["global"]["reserved"] == credit::record_bytes * credit::operation_records,
-        "Retired original identities retain only bounded metadata reservations");
-  rejects([&] { journal.operation_begin(identity(journal, "overflow"), "create", Json::object()); },
-          "BACKPRESSURE");
-  rejects(
-      [&] { journal.operation_begin(identity(journal, "retired-0"), "create", Json::object()); },
-      "RESULT_UNAVAILABLE");
-  check(journal.operation_budget() == full,
-        "Neither fresh identities nor late retries erase refusal boundaries");
+  check(full["global"]["records"] < credit::operation_records,
+        "Pressure must reclaim confirmed identities before admission stops");
+  rejects([&] { journal.operation_begin(old, "create", Json::object()); }, "REQUEST_EXPIRED");
+  check(journal.operation_begin(identity(journal, "fresh-after-cleanup"), "create", Json::object())
+                .at("state") == "new",
+        "Cleanup must allow fresh operations");
 }
 void local_recovery() {
   Temp temp;

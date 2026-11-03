@@ -31,10 +31,11 @@ void Store::history_budget_init(bool authoritative) {
   else
     run("INSERT OR IGNORE INTO transport2_history_policy VALUES(1,?)", {history_policy_.dump()});
   // Auxiliary file stores must never replace the running Agent's policy with defaults.
-  history_policy_ = Json::parse(query("SELECT value FROM transport2_history_policy WHERE id=1")
-                                    .at(0)
-                                    .at("value")
-                                    .get<std::string>());
+  history_policy_ = history_storage_config(
+      Json::parse(query("SELECT value FROM transport2_history_policy WHERE id=1")
+                      .at(0)
+                      .at("value")
+                      .get<std::string>()));
   const auto limit = [](const std::string &key) {
     return "(SELECT json_extract(value,'$." + key + "') FROM transport2_history_policy WHERE id=1)";
   };
@@ -185,8 +186,15 @@ void Store::history_budget_init(bool authoritative) {
     run("UPDATE transport2_history_heads SET revision=revision");
   for (const auto *action : {"insert", "update"})
     run(std::string("CREATE TRIGGER transport2_history_head_") + action + " AFTER " + action +
-        " ON history BEGIN INSERT INTO transport2_history_heads(session,revision) "
-        "VALUES(NEW.session,MAX(0,NEW.revision)) ON CONFLICT(session) DO UPDATE SET "
+        " ON history BEGIN INSERT INTO "
+        "transport2_history_heads(session,revision,retired_revision,generation) "
+        "VALUES(NEW.session,MAX(0,NEW.revision,COALESCE((SELECT "
+        "json_extract(value,'$.historyCoverage.revision') FROM sessions WHERE id=NEW.session),0)),"
+        "COALESCE((SELECT json_extract(value,'$.historyCoverage.retired_revision') "
+        "FROM sessions WHERE id=NEW.session),0),COALESCE((SELECT "
+        "json_extract(value,'$.historyCoverage.generation') FROM sessions WHERE "
+        "id=NEW.session),0)) "
+        "ON CONFLICT(session) DO UPDATE SET "
         "revision=excluded.revision WHERE excluded.revision>revision; END");
   // Source identity belongs to the session; recovery spans belong to the
   // original history row. Neither needs a second content-ID mapping table.
@@ -566,6 +574,7 @@ Json Store::history_reserved_event(const std::string &session, const std::string
 void Store::history_require_capacity(const std::string &session, int64_t bytes, int64_t records) {
   if (bytes < 0 || records < 0)
     throw Error("INVALID_REQUEST", "Invalid history capacity request");
+  retention_cleanup();
   const auto usage = history_budget();
   const auto fits = [&](const Json &used, const char *byte_limit, const char *record_limit) {
     const auto available_bytes =

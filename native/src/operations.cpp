@@ -40,19 +40,27 @@ Json operation_intent(const Json &intent) {
 std::string Store::operation_key(const Json &input) {
   const auto intent = operation_intent(input);
   const auto owner = intent.at("owner").get<std::string>();
-  if (intent.at("instance") != delivery_instance_)
+  const auto instance = intent.at("instance").get<std::string>();
+  if (instance != delivery_instance_ && instance.rfind(delivery_instance_ + "_", 0) != 0)
     throw Error("DELIVERY_STATE_MISMATCH", "Original operation belongs to another Agent store");
   return delivery_digest(Json::array({owner, intent.at("requestId")}).dump());
 }
 Json Store::operation_begin(const Json &intent, const std::string &action, const Json &data) {
+  retention_cleanup();
   const auto key = operation_key(intent);
   const auto digest = operation_digest(action, data);
   run("BEGIN IMMEDIATE");
   try {
-    const auto existing =
-        query("SELECT digest,phase,result FROM transport2_operations WHERE key=?", {key});
+    const auto existing = query(
+        "SELECT digest,phase,result,instance,retained_at FROM transport2_operations WHERE key=?",
+        {key});
     if (!existing.empty()) {
       const auto &record = existing.at(0);
+      if (record.at("retained_at").get<int64_t>() <=
+          now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000)
+        throw Error("REQUEST_EXPIRED", "Original operation exceeded its retention deadline");
+      if (record.at("instance") != intent.at("instance"))
+        throw Error("REQUEST_EXPIRED", "Original operation admission generation has expired");
       if (record.at("digest") != digest)
         throw Error("IDEMPOTENCY_CONFLICT", "Original operation content or scope changed");
       if (record.at("phase") == "acked")
@@ -63,19 +71,32 @@ Json Store::operation_begin(const Json &intent, const std::string &action, const
       run("COMMIT");
       return result;
     }
+    const auto admission = query("SELECT operation_instance,legacy_allowed FROM "
+                                 "transport2_retention WHERE id=1")
+                               .at(0);
+    if (intent.at("instance") != admission.at("operation_instance") &&
+        !(intent.at("instance") == delivery_instance_ && admission.at("legacy_allowed") == 1))
+      throw Error("REQUEST_EXPIRED", "Original operation expired; it will not be executed again");
     const auto budget = query("SELECT COALESCE(SUM(reserved),0) AS bytes,COUNT(*) AS records,"
                               "COALESCE(SUM(CASE WHEN owner=? THEN reserved ELSE 0 END),0) "
                               "AS owner_bytes FROM transport2_operations",
                               {intent.at("owner")})
                             .at(0);
-    if (budget.at("records") >= credit::operation_records ||
-        budget.at("bytes").get<int64_t>() + credit::operation_slot > credit::operation_budget ||
-        budget.at("owner_bytes").get<int64_t>() + credit::operation_slot > credit::operation_owner)
+    const bool urgent = action == "stop" || action == "answer" ||
+                        (action == "terminal" && data.value("operation", "") == "close");
+    const auto control_reserve = urgent ? credit::control_budget : int64_t(0);
+    if (budget.at("records") >= credit::operation_records + (urgent ? 64 : 0) ||
+        budget.at("bytes").get<int64_t>() + credit::operation_slot >
+            credit::operation_budget + control_reserve ||
+        budget.at("owner_bytes").get<int64_t>() + credit::operation_slot >
+            credit::operation_owner + control_reserve)
       throw Error("BACKPRESSURE", "Original operation reservation or retirement budget exhausted");
     // The commit is the at-most-once dispatch boundary. A later process can
     // reconcile this identity, but may never execute it as a new request.
-    run("INSERT INTO transport2_operations VALUES(?,?,?,?,'started',NULL,?)",
-        {key, intent.at("owner"), intent.at("requestId"), digest, credit::operation_slot});
+    run("INSERT INTO transport2_operations(key,owner,request_id,digest,phase,result,reserved,"
+        "instance) VALUES(?,?,?,?,'started',NULL,?,?)",
+        {key, intent.at("owner"), intent.at("requestId"), digest, credit::operation_slot,
+         intent.at("instance")});
     run("COMMIT");
     return {{"key", key}, {"state", "new"}};
   } catch (...) {
@@ -124,7 +145,7 @@ Json Store::operation_finish(const std::string &key, Json envelope) {
   try {
     const auto rows = query("SELECT phase,result FROM transport2_operations WHERE key=?", {key});
     if (rows.empty())
-      throw Error("NOT_FOUND", "Unknown original operation");
+      throw Error("REQUEST_EXPIRED", "Original operation is no longer retained");
     if (rows.at(0).at("phase") == "completed") {
       if (rows.at(0).at("result") != body)
         throw Error("IDEMPOTENCY_CONFLICT", "Original operation already has another result");
@@ -158,9 +179,12 @@ Json Store::operation_ack(const Json &intent, const std::string &action, const J
   const auto digest = operation_digest(action, data);
   run("BEGIN IMMEDIATE");
   try {
-    const auto rows = query("SELECT phase,digest FROM transport2_operations WHERE key=?", {key});
+    const auto rows =
+        query("SELECT phase,digest,instance FROM transport2_operations WHERE key=?", {key});
     if (rows.empty())
-      throw Error("NOT_FOUND", "Unknown original operation");
+      throw Error("REQUEST_EXPIRED", "Original operation is no longer retained");
+    if (rows.at(0).at("instance") != intent.at("instance"))
+      throw Error("REQUEST_EXPIRED", "Original operation admission generation has expired");
     if (rows.at(0).at("digest") != digest)
       throw Error("IDEMPOTENCY_CONFLICT", "Confirmation does not match the original operation");
     if (rows.at(0).at("phase") == "started")

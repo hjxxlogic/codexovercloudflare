@@ -179,6 +179,30 @@ export class HistorySubscription {
       .then(async () => {
         if (!exchange || exchange !== this.exchangeId || this.stopped) return;
         if (frame.type === 'error') {
+          if (
+            frame.error?.code === 'HISTORY_SUBSCRIPTION_EXPIRED' &&
+            this.send &&
+            (frame.requestId === this.pending?.requestId ||
+              (frame.stream === this.saved.stream &&
+                frame.instance === this.saved.instance))
+          ) {
+            const send = this.send;
+            await this.checkpoint(async () => {
+              this.saved = await this.cache.updateRecord(
+                this.key,
+                (previous) => {
+                  this.assertSaved(previous);
+                  return {
+                    stream: crypto.randomUUID(),
+                    instance: crypto.randomUUID(),
+                    acknowledgedRevision: 0,
+                  };
+                },
+              );
+            });
+            await this.connect(send);
+            return;
+          }
           if (frame.requestId !== this.pending?.requestId) return;
           if (
             [

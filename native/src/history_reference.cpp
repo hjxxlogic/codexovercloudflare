@@ -26,6 +26,15 @@ Json history_reference_descriptor(const Json &value) {
   if (value.at("revision") < 0 || value.at("length") < 0 ||
       value.at("length") > credit::history_reference_bytes)
     throw Error("INVALID_REQUEST", "Invalid history reference size or revision");
+  if (value.contains("recovery")) {
+    const auto &credential = value.at("recovery");
+    if (!credential.is_object() || credential.size() != 2 || !credential.contains("payload") ||
+        !credential.at("payload").is_string() ||
+        credential.at("payload").get_ref<const std::string &>().size() > 16384 ||
+        !credential.contains("mac") || !credential.at("mac").is_string() ||
+        !std::regex_match(credential.at("mac").get<std::string>(), digest))
+      throw Error("INVALID_REQUEST", "Invalid history recovery credential");
+  }
   return value;
 }
 Json Store::history_reference(const std::string &id, int64_t seq) {
@@ -85,12 +94,29 @@ Json Store::history_reference(const std::string &id, int64_t seq) {
           {"contentId", encoded},
           {"digest", encoded}};
 }
-Json Store::history_content(const std::string &id, const Json &input, int64_t offset) {
+Json Store::history_content(const std::string &id, const Json &input, int64_t offset,
+                            const std::string &owner) {
   const auto reference = history_reference_descriptor(input);
   if (reference.at("sessionId") != id)
     throw Error("FORBIDDEN", "History reference belongs to another session");
   if (reference.at("agentInstance") != delivery_instance_)
     throw Error("DELIVERY_STATE_MISMATCH", "History reference belongs to another Agent store");
+  if (reference.contains("recovery")) {
+    history_source_plan(id, reference.at("seq"), reference, owner);
+    auto base = reference;
+    base.erase("recovery");
+    const auto rows =
+        query("SELECT 1 FROM history WHERE session=? AND seq=?", {id, base.at("seq")});
+    if (rows.empty() || history_reference(id, base.at("seq")) != base)
+      throw Error("CONTENT_UNAVAILABLE", "Read original content using the recovery credential");
+    try {
+      return history_content(id, base, offset);
+    } catch (const Error &error) {
+      if (error.code == "CONTENT_EXPIRED")
+        throw Error("CONTENT_UNAVAILABLE", "Recover expired local content using its credential");
+      throw;
+    }
+  }
   try {
     const auto proof =
         query("SELECT recovery FROM history WHERE session=? AND seq=?", {id, reference.at("seq")});

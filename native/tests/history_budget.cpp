@@ -27,8 +27,8 @@ struct Database {
   }
   ~Database() { sqlite3_close(db); }
   void sql(const std::string &value) {
-    check(sqlite3_exec(db, value.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK,
-          sqlite3_errmsg(db));
+    if (sqlite3_exec(db, value.c_str(), nullptr, nullptr, nullptr) != SQLITE_OK)
+      throw std::runtime_error(value + ": " + sqlite3_errmsg(db));
   }
   void legacy_schema() {
     sqlite3_stmt *query = nullptr;
@@ -430,7 +430,11 @@ void external_inline_transition() {
 }
 void runtime_terminal_recovery() {
   Temp temp;
-  const Json policy = {{"maxBytes", 131072}, {"maxSessionBytes", 131072}, {"minFreeDiskBytes", 1}};
+  const Json policy = {{"maxBytes", 131072},
+                       {"maxSessionBytes", 131072},
+                       {"minFreeDiskBytes", 1},
+                       {"cleanupThresholdPercent", 100},
+                       {"cleanupTargetPercent", 99}};
   Json before, recovered, final_budget, intent;
   {
     Store store(temp.path, true, "", policy);
@@ -443,7 +447,7 @@ void runtime_terminal_recovery() {
     store.history_reserve("host~runtime", 32768, 8, "unresolved-queue");
     Database fixture(temp.path);
     fixture.sql("INSERT INTO transport2_history_entries(key,session,bytes,records) "
-                "SELECT 'reservation:fill','host~runtime',131072-bytes,1 "
+                "SELECT 'reservation:fill','host~runtime',131071-bytes,1 "
                 "FROM transport2_history_budget WHERE scope='@global'; "
                 "CREATE TABLE test_promises AS SELECT * FROM transport2_history_entries "
                 "WHERE key GLOB 'reservation:*'; "
@@ -1026,6 +1030,7 @@ void configurable_policy() {
   policy["maxSessionBytes"] = 4096;
   {
     Store lowered(temp.path, true, "", policy);
+    lowered.save({{"id", "one"}, {"state", "ready"}, {"running", true}});
     check(lowered.history_budget()["global"] == before["global"] &&
               lowered.history("one")["events"].size() == 2,
           "Lower quota preserves existing authority and reads");
@@ -1200,7 +1205,7 @@ void capacity() {
   size_t first_count = 0, last_count = 0;
   for (size_t scope = 0; scope < 5; ++scope) {
     const auto session = "scope-" + std::to_string(scope);
-    journal.save({{"id", session}, {"state", "closed"}, {"running", false}});
+    journal.save({{"id", session}, {"state", "ready"}, {"running", true}});
     size_t count = 0;
     for (; count < 40; ++count) {
       const auto before = journal.history_budget();

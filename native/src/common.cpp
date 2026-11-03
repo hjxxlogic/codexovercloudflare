@@ -297,7 +297,9 @@ Json history_storage_config(Json value) {
                    {"readPageMaxBytes", 1048576}, {"readConcurrency", 2},
                    {"cacheMaxBytes", 67108864},   {"cacheMaxSessionBytes", 16777216},
                    {"cacheTargetPercent", 80},    {"writeWindowBytes", 1048576},
-                   {"writeWindowRecords", 256},   {"retainedRecords", 0}};
+                   {"writeWindowRecords", 256},   {"retainedRecords", 0},
+                   {"retentionSeconds", 604800},  {"cleanupThresholdPercent", 80},
+                   {"cleanupTargetPercent", 60},  {"storageMaxBytes", 268435456}};
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "historyStorage must be an object");
   for (auto it = value.begin(); it != value.end(); ++it) {
@@ -330,6 +332,9 @@ Json history_storage_config(Json value) {
       defaults["cacheMaxSessionBytes"] > defaults["cacheMaxBytes"] ||
       defaults["cacheTargetPercent"] > 100)
     throw Error("CONFIG_ERROR", "Invalid history cache limits");
+  if (defaults["retentionSeconds"] > 604800 || defaults["cleanupThresholdPercent"] > 100 ||
+      defaults["cleanupTargetPercent"] >= defaults["cleanupThresholdPercent"])
+    throw Error("CONFIG_ERROR", "Invalid history retention limits");
   if (defaults["maxSessionBytes"] > defaults["maxBytes"] ||
       defaults["maxSessionRecords"] > defaults["maxRecords"])
     throw Error("CONFIG_ERROR", "Session history limits exceed global limits");

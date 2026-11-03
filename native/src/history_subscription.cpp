@@ -98,6 +98,19 @@ void HistorySubscription::commit() {
 bool HistorySubscription::receive(const Json &d) {
   const auto type = d.value("type", "");
   if (type == "error") {
+    if (d.value("error", Json::object()).value("code", "") == "HISTORY_SUBSCRIPTION_EXPIRED" &&
+        send_ &&
+        (d.value("requestId", "") == request_ ||
+         (d.value("stream", "") == saved_.at("stream") &&
+          d.value("instance", "") == saved_.at("instance")))) {
+      const Json next = {{"stream", uuid()}, {"instance", uuid()}, {"acknowledgedRevision", 0}};
+      if (!store_.cache_replace(key_, saved_, next))
+        mismatch("History subscription changed while replacing an expired identity");
+      saved_ = next;
+      auto send = send_;
+      connect(std::move(send));
+      return true;
+    }
     if (d.value("requestId", "") == request_ && d.contains("error")) {
       const auto code = d.at("error").value("code", "");
       if (code == "DELIVERY_STATE_MISMATCH" || code == "STREAM_CLOSED" || code == "UNAUTHORIZED" ||

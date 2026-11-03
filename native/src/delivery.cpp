@@ -46,8 +46,14 @@ void positive_sequence(int64_t value) {
 Json Store::control_state(const std::string &session) {
   const auto rows =
       query("SELECT epoch,control_id,owner FROM transport2_control WHERE session=?", {session});
-  if (rows.empty())
-    return nullptr;
+  if (rows.empty()) {
+    const auto compact = query("SELECT json_extract(value,'$.controlCoverage') AS control "
+                               "FROM sessions WHERE id=?",
+                               {session});
+    return compact.empty() || compact.at(0).at("control").is_null()
+               ? Json()
+               : Json::parse(compact.at(0).at("control").get<std::string>());
+  }
   return {{"controlEpoch", rows.at(0).at("epoch")},
           {"controlId", rows.at(0).at("control_id")},
           {"owner", rows.at(0).at("owner")},
@@ -55,6 +61,7 @@ Json Store::control_state(const std::string &session) {
 }
 Json Store::control_apply(const std::string &session, int64_t epoch, const std::string &control_id,
                           const std::string &owner) {
+  retention_cleanup();
   positive_sequence(epoch);
   if (!valid_id(control_id) || !valid_id(owner))
     throw Error("INVALID_REQUEST", "Invalid control proof identity");
@@ -103,7 +110,8 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
     run("DELETE FROM transport2_cancel WHERE stream IN (SELECT stream FROM transport2_flow_control "
         "WHERE session=? AND closed=1)",
         {session});
-    run("INSERT INTO transport2_control VALUES(?,?,?,?) ON CONFLICT(session) DO UPDATE SET "
+    run("INSERT INTO transport2_control(session,epoch,control_id,owner) VALUES(?,?,?,?) ON "
+        "CONFLICT(session) DO UPDATE SET "
         "epoch=excluded.epoch,control_id=excluded.control_id,owner=excluded.owner",
         {session, epoch, control_id, owner});
     run("COMMIT");
@@ -236,6 +244,7 @@ Json Store::delivery_open(const std::string &stream, const std::string &session,
   if (!valid_id(stream) || session.empty() || session.size() > 201 || slots < 1 || slots > 100 ||
       bytes < int64_t(max_frame) || bytes > int64_t(max_queue))
     throw Error("INVALID_REQUEST", "Invalid delivery window");
+  retention_cleanup();
   run("BEGIN IMMEDIATE");
   try {
     const auto existing =
@@ -565,8 +574,12 @@ Json Store::delivery_results(const std::string &stream, int64_t after) {
 Json Store::delivery_heads(const std::string &session) {
   const auto output = query("SELECT published FROM transport2_output_heads WHERE stream=?",
                             {"rpc-output:" + session});
+  const auto compact = query("SELECT COALESCE(json_extract(value,'$.outputCoverage.published'),0) "
+                             "AS published FROM sessions WHERE id=?",
+                             {session});
   return {{"agent", history_head(session)},
-          {"rpc", output.empty() ? Json(0) : output[0]["published"]}};
+          {"rpc", output.empty() ? (compact.empty() ? Json(0) : compact.at(0).at("published"))
+                                 : output[0]["published"]}};
 }
 Json Store::output_state(const std::string &stream) {
   if (stream.empty() || stream.size() > 256)
@@ -575,9 +588,20 @@ Json Store::output_state(const std::string &stream) {
       query("SELECT COUNT(*) AS count FROM transport2_output_heads").at(0).at("count") >=
           credit::flow_limit)
     throw Error("BACKPRESSURE", "Output stream metadata budget exhausted");
+  if (stream.rfind("rpc-output:", 0) == 0)
+    run("INSERT OR IGNORE INTO "
+        "transport2_output_heads(stream,sent,sent_bytes,published,acked,acked_bytes,retired) "
+        "SELECT ?,COALESCE(json_extract(value,'$.outputCoverage.sent'),0),"
+        "COALESCE(json_extract(value,'$.outputCoverage.sent_bytes'),0),"
+        "COALESCE(json_extract(value,'$.outputCoverage.published'),0),"
+        "COALESCE(json_extract(value,'$.outputCoverage.acked'),0),"
+        "COALESCE(json_extract(value,'$.outputCoverage.acked_bytes'),0),"
+        "COALESCE(json_extract(value,'$.outputCoverage.retired'),0) FROM sessions WHERE id=?",
+        {stream, stream.substr(11)});
   run("INSERT OR IGNORE INTO transport2_output_heads(stream) VALUES(?)", {stream});
   run("INSERT OR IGNORE INTO transport2_output_budget VALUES(?,0,0)", {stream});
-  return query("SELECT sent,sent_bytes,published,acked,acked_bytes FROM transport2_output_heads "
+  return query("SELECT sent,sent_bytes,published,acked,acked_bytes,retired FROM "
+               "transport2_output_heads "
                "WHERE stream=?",
                {stream})
       .at(0);
@@ -586,6 +610,7 @@ Json Store::output_append(const std::string &stream, const Json &payload) {
   const auto body = payload.dump();
   if (Json(body).dump().size() > max_frame - 4096)
     throw Error("MESSAGE_TOO_LARGE", "Reliable output exceeds frame budget");
+  retention_cleanup();
   run("BEGIN IMMEDIATE");
   try {
     auto head = output_state(stream);
@@ -635,6 +660,9 @@ void Store::output_ack(const std::string &stream, int64_t received, int64_t byte
     if (received > head.at("acked").get<int64_t>()) {
       auto rows = query("SELECT end_bytes FROM transport2_outputs WHERE stream=? AND seq=?",
                         {stream, received});
+      if (rows.empty())
+        if (received <= head.at("retired").get<int64_t>())
+          throw Error("CONTENT_EXPIRED", "Output confirmation refers to expired content");
       if (rows.empty())
         throw Error("STORAGE_ERROR", "Output receipt range is missing");
       const auto bytes = rows[0]["end_bytes"].get<int64_t>();
@@ -748,6 +776,16 @@ void Store::output_publish(const std::string &stream, int64_t sent) {
 }
 Json Store::output_page(const std::string &stream, int64_t after) {
   auto state = output_state(stream);
+  if (!query("SELECT 1 FROM transport2_output_heads h LEFT JOIN sessions s ON "
+             "s.id=substr(h.stream,12) "
+             "WHERE h.stream=? AND h.retained_at<=? AND "
+             "COALESCE(json_extract(s.value,'$.running'),0)=0 AND EXISTS "
+             "(SELECT 1 FROM transport2_outputs o WHERE o.stream=h.stream AND o.seq>?)",
+             {stream, now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000, after})
+           .empty())
+    throw Error("CONTENT_EXPIRED", "Reliable output exceeded its retention window");
+  if (after < state.at("retired").get<int64_t>())
+    throw Error("CONTENT_EXPIRED", "Reliable output exceeded its retention window");
   if (after < state.at("acked").get<int64_t>())
     throw Error("DELIVERY_STATE_MISMATCH", "Local receiver lost acknowledged output state");
   return query(

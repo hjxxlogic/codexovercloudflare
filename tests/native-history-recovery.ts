@@ -192,6 +192,20 @@ try {
   const tail = await read({ offset: 4096 });
   assert.equal(tail.data.text, characters.slice(4096).join(''));
   assert.equal(tail.data.more, false);
+  const clientOwner = 'a'.repeat(64);
+  const clientPage = await read({
+    operation: 'page',
+    historyVersion: 2,
+    owner: clientOwner,
+  });
+  assert.equal(clientPage.error, undefined, JSON.stringify(clientPage.error));
+  const clientReference = clientPage.data.events.find(
+    (event: any) => event.seq === reference.seq,
+  )?.contentReference;
+  assert(
+    clientReference?.recovery,
+    'History page must hand recovery evidence to the client',
+  );
   const stateBeforeRestart = new DatabaseSync(join(root, 'state', 'agent.db'));
   const retained = stateBeforeRestart
     .prepare('SELECT value,revision,recovery FROM history WHERE seq=?')
@@ -308,6 +322,39 @@ try {
     );
     fixture.close();
     assert.equal((await read()).error.code, 'CONTENT_EXPIRED');
+    const recoveredFromClient = await read({
+      reference: clientReference,
+      owner: clientOwner,
+    });
+    assert.equal(
+      recoveredFromClient.error,
+      undefined,
+      JSON.stringify(recoveredFromClient.error),
+    );
+    assert.equal(
+      recoveredFromClient.data.text,
+      characters.slice(0, 4096).join(''),
+    );
+    assert.equal(
+      (await read({ reference: clientReference, owner: 'b'.repeat(64) })).error
+        .code,
+      'FORBIDDEN',
+    );
+    assert.equal(
+      (
+        await read({
+          reference: {
+            ...clientReference,
+            recovery: {
+              ...clientReference.recovery,
+              payload: clientReference.recovery.payload + ' ',
+            },
+          },
+          owner: clientOwner,
+        })
+      ).error.code,
+      'FORBIDDEN',
+    );
     const gap = await read({ operation: 'page', historyVersion: 2, after: 0 });
     assert.equal(gap.data.gap, true);
     assert.equal(gap.data.events.length, 1);
@@ -327,7 +374,7 @@ try {
   console.log(
     'PASS: native history cache-miss recovery, Unicode paging, immutable reference, source replacement, bounded readers and SIGKILL restart' +
       (process.argv.includes('--retention')
-        ? ', scheduled retirement, expired references and versioned gap recovery'
+        ? ', scheduled retirement, expired references, client-held recovery credentials, owner/MAC isolation and versioned gap recovery'
         : ''),
   );
 } finally {

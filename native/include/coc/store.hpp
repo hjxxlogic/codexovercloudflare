@@ -32,6 +32,11 @@ private:
   sqlite3 *db_ = nullptr;
   std::string delivery_instance_;
   std::string cache_namespace_;
+  bool authoritative_ = false;
+  bool cleaning_ = false;
+  int64_t next_retention_cleanup_ = 0;
+  int64_t protected_history_seq_ = std::numeric_limits<int64_t>::min();
+  void retention_init();
   void cache_forget(const std::string &physical_key);
   void cache_uncharge(const std::string &physical_key);
   void history_budget_init(bool authoritative);
@@ -75,8 +80,10 @@ public:
                           const Json &task, bool start);
   Json replay(const std::string &id, int64_t after);
   Json history(const std::string &id, int64_t before = 0, int64_t after = -1, int version = 1,
-               int64_t generation = -1);
+               int64_t generation = -1, const std::string &owner = "");
   Json history_retire(const std::string &session);
+  Json retention_cleanup(int64_t time = -1);
+  std::string operation_instance();
   void history_retire_next();
   Json history_subscription(const Json &request);
   Json history_hint(const Json &request);
@@ -89,9 +96,12 @@ public:
                                const Json &entry, const Json &expected = nullptr);
   Json history_source(const std::string &session, int64_t seq, const Json &origin);
   Json history_source_candidate();
-  Json history_source_plan(const std::string &session, int64_t seq);
+  Json history_client_reference(const std::string &session, int64_t seq, const std::string &owner);
+  Json history_source_plan(const std::string &session, int64_t seq, const Json &reference = nullptr,
+                           const std::string &owner = "");
   Json history_recovered_content(const std::string &session, const Json &reference,
-                                 const Json &origin, const Json &entry, int64_t offset);
+                                 const Json &origin, const Json &entry, int64_t offset,
+                                 const std::string &owner = "");
   std::string history_source_recover(const std::string &session, int64_t seq, const Json &origin,
                                      const Json &entry);
 
@@ -123,8 +133,10 @@ public:
   void local_operation_finish(const std::string &request, const Json &envelope,
                               const Json &receipt);
   void local_operation_confirm(const std::string &request);
+  void local_operation_expire(const std::string &request);
   Json history_reference(const std::string &id, int64_t seq);
-  Json history_content(const std::string &id, const Json &reference, int64_t offset);
+  Json history_content(const std::string &id, const Json &reference, int64_t offset,
+                       const std::string &owner = "");
   Json content(const std::string &id, int64_t seq, int64_t offset, int64_t revision = -1);
   void archive_page(const std::string &id, const Json &events, const Json &cursor);
   Json external_item(const std::string &id, const std::string &turn, Json item,

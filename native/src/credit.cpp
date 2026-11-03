@@ -15,7 +15,9 @@ std::string history_subscription_key(const Json &d) {
 Json Store::history_hint(const Json &d) {
   const auto key = history_subscription_key(d);
   const auto rows = query("SELECT * FROM transport2_history_subscriptions WHERE key=?", {key});
-  if (rows.empty() || rows.at(0).at("closed") == 1)
+  if (rows.empty() || rows.at(0).at("closed") == 1 ||
+      rows.at(0).at("retained_at").get<int64_t>() <=
+          now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000)
     throw Error("STREAM_CLOSED", "History subscription has retired");
   const auto &row = rows.at(0);
   const auto head = history_head(d.at("sessionId"));
@@ -34,6 +36,7 @@ Json Store::history_hint(const Json &d) {
           {"maxRevision", head}};
 }
 Json Store::history_subscription(const Json &d) {
+  retention_cleanup();
   const auto key = history_subscription_key(d);
   const auto operation = d.value("operation", "");
   if (operation != "subscribe" && operation != "ack" && operation != "retire")
@@ -56,7 +59,7 @@ Json Store::history_subscription(const Json &d) {
     auto rows = query("SELECT * FROM transport2_history_subscriptions WHERE key=?", {key});
     if (rows.empty()) {
       if (operation != "subscribe" || d.contains("streamSerial") || floor > 0)
-        throw Error("DELIVERY_STATE_MISMATCH", "History subscription state is missing");
+        throw Error("HISTORY_SUBSCRIPTION_EXPIRED", "History subscription is no longer retained");
       if (query("SELECT COUNT(*) AS count FROM transport2_history_subscriptions")
               .at(0)
               .at("count") >= credit::flow_limit)
@@ -73,6 +76,10 @@ Json Store::history_subscription(const Json &d) {
       rows = query("SELECT * FROM transport2_history_subscriptions WHERE key=?", {key});
     }
     const auto &row = rows.at(0);
+    if (row.at("retained_at").get<int64_t>() <=
+        now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000)
+      throw Error("HISTORY_SUBSCRIPTION_EXPIRED",
+                  "History subscription exceeded its retention window");
     if (row.at("closed") == 1)
       throw Error("STREAM_CLOSED", "History subscription has retired");
     if ((d.contains("streamSerial") && d.at("streamSerial") != row.at("serial")) ||

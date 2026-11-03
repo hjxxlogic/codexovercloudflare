@@ -87,10 +87,15 @@ int main() {
         check(ready.at("controlEpoch") == 7 && ready.at("instance") == "original-instance",
               "Derived control confirmation preserves original fencing identity");
       }
-      check(fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_control')") == 4 &&
-                fixture.count(
-                    "SELECT COUNT(*) FROM pragma_table_info('transport2_command_keys')") == 3,
-            "Redundant columns are removed");
+      check(
+          fixture.count(
+              "SELECT COUNT(*) FROM pragma_table_info('transport2_control') WHERE name='ready'") ==
+                  0 &&
+              fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_control') WHERE "
+                            "name='retained_at'") == 1 &&
+              fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_command_keys')") ==
+                  3,
+          "Redundant columns are removed");
       check(fixture.count("SELECT COUNT(*) FROM transport2_command_keys WHERE stream='stream' AND "
                           "request_id='rpc:1' AND seq=1") == 1,
             "Original request refusal identity is preserved");

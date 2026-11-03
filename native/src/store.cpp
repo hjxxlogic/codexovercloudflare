@@ -136,7 +136,7 @@ void Store::run(const std::string &s, const Json &a) { query(s, a); }
 Store::Store(const std::string &dir, bool authoritative, const std::string &cache_namespace,
              const Json &history_policy)
     : history_policy_(history_storage_config(history_policy)), lock_(dir, authoritative),
-      cache_namespace_(cache_namespace) {
+      cache_namespace_(cache_namespace), authoritative_(authoritative) {
   if (cache_namespace_.size() > 128)
     throw Error("INVALID_REQUEST", "Invalid local cache namespace");
   std::filesystem::create_directories(std::filesystem::u8path(dir));
@@ -363,6 +363,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE INDEX IF NOT EXISTS cache_upload_expiry ON "
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
     history_budget_init(authoritative);
+    retention_init();
     run("COMMIT");
     // Restart terminal records enter the same durable completion log as live results.
     for (const auto &record :
@@ -411,6 +412,17 @@ Store::~Store() {
 }
 void Store::save(const Json &s) {
   auto value = s;
+  const auto previous = query("SELECT json_extract(value,'$.historyCoverage') AS coverage, "
+                              "json_extract(value,'$.outputCoverage') AS output, "
+                              "json_extract(value,'$.controlCoverage') AS control "
+                              "FROM sessions WHERE id=?",
+                              {s.at("id")});
+  if (!previous.empty() && !previous.at(0).at("coverage").is_null())
+    value["historyCoverage"] = Json::parse(previous.at(0).at("coverage").get<std::string>());
+  if (!previous.empty() && !previous.at(0).at("output").is_null())
+    value["outputCoverage"] = Json::parse(previous.at(0).at("output").get<std::string>());
+  if (!previous.empty() && !previous.at(0).at("control").is_null())
+    value["controlCoverage"] = Json::parse(previous.at(0).at("control").get<std::string>());
   value["updatedAt"] = now();
   run("INSERT INTO sessions(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET "
       "value=excluded.value",
@@ -826,17 +838,38 @@ Json Store::project(const std::string &id, Json e) {
 int64_t Store::history_head(const std::string &session) {
   const auto rows =
       query("SELECT revision FROM transport2_history_heads WHERE session=?", {session});
-  return rows.empty() ? 0 : rows.at(0).at("revision").get<int64_t>();
+  if (!rows.empty())
+    return rows.at(0).at("revision").get<int64_t>();
+  const auto compact = query("SELECT COALESCE(json_extract(value,'$.historyCoverage.revision'),0) "
+                             "AS revision FROM sessions WHERE id=?",
+                             {session});
+  return compact.empty() ? 0 : compact.at(0).at("revision").get<int64_t>();
 }
 Json Store::history(const std::string &id, int64_t before, int64_t after, int version,
-                    int64_t generation) {
-  get(id);
+                    int64_t generation, const std::string &owner) {
+  const auto session = query("SELECT value FROM sessions WHERE id=?", {id});
+  const auto state =
+      session.empty() ? Json::object() : Json::parse(session.at(0).at("value").get<std::string>());
+  const auto cutoff = state.value("running", false)
+                          ? int64_t(-1)
+                          : now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000;
   const auto coverage = query("SELECT retired_revision,generation FROM transport2_history_heads "
                               "WHERE session=?",
                               {id});
-  const int64_t retired =
-      coverage.empty() ? 0 : coverage.at(0).at("retired_revision").get<int64_t>();
-  const int64_t current = coverage.empty() ? 0 : coverage.at(0).at("generation").get<int64_t>();
+  const auto compact = state.value("historyCoverage", Json::object());
+  int64_t retired = coverage.empty() ? compact.value("retired_revision", int64_t(0))
+                                     : coverage.at(0).at("retired_revision").get<int64_t>();
+  int64_t current = coverage.empty() ? compact.value("generation", int64_t(0))
+                                     : coverage.at(0).at("generation").get<int64_t>();
+  const auto expired = query("SELECT MAX(revision) AS revision FROM history WHERE session=? "
+                             "AND retained_at<=?",
+                             {id, cutoff})
+                           .at(0)
+                           .at("revision");
+  if (!expired.is_null()) {
+    retired = std::max(retired, expired.get<int64_t>());
+    ++current;
+  }
   if ((version != 1 && version != 2) || (version != 2 && current > 0))
     throw Error("UNSUPPORTED_PROTOCOL_VERSION", "History retirement requires protocol version 2");
   if (generation >= 0 && generation != current)
@@ -856,6 +889,7 @@ Json Store::history(const std::string &id, int64_t before, int64_t after, int ve
     order = "1=1 ORDER BY seq DESC";
     arguments = Json::array({id});
   }
+  arguments.insert(arguments.begin() + 1, cutoff);
   auto rows = query(
       "SELECT seq,revision,CASE WHEN length(CAST(value AS BLOB))>16384 THEN "
       "json_object('type',json_extract(value,'$.type'),'time',json_extract(value,'$.time'),'"
@@ -869,7 +903,7 @@ Json Store::history(const std::string &id, int64_t before, int64_t after, int ve
       "item.exitCode'),"
       "'command',substr(json_extract(value,'$.data.item.command'),1,240)) ELSE NULL END)) ELSE "
       "value END AS value "
-      "FROM history WHERE session=? AND " +
+      "FROM history WHERE session=? AND retained_at>? AND " +
           order + " LIMIT 201",
       arguments);
   Json events = Json::array();
@@ -878,6 +912,12 @@ Json Store::history(const std::string &id, int64_t before, int64_t after, int ve
     auto e = Json::parse(r["value"].get<std::string>());
     e["seq"] = r["seq"];
     e["revision"] = r["revision"];
+    if (!owner.empty()) {
+      const auto proof =
+          query("SELECT 1 FROM history WHERE seq=? AND recovery IS NOT NULL", {r["seq"]});
+      if (!proof.empty())
+        e["contentReference"] = history_client_reference(id, r["seq"], owner);
+    }
     auto size = e.dump().size();
     if (events.size() == 200 || bytes + size > 96 * 1024)
       break;
@@ -919,6 +959,12 @@ Json Store::history_inline_text(const std::string &id, int64_t seq) {
   return local.empty() || !local.at(0).at("text").is_string() ? Json() : local.at(0).at("text");
 }
 Json Store::content(const std::string &id, int64_t seq, int64_t offset, int64_t revision) {
+  if (!query("SELECT 1 FROM history h LEFT JOIN sessions s ON s.id=h.session WHERE "
+             "h.session=? AND h.seq=? AND h.retained_at<=? AND "
+             "COALESCE(json_extract(s.value,'$.running'),0)=0",
+             {id, seq, now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000})
+           .empty())
+    throw Error("CONTENT_EXPIRED", "Local history content exceeded its retention deadline");
   auto body = query("SELECT bodies.size,bodies.bytes,history.revision,history.recovery FROM bodies "
                     "JOIN history USING(seq) WHERE "
                     "seq=? AND session=?",
@@ -1279,6 +1325,7 @@ Json Store::history_journal_compact() {
   }
 }
 void Store::cleanup() {
+  retention_cleanup();
   history_compact();
   history_inline_compact();
   history_journal_compact();

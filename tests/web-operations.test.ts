@@ -102,6 +102,47 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.stop());
   vi.useRealTimers();
 });
+it('retires an expired original locally and permits the next independent request', async () => {
+  const h = peer();
+  const normal = h.request.getMockImplementation()!;
+  h.request.mockImplementation(async (...args) => {
+    if (args[3] === 'expired')
+      throw new ApiError('REQUEST_EXPIRED', 'expired by Agent', 409);
+    return normal(...args);
+  });
+  const client = h.client();
+  await expect(client.submit('/sessions', {}, 'expired')).rejects.toThrow(
+    'expired by Agent',
+  );
+  expect(h.journal.value.records.expired.state).toBe('confirmed');
+  await expect(client.submit('/sessions', {}, 'next')).resolves.toMatchObject({
+    id: 'host~next',
+  });
+  expect(h.effects()).toBe(1);
+});
+it('preserves the locally completed result when its Agent confirmation expires', async () => {
+  const h = peer();
+  const normal = h.request.getMockImplementation()!;
+  h.request.mockImplementation(async (...args) => {
+    if (args[5]?.ack)
+      throw new ApiError('REQUEST_EXPIRED', 'confirmation expired', 409);
+    return normal(...args);
+  });
+  const client = h.client();
+  await expect(
+    client.submit('/sessions', {}, 'completed'),
+  ).resolves.toMatchObject({ id: 'host~completed' });
+  await vi.waitFor(() =>
+    expect(h.journal.value.records.completed.state).toBe('confirmed'),
+  );
+  expect(h.journal.value.records.completed.result).toEqual({
+    data: { id: 'host~completed' },
+  });
+  await expect(client.resume('completed')).resolves.toMatchObject({
+    id: 'host~completed',
+  });
+  expect(h.effects()).toBe(1);
+});
 it('persists a fixed original before wire and its complete result before confirmation', async () => {
   const h = peer(),
     client = h.client();

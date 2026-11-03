@@ -635,26 +635,29 @@ void core() {
     Temp dir;
     Store journal(dir.path);
     const Json payload = {{"method", "notification"}, {"params", std::string(240 * 1024, 'x')}};
+    journal.save({{"id", "budget~bounded"}, {"state", "ready"}, {"running", true}});
     int count = 0;
     for (;;) {
       try {
-        journal.output_append("bounded-output", payload);
+        journal.output_append("rpc-output:budget~bounded", payload);
         ++count;
       } catch (const Error &error) {
         check(error.code == "BACKPRESSURE", "A slow output stream ends at its durable quota");
         break;
       }
     }
-    check(count > 0 && count < 40 && journal.output_state("bounded-output").at("sent") == count,
+    check(count > 0 && count < 40 &&
+              journal.output_state("rpc-output:budget~bounded").at("sent") == count,
           "Rejected output does not advance its durable sequence");
-    journal.output_publish("bounded-output", count);
-    journal.output_ack("bounded-output", 1);
-    check(journal.output_append("bounded-output", payload).at("seq") == count + 1,
+    journal.output_publish("rpc-output:budget~bounded", count);
+    journal.output_ack("rpc-output:budget~bounded", 1);
+    check(journal.output_append("rpc-output:budget~bounded", payload).at("seq") == count + 1,
           "Only the acknowledged continuous prefix releases output storage");
     for (int i = 0; i < 12; ++i) {
+      journal.save({{"id", "budget~" + std::to_string(i)}, {"state", "ready"}, {"running", true}});
       try {
         for (int j = 0; j < count; ++j)
-          journal.output_append("output-" + std::to_string(i), payload);
+          journal.output_append("rpc-output:budget~" + std::to_string(i), payload);
       } catch (const Error &error) {
         check(error.code == "BACKPRESSURE" && i < 12,
               "Many streams share the output budget instead of multiplying it");
@@ -1224,12 +1227,11 @@ void core() {
       journal.delivery_close(stream);
     }
     const auto before = journal.delivery_budget();
-    rejects([&] { journal.delivery_open("one-too-many", "finite-names", 1, max_frame); },
-            "BACKPRESSURE");
-    check(journal.delivery_budget() == before &&
+    journal.retention_cleanup(now());
+    journal.delivery_open("one-too-many", "finite-names", 1, max_frame);
+    check(journal.delivery_budget().at("normal").at("flows") < before.at("normal").at("flows") &&
               before.at("namespaces").at(0).at("closedThrough") == credit::flow_limit,
-          "Uncompressible tombstones stop allocation without growing or losing the final refusal "
-          "boundary");
+          "Retired flows release metadata while preserving the monotonic refusal boundary");
   }
 
   {
@@ -1861,7 +1863,7 @@ void history_subscription_test() {
           "Delayed release cannot restore a relinquished reference obligation");
     auto stranger = request;
     stranger["owner"] = "other-reader";
-    rejects([&] { store.history_subscription(stranger); }, "DELIVERY_STATE_MISMATCH");
+    rejects([&] { store.history_subscription(stranger); }, "HISTORY_SUBSCRIPTION_EXPIRED");
     request["receivedRevision"] = 0;
     check(store.history_subscription(request).at("receivedRevision") == revision,
           "An online old history ACK cannot rewind receipt");
@@ -1913,7 +1915,9 @@ void history_subscription_test() {
             "History subscriber serials never reuse retired allocations");
     }
     request["stream"] = "beyond-budget";
-    rejects([&] { store.history_subscription(request); }, "BACKPRESSURE");
+    store.retention_cleanup(now());
+    check(store.history_subscription(request).at("streamSerial") > 0,
+          "Old subscription metadata is reclaimed before blocking a new reader");
   }
 }
 void history_test() {
