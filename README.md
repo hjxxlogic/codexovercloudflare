@@ -1,6 +1,6 @@
 # Codex over Cloudflare
 
-通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。0.6.0 已通过完整 CI 并发布云端及四平台下载包，现有 Agent / CLI 需手动升级；阅读入口见 [文档索引](docs/README.md)，已记录的线上及下载版本见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
+通过 Cloudflare 中转访问没有公网 IP 的远程 Codex，提供 CLI 和网页入口。默认生产地址为 **https://r.xlogic.cc**；原生程序和源码包见 [下载页](https://r.xlogic.cc/downloads/)。阅读入口见 [文档索引](docs/README.md)，部署与升级见 [发布操作](docs/RELEASE.md)。
 
 ## 本机快速开始
 
@@ -36,7 +36,7 @@ CC 填写留言申请访问，由管理员在批准时选择服务器：
 
 网页 CW 在“连接远程服务器”填写设备名称和留言后申请，无需获取 A 标识；管理员核对配对码、查看留言并选择服务器后批准。登录后打开顶部“历史”或“功能菜单 → 会话记录”，在面板顶部选择主机 / 项目、管理授权和新建会话；向上滚动接近消息顶部时自动异步加载更早内容。CC / CW 均可保存多份 A 授权并切换，凭证按角色和 A 隔离。管理身份单独认证，不直接控制 Codex 会话。设备凭证没有固定到期时间，直到 R 撤销；本地删除凭证不等于撤销。
 
-仅提供 `coc-agent` / `coc-client` 两个程序，移除旧 `coc`。0.2.x 凭证不再接受，升级需重新授权；配置、systemd 与操作步骤见 [用户手册](docs/USER_GUIDE.md)。服务器必须先以 Agent 用户完成 Codex 配置。
+提供 `coc-agent` / `coc-client` 两个程序；配置、systemd 与操作步骤见 [用户手册](docs/USER_GUIDE.md)。服务器必须先以 Agent 用户完成 Codex 配置。
 
 ## 验证
 
@@ -53,11 +53,11 @@ npm run test:codex
 npm run test:native
 ```
 
-端到端测试使用真实 Wrangler、SQLite 和 Chromium，以及不会执行命令的模拟 Codex。`test:codex` 与 `test:native` 使用真实本机 Codex，不提交模型任务。`test:native` 现在始终经过完整中继，需要先构建测试容器。可用 `npm run test:task` 验证真实文件任务；构建测试容器后，运行 `npm run test:native -- --relay --task` 验证真实原生 TUI 经完整本机中继的对话。这两项会调用已配置的模型服务。具体证据与未验证事项见 [测试记录](docs/TEST_REPORT.md)。
+端到端测试使用真实 Wrangler、SQLite 和 Chromium，以及不会执行命令的模拟 Codex。`test:codex` 与 `test:native` 使用真实本机 Codex，不提交模型任务。`test:native` 现在始终经过完整中继，需要先构建测试容器。可用 `npm run test:task` 验证真实文件任务；构建测试容器后，运行 `npm run test:native -- --relay --task` 验证真实原生 TUI 经完整本机中继的对话。这两项会调用已配置的模型服务。测试范围与验证边界见 [测试说明](docs/TEST_REPORT.md)。
 
 ## 当前边界
 
-- 个人所有者模型，每台主机最多 4 个活跃会话；设备可分别撤销。
+- 个人所有者模型，Agent 最多 16 个运行会话进程，另有 4 个历史读取进程；设备可分别撤销。
 - 网页支持文本任务、流式事件、命令/文件审批、停止、同模式回放恢复和显式接管。
 - CLI 只开放已声明的 RPC；配置/账号写入、任意命令 RPC、附件和跨会话历史访问被拒绝。
 - CLI 首次附着后暂不支持再次附着现有 runtime；会返回明确错误。请结束旧会话再创建新会话，勿重复提交状态不明的任务。
@@ -73,9 +73,9 @@ npm run test:native
 - [发布操作](docs/RELEASE.md)
 - [用户手册](docs/USER_GUIDE.md)
 - [开发与本机测试](docs/DEVELOPMENT.md)
-- [测试记录](docs/TEST_REPORT.md)
+- [测试说明](docs/TEST_REPORT.md)
 - [项目需求](docs/REQUIREMENTS.md) 与 [技术架构](docs/ARCHITECTURE.md)：需求边界与设计依据，实施状态以当前协议和测试报告为准。
 
-当前实现与验证见 [现行传输协议](docs/RELIABLE_TRANSPORT.md) 和 [测试报告](docs/TEST_REPORT.md)；历次发布见 [发布记录](docs/DEPLOYMENT_STATUS.md)。
+当前协议见 [可靠传输](docs/RELIABLE_TRANSPORT.md)，测试入口见 [测试说明](docs/TEST_REPORT.md)，部署要求见 [发布操作](docs/RELEASE.md)。
 
-Linux Agent / CLI 从 0.5.2 开始默认自动更新所连接中继的发行版本；配置 `"autoUpdate": false` 可关闭。安装权限、检查间隔及回退方式见 [用户手册](docs/USER_GUIDE.md#原生程序自动更新)。
+Linux Agent / CLI 默认自动更新所连接中继的发行版本；配置 `"autoUpdate": false` 可关闭。安装权限、检查间隔及回退方式见 [用户手册](docs/USER_GUIDE.md#原生程序自动更新)。

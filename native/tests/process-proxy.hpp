@@ -38,22 +38,12 @@ inline void codex_proxy_fixture(coc::Json config, const std::string &cwd) {
   };
   config["codexArgs"].push_back("--proxy-env");
   const std::string proxy = "http://configured.invalid:8080";
-  for (int mode = 0; mode < 8; ++mode) {
+  for (int mode = 0; mode < 5; ++mode) {
     config["proxy"] = mode == 3 ? "" : proxy;
-    config.erase("codexUseProxy");
-    config.erase("codexProxyMode");
-    if (mode > 0 && mode < 4)
-      config["codexUseProxy"] = mode >= 2;
-    if (mode >= 4) {
-      config["codexProxyMode"] = mode == 4 || mode == 7 ? "inherit"
-                                 : mode == 5            ? "direct"
-                                                        : "agent";
-      // Explicit modes override the legacy switch in either direction.
-      config["codexUseProxy"] = mode != 6;
-    }
-    const bool inherit = mode == 0 || mode == 4 || mode == 7;
-    const bool agent = mode == 2 || mode == 6;
-    if (mode == 7) {
+    config["codexProxyMode"] = mode == 0 || mode == 4 ? "inherit" : mode == 1 ? "direct" : "agent";
+    const bool inherit = mode == 0 || mode == 4;
+    const bool agent = mode == 2;
+    if (mode == 4) {
       config["hostId"] = "proxy-test";
       config["token"] = std::string(24, 'x');
       config["dataDir"] = cwd + "/proxy-fixture-state";

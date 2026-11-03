@@ -10,7 +10,12 @@ import {
   type EmailGrant,
 } from './email.ts';
 import { DurableObject } from 'cloudflare:workers';
-import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
+import {
+  dueEntries,
+  expireAt,
+  requireCurrentExpiry,
+  nextExpiry,
+} from './expiry.ts';
 import { z } from 'zod';
 import {
   AppError,
@@ -105,8 +110,8 @@ export class RegistryCore {
   private async handleFetch(req: Request): Promise<Response> {
     try {
       const op = new URL(req.url).pathname.slice(1);
+      await requireCurrentExpiry(this.storage);
       if (op === 'subscribe') return await this.subscribe(req);
-      await migrateExpiry(this.storage, ['device:', 'limit:', 'auth:']);
       const d = await body(req.clone() as Request);
       const release =
         op === 'releasePublish'
@@ -1350,7 +1355,7 @@ export class RegistryCore {
     await this.policyReady;
     await this.mutations;
     const s = this.storage;
-    await migrateExpiry(s, ['device:', 'limit:', 'auth:']);
+    await requireCurrentExpiry(s);
     for (const [index, { key }] of await dueEntries(s)) {
       if (key.startsWith('auth-change:')) {
         const pending = await s.get<{ until: number }>(key);

@@ -124,8 +124,7 @@ async function control(action: string, data: unknown = {}) {
     ? {
         requestId: args.key || args.requestId || requestId,
         owner: 'a'.repeat(64),
-        instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
-          .deliveryInstance,
+        instance: (await control('probe')).operationInstance,
       }
     : undefined;
   send({
@@ -1327,7 +1326,11 @@ try {
     sessionId: slow.id,
     mode: 'cli',
   });
-  assert.equal(exhausted.session.outputError.code, 'BACKPRESSURE');
+  assert.equal(
+    exhausted.session.outputError?.code,
+    'BACKPRESSURE',
+    JSON.stringify(exhausted.session) + '\n' + log.slice(-3000),
+  );
   const usage = database
     .prepare(
       'SELECT bytes,records FROM transport2_output_budget WHERE stream=?',
@@ -1554,8 +1557,7 @@ try {
   const recoveredIntent = {
     requestId: recoveredData.requestId,
     owner: 'a'.repeat(64),
-    instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
-      .deliveryInstance,
+    instance: (await control('probe')).operationInstance,
   };
   const recoveredRequest = randomUUID();
   send({
@@ -1591,7 +1593,7 @@ try {
       .update(
         JSON.stringify([
           'queue-v1',
-          recoveredIntent.instance,
+          (await control('probe')).deliveryInstance,
           external.id,
           'operation:' + operationKey,
         ]),
@@ -1621,8 +1623,7 @@ try {
   const lostIntent = {
     requestId: 'external-lost-original',
     owner: 'a'.repeat(64),
-    instance: frames.filter((frame) => frame.type === 'capabilities').at(-1)
-      .deliveryInstance,
+    instance: (await control('probe')).operationInstance,
   };
   const lostData = {
     sessionId: external.id,

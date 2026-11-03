@@ -85,19 +85,8 @@ void legacy_catalog(const std::filesystem::path &root) {
        Json::array({{{"id", "base"}, {"name", "Saved project"}, {"path", work.u8string()}}})},
       {"receipts", Json::array({{{"requestId", "old-request"}, {"result", {{"revision", 999}}}}})}};
   save_private(file, legacy);
-  Projects projects(config);
-  const auto listed = projects.list();
-  check(listed.at("revision") == 77 && listed.at("projects").at(0).at("name") == "Saved project" &&
-            listed.at("projects").at(0).at("path") == work.u8string(),
-        "Upgrade preserves authoritative old catalog, paths, names and revision");
-  check(projects.usage().at("requests") == 0, "Legacy business receipts are not imported");
-  const auto idle = [](const std::string &) { return false; };
-  rejects([&] { projects.request(rename_request("old-request", 76), idle); }, "PROJECT_CONFLICT");
-  projects.request(rename_request("new-intention", 77), idle);
-  const auto stored = read_json(file);
-  check(!stored.contains("receipts") && stored.at("journal").at("version") == 2 &&
-            stored.at("journal").at("keys").size() == 1 && stored.at("revision") == 78,
-        "First explicit new change publishes only the new journal without replaying legacy work");
+  rejects([&] { Projects projects(config); }, "UNSUPPORTED_STORAGE_VERSION");
+  check(read_json(file) == legacy, "Rejected project catalog must remain unchanged");
 }
 #ifdef __linux__
 void interrupted_private_files(const std::filesystem::path &root) {

@@ -388,17 +388,12 @@ Json agent_config(Json c) {
   c["historyStorage"] = history_storage_config(c.value("historyStorage", Json::object()));
   c["codexPath"] = c.value("codexPath", "codex");
   c["codexArgs"] = c.value("codexArgs", Json::array());
-  if (!c.value("codexUseProxy", Json(false)).is_boolean())
-    throw Error("CONFIG_ERROR", "codexUseProxy must be boolean");
-  const auto proxy_mode =
-      c.value("codexProxyMode", Json(c.contains("codexUseProxy")
-                                         ? (c.value("codexUseProxy", false) ? "agent" : "direct")
-                                         : "inherit"));
-  if (!proxy_mode.is_string() ||
-      (proxy_mode != "inherit" && proxy_mode != "direct" && proxy_mode != "agent"))
+  if (c.contains("codexUseProxy"))
+    throw Error("CONFIG_ERROR", "codexUseProxy is unsupported; use codexProxyMode");
+  const auto mode = c.value("codexProxyMode", Json("inherit"));
+  if (!mode.is_string() || (mode != "inherit" && mode != "direct" && mode != "agent"))
     throw Error("CONFIG_ERROR", "codexProxyMode must be inherit, direct or agent");
-  c["codexProxyMode"] = proxy_mode;
-  c["codexUseProxy"] = c.value("codexUseProxy", false);
+  c["codexProxyMode"] = mode;
   c["sandbox"] = c.value("sandbox", "workspace-write");
   if (c["sandbox"] != "workspace-write" && c["sandbox"] != "read-only")
     throw Error("CONFIG_ERROR", "Invalid sandbox");

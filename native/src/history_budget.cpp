@@ -42,16 +42,11 @@ void Store::history_budget_init(bool authoritative) {
   run("CREATE TABLE IF NOT EXISTS transport2_history_budget(scope TEXT PRIMARY KEY,bytes "
       "INTEGER NOT NULL DEFAULT 0,records INTEGER NOT NULL DEFAULT 0)");
   run("CREATE TABLE IF NOT EXISTS transport2_history_entries(key TEXT PRIMARY KEY,session TEXT "
-      "NOT NULL,bytes INTEGER NOT NULL)");
-  bool has_records = false;
-  for (const auto &column : query("PRAGMA table_info(transport2_history_entries)"))
-    has_records = has_records || column.at("name") == "records";
-  if (!has_records)
-    run("ALTER TABLE transport2_history_entries ADD COLUMN records INTEGER NOT NULL DEFAULT 1");
+      "NOT NULL,bytes INTEGER NOT NULL,records INTEGER NOT NULL DEFAULT 1,retained_at INTEGER NOT "
+      "NULL DEFAULT 0)");
   run("CREATE INDEX IF NOT EXISTS transport2_history_reservations ON "
       "transport2_history_entries(session) WHERE key GLOB 'reservation:*'");
-  // Replace old trigger SQL in the enclosing schema transaction, including old
-  // positional INSERTs which would otherwise break after adding the column.
+  // Reinstall policy-dependent triggers in the enclosing transaction.
   for (const auto &trigger : query("SELECT name FROM sqlite_master WHERE type='trigger' "
                                    "AND name GLOB 'transport2_history_*'")) {
     const auto name = trigger.at("name").get<std::string>();
@@ -61,31 +56,11 @@ void Store::history_budget_init(bool authoritative) {
   }
   run("CREATE TABLE IF NOT EXISTS transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1),"
       "archive_seq INTEGER NOT NULL DEFAULT 0 CHECK(archive_seq BETWEEN -9007199254740991 AND 0))");
-  bool has_archive_sequence = false;
-  for (const auto &column : query("PRAGMA table_info(transport2_history_meta)"))
-    has_archive_sequence = has_archive_sequence || column.at("name") == "archive_seq";
-  if (!has_archive_sequence) {
-    run("ALTER TABLE transport2_history_meta ADD COLUMN archive_seq INTEGER NOT NULL DEFAULT 0 "
-        "CHECK(archive_seq BETWEEN -9007199254740991 AND 0)");
-    run("UPDATE transport2_history_meta SET archive_seq=(SELECT MIN(0,COALESCE(MIN(seq),0)) "
-        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events))");
-  }
-  const bool migrate_heads = query("SELECT name FROM sqlite_master WHERE type='table' "
-                                   "AND name='transport2_history_heads'")
-                                 .empty();
   run("CREATE TABLE IF NOT EXISTS transport2_history_heads(session TEXT PRIMARY KEY,"
-      "revision INTEGER NOT NULL CHECK(revision BETWEEN 0 AND 9007199254740991))");
-  bool migrate_coverage = false;
-  for (const auto *field : {"retired_revision", "generation"}) {
-    bool exists = false;
-    for (const auto &column : query("PRAGMA table_info(transport2_history_heads)"))
-      exists = exists || column.at("name") == field;
-    if (!exists) {
-      run(std::string("ALTER TABLE transport2_history_heads ADD COLUMN ") + field +
-          " INTEGER NOT NULL DEFAULT 0 CHECK(" + field + " BETWEEN 0 AND 9007199254740991)");
-      migrate_coverage = true;
-    }
-  }
+      "revision INTEGER NOT NULL CHECK(revision BETWEEN 0 AND 9007199254740991),"
+      "retired_revision INTEGER NOT NULL DEFAULT 0 CHECK(retired_revision BETWEEN 0 AND "
+      "9007199254740991),"
+      "generation INTEGER NOT NULL DEFAULT 0 CHECK(generation BETWEEN 0 AND 9007199254740991))");
   run("INSERT OR IGNORE INTO transport2_history_budget VALUES('@global',0,0)");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_charge AFTER INSERT ON "
       "transport2_history_entries BEGIN "
@@ -148,7 +123,6 @@ void Store::history_budget_init(bool authoritative) {
       {"external_items", "json_array($session,$turn,$item)", "$session",
        "length(CAST($fingerprint AS BLOB))+length(CAST($turn AS BLOB))+"
        "length(CAST($item AS BLOB))"}};
-  const bool bootstrap = query("SELECT id FROM transport2_history_meta").empty();
   for (const auto &resource : resources) {
     const auto key = "'" + resource.table + ":'||" + resource.key;
     // Account copies and indexes separately, including the accounting record
@@ -173,17 +147,7 @@ void Store::history_budget_init(bool authoritative) {
         " BEGIN "
         "DELETE FROM transport2_history_entries WHERE key=" +
         columns(key, "OLD") + "; END");
-    if (bootstrap)
-      run("INSERT OR IGNORE INTO transport2_history_entries(key,session,bytes) SELECT " +
-          columns(key, "t") + "," + columns(resource.session, "t") + "," + columns(cost, "t") +
-          " FROM " + resource.table + " AS t");
   }
-  if (migrate_heads)
-    run("INSERT INTO transport2_history_heads(session,revision) SELECT "
-        "session,MAX(0,MAX(revision)) "
-        "FROM history GROUP BY session");
-  if (migrate_coverage)
-    run("UPDATE transport2_history_heads SET revision=revision");
   for (const auto *action : {"insert", "update"})
     run(std::string("CREATE TRIGGER transport2_history_head_") + action + " AFTER " + action +
         " ON history BEGIN INSERT INTO "
@@ -213,11 +177,6 @@ void Store::history_budget_init(bool authoritative) {
   for (const auto *action : {"insert", "update"})
     run(std::string("CREATE TRIGGER transport2_history_session_source_") + action + " AFTER " +
         action + " ON sessions BEGIN " + source_charge + "END");
-  if (bootstrap)
-    run("INSERT OR IGNORE INTO transport2_history_entries(key,session,bytes) "
-        "SELECT 'sessions-source:'||json_array(id),id,length(CAST(source AS BLOB))+2048+"
-        "6*length(CAST(('sessions-source:'||json_array(id)) AS BLOB))+6*length(CAST(id AS BLOB)) "
-        "FROM sessions WHERE source IS NOT NULL");
   run("CREATE TRIGGER transport2_history_session_source_insert_invalidate AFTER INSERT ON sessions "
       "BEGIN UPDATE history SET recovery=NULL WHERE session=NEW.id; END");
   run("CREATE TRIGGER transport2_history_session_source_delete AFTER DELETE ON sessions BEGIN "
@@ -234,8 +193,7 @@ void Store::history_budget_init(bool authoritative) {
       "WHEN NEW.recovery IS NOT NULL AND (NEW.seq!=OLD.seq OR NEW.session!=OLD.session "
       "OR NEW.revision!=OLD.revision OR NEW.value!=OLD.value) BEGIN "
       "UPDATE history SET recovery=NULL WHERE seq=NEW.seq; END");
-  // Install limits after importing existing authoritative data: a large old
-  // history remains readable and can shrink, but cannot acquire more capacity.
+  // Policy limits permit net shrinking when the configured budget is lowered.
   run("DROP TRIGGER IF EXISTS transport2_history_capacity");
   run("DROP TRIGGER IF EXISTS transport2_history_scopes");
   run("CREATE TRIGGER IF NOT EXISTS transport2_history_capacity BEFORE UPDATE ON "
@@ -250,9 +208,7 @@ void Store::history_budget_init(bool authoritative) {
       "SELECT CASE WHEN (SELECT COUNT(*) FROM transport2_history_budget WHERE "
       "scope!='@global')>=" +
       limit("maxSessions") + " THEN RAISE(ABORT,'COC_HISTORY_CAPACITY') END; END");
-  if (bootstrap)
-    run("INSERT INTO transport2_history_meta(id,archive_seq) SELECT 1,MIN(0,COALESCE(MIN(seq),0)) "
-        "FROM (SELECT seq FROM history UNION ALL SELECT seq FROM events)");
+  run("INSERT OR IGNORE INTO transport2_history_meta(id,archive_seq) VALUES(1,0)");
 }
 void Store::history_retire_next() {
   if (history_policy_.value("retainedRecords", int64_t(0)) == 0)

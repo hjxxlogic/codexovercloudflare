@@ -118,7 +118,6 @@ export async function localRelay(dir: string) {
       token: device.token,
       codexPath: 'codex',
       codexArgs: [],
-      codexUseProxy: false,
       codexProxyMode: 'direct',
       sandbox: 'read-only',
       dataDir: dir + '/agent',

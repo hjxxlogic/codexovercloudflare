@@ -367,6 +367,8 @@ void Terminals::clear() {
 Json Terminals::request(const Json &d, const std::string &root) {
   if (d.at("operation") == "info")
     return metadata();
+  if (d.at("operation") != "open" && d.at("operation") != "close")
+    throw Error("UPGRADE_REQUIRED", "Use the Terminal WebSocket byte stream");
   if (!impl_->enabled)
     throw Error(
         "TERMINAL_DISABLED",
@@ -386,54 +388,11 @@ Json Terminals::request(const Json &d, const std::string &root) {
     throw Error("FORBIDDEN", "Terminal belongs to another controller");
   process->touched = now();
   const auto operation = d.at("operation").get<std::string>();
-  if (operation == "read") {
-    const auto requested = d.value("offset", int64_t(0));
-    if (requested < 0 || requested > process->end)
-      throw Error("INVALID_REQUEST", "Invalid terminal output offset");
-    const auto offset = std::max(requested, process->start);
-    const auto data = process->output.substr(size_t(offset - process->start), 32768);
-    return {{"data", encode(data)},
-            {"offset", offset + int64_t(data.size())},
-            {"gap", requested < process->start},
-            {"more", offset + int64_t(data.size()) < process->end},
-            {"exited", process->exited},
-            {"exitCode", process->exited ? Json(process->status) : Json()},
-            {"next", process->next}};
-  }
   if (operation == "close") {
     process->stop();
     return {{"closing", true}};
   }
-  if (process->exited || process->closing)
-    throw Error("TERMINAL_GONE", "Terminal exited");
-  if (!d.at("seq").is_number_integer() || d.at("seq") < 1 || d.at("seq") > 9007199254740991LL)
-    throw Error("INVALID_REQUEST", "Invalid terminal input sequence");
-  const auto seq = d.at("seq").get<int64_t>();
-  const auto fingerprint = delivery_digest(d.dump());
-  if (seq == process->next - 1 && fingerprint == process->last_digest)
-    return {{"next", process->next}};
-  if (seq != process->next)
-    throw Error("TERMINAL_INPUT_ORDER",
-                "Terminal input sequence mismatch; query runtime before continuing");
-  if (operation == "input") {
-    const auto bytes = decode(d.at("data"));
-    const auto count = ::write(process->pty.native_handle(), bytes.data(), bytes.size());
-    if (count != static_cast<ssize_t>(bytes.size())) {
-      process->stop();
-      throw Error("RESULT_UNKNOWN",
-                  "PTY input was partially written; runtime terminated, do not replay input");
-    }
-  } else if (operation == "resize") {
-    struct winsize ws {};
-    ws.ws_col = static_cast<unsigned short>(dimension(d, "cols", 80));
-    ws.ws_row = static_cast<unsigned short>(dimension(d, "rows", 24));
-    if (::ioctl(process->pty.native_handle(), TIOCSWINSZ, &ws) != 0)
-      throw Error("TERMINAL_GONE", "Could not resize PTY");
-  } else
-    throw Error("INVALID_REQUEST", "Unknown terminal operation");
-  ++process->next;
-  process->last_digest = fingerprint;
-  return {{"next", process->next}};
+  throw Error("UPGRADE_REQUIRED", "Use the Terminal WebSocket byte stream");
 #else
   (void)root;
   throw Error("TERMINAL_DISABLED", "Terminal isolation is not implemented on this platform");
@@ -496,9 +455,42 @@ void Terminals::stream(const Json &scope, const std::string &route, const Json &
       auto command = scope;
       command.update(frame);
       command["operation"] = type;
-      const auto result = request(command, "");
-      const auto reply = process->emit;
-      reply({{"type", "ack"}, {"next", result.at("next")}});
+      const auto operation = type;
+      if (process->exited || process->closing)
+        throw Error("TERMINAL_GONE", "Terminal exited");
+      if (!command.at("seq").is_number_integer() || command.at("seq") < 1 ||
+          command.at("seq") > 9007199254740991LL)
+        throw Error("INVALID_REQUEST", "Invalid terminal input sequence");
+      const auto seq = command.at("seq").get<int64_t>();
+      const auto fingerprint = delivery_digest(command.dump());
+      if (seq == process->next - 1 && fingerprint == process->last_digest) {
+        process->emit({{"type", "ack"}, {"next", process->next}});
+        process->pump();
+        process->read();
+        return;
+      }
+      if (seq != process->next)
+        throw Error("TERMINAL_INPUT_ORDER",
+                    "Terminal input sequence mismatch; query runtime before continuing");
+      if (operation == "input") {
+        const auto bytes = decode(command.at("data"));
+        const auto count = ::write(process->pty.native_handle(), bytes.data(), bytes.size());
+        if (count != static_cast<ssize_t>(bytes.size())) {
+          process->stop();
+          throw Error("RESULT_UNKNOWN",
+                      "PTY input was partially written; runtime terminated, do not replay input");
+        }
+      } else if (operation == "resize") {
+        struct winsize ws {};
+        ws.ws_col = static_cast<unsigned short>(dimension(command, "cols", 80));
+        ws.ws_row = static_cast<unsigned short>(dimension(command, "rows", 24));
+        if (::ioctl(process->pty.native_handle(), TIOCSWINSZ, &ws) != 0)
+          throw Error("TERMINAL_GONE", "Could not resize PTY");
+      } else
+        throw Error("INVALID_REQUEST", "Unknown terminal operation");
+      ++process->next;
+      process->last_digest = fingerprint;
+      process->emit({{"type", "ack"}, {"next", process->next}});
     } else if (type == "ping") {
       const auto reply = process->emit;
       reply({{"type", "pong"}});

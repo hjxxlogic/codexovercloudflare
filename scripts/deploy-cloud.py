@@ -255,6 +255,8 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true',
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
+    parser.add_argument('--allow-uncommitted', action='store_true',
+                        help='Explicitly deploy uncommitted local source, retaining its dirty identity; requires --local-build')
     parser.add_argument('--local-native-build-dir', type=pathlib.Path, help='Explicit local static Linux release; requires --local-build; preserves previous Windows')
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
@@ -271,6 +273,8 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.allow_uncommitted and not args.local_build:
+        parser.error('--allow-uncommitted requires --local-build')
     if args.local_native_build_dir and not args.local_build:
         parser.error('--local-native-build-dir requires --local-build')
     if args.local_build and (args.run_id or args.cloud_only_after_windows_failure or args.publish_downloads or args.notify_release):
@@ -287,14 +291,15 @@ def main():
         parser.error('Invalid repository')
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', '--end-of-options',
                                       args.commit + '^{commit}'], cwd=ROOT, text=True).strip()
-    if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT):
+    if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT) and not args.allow_uncommitted:
         raise RuntimeError('Deployment requires a clean working tree')
     tool_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     subprocess.run(['git', 'merge-base', '--is-ancestor', commit, tool_commit], cwd=ROOT, check=True)
     if args.local_build:
         if commit != tool_commit:
             raise RuntimeError('Local deployment requires --commit HEAD')
-        run, jobs, artifacts = {'id': 'local-' + commit, 'html_url': None}, [], []
+        before = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
+        run, jobs, artifacts = {'id': 'local-' + commit + '-' + before['sourceDigest'][:12], 'html_url': None}, [], []
         output = ROOT / '.local/deploy-cloud' / str(run['id'])
         output.mkdir(parents=True, exist_ok=True)
         subprocess.run(['npm', 'run', 'build:web'], cwd=ROOT, check=True)
@@ -309,7 +314,7 @@ def main():
             shutil.rmtree(site)
         shutil.copytree(ROOT / 'dist/web', site)
         identity = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
-        if identity['commit'] != commit or identity['dirty']:
+        if identity != before or identity['commit'] != commit or (identity['dirty'] and not args.allow_uncommitted):
             raise RuntimeError('Local build source changed during compilation')
         shutil.copyfile(ROOT / 'wrangler.jsonc', worker / 'deploy-config.jsonc')
         identities = [identity, identity]
@@ -380,6 +385,7 @@ def main():
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
                 'localBuild': args.local_build, 'ciVerified': not args.local_build,
+                'sourceIdentity': identities[0], 'allowUncommitted': args.allow_uncommitted,
                 'replaceVariables': args.replace_vars,
                 'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure,
                 'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
@@ -395,7 +401,8 @@ def main():
     command = ['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'), 'deploy',
                '--config', str(config_path), '--no-bundle',
                *([] if args.replace_vars else ['--keep-vars']),
-               '--message', 'Actions ' + str(run['id']) + ' commit ' + commit]
+               '--message', ('Local source ' + identities[0]['sourceDigest'] if args.local_build else
+                             'Actions ' + str(run['id'])) + ' commit ' + commit]
     result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (output / 'wrangler.log').write_text(result.stdout)
     print(result.stdout, flush=True)

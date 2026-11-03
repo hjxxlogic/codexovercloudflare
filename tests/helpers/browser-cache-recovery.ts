@@ -60,9 +60,11 @@ export async function browserCacheRecovery(
       const request = tx.objectStore('pages').get(key);
       request.onsuccess = () => {
         const ledger = request.result;
+        (globalThis as any).__currentLedger = structuredClone(ledger);
         for (const key of Object.keys(ledger.commands))
           ledger.commands[key] = 32 * 1024 * 1024;
         delete ledger.commandAccounting;
+        (globalThis as any).__obsoleteLedger = structuredClone(ledger);
         tx.objectStore('pages').put(ledger, key);
       };
       tx.oncomplete = () => resolve();
@@ -72,6 +74,41 @@ export async function browserCacheRecovery(
     return 16;
   });
   assert.equal(legacy, 16);
+  await pages[0].evaluate(async () => {
+    const cache = new (globalThis as any).HistoryCache('old:0');
+    let rejected = false;
+    try {
+      await cache.record('current-write', { value: 'must-not-commit' });
+    } catch (error) {
+      rejected = String(error).includes('UNSUPPORTED_STORAGE_VERSION');
+    }
+    if (!rejected)
+      throw new Error('Obsolete cache accounting was not rejected');
+    cache.close();
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open('coc-history-v3');
+      request.onsuccess = () => resolve(request.result);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('pages', 'readwrite');
+      const key = ['$coc-transport2-budget', 'ledger'];
+      const read = tx.objectStore('pages').get(key);
+      read.onsuccess = () => {
+        const ledger = read.result;
+        if (
+          JSON.stringify(ledger) !==
+          JSON.stringify((globalThis as any).__obsoleteLedger)
+        )
+          throw new Error('Rejected cache was modified');
+        // Restore the exact test fixture to exercise current-format recovery.
+        Object.assign(ledger, (globalThis as any).__currentLedger);
+        tx.objectStore('pages').put(ledger, key);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  });
   await Promise.all(
     pages.map((page, tab) =>
       page.evaluate(async (tab) => {
@@ -122,7 +159,9 @@ export async function browserCacheRecovery(
     ]) {
       const preserved = new Cache(scope);
       if (!JSON.stringify(await preserved.record(key)).includes(id))
-        throw new Error('Terminal original identity lost during migration');
+        throw new Error(
+          'Terminal original identity lost during current-format recovery',
+        );
       preserved.close();
     }
     return {
@@ -262,6 +301,6 @@ export async function browserCacheRecovery(
   assert.equal(evicted.protectedValues[3].events[0].data.text, 'keep-event');
   await Promise.all(pages.map((page) => page.close()));
   console.log(
-    'PASS: old fixed reservations migrate across two tabs; 66 idle journals, pending admission/release and scoped/global disposable cache reclamation preserve originals and checkpoints',
+    'PASS: obsolete ledgers are rejected unchanged; 66 current journals across two tabs, pending admission/release and scoped/global disposable cache reclamation preserve originals and checkpoints',
   );
 }

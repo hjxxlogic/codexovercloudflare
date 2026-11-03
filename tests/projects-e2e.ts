@@ -141,7 +141,10 @@ try {
   agent = spawn(
     resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
     ['run', '--config', file],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, COC_HISTORY_DIR: join(root, 'history') },
+    },
   );
   let agentLog = '';
   agent.stdout!.on('data', (d) => (agentLog += d));
@@ -161,7 +164,7 @@ try {
   });
   const nextConfiguration = {
     ...JSON.parse(originalConfiguration.text),
-    codexUseProxy: true,
+    codexProxyMode: 'agent',
   };
   const replacementCommand = {
     action: 'replace',
@@ -309,7 +312,10 @@ try {
       '--config',
       clientFile,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, COC_HISTORY_DIR: join(root, 'history') },
+    },
   );
   let clientLog = '';
   client.stdout!.on('data', (d) => (clientLog += d));
@@ -358,7 +364,10 @@ try {
       '--config',
       clientFile,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, COC_HISTORY_DIR: join(root, 'history') },
+    },
   );
   let cliOutput = '';
   cli.stdout.on('data', (d) => (cliOutput += d));

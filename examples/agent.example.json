@@ -1,5 +1,5 @@
 {
-  "displayName": "办公室服务器",
+  "displayName": "\u529e\u516c\u5ba4\u670d\u52a1\u5668",
   "proxy": "",
   "relayUrl": "https://r.xlogic.cc",
   "hostId": "REPLACE_WITH_ENROLLED_HOST_ID",
@@ -26,7 +26,6 @@
   ],
   "autoUpdate": {
     "enabled": true,
-    "intervalHours": 1,
     "platform": ""
   },
   "adminEmail": "",

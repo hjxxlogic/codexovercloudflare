@@ -518,7 +518,7 @@ void Store::delivery_result_ack(const std::string &stream, int64_t received, int
             !query("SELECT 1 FROM transport2_history_entries WHERE key=?", {key}).empty();
         if (unresolved)
           // The pending history promise takes over retention of the existing body
-          // before delivery credit is returned. Old undersized promises must top up.
+          // before delivery credit is returned; reserve its retained body and metadata.
           history_reserve(command.at("session"), command.at("body_bytes").get<int64_t>() + 65536,
                           16, owner);
         run("UPDATE transport2_commands SET body=CASE WHEN ? THEN body ELSE '' END,result=NULL "

@@ -27,7 +27,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   std::shared_ptr<CodexProcess> process_;
   asio::steady_timer timer_;
   std::string thread_, cwd_;
-  bool legacy_ = false, stopped_ = false;
+  bool stopped_ = false;
   Json anchor_;
   std::function<void(std::string, Json, bool)> item_;
   std::function<void(Json)> state_;
@@ -38,7 +38,7 @@ class ExternalThread : public std::enable_shared_from_this<ExternalThread> {
   void latest(Completion);
   void schedule(int);
   void queue_page(const std::string &, const Json &, Completion, Json, int, Json);
-  void deliver(const Json &, bool, bool);
+  void deliver(const Json &);
 
 public:
   ExternalThread(asio::io_context &, std::shared_ptr<CodexProcess>, std::string thread,

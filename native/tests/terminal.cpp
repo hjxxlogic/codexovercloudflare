@@ -80,19 +80,30 @@ int main() {
         io.run_for(std::chrono::milliseconds(20));
       }
     };
-    auto drain = [&]() {
-      const auto result = call({{"operation", "read"}, {"offset", offset}});
-      offset = result.at("offset");
-      output += text(result.at("data"));
-      return result;
+    bool exited = false, gap = false;
+    int exit_code = -1;
+    auto receive = [&](Json frame) {
+      if (frame.at("type") == "output") {
+        output += text(frame.at("data"));
+        offset = frame.at("offset");
+        gap = gap || frame.at("gap").get<bool>();
+      } else if (frame.at("type") == "exit") {
+        exited = true;
+        exit_code = frame.at("exitCode");
+      }
     };
+    auto stream = [&](Json frame) { terminals.stream(base, "test", frame, receive); };
+    auto drain = [&]() { stream({{"type", "ack"}, {"offset", offset}}); };
+    stream({{"type", "bind"}, {"offset", 0}});
+    for (const auto *operation : {"read", "input", "resize"})
+      rejects([&] { call({{"operation", operation}}); }, "UPGRADE_REQUIRED");
     const auto input =
-        Json{{"operation", "input"},
+        Json{{"type", "input"},
              {"seq", 1},
              {"data", b64("printf 'CW_%s\\n' READY; pwd; test ! -e /workspace/escape && printf "
                           "'CW_%s\\n' ISOLATED; printf 'ONE\\n' >> count\n")}};
-    call(input);
-    call(input); // Same runtime sequence cannot execute twice.
+    stream(input);
+    stream(input); // Same runtime sequence cannot execute twice.
     until([&] {
       drain();
       return output.find("CW_ISOLATED\r\n") != std::string::npos;
@@ -106,40 +117,42 @@ int main() {
     check(line == "ONE" && extra.empty(), "Duplicate input executed twice");
     auto other = base;
     other["owner"] = std::string(64, 'b');
-    other["operation"] = "read";
+    other["operation"] = "close";
     rejects([&] { terminals.request(other, root.u8string()); }, "FORBIDDEN");
-    rejects([&] { call({{"operation", "input"}, {"seq", 1}, {"data", b64("echo different\n")}}); },
+    rejects([&] { stream({{"type", "input"}, {"seq", 1}, {"data", b64("echo different\n")}}); },
             "TERMINAL_INPUT_ORDER");
-    call({{"operation", "resize"}, {"seq", 2}, {"cols", 100}, {"rows", 35}});
-    call({{"operation", "input"}, {"seq", 3}, {"data", b64("stty size; sleep 30\n")}});
+    stream({{"type", "resize"}, {"seq", 2}, {"cols", 100}, {"rows", 35}});
+    stream({{"type", "input"}, {"seq", 3}, {"data", b64("stty size; sleep 30\n")}});
     until([&] {
       drain();
       return output.find("35 100\r\n") != std::string::npos;
     });
-    call({{"operation", "input"}, {"seq", 4}, {"data", b64(std::string(1, '\3'))}});
-    call({{"operation", "input"}, {"seq", 5}, {"data", b64("printf 'CW_%s\\n' INTERRUPTED\n")}});
+    stream({{"type", "input"}, {"seq", 4}, {"data", b64(std::string(1, '\3'))}});
+    stream({{"type", "input"}, {"seq", 5}, {"data", b64("printf 'CW_%s\\n' INTERRUPTED\n")}});
     until([&] {
       drain();
       return output.find("CW_INTERRUPTED\r\n") != std::string::npos;
     });
-    rejects([&] { call({{"operation", "input"}, {"seq", 0}, {"data", b64("x")}}); },
+    rejects([&] { stream({{"type", "input"}, {"seq", 0}, {"data", b64("x")}}); },
             "INVALID_REQUEST");
-    rejects(
-        [&] { call({{"operation", "input"}, {"seq", 6}, {"data", b64(std::string(4097, 'x'))}}); },
-        "INVALID_REQUEST");
-    call({{"operation", "input"},
-          {"seq", 6},
-          {"data", b64("head -c 350000 /dev/zero | tr '\\0' x; echo done > gap-done\n")}});
+    rejects([&] { stream({{"type", "input"}, {"seq", 6}, {"data", b64(std::string(4097, 'x'))}}); },
+            "INVALID_REQUEST");
+    stream({{"type", "input"},
+            {"seq", 6},
+            {"data", b64("head -c 350000 /dev/zero | tr '\\0' x; echo done > gap-done\n")}});
+    // Detached output is bounded; rebinding exposes discarded bytes explicitly.
+    terminals.detach("test");
     until([&] { return std::filesystem::exists(root / "gap-done"); });
     io.restart();
     io.run_for(std::chrono::milliseconds(100));
-    const auto gap = call({{"operation", "read"}, {"offset", 0}});
-    check(gap.at("gap") == true && gap.at("offset") > 32768 && text(gap.at("data")).size() <= 32768,
-          "Terminal output ring must expose dropped bytes and bound each response");
-    offset = gap.at("offset");
-    call({{"operation", "input"}, {"seq", 7}, {"data", b64("exit 7\n")}});
-    until([&] { return drain().at("exited").template get<bool>(); });
-    check(drain().at("exitCode") == 7, "Terminal exit code lost");
+    stream({{"type", "bind"}, {"offset", 0}});
+    check(gap, "Terminal output ring must expose dropped bytes");
+    stream({{"type", "input"}, {"seq", 7}, {"data", b64("exit 7\n")}});
+    until([&] {
+      drain();
+      return exited;
+    });
+    check(exit_code == 7, "Terminal exit code lost");
     check(!terminals.busy("project"), "Exited terminal holds project lock");
     // A second terminal is torn down by session closure, including its children.
     auto fresh = base;
@@ -148,8 +161,13 @@ int main() {
     const auto second = terminals.request(fresh, root.u8string());
     base["terminalId"] = second.at("terminalId");
     offset = 0;
+    exited = false;
+    stream({{"type", "bind"}, {"offset", 0}});
     terminals.close_session("host~session");
-    until([&] { return drain().at("exited").template get<bool>(); });
+    until([&] {
+      drain();
+      return exited;
+    });
     std::filesystem::remove_all(root);
     std::filesystem::remove(secret);
 #endif

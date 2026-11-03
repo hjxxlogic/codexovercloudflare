@@ -33,6 +33,7 @@ for await (const line of createInterface({ input: process.stdin })) {
               : 'paginated',
       },
     };
+    if (id === 'missing-mode') delete result.thread.historyMode;
     if (id === 'bad-metadata') result = { thread: null };
   } else if (m.method === 'thread/items/read') {
     if (m.params.threadId === 'wrong-origin')

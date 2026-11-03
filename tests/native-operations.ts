@@ -116,9 +116,9 @@ try {
   const count = () =>
     Number(database!.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n);
   const probe = await control('probe', {});
-  const instance = probe.data.deliveryInstance;
+  const instance = probe.data.operationInstance;
   assert.equal(
-    instance,
+    probe.data.deliveryInstance,
     frames.find((frame) => frame.type === 'capabilities').deliveryInstance,
   );
   const refusedIntent = {
@@ -134,7 +134,7 @@ try {
     0,
     'Admission rejects before allocating a session or starting Codex',
   );
-  assert.equal((await control('probe', {})).data.deliveryInstance, instance);
+  assert.equal((await control('probe', {})).data.operationInstance, instance);
   assert.equal(child!.exitCode, null, 'Capacity admission does not stop Agent');
   await stop();
   settings.historyStorage = { maxBytes: 268435456, maxSessionBytes: 67108864 };
@@ -215,7 +215,8 @@ try {
       ? { requestId: randomUUID(), owner: args.owner, instance }
       : undefined;
     // The shared fixture's valid binding must match this real Agent journal.
-    if (args.agentInstance === 'agent-store') args.agentInstance = instance;
+    if (args.agentInstance === 'agent-store')
+      args.agentInstance = probe.data.deliveryInstance;
     const rejected = await control('files', args, original);
     assert.equal(rejected.error.code, 'INVALID_REQUEST', fixture.name);
     if (original) {

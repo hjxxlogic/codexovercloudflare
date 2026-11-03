@@ -27,6 +27,7 @@ const server = createServer((req, res) => {
       online: true,
       confirmedAt: Date.now(),
       deliveryInstance: 'agent-store',
+      operationInstance: 'agent-store',
     });
   if (
     scenario !== 'delayed' &&

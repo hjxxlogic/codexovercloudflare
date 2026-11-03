@@ -45,9 +45,9 @@ export class OriginalHttpRequests {
     if (!original) {
       const state = await probe(`/${project?.[1] || ''}hosts/${host}/probe`);
       // Let the requested endpoint report authentication/availability failures.
-      if (typeof state?.deliveryInstance !== 'string') return;
+      if (typeof state?.operationInstance !== 'string') return;
       original = {
-        instance: state.operationInstance ?? state.deliveryInstance,
+        instance: state.operationInstance,
         body: JSON.stringify(data),
       };
       this.originals.set(key, original);

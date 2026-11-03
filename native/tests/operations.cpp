@@ -256,6 +256,10 @@ void recovery() {
               unknown.at("result").at("error").at("code") == "RESULT_UNKNOWN",
           "Restarted execution is a durable unknown result, never fresh admission");
     rejects([&] { journal.operation_finish(pending_key, {{"data", true}}); }, "RESULT_UNAVAILABLE");
+    auto obsolete = identity(journal, "obsolete-admission");
+    obsolete["instance"] = journal.delivery_instance();
+    rejects([&] { journal.operation_begin(obsolete, "create", Json::object()); },
+            "REQUEST_EXPIRED");
     auto foreign = complete;
     foreign["instance"] = "another-store";
     rejects([&] { journal.operation_begin(foreign, "stop", data); }, "DELIVERY_STATE_MISMATCH");

@@ -1,8 +1,8 @@
 # Cloudflare Access 与 CoC 邮箱授权
 
-## 实现状态
+## 认证模型
 
-本功能已部署至 `https://r.xlogic.cc`，普通入口已启用 Access，`/guest` 和 `/downloads` 前缀公开；访客业务仍须通过 CoC 授权。部署与验收证据见[发布状态](DEPLOYMENT_STATUS.md)。独立部署未配置 `ACCESS_ENABLED=true` 时保留原有 CoC 登录方式。原生程序的共享 Service Token 默认值已从项目配置编译入二进制；启用 Worker Access 模式仍需配置团队域名、应用 audience 和管理员邮箱，并在 Cloudflare 配置对应策略。
+项目默认部署配置中，普通入口已启用 Access，`/guest` 和 `/downloads` 前缀公开；访客业务仍须通过 CoC 授权。独立部署未配置 `ACCESS_ENABLED=true` 时保留原有 CoC 登录方式。原生程序的共享 Service Token 默认值已从项目配置编译入二进制；启用 Worker Access 模式仍需配置团队域名、应用 audience 和管理员邮箱，并在 Cloudflare 配置对应策略。
 
 本项目使用以下认证规则：
 
@@ -59,7 +59,7 @@ HTTP 控制、配对订阅、异步回执、Agent 上行、历史连接及下载
 
 | Worker 变量            | 说明                                                                          |
 | ---------------------- | ----------------------------------------------------------------------------- |
-| `ACCESS_ENABLED`       | `true` 开启 JWT 校验及邮箱关联；缺省或 `false` 保留旧部署模式                 |
+| `ACCESS_ENABLED`       | `true` 开启 JWT 校验及邮箱关联；缺省或 `false` 仅使用 CoC 登录                |
 | `ACCESS_TEAM_DOMAIN`   | 固定团队 issuer，例如 `https://your-team.cloudflareaccess.com`，不带末尾斜杠  |
 | `ACCESS_AUD`           | 此 Access 应用的 audience tag                                                 |
 | `ADMIN_EMAIL`          | 唯一自动获得管理权限的邮箱；不配置则只支持管理员密钥登录                      |
@@ -115,13 +115,13 @@ Cloudflare 的 hostname Access 应用位于 Worker 之前，因此还须在边�
 4. 换浏览器后，同一邮箱可直接看到全部有效 A，包括离线 A。选择 A 时自动恢复该浏览器独立的 `coc_web_<hostId>` HttpOnly Cookie；无需重新申请或输入 Key。恢复凭据有效期为 30 天，邮箱授权自身持续到撤销。
 5. 网页请求和 WS 握手必须同时匹配当前 Access 邮箱、CoC web 凭据、授权代次、目标及主机状态。会话仍使用原有 attach 票据、模式、控制权和审批规则。
 
-**新浏览器没有有效 Access 会话时仍需验证邮箱**；免除的是重复 CoC 配对。每个邮箱的恢复 / 迁移接口最多每分钟 60 次，避免无限生成浏览器凭据。列表通过初始化、可见性恢复、选中主机通知或显式刷新更新，不增加后台高频轮询。
+**新浏览器没有有效 Access 会话时仍需验证邮箱**；免除的是重复 CoC 配对。每个邮箱的恢复 / 认领接口最多每分钟 60 次，避免无限生成浏览器凭据。列表通过初始化、可见性恢复、选中主机通知或显式刷新更新，不增加后台高频轮询。
 
-### 撤销与旧浏览器迁移
+### 撤销与授权认领
 
 管理页“已授权设备”按邮箱与 A 显示持久授权；撤销该条目会使此邮箱访问该 A 的全部浏览器凭据失效并关闭匹配连接。其他邮箱与其他 A 的授权保留。撤销 Agent 会级联停用该 A 的邮箱授权，新 Agent 不自动继承旧身份。
 
-“断开当前浏览器连接”清除该 A 的本地 Cookie，不撤销邮箱的持久授权；再次选择时可以恢复。当前已有的旧网页 Cookie 没有邮箱归属，页面提供“关联旧授权”按钮，用户明确确认后在事务中认领到当前邮箱。同一旧凭据不能被其他邮箱再次认领。没有旧凭据时仍须首次批准。
+“断开当前浏览器连接”清除该 A 的本地 Cookie，不撤销邮箱的持久授权；再次选择时可以恢复。持有有效且尚未绑定邮箱的网页 Cookie 时，页面提供“关联旧授权”按钮；没有已授权主机时，登录页也显示此入口。用户明确确认后，将该授权关联到当前已验证邮箱，并停用原凭据；同一凭据不能再被其他邮箱认领。没有有效凭据时仍须申请批准。
 
 跨浏览器恢复的是授权关系，不同步 IndexedDB 历史、草稿或偏好。更换邮箱时清除页面上旧账户的选中状态与对话，后续缓存仍按 CoC 身份隔离。
 
@@ -137,30 +137,21 @@ owner 管理权不直接替代网页会话控制权。管理员要操作某个 A
 
 ## API 与运维接入
 
-新增 API（均在 `/api/v1` 下）：
+API（均在 `/api/v1` 下）：
 
-| 路径                       | 用途                                                                                  |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `GET /auth/email`          | 返回当前邮箱、是否为配置的管理员、可迁移的旧授权；未启用 Access 返回 `enabled: false` |
-| `POST /auth/email/admin`   | 管理员邮箱自动登录 / 复用管理会话                                                     |
-| `POST /auth/email/restore` | 传 `hostId`，恢复当前邮箱已授权 A 的网页 Cookie                                       |
-| `POST /auth/email/migrate` | 传 `hostId`，将当前浏览器持有的有效旧网页凭据认领到当前邮箱                           |
-| `GET /hosts`               | 邮箱模式下从数据库列出有效 A，不要求新浏览器已有各 A Cookie                           |
-| `POST /admin/revoke`       | 继续支持旧设备凭据；邮箱授权 ID 则撤销该邮箱对 A 的全部派生凭据                       |
+| 路径                       | 用途                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /auth/email`          | 返回当前邮箱、是否为配置的管理员、可认领的无邮箱网页授权；未启用 Access 返回 `enabled: false` |
+| `POST /auth/email/admin`   | 管理员邮箱自动登录 / 复用管理会话                                                             |
+| `POST /auth/email/restore` | 传 `hostId`，恢复当前邮箱已授权 A 的网页 Cookie                                               |
+| `POST /auth/email/migrate` | 传 `hostId`，显式认领当前浏览器持有的有效无邮箱网页授权                                       |
+| `GET /hosts`               | 邮箱模式下从数据库列出有效 A，不要求新浏览器已有各 A Cookie                                   |
+| `POST /admin/revoke`       | 设备凭据 ID 撤销该设备；邮箱授权 ID 撤销该邮箱对 A 的全部派生凭据                             |
 
 公开配对 ID 不能替代申请秘密；`/api/v1/auth/device/events` 仍是需要申请秘密且核对账户的 WebSocket。原生 API Key 登录、设备配对、角色 / 目标验证和撤销机制继续保留。
 
 [deploy-agent.py](../scripts/deploy-agent.py) 与 [deploy-cloud.py](../scripts/deploy-cloud.py) 的下载 / 验证共用 [cloudflare_access.py](../scripts/cloudflare_access.py)，默认读取项目配置，可用 `COC_ACCESS_CONFIG` 覆盖。仅向匹配 origin 发送 Token，通过 curl 标准输入传请求头，不写入命令行。带凭据请求不跟随重定向，拒绝登录 HTML 被当作清单 / 安装包；GitHub API 和第三方产物下载不携带项目 Token。
 
-先部署兼容代码、配置原生程序，再开启业务域名 Access；不要让旧程序在无法重连时也无法下载升级。共享 Token 轮换只需协调 Cloudflare Service Auth 与各原生程序；Worker 不保存或校验该 Token，轮换无需更新 Worker。撤销单个设备使用 CoC 凭据撤销，不撤销全项目 Token。
+业务域名开启 Access 前，原生程序须配置匹配 origin 的 Service Token；下载域名也须满足原生更新请求的入口认证。共享 Token 轮换只需协调 Cloudflare Service Auth 与各原生程序；Worker 不保存或校验该 Token，轮换无需更新 Worker。撤销单个设备使用 CoC 凭据撤销，不撤销全项目 Token。
 
 发布仍遵循 [RELEASE.md](RELEASE.md)：使用同一提交全部必需 Actions 作业成功后的产物，Agent 等待空闲并保留配置 / 数据库，Worker 发布单独执行。实现和本地测试不等于已经上线或完成真实 Access 边缘联调。
-
-## 验证
-
-- `npm test`：JWT 签名和字段拒绝、无原始 Client 头的机器 API Key 登录、无邮箱权限隔离、伪造邮箱、跨邮箱隔离、首次领取、跨浏览器恢复、管理员邮箱 / 密钥登录、配置变更、授权撤销及旧凭据迁移。
-- `npm run test:tls`：实际原生 HTTPS/WSS、代理 CONNECT 不携带 Token、证书校验、无网络代理的 TUI 桥接、非可信 origin 不发送 Token、登录 HTML 拒绝。
-- `npm run test:access:web`：浏览器验证邮箱 A 列表恢复、管理员登录、条件登出及访客 URL 前缀；隔离真实 Worker 验证访客资源、公开下载、CoC 配对、WS 订阅及撤销。浏览器邮箱部分使用合成身份，真实 JWT 校验另由服务端测试覆盖。
-- 部署前仍需用真实 Access 应用验证用户 / Service Auth 策略、转发到 Worker 的请求头、静态资源、Token 过期 / 轮换及 WS 重连。当前未使用线上凭据执行这些集成操作。
-
-测试结果与平台限制见 [TEST_REPORT.md](TEST_REPORT.md)，用户操作见 [USER_GUIDE.md](USER_GUIDE.md)。

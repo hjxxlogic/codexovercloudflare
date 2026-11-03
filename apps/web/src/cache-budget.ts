@@ -15,7 +15,7 @@ type Usage = { bytes: number; records: number };
 type Ledger = Usage & {
   scopes: Record<string, Usage>;
   commands: Record<string, number>;
-  commandAccounting?: 2;
+  commandAccounting: 2;
 };
 const charge = (key: IDBValidKey, value: unknown) =>
   new TextEncoder().encode(JSON.stringify([key, value])).length + 512;
@@ -72,7 +72,7 @@ export function commandReservation(
         )))
   )
     return actualBytes;
-  // Unknown older formats remain protected until their owner reconciles them.
+  // Pending current requests retain their result reservation.
   return Math.max(actualBytes, cacheLimits.commandReservation);
 }
 
@@ -89,44 +89,17 @@ export class CacheBudget {
         records: 0,
         scopes: {},
         commands: {},
+        commandAccounting: 2,
       };
-      this.migrateCommands();
-    };
-  }
-  private migrateCommands() {
-    const ledger = this.ledger!;
-    if (ledger.commandAccounting === 2) {
-      this.next();
-      return;
-    }
-    // Upgrade the old fixed reservations in the same serialized transaction.
-    // Never rewrite or remove an outbox, including those owned by another tab.
-    const entries = Object.entries(ledger.commands);
-    let remaining = entries.length;
-    this.busy = true;
-    const done = () => {
-      if (--remaining > 0) return;
-      ledger.commandAccounting = 2;
-      this.tx.objectStore('pages').put(ledger, ledgerKey);
-      this.busy = false;
+      if (this.ledger!.commandAccounting !== 2) {
+        this.error = new Error(
+          'UNSUPPORTED_STORAGE_VERSION: Unsupported cache accounting format',
+        );
+        this.tx.abort();
+        return;
+      }
       this.next();
     };
-    if (!remaining) {
-      remaining = 1;
-      done();
-    }
-    for (const [identity, reserved] of entries) {
-      const [, key] = JSON.parse(identity);
-      const read = this.tx.objectStore('pages').get(key);
-      read.onsuccess = () => {
-        if (read.result !== undefined)
-          ledger.commands[identity] = Math.min(
-            reserved,
-            commandReservation(read.result, charge(key, read.result), key),
-          );
-        done();
-      };
-    }
   }
   private next() {
     if (!this.ledger || this.busy || this.error) return;

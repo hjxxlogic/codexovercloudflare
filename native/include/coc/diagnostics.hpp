@@ -66,6 +66,14 @@ inline Json doctor(const Json &config, bool agent) {
         throw Error("STORAGE_ERROR", "Cannot open journal for diagnostics");
       }
       std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database(raw, sqlite3_close);
+      sqlite3_stmt *version_query = nullptr;
+      if (sqlite3_prepare_v2(raw, "PRAGMA user_version", -1, &version_query, nullptr) != SQLITE_OK)
+        throw Error("STORAGE_ERROR", "Cannot inspect journal version");
+      std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> version(version_query,
+                                                                         sqlite3_finalize);
+      if (sqlite3_step(version.get()) != SQLITE_ROW ||
+          (sqlite3_column_int(version.get(), 0) != 0 && sqlite3_column_int(version.get(), 0) != 1))
+        throw Error("UNSUPPORTED_STORAGE_VERSION", "Unsupported journal schema");
       sqlite3_stmt *statement = nullptr;
       if (sqlite3_prepare_v2(raw, "PRAGMA quick_check", -1, &statement, nullptr) != SQLITE_OK)
         throw Error("STORAGE_ERROR", "Cannot inspect journal");
@@ -74,7 +82,6 @@ inline Json doctor(const Json &config, bool agent) {
           std::string(reinterpret_cast<const char *>(sqlite3_column_text(statement, 0))) != "ok")
         throw Error("STORAGE_ERROR", "Journal integrity check failed");
       sqlite3_stmt *budget_query = nullptr;
-      // Old databases need not contain a history ledger; diagnostics never migrate them.
       if (sqlite3_prepare_v2(
               raw,
               "SELECT COALESCE(SUM(CASE WHEN scope='@global' THEN bytes ELSE 0 END),0),"
@@ -83,7 +90,7 @@ inline Json doctor(const Json &config, bool agent) {
               "COALESCE(MAX(CASE WHEN scope!='@global' THEN records ELSE 0 END),0),"
               "COUNT(CASE WHEN scope!='@global' THEN 1 END) FROM transport2_history_budget",
               -1, &budget_query, nullptr) != SQLITE_OK)
-        return Json("ok; history ledger unavailable");
+        throw Error("UNSUPPORTED_STORAGE_VERSION", "Current history ledger is required");
       std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> budget(budget_query,
                                                                         sqlite3_finalize);
       if (sqlite3_step(budget.get()) != SQLITE_ROW)

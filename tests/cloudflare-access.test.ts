@@ -21,7 +21,7 @@ vi.mock('cloudflare:workers', () => ({
 import { RegistryDO } from '../apps/relay/src/registry.ts';
 import worker from '../apps/relay/src/index.ts';
 import { verifyAccess, accessUser } from '../apps/relay/src/access.ts';
-import type { Env } from '../apps/relay/src/common.ts';
+import { digest, type Env } from '../apps/relay/src/common.ts';
 import { version } from '../package.json';
 
 const issuer = 'https://coc-access-tests.cloudflareaccess.com';
@@ -1049,6 +1049,7 @@ describe('email grants and administrator identity', () => {
     ).data;
     const cookie = `coc_web_${a.hostId}=${old.token}`;
     env.ACCESS_ENABLED = 'true';
+    await storage.put('expiryMigration', { prefix: 3, pending: false });
     expect(
       (await request('/api/v1/hosts', 'user@test.com', undefined, cookie)).data,
     ).toEqual([]);
@@ -1066,6 +1067,18 @@ describe('email grants and administrator identity', () => {
         )
       ).status,
     ).toBe(200);
+    expect(
+      await storage.get('auth:' + (await digest(old.token))),
+    ).toBeUndefined();
+    expect(await storage.get('expiryMigration')).toEqual({
+      prefix: 3,
+      pending: false,
+    });
+    expect(
+      (await request('/api/v1/hosts', 'user@test.com')).data.map(
+        (h: any) => h.id,
+      ),
+    ).toEqual([a.hostId]);
     expect(
       (
         await request(

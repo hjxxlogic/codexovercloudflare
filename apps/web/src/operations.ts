@@ -421,9 +421,13 @@ export class OperationClient {
         signal,
       );
       this.check();
-      const instance = idSchema.parse(
-        result.operationInstance ?? result.deliveryInstance,
-      );
+      if (!idSchema.safeParse(result.operationInstance).success)
+        throw new ApiError(
+          'UPGRADE_REQUIRED',
+          'Agent must provide its operation admission identity',
+          426,
+        );
+      const instance = idSchema.parse(result.operationInstance);
       const agentInstance = idSchema.parse(result.deliveryInstance);
       if (record.agentInstance && record.agentInstance !== agentInstance)
         throw new ApiError(

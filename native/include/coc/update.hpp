@@ -9,7 +9,6 @@ struct UpdateSettings {
 #else
   bool enabled = true;
 #endif
-  int interval_hours = 1;
   std::string platform;
 };
 UpdateSettings update_settings(const Json &config);

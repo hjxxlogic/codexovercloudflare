@@ -367,7 +367,7 @@ Json seed_reader(const std::filesystem::path &root, bool prepared = true, bool i
   sqlite3 *db = nullptr;
   if (sqlite3_open((root / "state" / "agent.db").u8string().c_str(), &db) != SQLITE_OK)
     throw std::runtime_error("Open recovery fixture");
-  // Preserve coverage of the old duplicate-chunk layout during migration.
+  // Exercise transactional reclamation of redundant chunks.
   if (sqlite3_exec(
           db, "INSERT INTO chunks SELECT seq,0,json_extract(value,'$.data.delta') FROM history",
           nullptr, nullptr, nullptr) != SQLITE_OK)
@@ -1118,9 +1118,10 @@ int main(int argc, char **argv) {
     read_case("wrong-thread", "ok", 4096, "FORBIDDEN");
     read_case("rebound", "ok", 4096, "FORBIDDEN");
     read_case("legacy", "ok", 4096, "EXTERNAL_HISTORY_UNSUPPORTED");
+    read_case("missing-mode", "ok", 4096, "EXTERNAL_HISTORY_UNSUPPORTED");
     read_case("unknown-mode", "ok", 4096, "EXTERNAL_HISTORY_UNSUPPORTED");
     read_case("bad-metadata", "ok", 4096, "INVALID_FRAME");
-    read_case("changed-mode", "ok", 4096, "CONTENT_CHANGED");
+    read_case("changed-mode", "ok", 4096, "EXTERNAL_HISTORY_UNSUPPORTED");
     read_case("normal", "", 4096, "INVALID_REQUEST");
     read_case("normal", "missing", 4096, "CONTENT_UNAVAILABLE");
     for (const auto *item : {"wrong-turn", "wrong-item", "duplicate", "malformed"})

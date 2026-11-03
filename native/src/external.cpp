@@ -79,8 +79,7 @@ void read_history_thread(std::shared_ptr<CodexProcess> process, const std::strin
                {{"code", "FORBIDDEN"}, {"message", "History thread belongs to another project"}});
           return;
         }
-        if (source.contains("historyMode") && source.at("historyMode") != "paginated" &&
-            source.at("historyMode") != "legacy") {
+        if (source.value("historyMode", Json()) != "paginated") {
           done(nullptr,
                {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"}, {"message", "Unknown history mode"}});
           return;
@@ -103,11 +102,6 @@ static void read_history_entry(std::shared_ptr<CodexProcess> process, const std:
                                                                                  Json error) {
         if (!error.is_null()) {
           done(nullptr, error);
-          return;
-        }
-        if (source.value("historyMode", "paginated") != "paginated") {
-          done(nullptr, {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"},
-                         {"message", "Direct item reads require paginated history"}});
           return;
         }
         Json origin;
@@ -197,31 +191,17 @@ void read_history_source(std::shared_ptr<CodexProcess> process, const std::files
                      expected_origin);
 }
 void ExternalThread::validate(Completion done) {
-  auto self = shared_from_this();
-  read_history_thread(process_, thread_, cwd_, [self, done](Json source, Json error) {
-    if (error.is_null())
-      self->legacy_ = source.value("historyMode", "paginated") == "legacy";
-    done(source, error);
-  });
+  read_history_thread(process_, thread_, cwd_, std::move(done));
 }
-void ExternalThread::deliver(const Json &entry, bool historical, bool descending) {
-  if (legacy_) {
-    auto items = entry.value("items", Json::array());
-    if (descending)
-      std::reverse(items.begin(), items.end());
-    for (auto &item : items)
-      item_(entry.at("id"), item, historical);
-  } else
-    item_(entry.at("turnId"), entry.at("item"), historical);
+void ExternalThread::deliver(const Json &entry) {
+  item_(entry.at("turnId"), entry.at("item"), false);
 }
 void ExternalThread::probe(Json cursor, int remaining, size_t bytes, Json entries, Json reverse,
                            Completion done) {
   auto self = shared_from_this();
   Json params = {
       {"threadId", thread_}, {"cursor", cursor}, {"limit", 1}, {"sortDirection", "desc"}};
-  if (legacy_)
-    params["itemsView"] = "full";
-  process_->request(legacy_ ? "thread/turns/list" : "thread/items/list", params,
+  process_->request("thread/items/list", params,
                     [self, remaining, bytes, entries = std::move(entries), reverse,
                      done](Json result, Json error) mutable {
                       if (!error.is_null()) {
@@ -257,9 +237,7 @@ void ExternalThread::forward(Json cursor, const std::string &turn, Json anchor, 
   }
   auto self = shared_from_this();
   Json params = {{"threadId", thread_}, {"cursor", cursor}, {"limit", 1}, {"sortDirection", "asc"}};
-  if (legacy_)
-    params["itemsView"] = "full";
-  process_->request(legacy_ ? "thread/turns/list" : "thread/items/list", params,
+  process_->request("thread/items/list", params,
                     [self, cursor, turn, anchor, done](Json result, Json error) mutable {
                       if (!error.is_null()) {
                         done(nullptr, error);
@@ -267,12 +245,12 @@ void ExternalThread::forward(Json cursor, const std::string &turn, Json anchor, 
                       }
                       try {
                         for (auto &entry : result.at("data")) {
-                          const auto entry_turn = entry.at(self->legacy_ ? "id" : "turnId");
+                          const auto entry_turn = entry.at("turnId");
                           // Revisit the whole observed current turn: items older than
                           // the rolling tail can still grow or finish asynchronously.
                           if (anchor.is_null() && entry_turn == turn)
                             anchor = cursor;
-                          self->deliver(entry, false, false);
+                          self->deliver(entry);
                         }
                         auto next = result.value("nextCursor", Json());
                         if (!next.is_null()) {
@@ -311,7 +289,7 @@ void ExternalThread::latest(Completion done) {
             const bool running = known && data[0].value("status", "") == "inProgress";
             self->state_({{"running", running},
                           {"externalStatus", known ? (running ? "active" : "idle") : "unknown"}});
-            self->probe(nullptr, self->legacy_ ? 1 : 16, 0, Json::array(), nullptr,
+            self->probe(nullptr, 16, 0, Json::array(), nullptr,
                         [self, turn, done](Json result, Json error) {
                           if (!error.is_null()) {
                             done(nullptr, error);
@@ -322,7 +300,7 @@ void ExternalThread::latest(Completion done) {
                               if (error.is_null() && !anchor.is_null())
                                 self->anchor_ = anchor;
                               done({{"archiveCursor", result.at("older")},
-                                    {"historyMode", self->legacy_ ? "legacy" : "paginated"},
+                                    {"historyMode", "paginated"},
                                     {"seeded", !result.at("entries").empty()}},
                                    error);
                             };
@@ -330,7 +308,7 @@ void ExternalThread::latest(Completion done) {
                               auto entries = result.at("entries");
                               std::reverse(entries.begin(), entries.end());
                               for (auto &entry : entries)
-                                self->deliver(entry, false, false);
+                                self->deliver(entry);
                               finish(result.at("anchor"), nullptr);
                             } else
                               self->forward(self->anchor_, turn, nullptr, finish);

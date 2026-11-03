@@ -81,7 +81,7 @@ int main() {
             "External snapshot revision");
       const Json intent = {{"requestId", "request"},
                            {"owner", std::string(64, 'a')},
-                           {"instance", store.delivery_instance()}};
+                           {"instance", store.operation_instance()}};
       check(store.operation_begin(intent, "stop", {{"sessionId", "session"}}).at("state") == "new",
             "Original operation admitted once");
       check(store.operation_begin(intent, "stop", {{"sessionId", "session"}}).at("state") ==

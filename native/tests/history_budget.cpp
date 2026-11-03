@@ -60,10 +60,6 @@ void archive_allocation_retirement() {
                    session, "turn",
                    {{"id", "first-native"}, {"type", "agentMessage"}, {"text", "second"}}, true)
                .at("seq");
-    Database legacy(temp.path);
-    legacy.sql("DROP TABLE transport2_history_meta");
-    legacy.sql("CREATE TABLE transport2_history_meta(id INTEGER PRIMARY KEY CHECK(id=1))");
-    legacy.sql("INSERT INTO transport2_history_meta VALUES(1)");
   }
   const auto clear = [](Database &db) {
     // Simulate future authorized projection retirement only in this isolated fixture.
@@ -72,10 +68,9 @@ void archive_allocation_retirement() {
   };
   {
     Store store(temp.path);
-    const auto migrated = store.archive_event(session, "user", {{"text", "after migration"}});
-    check(migrated.at("seq") == last - 1,
-          "Legacy allocator migration lost the lowest issued identity");
-    last = migrated.at("seq");
+    const auto resumed = store.archive_event(session, "user", {{"text", "after restart"}});
+    check(resumed.at("seq") == last - 1, "Allocator restart lost the lowest issued identity");
+    last = resumed.at("seq");
     Database fixture(temp.path);
     clear(fixture);
     fixture.sql("CREATE TRIGGER reject_archive BEFORE INSERT ON history BEGIN "
@@ -116,13 +111,10 @@ void history_head_retirement() {
     store.event(session, "user", {{"text", "accepted"}});
     head = store.history(session).at("snapshotSeq");
     Database fixture(temp.path);
-    fixture.sql("DROP TABLE transport2_history_heads");
-    fixture.sql(
-        "DELETE FROM transport2_history_entries WHERE key GLOB 'transport2_history_heads:*'");
   }
   {
     Store store(temp.path);
-    check(store.delivery_heads(session).at("agent") == head, "Legacy head migration lost revision");
+    check(store.delivery_heads(session).at("agent") == head, "Head restart lost revision");
     Database fixture(temp.path);
     fixture.sql("CREATE TEMP TABLE assertion(n INTEGER CHECK(n=1)); "
                 "INSERT INTO assertion SELECT COUNT(*)=1 FROM transport2_history_entries "
@@ -230,7 +222,7 @@ void projection_retirement() {
           "Retirement keeps configured recent rows");
     check(store.history_budget().at("global").at("bytes") < budget.at("global").at("bytes"),
           "Retirement refunds projection and dependency accounting");
-    rejects([&] { store.history(session); }, "UNSUPPORTED_PROTOCOL_VERSION");
+    rejects([&] { store.history(session, 0, -1, 1); }, "UNSUPPORTED_PROTOCOL_VERSION");
     const auto snapshot = store.history(session, 0, 0, 2);
     check(snapshot.at("gap") == true && snapshot.at("events").size() == 2 &&
               snapshot.at("snapshotSeq") == head && snapshot.at("snapshotGeneration") == 1,
@@ -248,7 +240,7 @@ void projection_retirement() {
   rejects([&] { restarted.history_content(session, reference, 0); }, "CONTENT_EXPIRED");
   rejects([&] { restarted.history(session, 0, 0, 99); }, "UNSUPPORTED_PROTOCOL_VERSION");
 }
-void legacy_packing() {
+void chunk_packing() {
   Temp temp;
   Json reference, snapshot, before;
   {
@@ -301,7 +293,7 @@ void legacy_packing() {
     }
     check(failed && journal.history_budget() == before &&
               journal.history_reference("h~legacy", seq) == reference,
-          "Final net-growth verification rejects and rolls back an invalid migration");
+          "Final net-growth verification rejects and rolls back an invalid compaction");
     fixture.sql("INSERT INTO guard_check SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
                 "AND name='transport2_history_capacity'");
     fixture.sql("DROP TRIGGER inflate_pack");
@@ -440,7 +432,7 @@ void runtime_terminal_recovery() {
     Store store(temp.path, true, "", policy);
     intent = {{"owner", std::string(64, 'a')},
               {"requestId", "original-create"},
-              {"instance", store.delivery_instance()}};
+              {"instance", store.operation_instance()}};
     const auto key = store.operation_begin(intent, "create", Json::object()).at("key");
     store.operation_session(key,
                             {{"id", "host~runtime"}, {"state", "starting"}, {"running", false}});
@@ -710,7 +702,7 @@ void journal_cleanup() {
     // This request's unknown execution evidence is unrelated to display logs.
     const Json intent = {{"requestId", "unknown"},
                          {"owner", std::string(64, 'a')},
-                         {"instance", store.delivery_instance()}};
+                         {"instance", store.operation_instance()}};
     store.operation_begin(intent, "stop", {{"sessionId", session}});
     Database fixture(temp.path);
     fixture.sql("INSERT INTO events(session,value,time) VALUES('" + session +
@@ -837,7 +829,7 @@ void projected_history_heads() {
             restored.delivery_heads(session).at("agent") == next.at("revision"),
         "Failed projection cannot publish an allocated but uncommitted event revision");
 }
-void legacy_inline_dedup() {
+void inline_dedup() {
   Temp temp;
   Json reference, snapshot, tool_reference;
   const std::string session = "host~legacy-inline";
@@ -870,17 +862,17 @@ void legacy_inline_dedup() {
     state["running"] = true;
     store.save(state);
     check(store.history_inline_compact().at("removedChunks") == 0,
-          "Inline migration skips running sessions");
+          "Inline compaction skips running sessions");
     state["running"] = false;
     store.save(state);
     store.history_reserve(session, 65536, 16);
     check(store.history_inline_compact().at("removedChunks") == 0,
-          "Inline migration skips active promises");
+          "Inline compaction skips active promises");
     store.history_release(session);
     const auto before = store.history_budget();
     fixture.sql(
         "CREATE TRIGGER fail_inline BEFORE DELETE ON chunks WHEN OLD.seq=" + tool.at("seq").dump() +
-        " BEGIN SELECT RAISE(ABORT,'injected inline migration failure'); END");
+        " BEGIN SELECT RAISE(ABORT,'injected inline compaction failure'); END");
     bool failed = false;
     try {
       store.history_inline_compact();
@@ -889,7 +881,7 @@ void legacy_inline_dedup() {
     }
     check(failed && store.history_budget() == before &&
               store.history_reference(session, seq) == reference,
-          "Later migration failure restores earlier removals and accounting");
+          "Later compaction failure restores earlier removals and accounting");
     fixture.sql("DROP TRIGGER fail_inline");
     const auto result = store.history_inline_compact();
     check(
@@ -1007,7 +999,7 @@ void configurable_policy() {
   } catch (const Error &) {
     rejected = true;
   }
-  check(rejected, "Injected policy migration failure is reported");
+  check(rejected, "Injected policy reconfiguration failure is reported");
   {
     Database fixture(temp.path);
     fixture.sql("DROP TRIGGER history_policy_fault");
@@ -1173,10 +1165,6 @@ void accounting() {
           "Restart recovers the exact persisted history ledger");
   }
   {
-    Database fixture(temp.path);
-    fixture.legacy_schema();
-  }
-  {
     Store imported(temp.path);
     check(imported.history_budget() == saved, "Bootstrap accounts existing events and chunks once");
     Database fixture(temp.path);
@@ -1271,13 +1259,13 @@ void oversized_legacy() {
                   std::to_string(seq) + ")");
     }
   }
-  Store journal(temp.path);
-  const auto imported = journal.history_budget();
-  check(imported["sessions"][0]["bytes"] > credit::history_session &&
-            !journal.history("legacy")["events"].empty(),
-        "Existing oversized authority remains available after accounting bootstrap");
-  backpressure([&] { journal.event("legacy", "record", "no new capacity"); });
-  check(journal.history_budget() == imported, "Import never silently deletes or forgives history");
+  bool rejected = false;
+  try {
+    Store journal(temp.path);
+  } catch (const Error &error) {
+    rejected = error.code == "UNSUPPORTED_STORAGE_VERSION";
+  }
+  check(rejected, "Obsolete storage is rejected without bootstrap");
 }
 } // namespace
 int main() {
@@ -1285,8 +1273,8 @@ int main() {
     archive_allocation_retirement();
     history_head_retirement();
     projection_retirement();
-    legacy_packing();
-    legacy_inline_dedup();
+    chunk_packing();
+    inline_dedup();
     projected_history_heads();
     journal_cleanup();
     atomic_turn_admission();

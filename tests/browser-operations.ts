@@ -32,7 +32,12 @@ try {
     const { id, ack, probe, body } = route.request().postDataJSON();
     if (probe) {
       probes++;
-      await route.fulfill({ json: { deliveryInstance: 'agent-store' } });
+      await route.fulfill({
+        json: {
+          deliveryInstance: 'agent-store',
+          operationInstance: 'agent-store',
+        },
+      });
       return;
     }
     wires.push({ id, ack });

@@ -49,7 +49,11 @@ const server = createServer(async (request, response) => {
   try {
     if (request.url === '/api/v1/hosts/host/probe') {
       probes++;
-      return send({ online: true, deliveryInstance: instance });
+      return send({
+        online: true,
+        deliveryInstance: instance,
+        operationInstance: instance,
+      });
     }
     if (request.url === '/api/v1/hosts')
       return send([{ id: 'host', online: true }]);

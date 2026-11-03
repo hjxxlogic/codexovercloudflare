@@ -367,7 +367,8 @@ try {
     });
     assert.equal(stale.error.code, 'HISTORY_SNAPSHOT_CHANGED');
     assert.equal(
-      (await read({ operation: 'page', after: 0 })).error.code,
+      (await read({ operation: 'page', historyVersion: 1, after: 0 })).error
+        .code,
       'UNSUPPORTED_PROTOCOL_VERSION',
     );
   }

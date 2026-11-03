@@ -46,10 +46,11 @@ bool priority_message(const Json &message) {
 }
 Json codex_environment(const Json &config) {
   Json environment = Json::object();
-  const auto mode = config.value("codexProxyMode",
-                                 config.contains("codexUseProxy")
-                                     ? (config.value("codexUseProxy", false) ? "agent" : "direct")
-                                     : "inherit");
+  if (config.contains("codexUseProxy"))
+    throw Error("CONFIG_ERROR", "codexUseProxy is unsupported; use codexProxyMode");
+  const auto mode = config.value("codexProxyMode", "inherit");
+  if (mode != "inherit" && mode != "direct" && mode != "agent")
+    throw Error("CONFIG_ERROR", "Invalid codexProxyMode");
   if (mode == "inherit")
     return environment;
   const auto proxy = mode == "agent" ? config.value("proxy", "") : "";

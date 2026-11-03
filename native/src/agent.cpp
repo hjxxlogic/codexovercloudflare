@@ -1146,7 +1146,7 @@ public:
         return;
       }
       auto page = store_.history(id, d.value("before", int64_t(0)), d.value("after", int64_t(-1)),
-                                 d.value("historyVersion", 1),
+                                 d.value("historyVersion", 2),
                                  d.value("snapshotGeneration", int64_t(-1)), d.value("owner", ""));
       if (d.contains("after") || s.value("archiveDone", true)) {
         done(page, nullptr);
@@ -1163,7 +1163,7 @@ public:
           return;
         }
         auto page =
-            store_.history(id, d.value("before", int64_t(0)), -1, d.value("historyVersion", 1),
+            store_.history(id, d.value("before", int64_t(0)), -1, d.value("historyVersion", 2),
                            d.value("snapshotGeneration", int64_t(-1)), d.value("owner", ""));
         if (!store_.get(id).value("archiveDone", true))
           page["more"] = true;
@@ -1429,7 +1429,8 @@ public:
         if (d.contains("threadId")) {
           params["threadId"] = d.at("threadId");
           params["excludeTurns"] = true;
-        }
+        } else
+          params["historyMode"] = "paginated";
         rt->process->request(d.contains("threadId") ? "thread/resume" : "thread/start", params,
                              [this, id, rt, d, done](Json result, Json error) {
                                if (!error.is_null()) {
@@ -1441,10 +1442,17 @@ public:
                                  done(nullptr, error);
                                  return;
                                }
+                               if (!result.contains("thread") || !result.at("thread").is_object() ||
+                                   result.at("thread").value("historyMode", Json()) !=
+                                       "paginated") {
+                                 stop(id);
+                                 done(nullptr, {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"},
+                                                {"message", "Paginated history is required"}});
+                                 return;
+                               }
                                auto current = store_.get(id);
                                current["threadId"] = result.at("thread").at("id");
-                               current["historyMode"] =
-                                   result.at("thread").value("historyMode", "paginated");
+                               current["historyMode"] = result.at("thread").at("historyMode");
                                store_.save(current);
                                if (d.contains("threadId")) {
                                  current["archiveDone"] = false;
@@ -1770,85 +1778,82 @@ public:
   void read_archive(const std::string &id, std::shared_ptr<CodexProcess> process, bool temporary,
                     int remaining, Completion done) {
     auto s = store_.get(id);
-    const bool legacy = s.value("historyMode", "paginated") == "legacy";
+    if (s.value("historyMode", Json()) != "paginated") {
+      archive_loading_.erase(id);
+      if (temporary)
+        process->close();
+      done(nullptr,
+           {{"code", "EXTERNAL_HISTORY_UNSUPPORTED"}, {"message", "Unsupported history mode"}});
+      return;
+    }
     Json params = {{"threadId", s.at("threadId")},
                    {"cursor", s.value("archiveCursor", Json())},
                    {"sortDirection", "desc"},
                    {"limit", 1}};
-    if (legacy)
-      params["itemsView"] = "full";
-    process->request(
-        legacy ? "thread/turns/list" : "thread/items/list", params,
-        [this, id, process, temporary, remaining, done, legacy](Json result, Json error) {
-          if (!error.is_null()) {
-            archive_loading_.erase(id);
-            if (temporary)
-              process->close();
-            done(nullptr, error);
-            return;
-          }
-          try {
-            Json events = Json::array(), entries = Json::array();
-            if (legacy) {
-              for (auto &turn : result.value("data", Json::array())) {
-                auto items = turn.value("items", Json::array());
-                std::reverse(items.begin(), items.end());
-                for (auto &item : items)
-                  entries.push_back({{"turnId", turn.at("id")}, {"item", item}});
-              }
-            } else
-              entries = result.value("data", Json::array());
-            const bool external = store_.get(id).value("external", false);
-            for (auto &entry : entries) {
-              if (external) {
-                auto event = store_.external_item(id, entry.at("turnId"), entry.at("item"), true);
-                if (!event.is_null())
-                  publish(id, event);
-                continue;
-              }
-              auto item = entry.at("item");
-              auto type = item.value("type", "");
-              auto turn = entry.value("turnId", "");
-              if (type == "userMessage") {
-                std::string text;
-                for (auto &content : item.value("content", Json::array()))
-                  if (content.value("type", "") == "text")
-                    text += content.value("text", "");
-                events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
-              } else if (type == "agentMessage")
-                events.push_back({{"type", "item/agentMessage/delta"},
-                                  {"data",
-                                   {{"itemId", item.value("id", "")},
-                                    {"turnId", turn},
-                                    {"delta", item.value("text", "")}}}});
-              else
-                events.push_back(
-                    {{"type", "item/completed"}, {"data", {{"item", item}, {"turnId", turn}}}});
-            }
-            auto cursor = result.value("nextCursor", Json());
-            if (external) {
-              auto current = store_.get(id);
-              current["archiveCursor"] = cursor;
-              current["archiveDone"] = cursor.is_null();
-              store_.save(current);
-            } else
-              store_.archive_page(id, events, cursor);
-            if (!cursor.is_null() && remaining > 1) {
-              read_archive(id, process, temporary, remaining - 1, done);
-              return;
-            }
-          } catch (const std::exception &failure) {
-            archive_loading_.erase(id);
-            if (temporary)
-              process->close();
-            done(nullptr, error_data(failure));
-            return;
-          }
-          archive_loading_.erase(id);
-          if (temporary)
-            process->close();
-          done(nullptr, nullptr);
-        });
+    process->request("thread/items/list", params,
+                     [this, id, process, temporary, remaining, done](Json result, Json error) {
+                       if (!error.is_null()) {
+                         archive_loading_.erase(id);
+                         if (temporary)
+                           process->close();
+                         done(nullptr, error);
+                         return;
+                       }
+                       try {
+                         Json events = Json::array(), entries = Json::array();
+                         entries = result.value("data", Json::array());
+                         const bool external = store_.get(id).value("external", false);
+                         for (auto &entry : entries) {
+                           if (external) {
+                             auto event = store_.external_item(id, entry.at("turnId"),
+                                                               entry.at("item"), true);
+                             if (!event.is_null())
+                               publish(id, event);
+                             continue;
+                           }
+                           auto item = entry.at("item");
+                           auto type = item.value("type", "");
+                           auto turn = entry.value("turnId", "");
+                           if (type == "userMessage") {
+                             std::string text;
+                             for (auto &content : item.value("content", Json::array()))
+                               if (content.value("type", "") == "text")
+                                 text += content.value("text", "");
+                             events.push_back({{"type", "user"}, {"data", {{"text", text}}}});
+                           } else if (type == "agentMessage")
+                             events.push_back({{"type", "item/agentMessage/delta"},
+                                               {"data",
+                                                {{"itemId", item.value("id", "")},
+                                                 {"turnId", turn},
+                                                 {"delta", item.value("text", "")}}}});
+                           else
+                             events.push_back({{"type", "item/completed"},
+                                               {"data", {{"item", item}, {"turnId", turn}}}});
+                         }
+                         auto cursor = result.value("nextCursor", Json());
+                         if (external) {
+                           auto current = store_.get(id);
+                           current["archiveCursor"] = cursor;
+                           current["archiveDone"] = cursor.is_null();
+                           store_.save(current);
+                         } else
+                           store_.archive_page(id, events, cursor);
+                         if (!cursor.is_null() && remaining > 1) {
+                           read_archive(id, process, temporary, remaining - 1, done);
+                           return;
+                         }
+                       } catch (const std::exception &failure) {
+                         archive_loading_.erase(id);
+                         if (temporary)
+                           process->close();
+                         done(nullptr, error_data(failure));
+                         return;
+                       }
+                       archive_loading_.erase(id);
+                       if (temporary)
+                         process->close();
+                       done(nullptr, nullptr);
+                     });
   }
   void recover_queue_promise() {
     if (stopped_ || history_readers_ || !archive_loading_.empty())
@@ -3232,9 +3237,7 @@ int coc_main(int argc, char **argv) {
       config["accessEmails"] = config.value("accessEmails", coc::Json::array());
       config = coc::agent_config(std::move(config));
       const auto updates = coc::update_settings(config);
-      config["autoUpdate"] = {{"enabled", updates.enabled},
-                              {"intervalHours", updates.interval_hours},
-                              {"platform", updates.platform}};
+      config["autoUpdate"] = {{"enabled", updates.enabled}, {"platform", updates.platform}};
       coc::save_private(file, config);
       std::cout << "Agent authorized: " << grant.at("hostId") << "\nConfig: " << file << '\n';
       return 0;

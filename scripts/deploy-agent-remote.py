@@ -49,7 +49,8 @@ def status(binary, name):
 
 def identity(build, args):
     if (build.get('commit') != args.commit or build.get('sourceDigest') != args.source_digest
-            or build.get('dirty') is not False or build.get('protocol') != 1
+            or (build.get('dirty') is not False and not getattr(args, 'allow_uncommitted', False))
+            or build.get('protocol') != 1
             or build.get('target') != 'linux-x86_64'):
         raise RuntimeError('Candidate build identity does not match the requested deployment source')
 
@@ -127,6 +128,7 @@ def main():
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--verify-seconds', type=int, required=True)
     parser.add_argument('--allow-restart-active', action='store_true')
+    parser.add_argument('--allow-uncommitted', action='store_true')
     args = parser.parse_args()
     if args.operation == 'status':
         result = status(pathlib.Path(args.binary), args.service)

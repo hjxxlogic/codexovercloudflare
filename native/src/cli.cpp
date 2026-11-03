@@ -113,11 +113,10 @@ class Cli {
     if (record.is_null()) {
       const auto probe =
           api("/hosts/" + credential.at("hostId").get<std::string>() + "/probe", Json::object());
-      if (!probe.contains("deliveryInstance") || !probe.at("deliveryInstance").is_string())
+      if (!probe.contains("operationInstance") || !probe.at("operationInstance").is_string())
         throw Error("UPGRADE_REQUIRED",
                     "Agent must provide its persistent original-operation instance");
-      record = journal->local_operation_prepare(
-          request, path, body, probe.value("operationInstance", probe.at("deliveryInstance")));
+      record = journal->local_operation_prepare(request, path, body, probe.at("operationInstance"));
     } else
       record = journal->local_operation_prepare(request, path, body, record.at("instance"));
     const auto url = relay_url(credential.at("relay"));

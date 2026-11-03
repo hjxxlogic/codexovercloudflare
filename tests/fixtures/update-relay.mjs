@@ -48,8 +48,22 @@ sockets.on('connection', (socket) => {
   socket.on('message', (bytes) => {
     const message = JSON.parse(bytes.toString());
     if (message.type === 'capabilities' && !state.creating) {
-      instance = message.operationInstance ?? message.deliveryInstance;
       state.creating = true;
+      socket.send(
+        JSON.stringify({
+          type: 'control',
+          action: 'probe',
+          requestId: 'probe',
+          data: {},
+        }),
+      );
+    }
+    if (
+      message.type === 'result' &&
+      message.requestId === 'probe' &&
+      !message.error
+    ) {
+      instance = message.data.operationInstance;
       writeControl('create', 'create', {
         key: 'update-test',
         projectId: 'project',

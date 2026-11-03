@@ -173,15 +173,14 @@ UpdateSettings update_settings(const Json &config) {
   if (!value.is_object())
     throw Error("CONFIG_ERROR", "autoUpdate must be a boolean or object");
   auto enabled = value.value("enabled", Json(true));
-  auto interval = value.value("intervalHours", Json(1));
+  if (value.contains("intervalHours"))
+    throw Error("CONFIG_ERROR", "autoUpdate.intervalHours is unsupported");
   auto platform = value.value("platform", Json(""));
-  if (!enabled.is_boolean() || !interval.is_number_integer() || interval < 1 || interval > 168 ||
-      !platform.is_string() ||
+  if (!enabled.is_boolean() || !platform.is_string() ||
       (platform != "" && platform != "ubuntu20.04" && platform != "debian12" &&
        platform != "windows-x64"))
-    throw Error("CONFIG_ERROR", "Invalid autoUpdate enabled, intervalHours (1..168) or platform");
+    throw Error("CONFIG_ERROR", "Invalid autoUpdate enabled or platform");
   settings.enabled = enabled.get<bool>();
-  settings.interval_hours = interval.get<int>();
   settings.platform = platform.get<std::string>();
   return settings;
 }

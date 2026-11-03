@@ -156,19 +156,52 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
 #endif
   sqlite3_busy_timeout(db_, 250);
   try {
+    const auto version = query("PRAGMA user_version").at(0).at("user_version").get<int>();
+    const bool populated = !query("SELECT name FROM sqlite_master WHERE type='table'").empty();
+    if ((populated && version != 0 && version != 1) || (!populated && version != 0))
+      throw Error("UNSUPPORTED_STORAGE_VERSION",
+                  "Unsupported journal schema; automatic migration is disabled");
+    if (populated) {
+      const std::vector<std::pair<std::string, std::vector<std::string>>> required = {
+          {"history", {"recovery", "retained_at"}},
+          {"sessions", {"source"}},
+          {"transport2_operations", {"instance", "retained_at"}},
+          {"transport2_uploads", {"retained_at"}},
+          {"transport2_credit", {"retained_at"}},
+          {"transport2_output_heads", {"retired", "retained_at"}},
+          {"transport2_history_subscriptions", {"released", "retained_at"}},
+          {"transport2_history_entries", {"records", "retained_at"}},
+          {"transport2_history_meta", {"archive_seq"}},
+          {"transport2_history_heads", {"retired_revision", "generation"}},
+          {"transport2_control", {"retained_at"}},
+          {"transport2_retention", {"operation_instance", "secret"}}};
+      for (const auto &table : required) {
+        const auto columns = query("PRAGMA table_info(" + table.first + ")");
+        for (const auto &name : table.second)
+          if (std::none_of(columns.begin(), columns.end(),
+                           [&](const Json &column) { return column.at("name") == name; }))
+            throw Error("UNSUPPORTED_STORAGE_VERSION", "Unsupported journal table: " + table.first);
+      }
+      for (const auto &field : std::vector<std::pair<std::string, std::string>>{
+               {"transport2_control", "ready"},
+               {"transport2_command_keys", "digest"},
+               {"transport2_namespaces", "closed_through"}})
+        for (const auto &column : query("PRAGMA table_info(" + field.first + ")"))
+          if (column.at("name") == field.second)
+            throw Error("UNSUPPORTED_STORAGE_VERSION", "Obsolete journal column: " + field.second);
+    }
     run("PRAGMA journal_mode=WAL");
-    run("CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
+    run("BEGIN IMMEDIATE");
+    run("CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,value TEXT NOT NULL,source TEXT)");
     run("CREATE INDEX IF NOT EXISTS sessions_state ON sessions(json_extract(value,'$.state'),id)");
     run("CREATE INDEX IF NOT EXISTS sessions_project ON "
         "sessions(json_extract(value,'$.projectId'),id)");
     run("CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,session TEXT NOT "
         "NULL,value TEXT NOT NULL,time INTEGER NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS events_session ON events(session,seq)");
-    run("BEGIN IMMEDIATE");
-    const bool migrate =
-        query("SELECT name FROM sqlite_master WHERE type='table' AND name='history'").empty();
     run("CREATE TABLE IF NOT EXISTS history(seq INTEGER PRIMARY KEY,session TEXT NOT NULL,value "
-        "TEXT NOT NULL,revision INTEGER NOT NULL)");
+        "TEXT NOT NULL,revision INTEGER NOT NULL,recovery TEXT,retained_at INTEGER NOT NULL "
+        "DEFAULT 0)");
     run("CREATE INDEX IF NOT EXISTS history_session ON history(session,seq)");
     run("CREATE INDEX IF NOT EXISTS history_revision ON history(session,revision)");
     run("CREATE TABLE IF NOT EXISTS bodies(seq INTEGER PRIMARY KEY,size INTEGER NOT NULL,bytes "
@@ -177,17 +210,6 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "NOT NULL,PRIMARY KEY(seq,start))");
     run("CREATE TABLE IF NOT EXISTS streams(session TEXT,key TEXT,seq INTEGER,PRIMARY "
         "KEY(session,key))");
-    if (migrate)
-      run("INSERT INTO history(seq,session,value,revision) SELECT seq,session,value,MAX(0,seq) "
-          "FROM events");
-    for (const auto &field : std::vector<std::pair<std::string, std::string>>{
-             {"history", "recovery"}, {"sessions", "source"}}) {
-      bool exists = false;
-      for (const auto &column : query("PRAGMA table_info(" + field.first + ")"))
-        exists = exists || column.at("name") == field.second;
-      if (!exists)
-        run("ALTER TABLE " + field.first + " ADD COLUMN " + field.second + " TEXT");
-    }
     run("CREATE TABLE IF NOT EXISTS external_items(session TEXT NOT NULL,turn TEXT NOT NULL,item "
         "TEXT NOT NULL,"
         "seq INTEGER NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(session,turn,item))");
@@ -199,10 +221,11 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
                              .get<std::string>();
     run("CREATE TABLE IF NOT EXISTS transport2_operations(key TEXT PRIMARY KEY,owner TEXT NOT "
         "NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,"
-        "reserved INTEGER NOT NULL,UNIQUE(owner,request_id))");
+        "reserved INTEGER NOT NULL,instance TEXT NOT NULL DEFAULT '',retained_at INTEGER NOT NULL "
+        "DEFAULT 0,UNIQUE(owner,request_id))");
     run("CREATE TABLE IF NOT EXISTS transport2_uploads(key TEXT PRIMARY KEY,owner TEXT NOT NULL,"
         "digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,reserved INTEGER NOT NULL,"
-        "active INTEGER NOT NULL)");
+        "active INTEGER NOT NULL,retained_at INTEGER NOT NULL DEFAULT 0)");
     run("CREATE INDEX IF NOT EXISTS transport2_upload_owner ON transport2_uploads(owner)");
     if (authoritative)
       run("UPDATE transport2_uploads SET phase='unknown',result=? WHERE phase='started'",
@@ -230,11 +253,10 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "NOT "
         "NULL DEFAULT 0,"
         "sent_bytes INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
-        "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0)");
+        "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0,retired INTEGER "
+        "NOT NULL DEFAULT 0,retained_at INTEGER NOT NULL DEFAULT 0)");
     run("CREATE TABLE IF NOT EXISTS transport2_output_budget(stream TEXT PRIMARY KEY,bytes "
         "INTEGER NOT NULL,records INTEGER NOT NULL)");
-    run("INSERT OR IGNORE INTO transport2_output_budget SELECT stream,"
-        "SUM(length(CAST(body AS BLOB))+512),COUNT(*) FROM transport2_outputs GROUP BY stream");
     run("CREATE TABLE IF NOT EXISTS transport2_streams(stream TEXT PRIMARY KEY,session TEXT NOT "
         "NULL,"
         "received INTEGER NOT NULL DEFAULT 0,received_bytes INTEGER NOT NULL DEFAULT 0,"
@@ -245,7 +267,8 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE INDEX IF NOT EXISTS transport2_pending ON transport2_commands(stream,phase) WHERE "
         "phase!='finished'");
     run("CREATE TABLE IF NOT EXISTS transport2_control(session TEXT PRIMARY KEY,epoch INTEGER NOT "
-        "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL)");
+        "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL,retained_at INTEGER NOT NULL DEFAULT "
+        "0)");
     run("CREATE TABLE IF NOT EXISTS transport2_flow_control(stream TEXT PRIMARY KEY,session TEXT "
         "NOT NULL,epoch INTEGER NOT NULL,control_id TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT "
         "0)");
@@ -267,7 +290,8 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
     run("CREATE TABLE IF NOT EXISTS transport2_credit(stream TEXT PRIMARY KEY,session TEXT NOT "
         "NULL,lane TEXT NOT NULL,scope TEXT NOT NULL,serial INTEGER NOT NULL,generation TEXT NOT "
         "NULL,reserved INTEGER NOT NULL,credit INTEGER NOT NULL DEFAULT 0,byte_credit INTEGER NOT "
-        "NULL DEFAULT 0,closed INTEGER NOT NULL DEFAULT 0,UNIQUE(scope,serial))");
+        "NULL DEFAULT 0,closed INTEGER NOT NULL DEFAULT 0,retained_at INTEGER NOT NULL DEFAULT "
+        "0,UNIQUE(scope,serial))");
     run("CREATE TABLE IF NOT EXISTS transport2_local_credit(key TEXT PRIMARY KEY,kind TEXT NOT "
         "NULL,reserved INTEGER NOT NULL)");
     run("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
@@ -275,70 +299,13 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "key TEXT PRIMARY KEY,session TEXT NOT NULL,owner TEXT NOT NULL,stream TEXT NOT NULL,"
         "instance TEXT NOT NULL,serial INTEGER NOT NULL UNIQUE,generation TEXT NOT NULL,"
         "received INTEGER NOT NULL DEFAULT 0,published INTEGER NOT NULL DEFAULT 0,"
-        "closed INTEGER NOT NULL DEFAULT 0)");
-    bool has_history_release = false;
-    for (const auto &column : query("PRAGMA table_info(transport2_history_subscriptions)"))
-      has_history_release = has_history_release || column.at("name") == "released";
-    if (!has_history_release)
-      run("ALTER TABLE transport2_history_subscriptions ADD COLUMN released INTEGER NOT NULL "
-          "DEFAULT 0 CHECK(released BETWEEN 0 AND 9007199254740991)");
+        "closed INTEGER NOT NULL DEFAULT 0,released INTEGER NOT NULL DEFAULT 0 CHECK(released "
+        "BETWEEN 0 AND 9007199254740991),retained_at INTEGER NOT NULL DEFAULT 0)");
     run("CREATE TABLE IF NOT EXISTS transport2_cache_entries(key TEXT PRIMARY KEY,scope TEXT "
         "NOT NULL,bytes INTEGER NOT NULL)");
     run("CREATE INDEX IF NOT EXISTS transport2_cache_scope ON transport2_cache_entries(scope)");
     run("CREATE TABLE IF NOT EXISTS transport2_cache_budget(scope TEXT PRIMARY KEY,bytes "
         "INTEGER NOT NULL,records INTEGER NOT NULL)");
-    run("INSERT OR IGNORE INTO transport2_cache_entries SELECT c.key,'',"
-        "length(CAST(c.value AS BLOB))+length(CAST(c.key AS BLOB))*4+2048 FROM cache c WHERE "
-        "NOT EXISTS(SELECT 1 FROM transport2_local_credit b WHERE b.key=c.key) AND "
-        "NOT EXISTS(SELECT 1 FROM transport2_cache_entries e WHERE e.key=c.key)");
-    run("INSERT INTO transport2_cache_budget SELECT scope,SUM(bytes),COUNT(*) FROM "
-        "transport2_cache_entries GROUP BY scope ON CONFLICT(scope) DO UPDATE SET "
-        "bytes=excluded.bytes,records=excluded.records");
-    // Compact only redundant columns from the supported delivery:2 layout. The
-    // enclosing startup transaction preserves the old schema/data on any failure.
-    const auto has_column = [&](const std::string &table, const std::string &name) {
-      const auto columns = query("PRAGMA table_info(" + table + ")");
-      return std::any_of(columns.begin(), columns.end(),
-                         [&](const Json &column) { return column.at("name") == name; });
-    };
-    if (has_column("transport2_control", "ready")) {
-      for (const auto &row : query("SELECT session,ready FROM transport2_control"))
-        if (Json::parse(row.at("ready").get<std::string>()) != control_state(row.at("session")))
-          throw Error("STORAGE_CORRUPT", "Control confirmation disagrees with durable identity");
-      run("CREATE TABLE transport2_control_compact(session TEXT PRIMARY KEY,epoch INTEGER NOT "
-          "NULL,control_id TEXT NOT NULL,owner TEXT NOT NULL)");
-      run("INSERT INTO transport2_control_compact SELECT session,epoch,control_id,owner "
-          "FROM transport2_control");
-      run("DROP TABLE transport2_control");
-      run("ALTER TABLE transport2_control_compact RENAME TO transport2_control");
-    }
-    if (has_column("transport2_command_keys", "digest")) {
-      if (!query(
-               "SELECT 1 FROM transport2_command_keys k LEFT JOIN transport2_command_digests d "
-               "ON d.stream=k.stream AND d.seq=k.seq WHERE d.digest IS NULL OR k.digest<>d.digest "
-               "LIMIT 1")
-               .empty())
-        throw Error("STORAGE_CORRUPT", "Command identity disagrees with durable digest");
-      run("CREATE TABLE transport2_command_keys_compact(stream TEXT NOT NULL,request_id TEXT NOT "
-          "NULL,seq INTEGER NOT NULL,PRIMARY KEY(stream,request_id),UNIQUE(stream,seq))");
-      run("INSERT INTO transport2_command_keys_compact SELECT stream,request_id,seq "
-          "FROM transport2_command_keys");
-      run("DROP TABLE transport2_command_keys");
-      run("ALTER TABLE transport2_command_keys_compact RENAME TO transport2_command_keys");
-    }
-    if (has_column("transport2_namespaces", "closed_through")) {
-      if (!query("SELECT 1 FROM transport2_namespaces n WHERE closed_through<>COALESCE("
-                 "(SELECT MIN(serial)-1 FROM transport2_credit c WHERE c.scope=n.scope "
-                 "AND c.closed=0),n.allocated) LIMIT 1")
-               .empty())
-        throw Error("STORAGE_CORRUPT", "Namespace checkpoint disagrees with credit tombstones");
-      run("CREATE TABLE transport2_namespaces_compact(scope TEXT PRIMARY KEY,allocated INTEGER "
-          "NOT NULL DEFAULT 0)");
-      run("INSERT INTO transport2_namespaces_compact SELECT scope,allocated FROM "
-          "transport2_namespaces");
-      run("DROP TABLE transport2_namespaces");
-      run("ALTER TABLE transport2_namespaces_compact RENAME TO transport2_namespaces");
-    }
     run("CREATE TABLE IF NOT EXISTS transport2_result_heads(stream TEXT PRIMARY KEY,"
         "sent INTEGER NOT NULL DEFAULT 0,sent_bytes INTEGER NOT NULL DEFAULT 0,"
         "acked INTEGER NOT NULL DEFAULT 0,acked_bytes INTEGER NOT NULL DEFAULT 0)");
@@ -364,6 +331,8 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
     history_budget_init(authoritative);
     retention_init();
+    if (!populated)
+      run("PRAGMA user_version=1");
     run("COMMIT");
     // Restart terminal records enter the same durable completion log as live results.
     for (const auto &record :
@@ -870,7 +839,7 @@ Json Store::history(const std::string &id, int64_t before, int64_t after, int ve
     retired = std::max(retired, expired.get<int64_t>());
     ++current;
   }
-  if ((version != 1 && version != 2) || (version != 2 && current > 0))
+  if (version != 2)
     throw Error("UNSUPPORTED_PROTOCOL_VERSION", "History retirement requires protocol version 2");
   if (generation >= 0 && generation != current)
     throw Error("HISTORY_SNAPSHOT_CHANGED", "History retention changed; restart the snapshot");
@@ -1084,7 +1053,7 @@ void Store::cache_clear() {
 }
 Json Store::history_compact() {
   // The scan position is only a scheduling hint: a restart may safely rescan.
-  // Bound both rows and returned text, including legacy oversized chunks.
+  // Bound both rows and returned text, including oversized chunks.
   run("BEGIN IMMEDIATE");
   try {
     std::map<std::string, Json> original_budget;

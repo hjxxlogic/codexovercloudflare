@@ -39,7 +39,11 @@ function peer(journal = new Journal()) {
       _headers?: unknown,
       exchange?: OperationExchange,
     ) => {
-      if (path.endsWith('/probe')) return { deliveryInstance: 'agent-store' };
+      if (path.endsWith('/probe'))
+        return {
+          deliveryInstance: 'agent-store',
+          operationInstance: 'agent-store',
+        };
       expect(exchange).toBeDefined();
       const record = journal.value.records[id!];
       expect(record.instance).toBe(exchange!.instance);
@@ -101,6 +105,22 @@ function peer(journal = new Journal()) {
 afterEach(() => {
   clients.splice(0).forEach((client) => client.stop());
   vi.useRealTimers();
+});
+it('rejects probes without an admission identity before sending a mutation', async () => {
+  const h = peer();
+  h.request.mockResolvedValue({ deliveryInstance: 'agent-store' });
+  await expect(
+    h.client().submit('/sessions', {}, 'unsupported'),
+  ).rejects.toMatchObject({
+    code: 'UPGRADE_REQUIRED',
+    status: 426,
+  });
+  expect(h.effects()).toBe(0);
+  expect(h.wires).toEqual([]);
+  expect(h.request.mock.calls.every(([path]) => path.endsWith('/probe'))).toBe(
+    true,
+  );
+  expect(h.journal.value.records.unsupported.instance).toBe('');
 });
 it('retires an expired original locally and permits the next independent request', async () => {
   const h = peer();

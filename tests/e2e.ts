@@ -643,7 +643,6 @@ try {
     process.env.COC_AGENT_BINARY || 'build/coc-agent',
   );
   agent = new Agent({
-    codexUseProxy: false,
     codexProxyMode: 'direct',
     relayUrl: origin,
     hostId: enrolled.hostId,
@@ -723,7 +722,6 @@ try {
     'Agent startup reports only explicitly targeted pending requests with escaped text and manual commands; no automatic approval',
   );
   otherAgent = new Agent({
-    codexUseProxy: false,
     codexProxyMode: 'direct',
     relayUrl: origin,
     hostId: other.hostId,
@@ -887,7 +885,7 @@ try {
   );
   {
     const probe = await api(`/hosts/${enrolled.hostId}/probe`, {});
-    const instance = probe.deliveryInstance;
+    const instance = probe.operationInstance;
     assert.equal(typeof instance, 'string');
     const original = randomUUID();
     const body = {
@@ -961,7 +959,7 @@ try {
       'HTTP original write identity survives forwarding retries; endpoint receipts, conflicts and result confirmation preserve session authorization',
     );
   }
-  for (const threadId of ['external-history', 'external-legacy']) {
+  for (const threadId of ['external-history']) {
     const session = await api('/sessions', {
       hostId: enrolled.hostId,
       projectId: 'test-project',
@@ -1148,7 +1146,7 @@ try {
     connection.ws.close();
   }
   pass(
-    'external active-writer fallback, legacy and paginated snapshots, stable revisions, queue deduplication and safe disconnect',
+    'external active-writer fallback, paginated snapshots, stable revisions, queue deduplication and safe disconnect',
   );
   const observed = JSON.parse(
     await cliCommand(['observe', 'external-cli', '--project', 'test-project']),

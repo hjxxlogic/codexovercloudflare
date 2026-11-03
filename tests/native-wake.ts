@@ -53,7 +53,12 @@ const server = createServer(async (req, res) => {
     online = configured;
     reply({ state: configured ? 'requested' : 'unconfigured' });
   } else if (req.url === '/api/v1/hosts/host/probe') {
-    reply({ online, confirmedAt: Date.now(), deliveryInstance: instance });
+    reply({
+      online,
+      confirmedAt: Date.now(),
+      deliveryInstance: instance,
+      operationInstance: instance,
+    });
   } else if (req.url === '/api/v1/hosts/host/projects') {
     assert(online);
     reply([{ id: 'project' }]);
@@ -92,6 +97,7 @@ let agent: ChildProcess | undefined;
 async function run(binary: string, args: string[]) {
   const child = spawn(resolve(binary), args, {
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, COC_HISTORY_DIR: join(dir, 'history') },
   });
   let stdout = '',
     stderr = '';

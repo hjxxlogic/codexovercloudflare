@@ -50,7 +50,6 @@ function socket(initial: any) {
 function harness() {
   const storage = new MemoryStorage();
   storage.values.set('agentEpoch', 1);
-  storage.values.set('expiryMigration', { prefix: 1 });
   const agent = socket({
     id: 'agent',
     role: 'agent',
@@ -1024,7 +1023,7 @@ describe('recoverable asynchronous controls', () => {
       connectionGeneration: 3,
     };
     const data = {
-      operation: 'input',
+      operation: 'close',
       projectId: 'project',
       sessionId: 'host~writer',
       control: proof,
@@ -1046,7 +1045,13 @@ describe('recoverable asynchronous controls', () => {
     expect(accepted.response.status).toBe(202);
     const forward = JSON.parse(h.agent.send.mock.calls.at(-1)![0]);
     expect(forward.action).toBe('terminal');
-    expect(forward.data.seq).toBe(1);
+    expect(forward.data.operation).toBe('close');
+    for (const operation of ['read', 'input', 'resize']) {
+      const rejected = await h.start('terminal', { ...data, operation });
+      expect((await h.read(rejected.data.operationId)).data.error.code).toBe(
+        'UPGRADE_REQUIRED',
+      );
+    }
     for (const invalid of [
       { ...data, control: { ...proof, connectionGeneration: 2 } },
       { ...data, owner: 'b'.repeat(64) },

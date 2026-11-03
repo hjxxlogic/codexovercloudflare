@@ -10,9 +10,12 @@ const hosts = [
   { id: 'a', name: '服务器 A', online: false },
   { id: 'b', name: '服务器 B', online: false },
 ];
+const restoredHosts: string[] = [];
 let paired = 0,
   restored = 0,
-  adminLogins = 0;
+  adminLogins = 0,
+  claimed = false,
+  claims = 0;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost');
   const guest = url.pathname === '/guest' || url.pathname.startsWith('/guest/');
@@ -47,6 +50,7 @@ const server = createServer(async (req, res) => {
     : cookie.includes('access-test=other')
       ? 'other@example.test'
       : 'user@example.test';
+  const unclaimedBrowser = cookie.includes('unclaimed=test');
   const isAdmin = cookie.includes('coc_admin=' + email);
   let raw = '';
   for await (const chunk of req) raw += chunk;
@@ -65,7 +69,10 @@ const server = createServer(async (req, res) => {
             email,
             accountId: email,
             autoAdmin: email.startsWith('admin'),
-            legacy: [],
+            legacy:
+              unclaimedBrowser && !claimed
+                ? [{ hostId: 'a', name: '无邮箱授权' }]
+                : [],
           };
   else if (path === '/auth/email/admin' && email.startsWith('admin')) {
     adminLogins++;
@@ -82,11 +89,23 @@ const server = createServer(async (req, res) => {
       ? cookie.includes('coc_guest_web_a=')
         ? [hosts[0]]
         : []
-      : email.startsWith('other')
-        ? []
-        : hosts;
-  else if (path === '/auth/email/restore') {
+      : unclaimedBrowser
+        ? claimed
+          ? [hosts[0]]
+          : []
+        : email.startsWith('other')
+          ? []
+          : hosts;
+  else if (
+    path === '/auth/email/migrate' &&
+    unclaimedBrowser &&
+    data.hostId === 'a'
+  ) {
+    claimed = true;
+    claims++;
+  } else if (path === '/auth/email/restore') {
     restored++;
+    restoredHosts.push(data.hostId);
     res.setHeader(
       'Set-Cookie',
       `coc_web_${data.hostId}=test-web-token; HttpOnly; Path=/`,
@@ -165,7 +184,12 @@ try {
     await page
       .getByRole('combobox', { name: '主机', exact: true })
       .selectOption('a');
-    await expect.poll(() => restored).toBe(i + 1);
+    await expect.poll(() => restored).toBe((i + 1) * hosts.length);
+    assert.deepEqual(
+      restoredHosts.slice(i * hosts.length).sort(),
+      ['a', 'b'],
+      'Welcome loads each authorized host once; selection reuses its restored credential',
+    );
     if (i === 1)
       await page.screenshot({
         path: join(artifacts, 'email-hosts.png'),
@@ -247,19 +271,48 @@ try {
   await expect(
     otherPage.getByRole('tab', { name: '已授权设备', exact: true }),
   ).toBeVisible();
-  const legacyContext = await browser.newContext();
-  await legacyContext.addCookies([
+
+  const accessDisabledContext = await browser.newContext();
+  await accessDisabledContext.addCookies([
     { name: 'access-test', value: 'disabled', url: origin },
   ]);
-  const legacyPage = await legacyContext.newPage();
-  await legacyPage.goto(origin);
-  await legacyPage
+  const accessDisabledPage = await accessDisabledContext.newPage();
+  await accessDisabledPage.goto(origin);
+  await accessDisabledPage
     .getByRole('button', { name: '功能菜单', exact: true })
     .click();
-  await expect(legacyPage.getByRole('button', { name: /^登出/ })).toHaveCount(
+  await expect(
+    accessDisabledPage.getByRole('button', { name: /^登出/ }),
+  ).toHaveCount(0);
+  await accessDisabledContext.close();
+  const unclaimedContext = await browser.newContext();
+  await unclaimedContext.addCookies([
+    { name: 'unclaimed', value: 'test', url: origin },
+  ]);
+  const unclaimedPage = await unclaimedContext.newPage();
+  await unclaimedPage.goto(origin);
+  const claim = unclaimedPage.getByRole('button', { name: /^关联旧授权：/ });
+  await expect(claim).toBeVisible();
+  await unclaimedPage.screenshot({
+    path: join(artifacts, 'unbound-email-claim.png'),
+    fullPage: true,
+  });
+  assert.equal(
+    claims,
     0,
+    'An unbound credential is never associated automatically',
   );
-  await legacyContext.close();
+  unclaimedPage.once('dialog', (dialog) => dialog.accept());
+  await claim.click();
+  await expect.poll(() => claims).toBe(1);
+  await expect(claim).toHaveCount(0);
+  await openHosts(unclaimedPage);
+  await expect(
+    unclaimedPage
+      .getByRole('combobox', { name: '主机', exact: true })
+      .locator('option'),
+  ).toHaveCount(2);
+  await unclaimedContext.close();
   const guestContext = await browser.newContext();
   await guestContext.addCookies([
     {

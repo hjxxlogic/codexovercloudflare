@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
+import sys
 import subprocess
 import tempfile
 import threading
@@ -79,12 +81,12 @@ class LoginRecovery(unittest.TestCase):
                         'dataDir': str(Path(tmp) / 'custom-data'),
                         'projects': [{'id': 'test', 'name': 'Test', 'path': tmp}],
                         'sandbox': 'read-only', 'codexPath': 'custom-codex',
-                        'codexUseProxy': True,
+                        'codexProxyMode': 'agent',
                         'terminal': {'enabled': True},
                         'wakeUrl': 'http://127.0.0.1:9',
                         'accessEmails': ['User@EXAMPLE.com'],
                         'externalSessions': {'allowQueue': True},
-                        'autoUpdate': {'enabled': False, 'intervalHours': 24},
+                        'autoUpdate': {'enabled': False},
                     }))
                 executable = os.environ.get('COC_AGENT_BINARY' if binary == 'coc-agent'
                                             else 'COC_CLI_BINARY', 'build/' + binary)
@@ -112,7 +114,7 @@ class LoginRecovery(unittest.TestCase):
                         self.assertEqual(set(saved), {
                             'relayUrl', 'hostId', 'token', 'wakeUrl', 'codexPath', 'codexArgs',
                             'sandbox', 'externalSessions', 'dataDir', 'projects', 'autoUpdate',
-                            'displayName', 'proxy', 'accessEmails', 'codexUseProxy', 'codexProxyMode', 'historyStorage', 'terminal',
+                            'displayName', 'proxy', 'accessEmails', 'codexProxyMode', 'historyStorage', 'terminal',
                         })
                         self.assertEqual(saved['historyStorage']['retainedRecords'], 0)
                         self.assertLessEqual(saved['historyStorage']['maxSessionBytes'], saved['historyStorage']['maxBytes'])
@@ -121,12 +123,11 @@ class LoginRecovery(unittest.TestCase):
                             'approvalEndpoint': '', 'approvalTokenFile': '',
                         })
                         self.assertEqual(saved['accessEmails'], ['User@example.com'] if scenario == 'custom' else [])
-                        self.assertEqual(saved['codexUseProxy'], scenario == 'custom')
                         self.assertEqual(saved['codexProxyMode'], 'agent' if scenario == 'custom' else 'inherit')
                         self.assertEqual(saved['terminal'], {'enabled': scenario == 'custom'})
                         self.assertEqual(saved['autoUpdate'], {
                             'enabled': scenario != 'custom' and os.name != 'nt',
-                            'intervalHours': 24 if scenario == 'custom' else 1, 'platform': '',
+                            'platform': '',
                         })
                         if scenario == 'custom':
                             self.assertEqual(saved['sandbox'], 'read-only')
@@ -147,6 +148,33 @@ class LoginRecovery(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_doctor_rejects_unsupported_database_without_changes(self):
+        with tempfile.TemporaryDirectory(prefix='coc-doctor-') as tmp:
+            root = Path(tmp)
+            journal = root / 'agent.db'
+            config = root / 'agent.json'
+            config.write_text(json.dumps({
+                'relayUrl': 'http://127.0.0.1:9', 'hostId': 'doctor',
+                'token': 'isolated-doctor-test-token', 'dataDir': tmp,
+                'projects': [], 'autoUpdate': False,
+                'codexPath': sys.executable,
+                'codexArgs': ['-c', "print('codex-cli test')"],
+            }))
+            binary = os.environ.get('COC_AGENT_BINARY', 'build/coc-agent')
+            for version in [0, 1]:
+                with sqlite3.connect(journal) as connection:
+                    connection.execute('CREATE TABLE IF NOT EXISTS original(value TEXT)')
+                    connection.execute(f'PRAGMA user_version={version}')
+                before = journal.read_bytes()
+                result = subprocess.run([binary, 'doctor', '--config', str(config)],
+                    capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                checks = json.loads(result.stdout)['checks']
+                database = next(check for check in checks if check['name'] == 'database')
+                self.assertFalse(database['ok'])
+                self.assertEqual(database['error']['code'], 'UNSUPPORTED_STORAGE_VERSION')
+                self.assertEqual(journal.read_bytes(), before)
 
     def test_access_emails_preserves_credentials_and_only_saves_after_success(self):
         requests = []

@@ -77,8 +77,7 @@ async function control(action: string, data: any = {}, id = randomUUID()) {
           intent: {
             owner: 'a'.repeat(64),
             requestId: id,
-            instance: frames.find((f) => f.type === 'capabilities')
-              .deliveryInstance,
+            instance: (await control('probe')).operationInstance,
           },
         }
       : {}),
@@ -113,11 +112,29 @@ try {
     projectId: 'project',
     mode: 'web',
   });
+  const account = 'terminal-mailbox';
+  assert.deepEqual(
+    (await control('list', { paged: true, cwAccountId: account })).data,
+    [],
+    'A session without an email is absent from the mailbox directory',
+  );
   await control('attach', {
+    cwAccountId: account,
     sessionId: session.id,
     epoch: 1,
     expires: Date.now() + 15000,
   });
+  assert.deepEqual(
+    (await control('list', { paged: true, cwAccountId: account })).data.map(
+      (s: any) => s.id,
+    ),
+    [session.id],
+    'Connecting explicitly associates the existing session with the current mailbox',
+  );
+  assert.deepEqual(
+    (await control('list', { paged: true, cwAccountId: 'other-mailbox' })).data,
+    [],
+  );
   const proof = {
     controlEpoch: 1,
     controlId: 'terminal-controller',
@@ -150,6 +167,11 @@ try {
     'open retries reuse original PTY',
   );
   const scoped = { ...base, terminalId: opened.terminalId };
+  for (const operation of ['read', 'input', 'resize'])
+    await assert.rejects(
+      control('terminal', { ...scoped, operation }),
+      (error: any) => error.code === 'UPGRADE_REQUIRED',
+    );
   await assert.rejects(
     control('terminal', {
       ...scoped,
@@ -209,34 +231,14 @@ try {
     received: rejected.resultSeq,
     receivedBytes: rejected.resultEnd,
   });
-  const input = {
-    ...scoped,
-    operation: 'input',
-    seq: 1,
-    data: Buffer.from("printf 'AGENT_%s\\n' TERMINAL_OK\n").toString('base64'),
-  };
-  await control('terminal', input);
-  await control('terminal', input);
-  let output = '',
-    offset = 0;
-  await until(async () => {
-    const result = await control('terminal', {
-      ...scoped,
-      operation: 'read',
-      offset,
-    });
-    offset = result.offset;
-    output += Buffer.from(result.data, 'base64').toString();
-    return output.includes('AGENT_TERMINAL_OK\r\n');
-  });
-  assert.equal(output.split('AGENT_TERMINAL_OK\r\n').length, 2);
   assert.equal(info.streaming, 2);
+  let offset = 0;
   let route = randomUUID();
   const streaming = (frame: object) =>
     send({
       type: 'terminal-stream',
       route,
-      scope: { ...scoped, operation: 'read' },
+      scope: { ...scoped, operation: 'stream' },
       frame,
     });
   const streamFrames = () =>
@@ -245,8 +247,26 @@ try {
       .map((f) => f.frame);
   streaming({ type: 'bind', offset });
   await until(() =>
-    streamFrames().some((f) => f.type === 'ready' && f.next === 2),
+    streamFrames().some((f) => f.type === 'ready' && f.next === 1),
   );
+  const initial = {
+    type: 'input',
+    seq: 1,
+    data: Buffer.from("printf 'AGENT_%s\\n' TERMINAL_OK\n").toString('base64'),
+  };
+  streaming(initial);
+  streaming(initial);
+  await until(() =>
+    streamFrames()
+      .filter((f) => f.type === 'output')
+      .map((f) => Buffer.from(f.data, 'base64').toString())
+      .join('')
+      .includes('AGENT_TERMINAL_OK\r\n'),
+  );
+  offset = streamFrames()
+    .filter((f) => f.type === 'output')
+    .at(-1).offset;
+  streaming({ type: 'ack', offset });
   if (process.env.COC_TEST_TERMINAL_IDLE === '1') {
     // Only native protocol Ping/Pong may run during this interval.
     await new Promise((done) => setTimeout(done, 500));
@@ -376,11 +396,7 @@ try {
     ),
   );
   await control('terminal', { ...scoped, operation: 'close' });
-  await until(
-    async () =>
-      (await control('terminal', { ...scoped, operation: 'read', offset }))
-        .exited,
-  );
+  await new Promise((done) => setTimeout(done, 300));
   const detached = await control('terminal', { ...base, operation: 'open' });
   send({ type: 'detach', sessionId: session.id, epoch: 1 });
   await assert.rejects(

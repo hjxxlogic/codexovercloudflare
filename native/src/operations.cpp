@@ -71,11 +71,10 @@ Json Store::operation_begin(const Json &intent, const std::string &action, const
       run("COMMIT");
       return result;
     }
-    const auto admission = query("SELECT operation_instance,legacy_allowed FROM "
+    const auto admission = query("SELECT operation_instance FROM "
                                  "transport2_retention WHERE id=1")
                                .at(0);
-    if (intent.at("instance") != admission.at("operation_instance") &&
-        !(intent.at("instance") == delivery_instance_ && admission.at("legacy_allowed") == 1))
+    if (intent.at("instance") != admission.at("operation_instance"))
       throw Error("REQUEST_EXPIRED", "Original operation expired; it will not be executed again");
     const auto budget = query("SELECT COALESCE(SUM(reserved),0) AS bytes,COUNT(*) AS records,"
                               "COALESCE(SUM(CASE WHEN owner=? THEN reserved ELSE 0 END),0) "

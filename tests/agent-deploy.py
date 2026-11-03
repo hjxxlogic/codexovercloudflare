@@ -102,6 +102,24 @@ class DeploymentTests(unittest.TestCase):
                         self.assertEqual(binary.read_bytes(), b'local-executable')
                     self.assertEqual(compile.call_count, 3)
 
+    def test_uncommitted_local_build_keeps_dirty_identity_and_detects_changes(self):
+        dirty = {**BUILD, 'dirty': True}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / 'build').mkdir()
+            (root / 'build/coc-agent').write_bytes(b'uncommitted-executable')
+            for after in [dirty, {**dirty, 'sourceDigest': 'd' * 64}]:
+                with patch.object(deploy, 'ROOT', root), \
+                        patch.object(deploy.subprocess, 'check_output', side_effect=[json.dumps(dirty), json.dumps(dirty), json.dumps(after)]), \
+                        patch.object(deploy.subprocess, 'run'):
+                    if after != dirty:
+                        with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                            deploy.prepare_local_build(COMMIT, root / 'output', True)
+                    else:
+                        metadata, binary = deploy.prepare_local_build(COMMIT, root / 'output', True)
+                        self.assertTrue(metadata['dirty'])
+                        self.assertEqual(binary.read_bytes(), b'uncommitted-executable')
+
     def test_local_target_reuses_helper_without_ssh(self):
         args = types.SimpleNamespace(local=True, binary='/tmp/coc-agent', service='test.service',
                                      commit=COMMIT, verify_seconds=120, allow_restart_active=False)
@@ -206,6 +224,19 @@ class DeploymentTests(unittest.TestCase):
                              ('commit', 'c' * 40), ('target', 'windows-x86_64')]:
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 remote.identity({**BUILD, field: value}, args)
+
+    def test_explicit_uncommitted_candidate_still_requires_matching_source(self):
+        args = types.SimpleNamespace(commit=COMMIT, source_digest=DIGEST, allow_uncommitted=True)
+        remote.identity({**BUILD, 'dirty': True}, args)
+        for field, value in [('sourceDigest', '0' * 64), ('commit', 'c' * 40), ('target', 'windows-x86_64')]:
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                remote.identity({**BUILD, 'dirty': True, field: value}, args)
+
+    def test_uncommitted_mode_requires_local_build(self):
+        with patch('sys.argv', ['deploy-agent.py', '--local', '--allow-uncommitted', '--binary', '/tmp/agent']):
+            with self.assertRaises(SystemExit) as error:
+                deploy.main()
+            self.assertEqual(error.exception.code, 2)
 
     def test_missing_or_stale_metrics_never_mean_idle(self):
         keys = ['runtimes', 'archiveReaders', 'approvals', 'queuedCommands', 'fileRequests',

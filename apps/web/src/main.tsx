@@ -3141,6 +3141,7 @@ function App() {
         </div>
       )}
       {checking && <p role="status">{t('正在检查登录状态…')}</p>}
+      {!checking && mode === 'cw' && !logged && emailControls}
       {(view !== 'chat' || !logged) && loginForm}
       <ManagerPairing />
       {mode === 'admin' && admin && (

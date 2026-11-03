@@ -139,7 +139,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (m.method === 'initialize' && process.argv.includes('--proxy-env'))
     result.environment = proxyEnvironment();
   if (m.method === 'thread/start')
-    result = { thread: { id: 'thread-' + process.pid, turns: [] } };
+    result = {
+      thread: {
+        id: 'thread-' + process.pid,
+        turns: [],
+        historyMode: 'paginated',
+      },
+    };
   if (m.method === 'thread/list')
     result = {
       data: [
@@ -194,7 +200,12 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (!m.params.excludeTurns)
       throw new Error('Resume must exclude full history');
     result = {
-      thread: { id: m.params.threadId, cwd: process.cwd(), turns: [] },
+      thread: {
+        id: m.params.threadId,
+        cwd: process.cwd(),
+        turns: [],
+        historyMode: 'paginated',
+      },
     };
   }
   if (m.method === 'thread/items/list') {

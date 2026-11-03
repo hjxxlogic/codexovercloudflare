@@ -12,7 +12,12 @@ import {
 import { managesProjects, requireProjectManager } from './project-auth.ts';
 import type { StateStorage } from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
-import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
+import {
+  dueEntries,
+  expireAt,
+  requireCurrentExpiry,
+  nextExpiry,
+} from './expiry.ts';
 import {
   AppError,
   idSchema,
@@ -61,7 +66,7 @@ type Attachment = {
     terminalId: string;
     control: ControlProof;
     owner: string;
-    operation: 'read';
+    operation: 'stream';
   };
   terminalStreaming?: number;
   managementMetadata?: unknown;
@@ -633,7 +638,7 @@ export class HostRelayDO extends DurableObject<Env> {
       if (a.terminalScope)
         throw new AppError('INVALID_REQUEST', 'Terminal already bound');
       const { type: _type, offset: _offset, ...scope } = frame;
-      a.terminalScope = { ...scope, owner: a.auth.hash, operation: 'read' };
+      a.terminalScope = { ...scope, owner: a.auth.hash, operation: 'stream' };
       a.sessionId = scope.sessionId;
     }
     if (!a.terminalScope)
@@ -662,6 +667,15 @@ export class HostRelayDO extends DurableObject<Env> {
       !(await this.loadOperation(operation.id))
     )
       throw new AppError('UNAUTHORIZED', 'Permission handshake retired', 401);
+    if (
+      action === 'terminal' &&
+      ['read', 'input', 'resize'].includes(data.operation)
+    )
+      throw new AppError(
+        'UPGRADE_REQUIRED',
+        'Use the Terminal WebSocket byte stream',
+        426,
+      );
     const parsed = controlCommandSchema.safeParse({ action, data });
     if (!parsed.success)
       throw new AppError('INVALID_REQUEST', 'Invalid control command');
@@ -1364,7 +1378,7 @@ export class HostRelayDO extends DurableObject<Env> {
     try {
       const u = new URL(req.url),
         s = this.storage;
-      await migrateExpiry(s, ['ticket:']);
+      await requireCurrentExpiry(s);
       if (u.pathname === '/authorization-change') {
         await this.authorizationChanged();
         return json({ ok: true });
@@ -2885,7 +2899,7 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   private async expire() {
     const s = this.storage;
-    await migrateExpiry(s, ['ticket:']);
+    await requireCurrentExpiry(s);
     for (const [index, { key }] of await dueEntries(s)) {
       if (key.startsWith('connection:')) {
         const ws = this.socket(key.slice(11));

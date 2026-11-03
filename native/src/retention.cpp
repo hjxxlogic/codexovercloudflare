@@ -5,7 +5,7 @@
 namespace coc {
 void Store::retention_init() {
   run("CREATE TABLE IF NOT EXISTS transport2_retention(id INTEGER PRIMARY KEY CHECK(id=1),"
-      "operation_instance TEXT NOT NULL,legacy_allowed INTEGER NOT NULL DEFAULT 1,"
+      "operation_instance TEXT NOT NULL,"
       "secret TEXT NOT NULL)");
   run("INSERT OR IGNORE INTO transport2_retention(id,operation_instance,secret) VALUES(1,?,?)",
       {delivery_instance_ + "_" + uuid(), uuid() + uuid()});
@@ -13,16 +13,6 @@ void Store::retention_init() {
        {"history", "transport2_operations", "transport2_uploads", "transport2_credit",
         "transport2_output_heads", "transport2_history_subscriptions", "transport2_history_entries",
         "transport2_control"}) {
-    bool exists = false;
-    for (const auto &column : query(std::string("PRAGMA table_info(") + table + ")"))
-      exists = exists || column.at("name") == "retained_at";
-    if (!exists) {
-      run(std::string("ALTER TABLE ") + table +
-          " ADD COLUMN retained_at INTEGER NOT NULL DEFAULT 0");
-      // Old operations have no trustworthy start time. Give them one bounded
-      // migration window, rather than deleting them during schema installation.
-      run(std::string("UPDATE ") + table + " SET retained_at=?", {now()});
-    }
     run(std::string("CREATE INDEX IF NOT EXISTS retention_age_") + table + " ON " + table +
         "(retained_at)");
     run(std::string("CREATE TRIGGER IF NOT EXISTS retention_age_") + table + " AFTER INSERT ON " +
@@ -30,18 +20,6 @@ void Store::retention_init() {
         " SET retained_at=CAST((julianday('now')-2440587.5)*86400000 AS INTEGER) "
         "WHERE rowid=NEW.rowid; END");
   }
-  bool instance = false;
-  for (const auto &column : query("PRAGMA table_info(transport2_operations)"))
-    instance = instance || column.at("name") == "instance";
-  if (!instance) {
-    run("ALTER TABLE transport2_operations ADD COLUMN instance TEXT NOT NULL DEFAULT ''");
-    run("UPDATE transport2_operations SET instance=?", {delivery_instance_});
-  }
-  bool retired = false;
-  for (const auto &column : query("PRAGMA table_info(transport2_output_heads)"))
-    retired = retired || column.at("name") == "retired";
-  if (!retired)
-    run("ALTER TABLE transport2_output_heads ADD COLUMN retired INTEGER NOT NULL DEFAULT 0");
 }
 
 std::string Store::operation_instance() {
@@ -106,7 +84,7 @@ Json Store::retention_cleanup(int64_t time) {
     // become a new dispatch after its body/identity has been reclaimed.
     const auto fence = [&] {
       if (!fenced) {
-        run("UPDATE transport2_retention SET operation_instance=?,legacy_allowed=0 WHERE id=1",
+        run("UPDATE transport2_retention SET operation_instance=? WHERE id=1",
             {delivery_instance_ + "_" + uuid()});
         fenced = true;
       }

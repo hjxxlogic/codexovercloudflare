@@ -9,9 +9,19 @@ void check(bool ok, const char *message) {
 struct Fixture {
   std::string path = (std::filesystem::temp_directory_path() / ("coc-compact-" + uuid())).string();
   sqlite3 *db = nullptr;
-  Fixture(bool bad_control = false, bool bad_digest = false) {
+  Fixture(bool bad_control = false, bool bad_digest = false, bool current = false) {
     std::filesystem::create_directories(path);
+    if (current) {
+      Store store(path, false);
+      store.save(
+          {{"id", "unbound"}, {"projectId", "project"}, {"state", "ready"}, {"mode", "web"}});
+    }
     check(sqlite3_open((path + "/agent.db").c_str(), &db) == SQLITE_OK, "open fixture");
+    if (current) {
+      sql("PRAGMA user_version=0");
+      sql("ALTER TABLE transport2_retention ADD COLUMN legacy_allowed INTEGER NOT NULL DEFAULT 1");
+      return;
+    }
     sql("CREATE TABLE transport2_identity(id INTEGER PRIMARY KEY,instance TEXT NOT NULL)");
     sql("INSERT INTO transport2_identity VALUES(1,'original-instance')");
     sql("CREATE TABLE transport2_control(session TEXT PRIMARY KEY,epoch INTEGER NOT NULL,"
@@ -74,66 +84,39 @@ struct Fixture {
 int main() {
   try {
     {
-      Fixture fixture;
-      Json ready;
+      Fixture fixture(false, false, true);
       {
         Store store(fixture.path, false);
-        ready = store.control_state("session");
-        check(store.delivery_budget().at("namespaces").at(0).at("closedThrough") == 1,
-              "Namespace telemetry derives the original continuous closure checkpoint");
-        store.delivery_close("open");
-        check(store.delivery_budget().at("namespaces").at(0).at("closedThrough") == 2,
-              "Closing the final flow derives allocated without a checkpoint write");
-        check(ready.at("controlEpoch") == 7 && ready.at("instance") == "original-instance",
-              "Derived control confirmation preserves original fencing identity");
+        auto session = store.get("unbound");
+        check(!session.contains("cwAccountId"), "Unbound session is preserved without claiming");
+        check(store.session_page({{"cwAccountId", "mailbox"}}).at("data").empty(),
+              "Unbound session is absent from the mailbox directory");
+        session["cwAccountId"] = "mailbox";
+        store.save(session);
       }
-      check(
-          fixture.count(
-              "SELECT COUNT(*) FROM pragma_table_info('transport2_control') WHERE name='ready'") ==
-                  0 &&
-              fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_control') WHERE "
-                            "name='retained_at'") == 1 &&
-              fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_command_keys')") ==
-                  3,
-          "Redundant columns are removed");
-      check(fixture.count("SELECT COUNT(*) FROM transport2_command_keys WHERE stream='stream' AND "
-                          "request_id='rpc:1' AND seq=1") == 1,
-            "Original request refusal identity is preserved");
-      check(fixture.count("SELECT COUNT(*) FROM pragma_table_info('transport2_namespaces')") == 2,
-            "Derived namespace checkpoint column is removed");
-      Store reopened(fixture.path, false);
-      check(reopened.delivery_budget().at("namespaces").at(0).at("closedThrough") == 2,
-            "Namespace closure is reconstructed after restart");
-      check(reopened.control_state("session") == ready, "Compaction is restart-idempotent");
+      {
+        Store store(fixture.path, false);
+        check(store.session_page({{"cwAccountId", "mailbox"}}).at("data").size() == 1 &&
+                  store.session_page({{"cwAccountId", "other"}}).at("data").empty(),
+              "Explicit session ownership persists and remains isolated after reopening");
+      }
+      check(fixture.count("PRAGMA user_version") == 0 &&
+                fixture.count("SELECT legacy_allowed FROM transport2_retention") == 1,
+            "Current unmarked storage is used without schema conversion or compatibility flags");
     }
-    for (const bool bad_control : {false, true}) {
-      Fixture fixture(bad_control, !bad_control);
+    for (int kind = 0; kind < 3; ++kind) {
+      Fixture fixture(kind == 1, kind == 2);
       bool rejected = false;
       try {
         Store store(fixture.path, false);
       } catch (const Error &error) {
-        rejected = error.code == "STORAGE_CORRUPT";
+        rejected = error.code == "UNSUPPORTED_STORAGE_VERSION";
       }
-      check(rejected && fixture.old_columns(), "Conflict rolls back all schema/data changes");
-      check(fixture.count("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%_compact'") == 0,
-            "Failed compaction leaves no partial replacement tables");
+      check(rejected && fixture.old_columns(), "Unsupported schema must be rejected unchanged");
+      check(fixture.count("SELECT COUNT(*) FROM transport2_credit") == 2,
+            "Rejected storage preserves credit identities");
     }
-    {
-      Fixture fixture;
-      fixture.sql("UPDATE transport2_namespaces SET closed_through=2");
-      bool rejected = false;
-      try {
-        Store store(fixture.path, false);
-      } catch (const Error &error) {
-        rejected = error.code == "STORAGE_CORRUPT";
-      }
-      check(rejected && fixture.old_columns(), "Checkpoint conflict rolls back all compactions");
-      check(fixture.count("SELECT closed_through FROM transport2_namespaces") == 2,
-            "Conflicting checkpoint is preserved for diagnosis");
-      check(fixture.count("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%_compact'") == 0,
-            "Checkpoint conflict leaves no partial tables");
-    }
-    std::cout << "PASS: durable identity compaction, restart and transactional failure rollback\n";
+    std::cout << "PASS: unsupported journal schemas rejected without conversion or data loss\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

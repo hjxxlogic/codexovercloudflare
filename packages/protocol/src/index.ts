@@ -253,7 +253,7 @@ export const agentConfigSchema = z
         z.boolean(),
         z.object({
           enabled: z.boolean().optional(),
-          intervalHours: z.number().int().min(1).max(168).optional(),
+          intervalHours: z.never().optional(),
           platform: z
             .enum(['', 'ubuntu20.04', 'debian12', 'windows-x64'])
             .optional(),
@@ -270,8 +270,8 @@ export const agentConfigSchema = z
       .optional(),
     codexPath: z.string().default('codex'),
     codexArgs: z.array(z.string()).default([]),
-    codexUseProxy: z.boolean().optional(),
-    codexProxyMode: z.enum(['inherit', 'direct', 'agent']).optional(),
+    codexUseProxy: z.never().optional(),
+    codexProxyMode: z.enum(['inherit', 'direct', 'agent']).default('inherit'),
     terminal: z
       .object({ enabled: z.boolean().default(false) })
       .strict()
@@ -282,17 +282,7 @@ export const agentConfigSchema = z
       .enum(['read-only', 'workspace-write'])
       .default('workspace-write'),
   })
-  .transform((config) => ({
-    ...config,
-    codexProxyMode:
-      config.codexProxyMode ??
-      (config.codexUseProxy === undefined
-        ? 'inherit'
-        : config.codexUseProxy
-          ? 'agent'
-          : 'direct'),
-    codexUseProxy: config.codexUseProxy ?? false,
-  }));
+  .transform((config) => config);
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export const commandTargetSchema = z.object({
@@ -537,19 +527,11 @@ const control = <A extends string, D extends z.ZodType>(action: A, data: D) =>
   z.object({ action: z.literal(action), data });
 export const terminalCommandSchema = z
   .object({
-    operation: z.enum(['info', 'open', 'read', 'input', 'resize', 'close']),
+    operation: z.enum(['info', 'open', 'close']),
     projectId: idSchema,
     sessionId: sessionIdSchema.optional(),
     control: controlProofSchema.optional(),
     terminalId: idSchema.optional(),
-    seq: sequenceSchema.positive().optional(),
-    data: z
-      .string()
-      .min(4)
-      .max(5464)
-      .regex(/^[A-Za-z0-9+/]*={0,2}$/)
-      .optional(),
-    offset: sequenceSchema.nonnegative().default(0),
     cols: z.number().int().min(2).max(500).default(80),
     rows: z.number().int().min(2).max(500).default(24),
   })
@@ -561,14 +543,6 @@ export const terminalCommandSchema = z
       ctx.addIssue({
         code: 'custom',
         message: 'Terminal requires current controller and runtime',
-      });
-    if (
-      (['input', 'resize'].includes(d.operation) && !d.seq) ||
-      (d.operation === 'input' && !d.data)
-    )
-      ctx.addIssue({
-        code: 'custom',
-        message: 'Terminal input requires sequence and data',
       });
   });
 // Ephemeral Terminal byte stream; lifecycle operations retain their existing journal.

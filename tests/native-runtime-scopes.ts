@@ -100,9 +100,9 @@ function send(frame: any) {
 }
 async function control(action: string, data: any = {}) {
   const requestId = randomUUID();
-  const instance = frames.find(
-    (frame) => frame.type === 'capabilities',
-  )?.deliveryInstance;
+  const instance = operationWrite(action, data)
+    ? (await control('probe')).operationInstance
+    : undefined;
   send({
     type: 'control',
     action,

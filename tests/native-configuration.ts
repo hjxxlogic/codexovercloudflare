@@ -166,7 +166,7 @@ try {
   ]);
   await waitFor(() => peers.has('agent'), 'Agent did not register');
   const original = (await command('agent', { action: 'read' })).result;
-  const replacement = { ...agentConfig, codexUseProxy: true };
+  const replacement = { ...agentConfig, codexProxyMode: 'agent' };
   const replace = {
     action: 'replace',
     requestId: randomUUID(),

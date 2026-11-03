@@ -75,7 +75,6 @@ describe('DO native storage', () => {
         state: 'completed',
         result: { epoch: 41 },
       },
-      expiryMigration: { prefix: 1 },
     };
     await hostStorage.put(resident);
     const env = { OWNER_SECRET: 'x'.repeat(64) } as never;

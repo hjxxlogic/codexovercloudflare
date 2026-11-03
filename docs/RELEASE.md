@@ -1,290 +1,93 @@
 # 发布操作
 
-[文档索引](README.md)
+## 制品与来源
 
-本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。0.6.0 本机与 CI 验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
+正式制品由 `.github/workflows/checks.yml` 构建。推送干净源码后，等待准确提交的完整 Actions 成功，逐项检查 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64。本地构建用于开发，不能替代已验证发行制品。
 
-## 0.6.5 Agent 一周保留与客户端恢复
+发行包含 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 动态包、Linux x86_64 musl 静态包、Windows x64 ZIP 与源码。包内只提供 `coc-agent` / `coc-client`。版本、提交、源码摘要、协议和归档 SHA256 必须一致。
 
-本轮用户已要求完成后发布新版本。Agent / CC / CW / Relay 配套发布 0.6.5，必须等待准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 全部成功，再从 CI 制品发布 Worker、网页、四平台下载和源码。不得用本机二进制替代 CI，不重写旧版本标签。保留线上 DO、Secret、配置、项目文件与活动任务，不强制更新现场 Agent。新保留策略、客户端凭证与旧客户端兼容边界见 [保留策略](HISTORY_RETENTION_2026-11-03.md)。
+匹配 `package.json` 的 `v` 标签在全部门禁通过后运行发布作业；`scripts/assemble-release.py` 核对各平台来源和 SHA256，组装下载目录及 GitHub Release。Actions 不持有 Cloudflare 凭据，不自动发布生产 Worker。
 
-## 0.6.2 Terminal 响应与 DO 唯一路径
+## 发布云端
 
-本次明确使用准确提交的 GitHub Actions 制品发布网页 / Worker、Ubuntu 20.04、Debian 12、musl 与 Windows x64 新版本，含之前已上线的连接授权、DO 唯一路径和公式修复。六项必需作业全部成功后才部署；tag 流程组装同源校验和并生成 GitHub Release。musl 暂存副本使用 strip 并复核 `--version` 身份，原始构建保留；静态归档必须小于 Cloudflare 25 MiB 单文件限制，不再沿用旧版 musl 暂缓作为本次四平台完成证明。现场服务只在空闲时升级，不中断活动会话。采样与发布结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。
-
-## 0.6.1 历史存储优化发布候选
-
-本机全量回归已完成，版本统一为 0.6.1，等待本次准确提交的六项必需 CI 后发布 Worker、网页及四平台原生下载。不得覆盖已有 0.6.0 归档，不直接安装或重启现场 Agent。历史配置、回源边界和缺口恢复见 HISTORY_STORAGE_OPTIMIZATION；retainedRecords 默认 0，发布不自动开启生产退休。线上最终状态以 DEPLOYMENT_STATUS 中的完成记录为准。
-
-## 0.6.0 发布与原生升级
-
-Worker / CW / Agent / CLI 及 CMake / 锁文件统一为 0.6.0；源码 `4b164c6` 已通过六项必需 Actions，并于 2026-11-01 发布 Worker、网页和四平台下载包，现场原生服务未自动更新。P0–P7 已按本机范围完成，真实旧更新器 14 项与安装后完整 E2E 42 项通过；详细故障 / 资源 / 来源证据见 TEST_REPORT。业务要求唯一 delivery:2；发行清单及原生构建 protocol 保持 1，使真实旧 update 下载 / 校验 / 安装通路可用，旧业务仍明确拒绝。
-
-本轮选择 Agent 手动更新：等待任务结束、停旧服务、`coc-agent update` 后启动；client 退出旧 TUI 再 `coc-client update`。不增加旧 hello 业务兼容，旧新准入之间的自动升级不作为已验证能力。真实旧 Agent 0.5.20 / CLI 0.5.13 已在隔离副本上完成成功 / 六类失败演练，以及安装后真实新进程的 delivery:2 业务。
-
-[本地候选和切换步骤](TRANSPORT_CUTOVER.md) 给出可运行的候选来源核对、源码归档摘要复算、私有 SQLite 备份及失败恢复步骤；本轮只演练隔离目录。新状态不得自动交给旧版读取，旧缓存任务不导入新流；凭据、配置、项目和权威历史保留。云端发布与多平台 CI 证据见 DEPLOYMENT_STATUS；现场原生升级及其备份、未知结果核对仍由操作人执行。以下保留各版历史发行要求。
-
-## 0.5.17 多项目发布
-
-已于 2026-10-30 UTC 08:07:11 部署，源码 `269859e`，六项必需 CI 全部成功。Relay/CW、四平台原生归档和源码包均已上线并核验。详见 [发布证据](assets/multi-project-2026-10-30/deployment.json)。
-
-Agent、CC、CW 和 Relay 配套发布。先部署 Relay / CW，再提供同一提交的四平台原生包；旧 Agent 保持原有会话能力，新项目管理需要升级 Agent。允许空项目登录，原项目数组首次导入 dataDir/projects.json。管理员邮箱独立于普通访问邮箱，CC 管理身份需要浏览器验证。保留当前 DO 状态、Secret、凭据、数据库和运行任务；运行中的 Agent 必须等待空闲后更新。
-
-降级前停止实例，并将当前项目目录同步回旧 agent.json 的 projects；不要用旧初始化数组恢复已取消注册的项目。发布结果与准确源码、CI、制品摘要记录在 DEPLOYMENT_STATUS.md 和 TEST_REPORT.md。
-
-部署工具的文本请求断流重试使用独立进程并丢弃失败片段，每次读取最多 60 秒、最多四次尝试，避免 curl 内部重试把不完整响应拼接后误报资源不一致；文件归档仍使用有进展检测的续传与完整 SHA256 核验。
-
-## 0.5.16：Agent 邮箱关联与网页更新通知
-
-配套发布同一成功 Actions 的 Worker、网页、在线手册及四平台原生包。管理员网页可直接配置 Agent 关联邮箱；本地 `accessEmails` 和 `access-emails` 命令需要升级 Agent / Relay。配置缺省不关联邮箱，旧 Agent 不会覆盖已有关联；管理员覆盖优先于 Agent 默认值。邮箱验证、主机作用域、独立配对及撤销规则见[用户指南](USER_GUIDE.md)。保留现有 DO 状态、Secret、Agent 凭据和任务。
-
-下载包部署并校验后，管理员可点击网页的“通知所有 coc-agent 更新”。该按钮沿用版本 / 提交一致性校验和幂等广播，不代表 Agent 已完成安装；自动更新仍等待所有会话结束，未开启自动更新或 Windows 平台需手动升级。此版本不要求轮换所有者密钥，也不通过强制重启安装。
-
-## DO 发布
-
-Worker 制品仅支持 RegistryDO / HostRelayDO。部署工具不再提供数据库绑定、SQL schema 应用或迁移退役参数；拒绝带旧后端选择或数据库绑定的制品。保留既有 DO namespace 和 class migration，不重新初始化状态。旧 D1 数据库不属于本版本的运行依赖。
-
-## 0.5.14 Cloudflare Access 发布准备
-
-原生包与 Worker 从同一提交的 `config/cloudflare-service-token.json` 使用共享入口 Token；修改该配置需重新构建双方。无需 CI 私有 Token 注入。实际 CoC Key、OWNER_SECRET 和设备数据库继续保持私密。启用 Access 前必须先提供兼容原生包，确保旧程序可以升级。
-
-Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EMAIL`；现有 deploy-cloud.py 的 `--keep-vars` 保留服务端变量。运维下载函数只向项目配置中的 origin 携带共享 Token；校验网页使用规范的 `/`、`/downloads/` 路径，拒绝凭据请求的重定向，可用 `COC_ACCESS_CONFIG` 指定不同部署配置。`ACCESS_PUBLIC_DOWNLOADS` / `ACCESS_PUBLIC_HEALTH` 例外必须与 Cloudflare 策略一致。
-
-使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要；源码归档采用 Ubuntu 产物，与现有发行组装规则一致，不要求各平台 gzip 压缩字节相同，旧下载归档保留，线上新包重新下载核对。大文件断流由新的 curl 进程读取最新偏移续传，避免 curl 内部重试回退已收到的数据；连续三次无进展停止，已验证 CI ZIP 可复用。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
-
-需要通知现有 Agent 自动升级时，在上述命令增加 `--notify-release --owner-secret-file /absolute/private/owner-secret`。只有同一提交全部必需 CI 成功、云端部署及线上四平台包摘要复核通过后，脚本才登录并提交版本 / 提交号到发布接口；密钥文件须为当前用户私有，凭据不写入日志且拒绝 HTTP 重定向。通知不直接安装或重启 Agent；仍遵守其自动更新开关、平台匹配及会话空闲规则。0.5.15 包含 CW 文件预览、工具修订同步及 Agent 会话自动批准。
-
-## 从 GitHub Actions 部署 Linux Agent
-
-构建与测试以推送后的 GitHub Actions 为准；先等待同一源码提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六个检查作业全部成功，再部署对应产物。本地构建仅用于开发验证，不能替代 CI 产物。分支运行的 `publish-release` 跳过是正常行为；本流程不创建发行标签、不发布 Worker 或全站下载。
-
-使用已提交的脚本处理等待、下载、校验、备份、安装和恢复，避免人工逐条拼接部署命令。需要本机 Python 3、curl、SSH / SCP，目标机 Python 3、systemd 用户服务、journalctl 读取权限，以及已配置的 SSH 密钥和主机校验。本脚本当前仅支持公开 GitHub 仓库的 `linux-musl` Agent 产物。
+使用已提交脚本准备、核验和部署；不要以手工拼接命令替代其保全及校验。
 
 ```bash
-# 默认只等待 CI、下载校验并读取目标状态，不改变服务。
+# 只准备：等待 CI、下载、验证制品和现有下载站
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID
+
+# 发布同一运行的 Worker / 网页，保留现有原生下载
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
+
+# 同时发布同一提交的四平台下载
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --publish-downloads --apply
+```
+
+脚本校验完整 Actions 门禁、GitHub artifact 摘要和干净来源，以 CI 保存的配置上传 Worker / 网页；发布前后保全并逐包校验下载站。线上网页、脚本、样式、手册、清单、校验和及健康接口需要核对。
+
+只支持 RegistryDO / HostRelayDO 原生存储，保留现有 namespace、class migration 和数据；不提供数据库后端切换或迁移接口。默认保留线上普通变量；确需让配置替换普通变量时使用 `--replace-vars`，先确保配置列全仍需变量，Secret 保留。不要因默认域名而推断获准部署。
+
+共享 Access Token 轮换需更新原生程序与 Cloudflare Service Auth；Worker 不保存此 Token。`OWNER_SECRET`、CoC Key 和设备凭据继续保密。入口与策略见 [Access 说明](cloudflare-access-coc-auth.md)。
+
+需要通知自动更新时，在全部下载验证后加 `--notify-release --owner-secret-file /absolute/private/owner-secret`。通知只触发检查，不代表 Agent 已安装；安装仍等待空闲。需要删除已废弃 Secret 可显式重复 `--delete-secret NAME`。下载快照恢复可使用 `--preserved-downloads /absolute/path/downloads`，仍须逐包 SHA256 校验。
+
+## 部署 Linux systemd 用户服务 Agent
+
+```bash
+# 默认只准备，不改变服务
 python3 scripts/deploy-agent.py --commit HEAD \
   --ssh ubuntu@server --binary /opt/coc/coc-agent
 
-# 一条命令推送、等待 CI、等待空闲、备份安装并验证 120 秒。
+# 推送干净 HEAD、等待完整 CI 和目标空闲，再备份安装与验证
 python3 scripts/deploy-agent.py --push --commit HEAD \
   --ssh ubuntu@server --binary /opt/coc/coc-agent --apply
 ```
 
-仅在用户明确授权跳过 Actions 时，可用 `deploy-agent.py --local --local-build --binary /absolute/path/coc-agent --apply` 从干净 HEAD 本机编译并部署。该模式不访问 Actions，拒绝 `--ssh`、`--push`、`--run-id` 组合，构建前后校验源码摘要与程序身份并运行原生终端专项；仍等待空闲、备份原程序、原子替换、验证与回滚。证据明确 `localBuild=true / ciVerified=false`，不能作为 CI 验证发行包发布。网页/Worker 的对应显式例外为 `deploy-cloud.py --local-build`，仍保留旧原生下载。
+当前脚本支持公开 GitHub 仓库的 linux-musl Agent 制品；目标需要 Python 3、现有 systemd 用户服务和日志权限，执行端需要 Python 3、curl、SSH/SCP 及可用认证。TLS 与 SSH 主机校验保持启用。项目 remote 名为 github 时可指定 `--push-remote github`，仍校验 URL、不 force-push。
 
-本机现有用户服务可用 `--local` 代替 `--ssh`；沿用相同状态检查、CI 制品/来源验证、空闲等待、备份、重启观察与回滚，不需要为本机配置 SSH。若 GitHub 推送 remote 名为 `github`，使用 `--push --push-remote github`；仍核对其 URL 与目标仓库一致，不修改 remote 配置，也不 force-push。
+本机用户服务用 `--local` 代替 `--ssh`。`--service` 默认 `coc-agent.service`；`--binary` 必须为 MainPID 对应的现有绝对路径。默认等待 CI 2400 秒、空闲 1800 秒；指标缺失、过期或存在 runtime / 历史读取 / 文件请求不能当作空闲。
 
-`--push` 要求工作区干净、提交为当前 HEAD、origin 与目标 GitHub 仓库一致，正常推送当前分支，不 force-push。省略时假定源码已推送。`--run-id ID` 可固定一次运行，仍须匹配 `--commit` 的完整来源提交和 checks 工作流。脚本等待完整运行成功，并逐项核对必须检查；通过公开产物解析服务 nightly.link 下载，再对照 GitHub API 独立提供的 artifact SHA256、包内 SHA256SUMS、manifest 提交及远端候选程序的 commit / sourceDigest / protocol / clean 身份验证。凭证不写入命令或证据，TLS 和 SSH 主机校验保持启用。
+脚本检查准确提交及所有必需作业，验证 GitHub artifact SHA256、包内校验和和候选程序 version / commit / sourceDigest / protocol / clean。安装前备份实际运行的 `/proc/MainPID/exe`，原子替换后默认观察 120 秒，检查 PID、运行来源、Relay 握手和连接错误；失败尝试回滚。配置、凭据、SQLite 和备份保留，不替换 CLI。
 
-`--service` 默认 `coc-agent.service`，只操作已存在的 systemd **用户服务**，`--binary` 必须是其 MainPID 对应的既有绝对程序路径。默认最多等待 CI 2400 秒、空闲 1800 秒；最近指标缺失、过期或仍有 runtime / 历史读取 / 文件请求时均不当作空闲。空闲检查是最近本机指标快照，不能与新任务提交形成原子互斥；升级窗口请停止提交新任务。只有明确接受中断当前会话时才加 `--allow-restart-active`，不能由自动化自行推断。
+空闲检查是近期指标快照，不能与新任务形成原子互斥；部署窗口应停止提交新任务。重启活动会话必须明确授权 `--allow-restart-active`。Agent 更新不包含 Worker 发布或 GitHub Release 授权。
 
-安装前再次检查状态，并备份 `/proc/MainPID/exe`，包括磁盘程序已被自动更新、进程仍运行旧程序的情况。随后停止服务、原子替换 Agent 并启动；默认观察 120 秒，核对稳定 PID、实际运行来源身份、Relay 握手以及无 Pong 超时 / 重连耗尽。验证失败尝试恢复备份并启动原服务；SSH 中断或回滚失败需要重新查询处理。保留配置、凭证、SQLite 和备份文件，不更换 CLI。证据默认写入 `.local/deploy-agent/RUN_ID/deployment.json`，同目录保留 CI 原始信息、artifact 和候选 Agent。实际部署身份及验证结果另记测试记录。
+## 配套升级与回退
 
-## 0.5.13 已发布 · 2026-10-28
+Relay / 网页先部署，再让新版原生程序连接；业务只接受 `delivery:2`，Terminal 要求 Agent 上报 `streaming:2`。配置、凭据、项目目录与历史独立备份，保留未知请求身份，不导入不兼容缓存任务。稳定 Agent 身份和请求准入代次分别处理，不能因更新或过期自动重放副作用。
 
-源码 `99506d28bec9d97800b378c2e9f987a048ceceec`、标签 `v0.5.13`；[Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40628265655) 七项作业全部通过。[GitHub Release](https://github.com/hjxxlogic/codexovercloudflare/releases/tag/v0.5.13) 与生产下载已同步。Worker `30cb4797-bec0-40fa-81df-67f510ae617a` 于 UTC 03:56:17 上线，生产流量 100%。四平台原生包、源码、站点与在线手册已验证，保留 0.5.12 归档直接下载；详见 [测试记录](TEST_REPORT.md)。
+运行实例不会因下载包已发布而自动完成升级。Linux 按自动更新策略等待会话和读取结束；Windows 停止程序后手动替换整包，保留配置和状态。
 
-Agent / CLI 取消 Codex 精确版本检查，启动及 doctor 仅要求版本命令成功且返回非空输出，doctor 返回实际版本。其他版本仍需兼容所用 app-server / TUI API。发布四平台原生包、源码、站点与在线手册；无需配置或数据迁移。Linux 现有自动更新规则继续适用，Windows 手动整包升级。发布身份和验证结果另记入测试记录。
+回退前停止实例、备份当前状态并核对升级后的副作用。新存储不能直接交给不兼容二进制；需要匹配整套组件及一致备份。项目登记权威为 `dataDir/projects.json`，不应使用配置内的初始化数组覆盖当前目录。SQLite 恢复不恢复 Codex 进程或项目文件，见用户手册的备份操作。
 
-## 管理列表同步修复 · 2026-10-27
+## 显式例外与证据
 
-源码 `ea659cf` 已推送，Actions 六项检查成功；Worker `c92768d5-ac11-4c3b-9c79-15ad92499a7e` 于 UTC 02:02:33 上线，流量 100%。管理操作后同步刷新设备、Key 和唤醒主机列表，手动刷新等待管理快照读取，不依赖本人操作通知。此前 `165e500` 的旧协议主机过滤作为独立修复保留；生产 `build-server` 已经由用户确认手动刷新后恢复一致，不将它认定为旧记录。更新 Worker、网页 JS / 入口和在线手册，保留 v0.5.12 归档、标签、生产配置与 DO 数据；无版本通知、用户数据操作或模型调用。验证与边界见 [测试记录](TEST_REPORT.md)。
+只有用户明确授权跳过 CI 时，才使用 Agent 的 `--local --local-build` 或云端 `--local-build`；默认仍要求干净 HEAD，校验构建来源、备份、空闲和验证，记录 `ciVerified=false`，不能作为 CI 验证发行包。若用户同时明确要求不提交源码，可加 `--allow-uncommitted`；仅允许本地构建，保留真实 `dirty=true`、基准 commit 与完整源码摘要，构建前后源码身份必须相同。不会执行提交、推送或 Actions；现有下载保留，Agent 部署仍等待空闲并支持回滚。
 
-## DO 通知与迁移读取优化 · 2026-10-27
+云端 `--cloud-only-after-windows-failure` 只用于用户明确要求的分阶段发布：运行已完成、Windows 为唯一必需失败项、其余全部成功，保留下载且不通知更新。`--skip-native-platform linux-musl` 同样只用于明确批准的暂缓平台，保留其已验证下载并标注限制，不把部分发行冒充完整发行。
 
-源码 `08d0ff4` 已推送，Actions 六项检查成功。Worker `df318752-ee2e-4e23-9b43-3914baadf5cb` 于 UTC 01:17:29 上线，流量 100%；缩小 Registry 通知范围并跳过已完成迁移的重复读取。此次只更新 Worker 和在线手册，沿用 v0.5.12 原生归档、清单与校验和，不重写版本标签或发送新版本通知。使用 `--keep-vars`，没有新增 DO 迁移。线上基础接口、手册字节及下载可用性通过；实际优化后节费待测。身份和验证边界见 [测试记录](TEST_REPORT.md) 与 [DO 用量分析](do-usage-2026-10-27.md)。
+部署工具可在干净后继提交使用修复后的工具发布祖先提交 CI 制品，分别记录部署工具与代码来源；不得重新本机构建冒充既有制品。
 
-## 0.5.12 发布要求
+机器证据默认在 `.local/deploy-cloud/`、`.local/deploy-agent/`。完成实际部署后，按仓库要求记录准确 commit、Actions URL/结果、artifact/包摘要、目标、验证和限制；私有配置与凭据不写入公开记录。源码现状、下载版本和正在运行版本分别核对。
 
-已于 2026-10-26 UTC 15:08:13 部署，Worker `bb6a5e38-2851-4bcb-99b6-9619d43c9376`，流量 100%。功能提交 `3b41fce`、标签 `v0.5.12` 与四平台下载来自已通过七个 Actions 作业的同一来源；在线手册另由 `c8b5972` 修正旧周期说明，不改写发行归档。已发布版本通知；完整校验与未完成的真实 24 小时计费验收见 [测试记录](TEST_REPORT.md)。
+## 运行状态格式
 
-Worker、网页与四平台原生包配套发布，保留原凭证和 DO 数据，不增加 DO 类迁移。客户端控制接口新增 202 / operationId，旧控制客户端明确提示升级；新 Agent 要求 Relay hello 的 demand:1。先部署 Relay / 网页，再升级原生程序；旧 Agent 仍可保留原心跳作为兼容连接，不纳入无周期流量验收，新的 probe 需要升级 Agent。
+发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0` 或 `1`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本项目不提供旧库迁移或配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。结构完整的未标记库直接读取，不修改版本；缺列的库不自动升级。具体错误见用户手册。
 
-下载产物全部就绪后，管理员可 POST `/api/v1/admin/releases`，内容为 `{version,commit}`。服务端核对已部署下载清单身份、协议与全部归档存在后提交幂等版本通知；Agent 再按原下载来源、完整性及空闲安装规则处理。相同版本 / 提交不重复通知，不同提交复用版本拒绝。普通发布保留 OWNER_SECRET，不轮换用户密钥，不替换远端已有服务。
+## 当前线上版本
 
-`autoUpdate.intervalHours` 兼容解析但废弃；回滚会恢复旧版本的周期通讯。回滚前保留数据库与旧二进制，不删除 epoch、lease、请求身份、结果或完整历史。平台 24 小时休眠、费用与跨网络静默断链属于单独报告的验收边界。
+Worker、网页与当前线上 Linux Agent 为 `0.6.7`，目标为 `https://r.xlogic.cc` 与既有 systemd 用户服务。本次按明确授权使用未提交源码本地构建，GitHub Actions 跳过，无 Actions URL，`ciVerified=false`、`dirty=true`；不作为 CI 验证发行制品。活动会话重启获得了明确授权，配置与 SQLite 已备份，安装后完成 120 秒连接验证。
 
-## 0.5.11 已发布：Linux musl 全静态版
+| 构建或制品           | 身份 / SHA256                                                      |
+| -------------------- | ------------------------------------------------------------------ |
+| 构建基准 commit      | `c3ffef94afd3bd09c0598df2d19aa0697b463d0c`                         |
+| 构建时源码摘要       | `1057fdcd349956a6c3dc51d9d1940e2bb10a416ae212bb33bb9058e69cbaee9c` |
+| Worker Version ID    | `17d8ac2e-c840-40ed-a944-f04966a8d953`                             |
+| Worker bundle SHA256 | `7defb0533db96f974ffabdb0565d5eb878c849cdb5dee671015c5cb7a3f273aa` |
+| 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
+| 运行 Agent SHA256    | `7c8e0ce89098be2d25cad05a222fdf2e35434f7b954549b296e30360487ea368` |
 
-源码 `59bb0de`、标签 `v0.5.11`；[Actions 40317904673](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/40317904673) 四平台、sanitizers、完整 regression 和发布门禁全部通过。Worker `7fff05b9-5611-478d-8529-050295520b66` 于 2026-10-26 UTC 11:59:04 上线，流量 100%。新增 `coc-0.5.11-linux-x86_64-musl.tar.gz`，保留 Ubuntu 20.04 / Debian 12 动态包及 Windows x64 ZIP；站点、Worker、四平台包、源码和在线手册来自同一标签。
+当前验证覆盖真实 Access 邮箱登录与授权恢复、主机版本和在线状态、邮箱专属目录、旧会话历史、Codex 线程目录、Terminal WebSocket 命令与输出、旧 HTTP 字节操作拒绝、真实模型回复、刷新后历史和草稿恢复、任务不重复提交、文件上传 / 侧栏与新窗口预览 / 下载的字节一致性。测试会话已结束，测试文件已清理；107 条原有会话记录保留，原 SQLite 版本标记仍为 `0`，配置仅移除废弃的 `autoUpdate.intervalHours`。
 
-五个归档、线上资源、实际 musl TLS 与浏览器验证通过；保留生产 vars、secrets 和 Durable Object 数据，未操作既有主机会话。发布后证据另行提交，不改写源码标签或归档；详情见 [测试记录](TEST_REPORT.md)。
+本地 CTest 11/11、Vitest 492/492、部署工具 35 项检查通过。69 个线上静态资源与准备制品逐字节一致。构建源码快照、详细日志、浏览器截图和机器证据位于忽略的 `.local/deployment-0.6.7/`，来源摘要以部署时快照为准。
 
-> 0.5.10 已发布并部署：源码 `ccc3a28`、标签 `v0.5.10`，GitHub Actions 三平台、sanitizers 和完整浏览器回归全部通过。Worker `44ee79fc-ec0a-4f6e-98c5-5163e16a26ec` 于 2026-10-26 UTC 11:25:48 上线，流量 100%。产物身份、归档、线上资源与浏览器验证见 [测试记录](TEST_REPORT.md)。此前 0.5.9 因 CI 门禁失败未正式发布。
-
-## 0.5.10：代理、实例名称与管理员 Tab
-
-本轮发布包含 HTTP CONNECT / SOCKS5 代理、本地与私网绕过、TUI 转接和默认端口修复、实例显示名及管理员五个 Tab。先升级 Worker / 网页，再使用新版原生名称同步；已有凭证和数据库保持兼容，不重新授权。运行中的 Agent 修改名称或代理后需重启。
-
-使用匹配 `v0.5.10` 标签的 GitHub Actions 三平台原生包及站点产物部署。版本、提交、源码摘要和归档校验和必须一致；实际发布身份及线上验证见测试记录。
-
-0.5.8 已发布：源码 `caca2b8`、标签 `v0.5.8`，Worker `3925ec98-8742-4b73-bab4-dc97e71ceb16`。三个平台包、源码、网页和在线手册已同步更新；Actions 全部门禁及线上资源字节校验通过，详细证据与验收边界见 [测试记录](TEST_REPORT.md)。
-
-## 已部署网页更新：管理表格与会话自动批准
-
-待授权、已授权设备、唤醒配置和 API Key 使用原生表格，手机端局部横向滚动；按行保留审批、目标锁定、保存及撤销操作。CW 同时增加显式开启、仅当前会话有效的自动批准，包含命令、文件及本轮额外权限；服务器审批策略保持权威。此更新属于网页 / 在线手册更新，已完成本地与 Actions 的完整门禁。源码 `1d2f526`，Worker `ec890616-6aa8-46f7-bfa7-bfe8029727e7` 于 `2026-10-26T13:02:48.210861Z` 部署，流量 100%；保留 v0.5.11 原生下载与来源身份。线上字节、安全检查及生产 Chromium 验证通过，详情见 [测试记录](TEST_REPORT.md)。
-
-## Actions 发布流程
-
-推送干净提交后由 `.github/workflows/checks.yml` 执行构建测试，包括常规回归、ASan/UBSan、Ubuntu 20.04 / Debian 12、Linux musl 全静态版和 Windows x64。推送匹配 package.json 的 `v` 版本标签后，只有全部作业通过才运行发布作业；`scripts/assemble-release.py` 核对各平台版本、提交、源码摘要、协议与归档 SHA256，组装网页和下载目录并上传 GitHub Release。下载 Release 的 `coc-VERSION-site.tar.gz` 后，用已认证的 Wrangler 将该站点与同一提交的 Worker 部署；Actions 不持有 Cloudflare 凭据，也不自动部署生产。
-
-新增 `linux-musl` artifact，发行归档为 `coc-<版本>-linux-x86_64-musl.tar.gz`，与既有动态包并存。使用 `Dockerfile.musl` 的 Alpine 3.23 工具链及 `-DCOC_STATIC_MUSL=ON` 构建，容器内 CTest / 原生登录、Ubuntu 宿主启动及 musl 默认更新选择回归通过后上传。干净源码下执行 `python3 scripts/package-release.py --build-dir build-musl --platform musl` 打包；打包检查两个程序均为 x86_64 ELF，拒绝 PT_INTERP 动态加载器及 DT_NEEDED 共享库依赖（允许静态 PIE 的自重定位动态段），确保没有动态加载器或共享库依赖。正式组装现在要求四个平台均通过身份和 SHA256 校验，缺少 musl 产物也不能发布。新增包的实际发布以下载清单为准。
-
-Linux 构建使用按目标隔离的编译缓存，musl 工具链额外使用 Docker 层缓存；未命中时正常编译。缓存不跳过来源生成、链接、打包校验或测试，正式发布仍以当前标签完整门禁通过为准。配置和缓存失效方式见 [开发说明](DEVELOPMENT.md)。
-
-升级原生程序获得登录轮询恢复、外部输出补全和完整默认配置；Relay 同步升级获得批准结果重取。Windows 原生审批仍要求显式配置连接原 Codex 的同一个本机 WebSocket app-server，不能将既有独占 stdio 会话事后转移审批。
-
-## 1. 发布内容与升级
-
-生产网页 / API：`https://r.xlogic.cc`；下载页：`https://r.xlogic.cc/downloads/`。
-
-当前版本 0.5.12 开发预览版，实际部署结果以 [测试记录](TEST_REPORT.md) 为准。Worker 与网页一起发布；原生包只包含 `coc-agent` / `coc-client`，不再包含 `coc`。提供 Ubuntu 20.04、Debian 12 的 Linux x86_64 动态链接包、Linux x86_64 musl 全静态包、Windows x64 静态依赖 ZIP、源码包、提交 ID 和 SHA256 校验和。
-
-2026-10-25 网页修复：“加载更早内容”完整保留已加载消息，不再按 400 条 / 192 KiB 裁剪。此次仅更新网页及在线手册，随 Worker 一起部署；继续提供原生 0.5.2 的既有发行包、源码归档和校验清单，无需升级 Agent / CLI。
-
-同日网页更新：连接设置移至会话记录面板顶部，向上滚动到消息区顶部附近时自动异步加载更早内容，保留阅读位置、手动加载及失败重试。仍沿用原生 0.5.2 发行包，部署时同步更新在线手册。
-
-同日功能菜单更新：默认 CW 模式，管理员模式集中管理登录 / 退出、设备授权和 API Key；菜单底部切换按钮保持可达，切换保留 CW 会话与草稿。授权链接直接进入管理员模式，权限继续独立校验。本次仅发布网页及在线手册，原生下载保持 0.5.2，无需升级 Agent / CLI。
-
-同日 CW 授权流程更新：申请填写设备名称和留言，无需服务器标识；管理员查看留言并明确选择服务器后批准。Worker / RegistryDO 与网页需同步部署，旧网页发起的待处理申请也需管理员选择服务器，已发放凭证继续有效。在线手册同步更新，原生下载继续提供既有 0.5.2 归档，无需升级 Agent / CLI。
-
-从 0.3.x / 0.4.x 升级保留现有授权和配置；双向历史通道需要同时更新 Agent、CC、Worker 与网页。Agent 不再按历史总量或时间自动清理正文；升级前已删除的数据不能恢复。CW / CC 缓存位于各自设备，不是云端副本。从 0.2.x 升级属于不兼容的认证升级。旧 Agent / 客户端凭证和旧管理员 Cookie 不再接受，所有者密钥保留。原生程序需要更新，A 自行重新申请网页批准的登录，CC / CW 对目标 A 分别申请。systemd 改用 `coc-agent run --config ...`。迁移步骤见 [用户手册](USER_GUIDE.md)。项目配置与 SQLite 格式保留，不自动迁移宽权限令牌。
-
-0.5.3 将同样流程扩展到 CC：配对登录新增 `--message` 且不再要求 `--host`，管理员必须选择服务器；API Key 固定绑定不变。需同步发布 Worker / RegistryDO、网页、在线手册和两个平台的新原生包。已有 CC 凭证、Agent 配置和数据库保持兼容；旧 CC 发起的配对申请也需管理员重新选择服务器，不能再由旧申请的 hostId 决定绑定。
-
-0.5.3 发布源码为 `b6f9c0d`，标签 `v0.5.3`；Worker 版本 `6f8083b8-cfc0-4423-b3e6-bd04003cb99f` 于 2026-10-25 UTC 00:53:48 发布至自定义域名，流量 100%。两个平台包与源码归档均绑定该干净提交；实际下载 CC 的线上留言 / 审批 / 隔离 / 撤销验证通过，证据见 [测试记录](TEST_REPORT.md)。
-
-0.5.4 已于 2026-10-25 UTC 01:38:34 发布，源码 `ba0f254`、标签 `v0.5.4`，Worker 版本 `db1fb52b-5758-4a5b-b01f-c147b2331e0a`，流量 100%。网页、Worker、在线手册、Ubuntu 20.04 / Debian 12 原生包与源码归档同步更新；线上资源校验、实际下载程序、临时授权、确定性流式历史及多块文件传输验证通过，详见 [测试记录](TEST_REPORT.md)。
-
-0.5.5 已于 2026-10-25 UTC 02:18:34 发布，源码 `8da4085`、标签 `v0.5.5`，Worker 版本 `58969fbd-0d20-4bb8-adf7-e52aa68dc53b`，流量 100%。两平台原生包、网页、Worker、源码及在线手册同步更新。线上实际下载程序的启动 / 运行审批提示、CC / CW 批准与拒绝、目标与角色隔离、Cookie 刷新及撤销验证通过；临时设备已清理，详见 [测试记录](TEST_REPORT.md)。
-
-0.5.6 已于 2026-10-25 UTC 02:41:49 发布，源码 `672e5f4`、标签 `v0.5.6`，Worker 版本 `cf6537ae-7597-485b-ad9f-6ff5ce39032a`，流量 100%。Worker、网页、在线手册和 Ubuntu 20.04 / Debian 12 原生包同步更新；线上资源与三个归档的校验和一致；实际下载程序的管理员配置、离线 GET / 限流、CW 自动唤醒、CC 等待上线及目录恢复验证通过，临时授权已清理。唤醒功能及验证边界见 [测试记录](TEST_REPORT.md)。
-
-2026-10-25 CW 聊天路径下载更新：仅发布网页及在线手册，随 Worker 一起部署。对话中的项目内文件路径可单击下载，复用现有 CW 文件接口、20 MiB 上限与版本校验；沿用 0.5.6 原生下载、源码归档及校验清单，Agent / CLI 无需升级。部署源码提交及线上验证结果记录于测试记录。
-
-本次网页发布源码 `3856260`，Worker 版本 `60d4a34d-5b75-46ce-93b9-a343d99090a8` 于 2026-10-25 UTC 03:30:33 部署至 `r.xlogic.cc`，流量 100%。网页与在线手册已更新，两个平台原生包和 0.5.6 源码包的 SHA256 保持一致；实际线上下载验证及验证边界见 [测试记录](TEST_REPORT.md)。
-
-2026-10-25 CW 刷新恢复会话更新：仅发布网页和在线手册，随 Worker 一起部署。浏览器按授权身份保存上次项目、会话元数据，并在验证已授权主机后自动恢复；沿用已有 IndexedDB 存储，不迁移服务端数据，Agent / CLI 及原生下载保持 0.5.6。部署身份及线上刷新、草稿和离线缓存验收见测试记录。
-
-本次会话恢复网页发布源码 `9bf7f4b`，Worker 版本 `fe350e29-82eb-49f3-82f2-1cea3090b10b` 于 2026-10-25 UTC 03:46:28 发布至 `r.xlogic.cc`，流量 100%。网页、在线 UTF-8 手册及原生归档校验通过；实际会话恢复和验证边界见 [测试记录](TEST_REPORT.md)。
-
-## 2. 验证与打包
-
-2026-10-25 中文 / English 网页更新：本次仅部署网页和在线手册，新增菜单底部语言选择、刷新保留及即时切换，并修复消息已在顶部时继续上滚加载历史。现有 0.5.7 原生包、源码归档、下载清单和校验和保持不变，无需升级 Agent / CLI。发布源码提交、Worker 版本及线上验收另记入测试记录，不重写 `v0.5.7` 标签。
-
-该网页更新源码为 `c74a06c`，Worker 版本 `3c3ad45a-6c5d-4fe2-9485-1ab550bcc1eb` 于 2026-10-25 UTC 14:39:48 部署，流量 100%。真实线上浏览器的双语切换、刷新、标签页同步与管理员登录入口检查通过，完整验证边界见测试记录。
-
-完成原生构建、CTest、Vitest、TLS、真实 Wrangler / Chromium 集成、类型与格式检查，以及 Worker dry-run，并提交源码。集成测试须包含角色与目标 A 隔离、多授权、单次领取、长期凭证及撤销已有连接。
-
-```bash
-npm run build:native
-npm run build:web
-python3 scripts/package-release.py --build-dir build --platform ubuntu20.04
-docker run --rm --init -v "$PWD:/workspace" coc-local-test sh -c \
-  'cmake -S . -B .local/build-container -DCMAKE_BUILD_TYPE=Release && cmake --build .local/build-container -j 2'
-python3 scripts/package-release.py --build-dir .local/build-container --platform debian12
-```
-
-不要在宿主与容器之间共用 CMake 构建目录。用 `ldd` 检查目标二进制依赖；用户需对应 OpenSSL、Boost.System、SQLite3、libstdc++ 和 CA 证书。源码包来自当前 HEAD，不包含秘密、状态或构建缓存。
-
-发布文件位于忽略的 `dist/web/downloads/`。`build:web` 会保留既有下载目录；发布新版本时仍须重新生成两个平台包和源码包，核对下载清单及校验和。 `apps/web/public/_headers` 保证在线 Markdown 返回 `text/plain; charset=utf-8`。
-
-## 3. 生产配置与部署
-
-`wrangler.jsonc` 绑定账号和自定义域名，关闭 workers.dev / preview。发布前通过 Wrangler whoami 确认账号，保留已有生产 OWNER_SECRET。
-
-首次配置时使用独立随机所有者密钥，至少 32 字符；`.local/production/owner-secret` 与 `.local/production/secrets.json` 权限均为 0600，不提交。不要打印或在命令参数中传秘密。普通代码部署保留云端 secrets：
-
-```bash
-node node_modules/wrangler/bin/wrangler.js deploy \
-  --tag v0.5.7 --message 'Release 0.5.7 external Codex session history and queue'
-```
-
-只有初始化或明确轮换密钥时才追加 `--secrets-file .local/production/secrets.json`。
-
-## 4. 发布后验证与记录
-
-验证健康检查、首页、未登录业务请求返回 401、跨域管理登录返回 403；在线手册需核对 UTF-8 响应头、浏览器实际字符集及文档字节。下载两个发行包与源码包，校验 SHA256、包内容只有两个运行程序，并在匹配系统执行 help。
-
-生产授权冒烟只使用明确标记的临时设备和独立凭证文件：申请临时 A，在真实管理网页核对并批准，验证下载的 A 登录；再为该 A 授权 CC / CW，验证各自作用域及管理员接口拒绝。测试后只撤销本次创建的临时授权，不能操作用户真实设备。测试不调用模型；不宣称覆盖生产 Codex 会话与长期负载。
-
-记录实际 Worker 版本、发布源码提交和验证边界到 `docs/TEST_REPORT.md`。创建 `v0.5.7` 标签指向发布源码提交；有远程仓库时推送提交和标签。发布后的证据文档可另行提交，不改写已发布的源码提交。
-
-DO 休眠唤醒、跨网络会话、部署断线和长期压力另行验收。
-
-## 稳定化发布门禁补充
-
-打包脚本关闭 Python 字节码缓存生成，避免自身导入使干净源码变脏；同时拒绝包含未跟踪文件的脏源码，并运行 Agent/CLI `--version` 核对提交、版本、协议和 sourceDigest。必须在目标发行版或兼容容器内验证二进制，不能把无法执行的跨平台产物当作已验证。下载清单含源码摘要；这绑定本地构建输入，不代替签名或第三方可验证构建证明。
-
-`build:web` 保留 downloads；发布候选仍必须检查所需平台包和 SHA256SUMS 全部存在。新增 CI 不执行部署。发布前完成 [实施记录](stabilization-2026-10-24.md) 中尚未执行的长稳、DO 重建/升级、预发布安全头、备份/回滚与客户端版本组合检查。未关闭的门禁写入发行说明，继续使用开发预览版定位。
-
-管理员所有者密钥轮换会使旧管理会话失效；通知管理员重新登录。项目规范化根目录不能重复或重叠。升级前使用在线备份工具保存权威数据库并保存旧二进制；旧版不认识新分块表，回滚读取必须先核对内容兼容性，不能直接回退并宣称新消息仍完整。
-
-### 0.5.1 升级说明
-
-本次为稳定化开发预览发布，保留尚未完成的验收事项：八小时压力、真实平台休眠/升级/回滚、磁盘耗尽/掉电、Firefox/WebKit、手机键盘和屏幕阅读器。sanitizer 首次异常无可用堆栈，重建后通过，原因尚未定位；短时基准未完成目标负载，不能作为吞吐承诺。
-
-Worker、网页及下载的 Agent/CC 必须配套升级。旧 Agent 未完成 protocol 1 构建/能力协商时，新中继返回 AGENT_NEGOTIATING 而不创建进程。既有项目重复或父子根目录需先合并配置。普通部署保留已有 OWNER_SECRET 和 DO 数据，不清空注册或撤销用户设备；本次不会代替用户升级已有服务器服务。
-
-### 0.5.2 原生自动更新发布要求
-
-两个平台包都必须重新生成，清单 version/commit/sourceDigest/protocol 必须与实际程序一致；SHA256SUMS 保持标准双空格文件名格式。更新器只接受比当前版本新的稳定三段版本及相同协议，不从旧版本自动引导到 0.5.2。发布前运行 `test:update`，干净构建另运行 `tests/native-update.py --automatic` 验证实际安装和 Agent 重启；发布后核对线上三个归档与手册。安装目录需运行用户可写，systemd 模板已改为 `/home/coc/.local/bin`。显式 `update` 可越过自动开关；普通自动失败不影响原业务结果。
-
-### 0.5.4 性能与完整本地历史
-
-同步发布 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 Agent/CLI 及源码包。完整历史窗口和已展开正文不截断，浏览器长期缓存已读页/正文并优先从本地读取。Agent 批量事务和文件执行器、新版网页的四块传输、Relay 去重订阅与鉴权优化需配套升级。上传窗口为可选能力，旧 Agent 继续串行上传；原授权、配置、SQLite 与 IndexedDB 数据兼容，无需重新登录。
-
-已有 Agent/CLI 沿用自动更新配置；发布不直接改动远程主机服务。上传完成记录新增部分表达式索引，首次打开较大缓存库可能花费更多时间。升级前按用户手册备份权威数据库；去重身份和完整历史不自动删除。继续保留八小时长稳、真实平台休眠/升级、慢盘控制延迟及原生 CLI 平台发送缓冲的验收边界，详情见 [性能修复记录](perf-fixes-2026-10-25.md)。
-
-### 0.5.5：Agent 批准指定目标的 CC / CW
-
-需要发布 Worker、网页和新版原生程序。已有 Agent / CC / CW 凭证及 API Key 无需重新授权，也不迁移数据库。旧客户端的未指定申请继续由管理员选择；旧 `hostId` 输入仍忽略。新 CC `login --host` 与新 CW 目标输入发送 `requestedHostId`，旧 Relay 未返回目标时直接报兼容错误，因此先更新中继，再使用客户端新功能。使用 `requests / approve / reject` 及启动 / 运行审批提示的 Agent 需升级；其他 Agent 服务可继续运行旧版。Agent 立即后台检查，并每 30 秒检查新申请，去重提示且不自动批准；审批接口暂不可用不会阻止服务运行。实际部署身份和线上验收结果见测试记录。
-
-### 0.5.6：离线 Agent 唤醒
-
-同步发布 Worker、网页、在线手册、Ubuntu 20.04 / Debian 12 的 Agent / CC 和源码包。主机记录新增可选唤醒配置及按主机持久化的一分钟限流，无需迁移授权或 SQLite 数据。管理员可在服务器离线时配置、覆盖、禁用或恢复 Agent URL；旧 Agent 省略字段不清除云端配置。需要先更新 Worker，再使用新网页或原生唤醒功能。既有服务沿用自动更新配置，发布不直接替换用户服务。
-
-中继访问 HTTPS 唤醒 URL，不携带客户端凭证、不跟随重定向；网络服务接受请求不等于服务器实际开机。发布后仅使用临时测试主机验证配置接口、角色隔离、离线唤醒 / 限流、客户端等待和上线刷新，不唤醒已有用户主机。真实硬件休眠 / 开机和长期负载继续属于验收边界。
-
-### Windows x64 包
-
-新增 `coc-<version>-windows-x64.zip`，在 Windows x64 上使用 `x64-windows-static` 构建并执行 `ctest -C Release` 后，以 `--platform windows-x64` 打包。打包拒绝脏源码、来源不匹配及错误目标；清单与 SHA256SUMS 同时识别 `.zip` / `.tar.gz`。Windows ZIP 包含两个 `.exe`、示例配置、手册及静态依赖的许可证通知，无 systemd 单元。默认从 `build-windows/vcpkg_installed/x64-windows-static/share/*/copyright` 收集许可证，使用其他安装目录时传 `--dependency-dir`。第三方库和 MSVC CRT 静态链接；不得将依赖未收齐的动态构建标为官方 ZIP。
-
-合并各平台下载时须核对 version/commit/sourceDigest/protocol 相同，并重新生成最终清单与 SHA256；CI artifact 不等于线上发布。Windows 当前不自动更新或重启升级，也不注册 Windows Service，用户停止 Agent 后校验并整包替换。现有 Linux 自动更新不会选择 Windows ZIP。
-
-## 0.5.7：外部会话
-
-配套发布 Worker、网页、三个平台原生包和源码。配置 externalSessions.allowQueue 默认关闭；新表 external_items 自动创建，不修改原 Codex 数据或授权。先更新 Agent / Worker 才能使用观察和队列。原客户端必须支持 Codex 0.164.0 队列 API，执行与审批由其负责。Windows 包只使用 GitHub Actions 已验证的产物，不在本地构建或执行。
-
-### 0.5.7 无人值守审批补充
-
-同步发布新增共享服务审批接入。allowApprovals 默认关闭；需原 session 所属 app-server 可通过私有 Unix socket 或本机 WebSocket 访问。Windows 使用本机 WebSocket。禁止将只读历史进程冒充原审批通道；无法接入的独立 stdio 会话明确提示限制。发布验证分别覆盖真实 Codex 协议和生产 Relay 上的临时 fixture，不调用真实模型或接管用户已有会话。
-
-## 分支云端更新（不发布新原生版本）
-
-先提交并推送源码，在 GitHub Actions 中完成同一提交的六项必要作业。`regression` 保存 `verified-worker` 和 `verified-web`，包含构建来源，Worker 同时保存部署配置。切换到该干净提交后执行：
-
-```bash
-python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID
-python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
-```
-
-默认仅准备；`--apply` 校验完整 Actions 门禁、GitHub artifact SHA256、提交 / 干净来源及网页和 Worker 的来源摘要一致后，通过 Wrangler `--no-bundle --keep-vars` 上传 CI 产物。部署目标来自 CI 保存的配置；当前 JSONC 配置仅使用尾随逗号，新增注释前需扩展解析。保留线上下载清单和包，逐包验证 SHA256；手册使用此次 CI 源码。此流程不创建 GitHub Release，不把分支包冒充已发布版本。发布后检查 health 及网页、脚本、样式、手册、清单 / 校验和的线上字节。凭据由已有 Wrangler 登录提供，不写入文档或仓库。证据位于忽略的 `.local/deploy-cloud/<run-id>/`。Agent 仍单独使用 `deploy-agent.py`，等待空闲，不随云端脚本重启。
-
-### 协议简化候选的存储切换
-
-本候选移除 transport2_control.ready 、transport2_command_keys.digest 与 transport2_namespaces.closed_through。升级前停止共用数据目录的旧进程并保存完整一致备份；新程序在同一 SQLite 启动事务内校验副本后转换。转换失败回滚，禁止自动重建冲突身份。转换后不能只换回旧二进制；回退须使用匹配整套组件与一致备份并核对切换后的副作用。本次仅隔离库测试，未实际发布部署。
-
-## 显式分阶段发布例外
-
-用户明确要求先发布上一轮云端、等待 Windows 修复后再发布完整包时，可使用 `--cloud-only-after-windows-failure --run-id ID --commit SHA`。只接受已完成、身份匹配且 Windows 唯一必需失败项的检查运行，其余五项必须成功；禁止与 publish-downloads、notify-release 同用。仍核验 Worker/web 制品 GitHub 摘要与来源，保留原生下载，并记录例外。默认路径仍要求六项全绿。该参数不能用于一般跳过检查。
-
-部署工具可在干净的新提交中发布其祖先提交的 CI 制品，便于用修复后的工具发布既有验证产物。线上代码身份来自制品，部署记录另记 deploymentToolCommit；不得用本机重新构建替换祖先制品。
-
-部署脚本读取 GitHub Actions 元数据时优先复用本机已登录的 `gh`（固定 github.com），避免多次完整检查导致匿名 API 限流；没有 gh 或没有登录时沿用公共接口。令牌由 gh 管理，不放入命令参数，不转发到制品镜像；认证请求失败不静默降级。所有 CI、来源和 SHA256 校验仍必须通过。
-
-### 历史后端恢复说明
-
-旧后端恢复步骤只适用于历史版本。当前版本无后端切换或迁移 API；恢复依赖既有 DO 状态及已验证源码制品。不要使用旧 D1 快照覆盖当前 DO 授权或控制状态。
-
-0.6.2 已使用准确提交 `9b6d723` 的完整 tag Actions 发布四平台包、源码及云端，实际制品和复测结果见 [发布记录](DEPLOYMENT_STATUS.md) 与 [响应分析](RESPONSE_SPEED_2026-11-03.md)。下载包发布不代表现场 Agent 已安装；活动会话重启仍需明确授权。
+本次保留下载站原有安装包：Linux 和源码为 `0.6.6`，Windows 为 `0.6.5`；Windows 包未部署，也未发布更新通知。其它 Agent 不在本次升级范围。

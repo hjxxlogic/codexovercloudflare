@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
     env = dict(os.environ, CODEX_HOME=str(home))
     for name in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL'):
         env.pop(name, None)
-    for mode in ('paginated', 'legacy'):
+    for mode in ('paginated',):
         peers = []
         try:
             owner = Peer(env, str(work))
@@ -67,9 +67,8 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
             owner.call('thread/inject_items', {'threadId': thread, 'items': [
                 {'type': 'message', 'role': 'user', 'content': [
                     {'type': 'input_text', 'text': 'persist isolated test thread'}]}]})
-            # Initialize the paginated store before another process can race its first migration.
-            if mode == 'paginated':
-                owner.call('thread/items/list', {'threadId': thread, 'limit': 1})
+            # Initialize the item store before opening a second reader.
+            owner.call('thread/items/list', {'threadId': thread, 'limit': 1})
             reader = Peer(env, str(work))
             peers.append(reader)
             owner.call('turn/start', {'threadId': thread, 'input': [
@@ -84,10 +83,8 @@ with tempfile.TemporaryDirectory(prefix='coc-external-contract-') as directory:
             assert result['result']['thread']['cwd'] == str(work)
             failed = reader.call('thread/resume', {'threadId': thread, 'excludeTurns': True}, error=True)
             assert 'already has an active writer' in failed['error']['message'], failed
-            method = 'thread/turns/list' if mode == 'legacy' else 'thread/items/list'
+            method = 'thread/items/list'
             params = {'threadId': thread, 'sortDirection': 'desc', 'limit': 1}
-            if mode == 'legacy':
-                params['itemsView'] = 'full'
             while True:
                 page = reader.call(method, params)
                 if page['data']:

@@ -201,6 +201,8 @@ def remote(host, operation, args, candidate='', sha256='', source_digest=''):
                '--source-digest', source_digest, '--verify-seconds', str(args.verify_seconds)]
     if args.allow_restart_active:
         command += ['--allow-restart-active']
+    if getattr(args, 'allow_uncommitted', False) and getattr(args, 'local_build', False):
+        command += ['--allow-uncommitted']
     local = getattr(args, 'local', False)
     invocation = ([sys.executable, str(ROOT / 'scripts/deploy-agent-remote.py'), *command[2:]] if local else
                   ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
@@ -227,11 +229,11 @@ def stage_candidate(args, binary, candidate):
                         str(binary), args.ssh + ':' + candidate], check=True)
 
 
-def prepare_local_build(commit, output):
+def prepare_local_build(commit, output, allow_uncommitted=False):
     metadata = lambda: json.loads(subprocess.check_output(
         [sys.executable, 'scripts/build-metadata.py'], cwd=ROOT))
     before = metadata()
-    if before['commit'] != commit or before['dirty']:
+    if before['commit'] != commit or (before['dirty'] and not allow_uncommitted):
         raise RuntimeError('Local deployment requires clean HEAD matching --commit')
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run(['cmake', '-S', '.', '-B', 'build', '-DCMAKE_BUILD_TYPE=Release'], cwd=ROOT, check=True)
@@ -255,6 +257,8 @@ def main():
     parser.add_argument('--commit', help='Git revision; defaults to HEAD')
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true', help='Explicit local compilation without GitHub Actions; requires --local')
+    parser.add_argument('--allow-uncommitted', action='store_true',
+                        help='Explicitly deploy uncommitted source with its dirty identity; requires --local-build')
     parser.add_argument('--push', action='store_true', help='Push clean HEAD to origin before waiting for CI')
     parser.add_argument('--push-remote', default='origin', help='Git remote for --push; its URL must match --repository')
     target = parser.add_mutually_exclusive_group(required=True)
@@ -270,6 +274,8 @@ def main():
     parser.add_argument('--apply', action='store_true', help='Install; otherwise only prepare and inspect')
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / '.local/deploy-agent')
     args = parser.parse_args()
+    if args.allow_uncommitted and not args.local_build:
+        parser.error('--allow-uncommitted requires --local-build')
     if args.local_build and (not args.local or args.push or args.run_id):
         parser.error('--local-build requires --local and forbids --push / --run-id')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
@@ -292,8 +298,9 @@ def main():
         push_source(args.repository, args.commit, args.push_remote)
     if args.local_build:
         run, jobs, artifact = None, [], None
-        output = args.output.resolve() / ('local-' + args.commit)
-        manifest, binary = prepare_local_build(args.commit, output)
+        source = json.loads(subprocess.check_output([sys.executable, 'scripts/build-metadata.py'], cwd=ROOT))
+        output = args.output.resolve() / ('local-' + args.commit + '-' + source['sourceDigest'][:12])
+        manifest, binary = prepare_local_build(args.commit, output, args.allow_uncommitted)
     else:
         run, jobs = wait_run(args.repository, args.commit, args.run_id, args.timeout)
         output = args.output.resolve() / str(run['id'])

@@ -18,6 +18,12 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_uncommitted_mode_requires_local_build(self):
+        with patch('sys.argv', ['deploy-cloud.py', '--allow-uncommitted']):
+            with self.assertRaises(SystemExit) as error:
+                cloud.main()
+            self.assertEqual(error.exception.code, 2)
+
     def test_production_config_uses_only_durable_objects(self):
         import re
         config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))

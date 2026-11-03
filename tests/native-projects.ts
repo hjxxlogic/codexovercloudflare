@@ -36,7 +36,7 @@ async function control(
     intent = {
       requestId: args.requestId || args.key || requestId,
       owner: 'a'.repeat(64),
-      instance: instances.get(host),
+      instance: (await control(host, 'probe', {})).operationInstance,
     };
   return new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -131,7 +131,9 @@ sockets.on('connection', (ws, req) => {
     const d = JSON.parse(String(raw));
     if (d.type === 'capabilities') {
       peers.set(host, ws);
-      instances.set(host, d.deliveryInstance);
+      void control(host, 'probe', {}).then((probe) =>
+        instances.set(host, probe.operationInstance),
+      );
     }
     if (d.type === 'projects-changed') changes++;
     if (d.type === 'result') {

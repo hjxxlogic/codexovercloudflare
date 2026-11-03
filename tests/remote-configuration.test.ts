@@ -58,7 +58,6 @@ function socket(initial: any) {
 function harness() {
   const storage = new MemoryStorage();
   storage.values.set('agentEpoch', 1);
-  storage.values.set('expiryMigration', { prefix: 1 });
   const agent = socket({
     id: 'a',
     role: 'agent',

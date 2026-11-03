@@ -132,23 +132,23 @@ Projects::Projects(const Json &config)
     : file_(std::filesystem::u8path(config.at("dataDir").get<std::string>()) / "projects.json"),
       retention_policy_(history_storage_config(config.value("historyStorage", Json::object()))) {
   const bool exists = std::filesystem::exists(file_);
-  state_ = exists ? load_catalog(file_)
-                  : Json{{"version", 1},
-                         {"hostId", config.at("hostId")},
-                         {"revision", 0},
-                         {"projects", config.at("projects")}};
+  state_ =
+      exists
+          ? load_catalog(file_)
+          : Json{{"version", 1},
+                 {"hostId", config.at("hostId")},
+                 {"revision", 0},
+                 {"projects", config.at("projects")},
+                 {"journal", {{"version", 2}, {"keys", Json::object()}, {"tail", Json::array()}}},
+                 {"retiredIds", Json::array()}};
   if (state_.value("version", 0) != 1 || state_.at("hostId") != config.at("hostId") ||
       !state_.at("projects").is_array() || !state_.at("revision").is_number_integer() ||
       state_.at("revision").get<int64_t>() < 0 ||
       state_.at("revision").get<int64_t>() > 9007199254740991LL)
     throw Error("CONFIG_ERROR", "Invalid project catalog");
-  // Project configuration is authoritative data. Old business receipts are not
-  // imported into the new journal or used to authorize another execution.
-  state_.erase("receipts");
-  if (!state_.contains("journal"))
-    state_["journal"] = {{"version", 2}, {"keys", Json::object()}, {"tail", Json::array()}};
-  if (!state_.contains("retiredIds"))
-    state_["retiredIds"] = Json::array();
+  if (state_.contains("receipts") || !state_.contains("journal") || !state_.contains("retiredIds"))
+    throw Error("UNSUPPORTED_STORAGE_VERSION",
+                "Unsupported project catalog; automatic migration is disabled");
   auto &journal = state_.at("journal");
   if (journal.value("version", 0) != 2 || !journal.at("keys").is_object() ||
       !journal.at("tail").is_array() || !state_.at("retiredIds").is_array() ||
@@ -162,8 +162,7 @@ Projects::Projects(const Json &config)
   for (auto it = journal.at("keys").begin(); it != journal.at("keys").end(); ++it) {
     auto &entry = it.value();
     if (!entry.contains("retainedAt")) {
-      entry["retainedAt"] = now();
-      interrupted = true;
+      throw Error("UNSUPPORTED_STORAGE_VERSION", "Project request lacks its retention timestamp");
     }
     const auto phase = entry.value("phase", "");
     if (!valid_id(it.key()) || !entry.contains("owner") || !entry.at("owner").is_string() ||

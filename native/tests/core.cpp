@@ -1312,9 +1312,9 @@ void core() {
   check(access_emails(std::vector<std::string>(21, "user@example.com")).size() == 1,
         "Email arrays have no count quota and still deduplicate");
   check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
-  check(!update_settings({{"autoUpdate", {{"enabled", false}, {"intervalHours", 24}}}}).enabled,
+  check(!update_settings({{"autoUpdate", {{"enabled", false}}}}).enabled,
         "Object disables automatic update");
-  for (auto value : {Json("false"), Json(nullptr), Json{{"intervalHours", 0}},
+  for (auto value : {Json("false"), Json(nullptr), Json{{"intervalHours", 24}},
                      Json{{"enabled", "false"}}, Json{{"platform", "../other"}}})
     rejects([&] { update_settings({{"autoUpdate", value}}); }, "CONFIG_ERROR");
   check(newer_release("0.6.0", "0.5.99") && newer_release("0.5.10", "0.5.9") &&
@@ -1406,7 +1406,7 @@ void core() {
     Store s(t.path);
     rejects([&] { Store duplicate(t.path); }, "STATE_LOCKED");
     const Json intent = {
-        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.delivery_instance()}};
+        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.operation_instance()}};
     const auto admitted = s.operation_begin(intent, "stop", {{"sessionId", "a"}});
     check(admitted.at("state") == "new", "New original operation");
     check(s.operation_begin(intent, "stop", {{"sessionId", "a"}}).at("state") == "started",
@@ -1433,7 +1433,7 @@ void core() {
     check(s.get("a")["state"] == "failed" && s.get("a")["running"] == false,
           "Restart must fail old runtime");
     const Json intent = {
-        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.delivery_instance()}};
+        {"requestId", "r"}, {"owner", std::string(64, 'a')}, {"instance", s.operation_instance()}};
     check(
         s.operation_begin(intent, "stop", {{"sessionId", "a"}}).at("result").at("data").at("ok") ==
             true,
@@ -1507,7 +1507,7 @@ void external_test() {
   }
   auto proxy_config = config;
   proxy_config["codexUseProxy"] = true;
-  check(agent_config(proxy_config)["codexUseProxy"] == true, "Preserve Codex proxy opt-in");
+  rejects([&] { agent_config(proxy_config); }, "CONFIG_ERROR");
   proxy_config["codexUseProxy"] = "true";
   rejects([&] { agent_config(proxy_config); }, "CONFIG_ERROR");
   check(config["externalSessions"]["allowApprovals"] == false &&
@@ -2024,6 +2024,8 @@ void stabilization_test() {
                   {"running", true},
                   {"createdAt", now()}});
     check(store.sessions(true).size() == 4, "Active scans ignore 100000 archived sessions");
+    check(store.session_page({{"cwAccountId", "account-a"}, {"state", "ready"}}).at("data").empty(),
+          "Sessions without a mailbox stay hidden until explicitly connected");
     for (int i = 0; i < 4; ++i) {
       auto session = store.get("live-" + std::to_string(i));
       session["cwAccountId"] = i < 2 ? "account-a" : "account-b";
@@ -2069,7 +2071,7 @@ void stabilization_test() {
     check(text == std::string(1100000, 'x'), "Append-only chunks reconstruct 1 MiB stream");
     const Json intent = {{"requestId", "failed"},
                          {"owner", std::string(64, 'a')},
-                         {"instance", store.delivery_instance()}};
+                         {"instance", store.operation_instance()}};
     const auto admitted = store.operation_begin(intent, "stop", {{"sessionId", "busy"}});
     store.operation_finish(admitted.at("key"),
                            {{"error", {{"code", "PROJECT_BUSY"}, {"message", "Busy"}}}});
@@ -2311,7 +2313,7 @@ void performance_test() {
   store.cache_put("other", {{"completedAt", 0}});
   const Json intent = {{"requestId", "identity"},
                        {"owner", std::string(64, 'a')},
-                       {"instance", store.delivery_instance()}};
+                       {"instance", store.operation_instance()}};
   store.operation_begin(intent, "stop", {{"sessionId", "a"}});
   store.cleanup();
   check(store.cache_get("upload:expired").is_null() &&

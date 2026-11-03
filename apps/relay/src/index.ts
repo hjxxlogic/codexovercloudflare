@@ -942,7 +942,14 @@ export default {
         const auth = await authenticate(req, env, terminal[1]);
         if (auth.role !== 'web')
           throw new AppError('FORBIDDEN', 'Web credential required', 403);
-        const data = terminalCommandSchema.parse(await body(req));
+        const input = await body(req);
+        if (['read', 'input', 'resize'].includes(input.operation))
+          throw new AppError(
+            'UPGRADE_REQUIRED',
+            'Use the Terminal WebSocket byte stream',
+            426,
+          );
+        const data = terminalCommandSchema.parse(input);
         return hostStub(env, terminal[1]).fetch(
           internal(req, '/control', auth, terminal[1], {
             action: 'terminal',
