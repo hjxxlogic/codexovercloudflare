@@ -10,6 +10,8 @@
 
 线上 `/home/ubuntu/work/codexovercloudflare` 已只读比对：本机 Codex `thread/list` 与现有 Agent `/threads` 返回相同 6 个线程，name / preview 逐项相等。CW 标题调整为 Codex name、Codex preview、旧 CoC title 的顺序，避免恢复会话的旧标题遮盖 Codex 改名；组件回归通过。发布后验证实际 CW 列表。
 
+部署后补记：最终静态 musl 构建 11 项 CTest 全部通过；真实 Codex resume 选择器显示同一目录的六条名称，生产 Chromium 核对六条全部匹配、零页面异常，修改前有三个旧标题差异。线上全部网页资源及五份归档核验通过，源码、SHA256 与 CI 例外见[发布证据](assets/muse-proxy-2026-11-03/deployment.json)。muse-vm 收到更新通知后持续 `HOST_OFFLINE`，新进程版本和模型恢复尚未确认，未发送最小模型请求；等待 VM 侧进程 / 启动日志。另修正自动更新测试夹具：musl 使用默认平台选择，写控制请求携带原操作身份；0.6.5 / 0.6.6 静态 Agent 的本地模拟自动空闲重启及忙碌保护检查均通过，候选是原生退出标记夹具；夹具错误不作为现场根因。[准确现场状态](MUSE_PROXY_2026-11-03.md)。
+
 ## 2026-11-03：网页断网后的控制凭证恢复
 
 针对 `STALE_CONTROLLER: Resume proof does not match the original controller`，新增回归在旧实现上复现两项失败；修复后 Relay、网页 delivery 和 API 共 176 项通过，包含连续丢失确认、DO 重建、旧损坏租约恢复，以及错误 owner / claim / stream、后续接管和未决接管拒绝。TypeScript、ESLint / Prettier 通过。浏览器用真实 Chromium 模拟超过三次连接失败、断流与网络恢复事件，检查重连合并、草稿保留、不提交新任务和不自动抢回控制权；定向检查及完整 UI 稳定性全部通过。

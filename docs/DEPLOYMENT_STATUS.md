@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## 0.6.6 代理继承与 CW 名称 · 2026-11-03
+
+按用户要求跳过 Actions，源码 `65fd465d02c59366f352b46378b520823a12cac7` 已通过仓库脚本发布到生产网站；Worker `5cedd8e5-16c3-4b02-9509-1630455eaacb` 接收 100% 流量。健康、网页资源字节、五份下载归档 SHA256 和原有 bindings 核验通过。Linux 0.6.6 为本机静态 musl 构建，提供三个发行版入口；Windows 保留 0.6.5，`localBuild=true`、`ciVerified=false`，没有 Actions URL。
+
+指定目录的生产 CW 六条名称全部匹配 Codex resume，修改前的三个旧标题差异消失。UTC `10:23:04` 向空闲且自动更新已开启的 muse-vm 发送更新通知；其后持续离线，尚未确认新进程版本，也未发送模型测试。需要 VM 侧启动日志继续定位，不能将此发布记为 Muse 已恢复。[功能、验证与现场限制](MUSE_PROXY_2026-11-03.md) · [来源和脱敏证据](assets/muse-proxy-2026-11-03/deployment.json)。
+
 ## 网页断网恢复修复 · 2026-11-03
 
 按用户明确要求跳过 GitHub Actions，针对问题验证后通过 `scripts/deploy-cloud.py --local-build --apply` 发布源码 `b08abb7182b58e775d15536ce158eb237464ec7e`。部署 ID `322c240b-beac-4691-9efc-1c53bad7d9ba`，Worker `1d10ce6e-5fa2-44a6-b60f-5544be630963` 在 `https://r.xlogic.cc` 承载 100% 流量。证据标记 `localBuild: true`、`ciVerified: false`，提交使用 `[skip ci]`，没有 Actions 运行或新原生发布。

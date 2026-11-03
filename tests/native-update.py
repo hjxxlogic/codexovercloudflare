@@ -183,7 +183,7 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                     'dataDir': str(workspace / 'agent-state'), 'codexPath': str(shutil.which('node')),
                     'codexArgs': [str(ROOT / 'tests/fixtures/fake-codex.mjs')],
                     'projects': [{'id': 'project', 'name': 'project', 'path': str(project)}],
-                    'autoUpdate': {'platform': PLATFORM}}
+                    'autoUpdate': {} if MUSL else {'platform': PLATFORM}}
             config.write_text(json.dumps(data))
             log = (workspace / 'agent.log').open('w+')
             agent = subprocess.Popen([str(binary), 'run', '--config', str(config)],

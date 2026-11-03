@@ -1,23 +1,29 @@
 // Deterministic update test peer: creates one native runtime and serves release bytes.
 import { createServer } from 'node:http';
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 const state = { created: false, stopped: false };
 let peer;
+let instance;
+function writeControl(action, requestId, data) {
+  peer.send(
+    JSON.stringify({
+      type: 'control',
+      action,
+      requestId,
+      data,
+      intent: { owner: 'a'.repeat(64), requestId: randomUUID(), instance },
+    }),
+  );
+}
 const server = createServer(async (request, response) => {
   if (request.url === '/state') {
     response.end(JSON.stringify(state));
     return;
   }
   if (request.url === '/stop' && request.method === 'POST') {
-    peer.send(
-      JSON.stringify({
-        type: 'control',
-        action: 'stop',
-        requestId: 'stop',
-        data: { sessionId: state.sessionId },
-      }),
-    );
+    writeControl('stop', 'stop', { sessionId: state.sessionId });
     response.end('{}');
     return;
   }
@@ -39,16 +45,17 @@ sockets.on('connection', (socket) => {
   socket.send(
     JSON.stringify({ type: 'hello', delivery: 2, demand: 1, minProtocol: 1 }),
   );
-  socket.send(
-    JSON.stringify({
-      type: 'control',
-      action: 'create',
-      requestId: 'create',
-      data: { key: 'update-test', projectId: 'project', mode: 'cli' },
-    }),
-  );
   socket.on('message', (bytes) => {
     const message = JSON.parse(bytes.toString());
+    if (message.type === 'capabilities' && !state.creating) {
+      instance = message.operationInstance ?? message.deliveryInstance;
+      state.creating = true;
+      writeControl('create', 'create', {
+        key: 'update-test',
+        projectId: 'project',
+        mode: 'cli',
+      });
+    }
     if (message.type === 'ping') socket.send(JSON.stringify({ type: 'pong' }));
     if (message.type === 'result' && message.requestId === 'create') {
       state.created = !message.error;
