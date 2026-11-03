@@ -10,7 +10,7 @@
 
 ## CW 工作台专项验证
 
-`npm run test:markdown` 使用真实 Chromium 验证共享格式化、公式、图表沙箱、危险内容和移动宽度；`npm run test:ui` 覆盖工作台布局、文件预览与旧会话/审批流程。截图保存在 ignored `.local/` 下。
+`npm run test:markdown` 使用真实 Chromium 验证共享格式化、公式、图表沙箱、危险内容和移动宽度；`npm run test:ui` 覆盖工作台布局、文件预览与旧会话/审批流程。公式回归包括独立 `\[...\]` 内的多行等号、TeX 换行间距、结束后的富文本、列表 / 引用边界，以及未闭合和代码字面量；Chromium 在桌面与 390 px 视口逐项滚入视口检查实际 KaTeX 渲染。截图保存在 ignored `.local/` 下。
 
 Linux PTY 运行测试需要系统安装 `bubblewrap`、Bash、util-linux (`prlimit`)，且允许相关 namespace。`npm run build:native` 后，`ctest --test-dir build -R native-terminal --output-on-failure` 检查真实 Shell；未安装 bubblewrap / 非 Linux 返回 skip，测试环境有隔离工具但启动失败会报错，不绕过隔离。`npm run test:terminal` 通过实际 Agent 校验控制证明、可靠创建、输入去重与项目互斥，不调用模型；`npm run test:terminal:e2e` 在普通 E2E 中额外启用真实 Chromium → Worker → Agent → PTY。所有入口均使用 DO 原生存储。不要在原生集成测试运行中重新链接同一 build 目录中的二进制。
 

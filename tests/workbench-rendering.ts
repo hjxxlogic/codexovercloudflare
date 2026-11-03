@@ -10,6 +10,21 @@ const openAiSource = String.raw`
 \[
 L(b)=\ln\frac{P(b=0\mid y)}{P(b=1\mid y)}
 \] 本次没有覆盖的位置取 \(L_{i,\mathrm{new}}^{(t)}=0\)。
+
+\[
+B_{\mathrm{total}}
+=
+7\times 8
+=
+56
+\] 后续 **正文** 与 \(B_{\mathrm{total}}\)。
+
+\[
+\begin{aligned}
+x_1&=1\\[4pt]
+x_2&=2
+\end{aligned}
+\]
 `;
 const oversized =
   '\n\n| ' +
@@ -193,11 +208,24 @@ try {
   await inline.scrollIntoViewIfNeeded();
   await expect(inline.locator('.katex')).toBeVisible();
   await expect(inline.getByRole('button')).toHaveCount(0);
-  await page.locator('.display-math').scrollIntoViewIfNeeded();
-  await expect(page.locator('.display-math .katex-display')).toBeVisible();
-  await expect(page.locator('.display-math').getByRole('button')).toHaveCount(
-    0,
-  );
+  async function expectOpenAiMath() {
+    await expect(page.locator('.display-math')).toHaveCount(3);
+    await expect(page.locator('.inline-math')).toHaveCount(3);
+    for (const formula of await page
+      .locator('.display-math, .inline-math')
+      .all()) {
+      await formula.scrollIntoViewIfNeeded();
+      await expect(formula.locator('.katex')).toBeVisible();
+      await expect(formula.locator('.rich-fallback')).toHaveCount(0);
+      await expect(formula.getByRole('button')).toHaveCount(0);
+    }
+    await expect(
+      page.locator(
+        '.markdown h1[id*="-heading-"], .markdown h2[id*="-heading-"]',
+      ),
+    ).toHaveCount(3);
+  }
+  await expectOpenAiMath();
   const openAiInline = page.locator('.inline-math').nth(1);
   await expect(openAiInline.locator('.katex')).toBeVisible();
   await expect(page.locator('.katex-error')).toHaveCount(0);
@@ -345,6 +373,7 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await expectOpenAiMath();
   assert(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

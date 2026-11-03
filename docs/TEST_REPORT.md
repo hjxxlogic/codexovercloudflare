@@ -2,6 +2,12 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：多行 OpenAI 公式修复
+
+只读取得用户指定会话的消息后复现：多行 `\[...\]` 中单独一行的 `=` 被 CommonMark 当作 setext 标题，5 个块公式拆开。块级 tokenizer 现在先保护公式，结束后的正文仍交给原生行内解析。原消息由 17 个行内 / 11 个块公式节点恢复为 17 / 16；会话内容与截图仅存 ignored `.local/`。
+
+本机 33 文件 / 465 项 Vitest、TypeScript、ESLint / Prettier、网页构建和真实 Chromium Markdown 专项通过。新增回归覆盖多行等号、`\\[4pt]`、尾随强调 / 链接 / 行内公式、列表 / 引用边界、转义 / 代码 / 未闭合 / 超限输入；桌面和 390 px 视口逐项滚入视口验证 KaTeX，避免把延迟加载的源码占位误判为失败。本次仅修改网页；未重跑原生 PTY 或跨平台测试，未调用模型。线上结果见 [修复记录](MATH_RENDERING_FIX_2026-11-03.md)。
+
 ## 2026-11-03：DO 唯一路径线上验证
 
 源码 `5ed8deb` 已按用户明确要求跳过 Actions 本地构建部署；最终健康和资源逐字节校验通过。线上真实邮箱管理员、Agent probe、会话只读查询、Terminal `streaming:2` 元数据、旧迁移入口 404、API / WebSocket 权限边界均通过；Chromium 通知连接 101，保持超过 6 秒且页面无未捕获异常。生产无 D1 绑定或后端选择变量，原 DO namespace 与 Secret 绑定保留。无线上模型、PTY、接管或任务修改；[完整来源、SHA256 及验证范围](assets/do-only-2026-11-03/deployment.json)。下列本机记录为该部署的功能回归基础。

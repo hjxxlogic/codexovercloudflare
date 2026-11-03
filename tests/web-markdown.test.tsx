@@ -76,6 +76,67 @@ x_i
     expect(html).toContain('$100');
     expect(html).toContain('incomplete');
   });
+  it('protects display formulas from Markdown block syntax and parses following prose', () => {
+    const html = render(String.raw`Before
+\[
+B_{\mathrm{total}}
+=
+\begin{aligned}
+x_1&=1\\[4pt]
+x_2&=2
+\end{aligned}
+\] Follow **bold**, [link](https://example.com) and \(x_1\).
+
+After`);
+    expect(html.match(/class="display-math"/g)).toHaveLength(1);
+    expect(html.match(/class="inline-math"/g)).toHaveLength(1);
+    expect(html).toContain(String.raw`1\\[4pt]`);
+    expect(html).toContain('<strong>bold</strong>');
+    expect(html).toContain('href="https://example.com"');
+    expect(html).not.toMatch(/<h[1-6]/);
+    expect(html).not.toContain('<em>');
+    expect(html).toContain('After');
+  });
+  it('keeps display formulas within their Markdown containers', () => {
+    for (const source of [
+      String.raw`> \[
+> x_i
+> =
+> 2
+> \]`,
+      String.raw`- \[
+  x_i
+  =
+  2
+  \]`,
+    ]) {
+      const html = render(source);
+      expect(html.match(/class="display-math"/g)).toHaveLength(1);
+      expect(html).not.toMatch(/<h[1-6]/);
+      expect(html).not.toContain('&gt;');
+    }
+    const incomplete = render(String.raw`> \[
+> x_i
+
+Outside
+
+\]`);
+    expect(incomplete).not.toContain('class="display-math"');
+    expect(incomplete).toContain('Outside');
+  });
+  it('keeps escaped, indented, unclosed and oversized display blocks literal', () => {
+    for (const source of [
+      String.raw`\\[
+x
+\\]`,
+      '    \\[\n    x_i\n    \\]',
+      String.raw`\[
+x_i`,
+      '\\[\n' + 'x'.repeat(16389) + '\n\\]',
+    ]) {
+      expect(render(source)).not.toContain('class="display-math"');
+    }
+  });
   it('keeps code literals and incomplete extensions readable', () => {
     const html = render(
       '```text\n$code$\n[!NOTE]\n:::details Raw\n```\n\n:::details Incomplete',
