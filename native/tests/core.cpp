@@ -2,6 +2,7 @@
 #include "coc/approvals.hpp"
 #include "coc/common.hpp"
 #include "coc/credit.hpp"
+#include "coc/cw_sessions.hpp"
 #include "coc/delivery.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
@@ -2023,6 +2024,17 @@ void stabilization_test() {
                   {"running", true},
                   {"createdAt", now()}});
     check(store.sessions(true).size() == 4, "Active scans ignore 100000 archived sessions");
+    for (int i = 0; i < 4; ++i) {
+      auto session = store.get("live-" + std::to_string(i));
+      session["cwAccountId"] = i < 2 ? "account-a" : "account-b";
+      store.save(session);
+    }
+    const auto mine = store.session_page({{"cwAccountId", "account-a"}, {"state", "ready"}});
+    check(mine["data"].size() == 2, "Mailbox directory isolates account sessions");
+    for (const auto &session : mine["data"])
+      check(session["cwAccountId"] == "account-a",
+            "Mailbox directory never includes another account");
+
     std::string cursor;
     size_t count = 0;
     do {
@@ -2554,6 +2566,21 @@ int main(int argc, char **argv) {
       process_test(true, mode == "--task");
     else {
       std::cout << "RUN: core\n";
+      for (const auto mode : {"web", "cli"}) {
+        for (const auto account : {"", "verified-account"}) {
+          for (const bool automatic : {false, true}) {
+            const Json session = {
+                {"mode", mode}, {"cwAccountId", account}, {"autoApproval", automatic}};
+            const int64_t limit =
+                std::string(mode) == "web" && std::string(account) != "" ? 3600000 : 1800000;
+            check(!cw_session_expired(session, limit - 1), "Detached runtime grace period");
+            check(cw_session_expired(session, limit) == !automatic,
+                  "Detached runtime deadline and automatic approval exemption");
+            check(cw_session_expired(session, 86400000) == !automatic,
+                  "Automatic approval remains exempt after a day");
+          }
+        }
+      }
       core();
       proxy_tests();
       {

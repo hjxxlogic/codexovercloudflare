@@ -179,6 +179,51 @@ it('rejects incomplete upload bindings and checksums before forwarding or durabl
   expect(h.agent.send).not.toHaveBeenCalled();
   expect(writes).not.toHaveBeenCalled();
 });
+describe('mailbox session identity', () => {
+  it('derives identity from authenticated credentials and filters older Agent results', async () => {
+    const h = harness();
+    const headers = {
+      'x-auth': encodeURIComponent(
+        JSON.stringify({ ...auth, accountId: 'account-a' }),
+      ),
+    };
+    const started = await h.start(
+      'list',
+      { mine: true, paged: true, cwAccountId: 'account-b' },
+      headers,
+    );
+    const frame = h.frames().at(-1);
+    expect(frame.data.cwAccountId).toBe('account-a');
+    await h.reply(frame, {
+      data: [
+        { id: 'host~mine', cwAccountId: 'account-a' },
+        { id: 'host~other', cwAccountId: 'account-b' },
+        { id: 'host~legacy' },
+      ],
+      nextCursor: null,
+    });
+    const result = await h.read(started.data.operationId);
+    expect(result.data.result.data.map((s: any) => s.id)).toEqual([
+      'host~mine',
+    ]);
+  });
+  it('rejects a mailbox listing without verified account identity', async () => {
+    const h = harness();
+    const started = await h.start('list', { mine: true });
+    const result = await h.read(started.data.operationId);
+    expect(result.data.error.code).toBe('FORBIDDEN');
+    expect(h.frames()).toEqual([]);
+  });
+  it('ignores client supplied mailbox identity on session creation', async () => {
+    const h = harness();
+    await h.start('create', {
+      projectId: 'demo',
+      mode: 'web',
+      cwAccountId: 'forged',
+    });
+    expect(h.frames().at(-1).data.cwAccountId).toBe('');
+  });
+});
 describe('recoverable asynchronous controls', () => {
   it('uses the newest Agent epoch while the replaced socket still reports OPEN', async () => {
     const h = harness();

@@ -1,3 +1,4 @@
+import { ActiveSessions } from './active-sessions.tsx';
 import { Workbench } from './workbench/workbench.tsx';
 import { promptAcknowledged } from './prompt-state.ts';
 import { recoveryDelay } from './recovery.ts';
@@ -202,6 +203,9 @@ function App() {
     autoAdmin?: boolean;
     legacy?: { hostId: string; name: string }[];
   }>({ enabled: false });
+  const welcomeSelection = useRef<
+    { hostId: string; session: Session } | undefined
+  >(undefined);
   const accountRef = useRef('');
   const autoAdminAttempt = useRef('');
   const [logged, setLogged] = useState(false),
@@ -383,6 +387,7 @@ function App() {
       const nextAccount = identity.accountId || '';
       if (accountRef.current && nextAccount !== accountRef.current) {
         socket.current?.close();
+        welcomeSelection.current = undefined;
         setSelected(undefined);
         setText('');
         setEvents([]);
@@ -803,9 +808,13 @@ function App() {
           );
           savedWorkspace.current = navigation;
           setProjects(stored?.projects || []);
-          setProject(restored.projectId);
+          const pending = welcomeSelection.current;
+          const continued =
+            pending?.hostId === host ? pending.session : undefined;
+          if (continued) welcomeSelection.current = undefined;
+          setProject(continued?.projectId || restored.projectId);
           setSessions(stored?.sessions || []);
-          setSelected(restored.session);
+          setSelected(continued || restored.session);
           catalog.current = cache;
           operationClient = new OperationClient(cache, {
             host,
@@ -4328,6 +4337,24 @@ function App() {
                         <CodexMark />
                       </div>
                       <h2>{t('今天要一起完成什么？')}</h2>
+                      {emailIdentity.accountId && (
+                        <ActiveSessions
+                          key={emailIdentity.accountId}
+                          hosts={hosts}
+                          revision={revision}
+                          onContinue={(hostId, session) => {
+                            setTakeover(false);
+                            setPanel(null);
+                            if (hostId === host) {
+                              setProject(session.projectId);
+                              setSelected(session);
+                            } else {
+                              welcomeSelection.current = { hostId, session };
+                              setHost(hostId);
+                            }
+                          }}
+                        />
+                      )}
                       <p>
                         {t('恢复 Codex 本地会话，或在远程项目中开始新对话。')}
                       </p>

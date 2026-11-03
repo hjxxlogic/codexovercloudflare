@@ -417,3 +417,21 @@ Actions 41423136328 的 Windows 来源测试从扩展名校验推进到 CreatePr
 后续真实生产 Terminal 延时实测完成：19 个有效字符样本中位数 1,878 ms、样本 P95 2,429 ms；10 次 Enter 到结果中位数 2,701 ms、样本 P95 3,055 ms，单次 Ctrl-C 2,113 ms，首次打开 8,887 ms。流式功能可用，但实时交互性能未达标；本地百毫秒样本不代表生产表现。独立测试项目、终端、会话和临时目录均已清理；方法、原始脱敏样本和后续建议见 [Terminal 耗时分析](CW_TERMINAL_LATENCY_2026-11-03.md#全流式部署后的线上实测)。本轮只测量并更新文档，没有修改或再次部署实现。
 
 进一步生产分段测试完成：两个额外临时项目合计 18 个字符、6 条命令、6 次不经过 PTY 的流式 ping，全部资源清理确认。正常字符发送前约 6–19 ms、输出接收后 DOM 更新约 3–14 ms；Enter 实测两次在浏览器输入队列等待 2.89 / 3.09 秒。流式 ping 常见约 0.75 秒，但有 1.94 / 3.22 秒尖峰；Agent TCP RTT 快照约 235 ms。服务器 Tail 网络失败，没有 Relay / D1 分段归因结论；TCP 小包等待及缓存到期仅作为待验证线索。方法、脱敏逐样本和有界输入窗口等建议见 [第二轮分析](CW_TERMINAL_LATENCY_2026-11-03.md#第二轮浏览器分段与对照分析)。未修改或部署实现。
+
+### CW 邮箱会话续接与断开清理（2026-11-03）
+
+- 欢迎页跨主机读取当前邮箱的 ready Web 会话，遍历全部分页；支持刷新、空列表和逐主机失败提示，点击进入对应项目。
+- `tests/relay-order.test.ts` 验证认证账号注入、拒绝无账号 mine 请求、忽略伪造邮箱归属，并对旧 Agent 返回结果再次筛选。
+- `tests/web-active-sessions.test.ts` 验证跨分页筛选条件保持及后续页失败不伪装为完整目录。native core 验证 SQLite 邮箱隔离，以及 30 分钟 / 1 小时边界、自动审批豁免和 CLI 保留期。
+- 验证通过：原生构建、Web 生产构建、TypeScript、ESLint / Prettier、C++ 格式检查；完整 `npm test` 为 11/11 CTest 和 35 个 Vitest 文件 / 490 项测试通过。原生 socket 测试需在允许本地 socket 的环境运行。
+- 本次未部署，也未执行生产邮箱或真实模型端到端测试。旧会话须升级后重新连接一次才能记录邮箱归属；清理时间由 30 秒维护周期执行，不删除历史。
+
+### Actions Sanitizer 历史来源夹具修复（2026-11-03）
+
+[Actions 41604498114](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41604498114) 对应提交 `5d5a8433d2e6522e4d51eb53b3d10802b116f643`。唯一失败的必需作业为 [sanitizers](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41604498114/job/125810861058)，其中 `native-history-source` 报 `History retirement requires protocol version 2`；regression、Ubuntu 20.04、Debian 12、musl、Windows x64 均成功，publish-release 跳过。
+
+原因是 `bounded_recovery_metadata_case` 在 64 条记录限额下沿用默认 80% 清理水位，仍假设已接受历史不会被回收。慢速运行跨过一秒维护节流窗口时，来源注册的容量检查会触发回收，随后夹具按 v1 读取已发生代际变化的历史而失败。通过在该夹具每轮强制 `retention_cleanup(now())`，已在本机 Sanitizer 构建稳定复现相同错误。
+
+修复仅针对测试：硬上限背压夹具使用 100% 清理水位，每轮显式清理并断言不回收已接受历史；保留背压、预算不变、重启及不可变来源引用验证。生产水位、清理和协议拒绝规则不变。GitHub 上原运行仍为失败；本地修复尚未推送或重新触发 Actions。
+
+修复后本机验证：重新编译 `coc-history-source-tests`，Release 单次通过，ASan / UBSan 构建 `ctest --repeat until-fail:3` 连续三次通过；C++ 格式检查与差异空白检查通过。

@@ -619,7 +619,12 @@ void bounded_recovery_metadata_case() {
   } cleanup{root};
   const auto dir = (root / "state").u8string();
   const std::string session = "host~metadata";
-  const Json policy = {{"maxRecords", 64}, {"maxSessionRecords", 64}, {"cacheMaxBytes", 0}};
+  // Exercise hard quota refusal, without the normal 80% cleanup watermark
+  // retiring accepted recovery metadata before this fixture reaches its limit.
+  const Json policy = {{"maxRecords", 64},
+                       {"maxSessionRecords", 64},
+                       {"cacheMaxBytes", 0},
+                       {"cleanupThresholdPercent", 100}};
   const Json origin = {{"environment", std::string(64, 'a')},
                        {"projectPath", std::filesystem::canonical(root).u8string()}};
   Json witnesses = Json::array(), budget, history;
@@ -653,6 +658,10 @@ void bounded_recovery_metadata_case() {
         break;
       }
       const Json entry = {{"turnId", "turn"}, {"completedAtMs", 1}, {"item", item}};
+      // Bypass the one-second maintenance throttle so slow sanitizer runners
+      // and fast Release builds exercise the same cleanup/admission ordering.
+      if (store.retention_cleanup(now()).at("removed") != 0)
+        throw std::runtime_error("Hard-quota fixture unexpectedly retired accepted history");
       const auto reference =
           store.history_source_register(session, event.at("seq"), origin, entry).at("reference");
       const auto reclaimed = store.history_cache_compact(

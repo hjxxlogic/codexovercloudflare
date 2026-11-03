@@ -1,5 +1,10 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  进行中的会话: 'Active sessions',
+  '当前邮箱没有进行中的会话。': 'There are no active sessions for this email.',
+  '以下服务器的会话读取失败，请刷新重试：{0}':
+    'Could not load sessions from these hosts. Refresh to retry: {0}',
+
   '图表无法渲染，已显示源码': 'Unable to render diagram; source is shown',
   全屏: 'Fullscreen',
   退出全屏: 'Exit fullscreen',

@@ -666,6 +666,14 @@ export class HostRelayDO extends DurableObject<Env> {
     if (!parsed.success)
       throw new AppError('INVALID_REQUEST', 'Invalid control command');
     data = parsed.data.data;
+    // Identity is supplied exclusively by the authenticated relay, never the browser.
+    if (['create', 'attach'].includes(action) && operation.auth.role === 'web')
+      data = { ...data, cwAccountId: operation.auth.accountId || '' };
+    if (action === 'list' && data.mine) {
+      if (operation.auth.role !== 'web' || !operation.auth.accountId)
+        throw new AppError('FORBIDDEN', 'Verified email required', 403);
+      data = { ...data, cwAccountId: operation.auth.accountId };
+    }
     if (action === 'history' || action === 'snapshot')
       data = { ...data, owner: operation.auth.hash };
     if (
@@ -1147,6 +1155,14 @@ export class HostRelayDO extends DurableObject<Env> {
         ...data,
         canManage: await managesProjects(this.env, current, host),
       };
+    }
+    if (o.action === 'list' && o.data.mine) {
+      // Older Agents do not understand mailbox filtering. Fail closed on their results.
+      const own = (session: any) =>
+        !!o.auth.accountId && session.cwAccountId === o.auth.accountId;
+      data = Array.isArray(data)
+        ? data.filter(own)
+        : { ...data, data: data.data.filter(own) };
     }
     if (o.stage === 'get') {
       if (!transientOperation(o) && !(await this.loadOperation(o.id))) return;

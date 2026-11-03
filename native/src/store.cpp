@@ -457,7 +457,7 @@ Json Store::sessions(bool active_only) {
 Json Store::session_page(const Json &filters) {
   std::string sql = "SELECT id,value FROM sessions WHERE id>?";
   Json args = Json::array({filters.value("cursor", "")});
-  for (auto key : {"projectId", "mode", "state"}) {
+  for (auto key : {"projectId", "mode", "state", "cwAccountId"}) {
     if (filters.contains(key) && !filters[key].is_null() && filters[key] != "") {
       sql += std::string(" AND json_extract(value,'$.") + key + "')=?";
       args.push_back(filters[key]);

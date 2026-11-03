@@ -999,6 +999,7 @@ export default {
                   .parse(u.searchParams.get('cursor') || ''),
                 projectId: u.searchParams.get('projectId') || undefined,
                 state: u.searchParams.get('state') || undefined,
+                mine: u.searchParams.get('mine') === 'true',
               };
         const hostId = idSchema.parse(d.hostId);
         const auth = await authenticate(req, env, hostId);

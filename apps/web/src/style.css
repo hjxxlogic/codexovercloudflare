@@ -1388,3 +1388,17 @@ progress {
 .topbar nav .workbench-menu-items button[aria-expanded='true'] {
   background: #353d4c;
 }
+
+.welcome-sessions {
+  width: min(560px, 100%);
+  margin: 24px auto;
+  text-align: left;
+}
+.welcome-sessions .session {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}

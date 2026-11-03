@@ -686,3 +686,8 @@ Markdown 的工具栏由调用方显式启用，仅文件预览启用；对话�
 字节流沿既有 Agent WebSocket 转发，不创建临时 operation、正文日志或云端持久进度；原 delivery:2 助手正文与 lifecycle HTTP 不改变。Relay 在连接 / bind 准入时验证身份与 writer/control，稳定字节和 ACK 沿用连接绑定；撤销、到期及控制权变化通过连接生命周期事件退休路由，Agent 继续权威验证每项实际操作。终端 socket 关闭不走控制连接的 detach 路径，不会把整个会话设为 inactive；父控制连接 detach / 接管 / 会话结束会关闭对应终端流。
 
 64 KiB 输出信用由浏览器 xterm.write 完成回调释放；Agent 输出环最多 256 KiB，在线接收方慢时暂停异步 PTY read，内核进一步背压 Shell。仅断线或历史尾部不足时允许显式 gap。输入使用最多 32 帧 / 64 KiB base64 在途窗口，按序确认且不自动重放，超过 15 秒未知输入关闭流；20 秒握手时限，无在线应用心跳，Agent 从断流时开始 60 秒恢复宽限。原生 WebSocket 使用 TCP_NODELAY，终端模块和只读 info 并行准备；不提前开启 Shell。所有字节 / 确认均易失，不能与原可靠操作的持久 ACK 混淆。
+
+
+CW 会话目录支持 `GET /api/v1/sessions?hostId=…&paged=true&mine=true&state=ready`。Relay 从认证 `Auth.accountId` 注入内部 `cwAccountId` 过滤条件，Agent 在 SQLite 会话元数据中保存创建/连接身份并在分页查询时过滤。Relay 再次筛选结果，兼容旧 Agent 时不会泄露其他邮箱会话；无账号的 mine 查询拒绝。欢迎页并行读取各授权主机的全部分页，点击后通过现有控制连接与接管流程进入项目。业务会话及归属保存在 Agent，云端不新增会话副本。
+
+Agent 的 30 秒维护周期负责断开清理：无邮箱 Web 与 CLI 为 30 分钟，有邮箱 Web 为 1 小时；autoApproval 为 true 时不自动停止。正常控制连接恢复清除 runtime 断开时间；Relay 连接丢失亦开始断开计时。旧会话在下一次连接时补记邮箱归属，历史内容不因 runtime 停止删除。

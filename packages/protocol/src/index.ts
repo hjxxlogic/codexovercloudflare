@@ -676,6 +676,7 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
     'list',
     z.object({
       paged: z.boolean().default(false),
+      mine: z.boolean().optional(),
       cursor: z.string().max(201).default(''),
       projectId: idSchema.optional(),
       mode: z.enum(['web', 'cli']).optional(),

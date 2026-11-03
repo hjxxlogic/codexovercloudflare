@@ -2,6 +2,7 @@
 #include "coc/approvals.hpp"
 #include "coc/build.hpp"
 #include "coc/credit.hpp"
+#include "coc/cw_sessions.hpp"
 #include "coc/delivery.hpp"
 #include "coc/diagnostics.hpp"
 #include "coc/external.hpp"
@@ -1000,11 +1001,12 @@ public:
             else
               ++entry;
           }
+          // A confirmed OPEN also reconnects an existing generation after relay loss.
+          rt->detached = 0;
           if (generation != rt->epoch) {
             terminals_.close_session(id);
             rt->epoch = generation;
             rt->pending_epoch = 0;
-            rt->detached = 0;
             rt->rpc_credit = 0;
             rt->rpc_byte_credit = 0;
             rt->rpc_sent = store_.output_state("rpc-output:" + id).at("acked");
@@ -1346,6 +1348,10 @@ public:
         throw Error("CLI_REATTACH_UNSUPPORTED", "End this CLI session and create a new one");
       // Preparation cannot grant business admission. A proof-bearing OPEN applies
       // the durable control epoch before this connection may dispatch commands.
+      if (s["mode"] == "web" && d.contains("cwAccountId")) {
+        s["cwAccountId"] = d.at("cwAccountId");
+        store_.save(s);
+      }
       r->pending_epoch = d.at("epoch");
       r->pending_expires = d.value("expires", now() + 15000);
       done({{"ok", true}}, nullptr);
@@ -1375,6 +1381,8 @@ public:
         {"running", false},
         {"autoApproval", false},
         {"createdAt", now()}};
+    if (s["mode"] == "web")
+      s["cwAccountId"] = d.value("cwAccountId", "");
     if (d.contains("threadId"))
       s["threadId"] = d.at("threadId");
     auto id = s["id"].get<std::string>();
@@ -2978,8 +2986,8 @@ public:
               expired.push_back(key);
           for (auto &key : expired)
             answer(id, key, false);
-          if (r->detached && now() - r->detached > 1800000 &&
-              !store_.get(id).value("autoApproval", false))
+          const auto session = store_.get(id);
+          if (r->detached && cw_session_expired(session, now() - r->detached))
             stop(id);
         }
         size_t approvals = 0, commands = 0;
