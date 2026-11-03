@@ -18,10 +18,11 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
-    def test_production_config_keeps_the_migrated_d1_binding(self):
+    def test_production_config_uses_only_durable_objects(self):
         import re
         config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))
-        self.assertEqual(config['vars']['STATE_BACKEND'], 'do')
+        self.assertNotIn('STATE_BACKEND', config['vars'])
+        cloud.validate_storage_config(config)
         self.assertEqual(config.get('d1_databases', []), [])
         self.assertEqual(config['triggers']['crons'], [])
 
@@ -86,24 +87,17 @@ class CloudArtifactTests(unittest.TestCase):
                         cloud.notify_release('https://relay.test', {}, secret)
                     post.assert_not_called()
 
-    def test_d1_configuration_requires_verified_schema_and_real_database(self):
-        with tempfile.TemporaryDirectory() as directory:
-            worker = pathlib.Path(directory)
-            config = {'vars': {'ACCESS_ENABLED': 'true'}}
-            cloud.configure_state_db(config, worker, None)
-            self.assertNotIn('d1_databases', config)
-            for invalid in ('../bad', '00000000-0000-0000-0000-000000000001'):
-                with self.assertRaises(RuntimeError):
-                    cloud.configure_state_db(config, worker, invalid)
-            database_id = '12345678-1234-1234-1234-123456789abc'
-            with self.assertRaises(RuntimeError):
-                cloud.configure_state_db(config, worker, database_id)
-            (worker / 'state-migrations').mkdir()
-            (worker / 'state-migrations/0001_relay_state.sql').write_text('CREATE TABLE test(id);')
-            cloud.configure_state_db(config, worker, database_id)
-            self.assertEqual(config['vars'], {'ACCESS_ENABLED': 'true', 'STATE_BACKEND': 'do'})
-            self.assertEqual(config['d1_databases'][0]['database_id'], database_id)
-            self.assertEqual(config['triggers']['crons'], [])
+    def test_reject_removed_storage_configuration(self):
+        config = {'durable_objects': {'bindings': [
+            {'name': 'REGISTRY', 'class_name': 'RegistryDO'},
+            {'name': 'HOSTS', 'class_name': 'HostRelayDO'},
+        ]}}
+        cloud.validate_storage_config(config)
+        for extra in ({'vars': {'STATE_BACKEND': 'do'}},
+                      {'d1_databases': [{'binding': 'STATE_DB'}]},
+                      {'durable_objects': {'bindings': []}}):
+            with self.subTest(extra=extra), self.assertRaises(RuntimeError):
+                cloud.validate_storage_config({**config, **extra})
 
     def artifact(self, root, extra=None, commit=COMMIT, dirty=False):
         path = root / 'artifact.zip'

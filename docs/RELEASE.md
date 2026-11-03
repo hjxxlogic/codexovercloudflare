@@ -20,7 +20,7 @@ Worker / CW / Agent / CLI 及 CMake / 锁文件统一为 0.6.0；源码 `4b164c6
 
 已于 2026-10-30 UTC 08:07:11 部署，源码 `269859e`，六项必需 CI 全部成功。Relay/CW、四平台原生归档和源码包均已上线并核验。详见 [发布证据](assets/multi-project-2026-10-30/deployment.json)。
 
-Agent、CC、CW 和 Relay 配套发布。先部署 Relay / CW，再提供同一提交的四平台原生包；旧 Agent 保持原有会话能力，新项目管理需要升级 Agent。允许空项目登录，原项目数组首次导入 dataDir/projects.json。管理员邮箱独立于普通访问邮箱，CC 管理身份需要浏览器验证。保留当前 D1 绑定、Secret、凭据、数据库和运行任务；运行中的 Agent 必须等待空闲后更新。
+Agent、CC、CW 和 Relay 配套发布。先部署 Relay / CW，再提供同一提交的四平台原生包；旧 Agent 保持原有会话能力，新项目管理需要升级 Agent。允许空项目登录，原项目数组首次导入 dataDir/projects.json。管理员邮箱独立于普通访问邮箱，CC 管理身份需要浏览器验证。保留当前 DO 状态、Secret、凭据、数据库和运行任务；运行中的 Agent 必须等待空闲后更新。
 
 降级前停止实例，并将当前项目目录同步回旧 agent.json 的 projects；不要用旧初始化数组恢复已取消注册的项目。发布结果与准确源码、CI、制品摘要记录在 DEPLOYMENT_STATUS.md 和 TEST_REPORT.md。
 
@@ -28,13 +28,13 @@ Agent、CC、CW 和 Relay 配套发布。先部署 Relay / CW，再提供同一�
 
 ## 0.5.16：Agent 邮箱关联与网页更新通知
 
-配套发布同一成功 Actions 的 Worker、网页、在线手册及四平台原生包。管理员网页可直接配置 Agent 关联邮箱；本地 `accessEmails` 和 `access-emails` 命令需要升级 Agent / Relay。配置缺省不关联邮箱，旧 Agent 不会覆盖已有关联；管理员覆盖优先于 Agent 默认值。邮箱验证、主机作用域、独立配对及撤销规则见[用户指南](USER_GUIDE.md)。无 SQL schema 变更，保留原 D1、Secret、Agent 凭据和任务。
+配套发布同一成功 Actions 的 Worker、网页、在线手册及四平台原生包。管理员网页可直接配置 Agent 关联邮箱；本地 `accessEmails` 和 `access-emails` 命令需要升级 Agent / Relay。配置缺省不关联邮箱，旧 Agent 不会覆盖已有关联；管理员覆盖优先于 Agent 默认值。邮箱验证、主机作用域、独立配对及撤销规则见[用户指南](USER_GUIDE.md)。保留现有 DO 状态、Secret、Agent 凭据和任务。
 
 下载包部署并校验后，管理员可点击网页的“通知所有 coc-agent 更新”。该按钮沿用版本 / 提交一致性校验和幂等广播，不代表 Agent 已完成安装；自动更新仍等待所有会话结束，未开启自动更新或 Windows 平台需手动升级。此版本不要求轮换所有者密钥，也不通过强制重启安装。
 
-## 可选 D1 发布
+## DO 发布
 
-运维先创建专用 D1，使用 `deploy-cloud.py --state-db-id UUID` 准备已校验制品配置。发布授权后加 `--apply`，脚本先应用制品中的 schema，成功后发布 binding、模式及离线回收 Cron；后续部署默认读取 `wrangler.jsonc` 中已固定的原生产 UUID，`--state-db-id` 仅用于显式覆盖；不得换成新空库。旧对象由管理员分页迁移，在线对象待断开后清理；不能切回旧 DO 副本。生产已启用，须继续保留同一 UUID。活动 DO / 空闲 D1 分层需要同时保护两种存储；不能回滚到不识别 `@location` 的旧 Worker，不能用旧 D1 快照覆盖活动 DO。完整步骤与恢复边界见 [D1 说明](d1-relay-state.md)。
+Worker 制品仅支持 RegistryDO / HostRelayDO。部署工具不再提供数据库绑定、SQL schema 应用或迁移退役参数；拒绝带旧后端选择或数据库绑定的制品。保留既有 DO namespace 和 class migration，不重新初始化状态。旧 D1 数据库不属于本版本的运行依赖。
 
 ## 0.5.14 Cloudflare Access 发布准备
 
@@ -44,7 +44,7 @@ Worker 使用 `ACCESS_ENABLED`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ADMIN_EM
 
 使用 `python3 scripts/deploy-cloud.py --commit HEAD --publish-downloads --apply` 可将同一成功 Actions 的 Worker、网页及四平台原生包一起部署；所有 ZIP 与包内清单均校验来源和摘要；源码归档采用 Ubuntu 产物，与现有发行组装规则一致，不要求各平台 gzip 压缩字节相同，旧下载归档保留，线上新包重新下载核对。大文件断流由新的 curl 进程读取最新偏移续传，避免 curl 内部重试回退已收到的数据；连续三次无进展停止，已验证 CI ZIP 可复用。管理员邮箱配置为 `huangjielg@gmail.com`。当前为提交前的发布准备，实际结果记录在测试记录中。上线需另外核实真实 Access 策略、Header 转发、所有平台 CI 成功和部署权限。操作细节见 [接入说明](cloudflare-access-coc-auth.md)。
 
-需要通知现有 Agent 自动升级时，在上述命令增加 `--notify-release --owner-secret-file /absolute/private/owner-secret`（D1 部署仍携带 `--state-db-id UUID`）。只有同一提交全部必需 CI 成功、云端部署及线上四平台包摘要复核通过后，脚本才登录并提交版本 / 提交号到发布接口；密钥文件须为当前用户私有，凭据不写入日志且拒绝 HTTP 重定向。通知不直接安装或重启 Agent；仍遵守其自动更新开关、平台匹配及会话空闲规则。0.5.15 包含 CW 文件预览、工具修订同步及 Agent 会话自动批准。
+需要通知现有 Agent 自动升级时，在上述命令增加 `--notify-release --owner-secret-file /absolute/private/owner-secret`。只有同一提交全部必需 CI 成功、云端部署及线上四平台包摘要复核通过后，脚本才登录并提交版本 / 提交号到发布接口；密钥文件须为当前用户私有，凭据不写入日志且拒绝 HTTP 重定向。通知不直接安装或重启 Agent；仍遵守其自动更新开关、平台匹配及会话空闲规则。0.5.15 包含 CW 文件预览、工具修订同步及 Agent 会话自动批准。
 
 ## 从 GitHub Actions 部署 Linux Agent
 
@@ -275,6 +275,6 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 
 部署脚本读取 GitHub Actions 元数据时优先复用本机已登录的 `gh`（固定 github.com），避免多次完整检查导致匿名 API 限流；没有 gh 或没有登录时沿用公共接口。令牌由 gh 管理，不放入命令参数，不转发到制品镜像；认证请求失败不静默降级。所有 CI、来源和 SHA256 校验仍必须通过。
 
-### 手动部署移除 D1 绑定的恢复
+### 历史后端恢复说明
 
-`STATE_MIGRATED: Restore the D1 binding` 表示已迁移对象拒绝读取旧 DO 副本。恢复原 `STATE_DB` UUID、`STATE_BACKEND=d1` 与 Cron，保留所有 Secret 和数据；不要删除 `@d1Migrated`、初始化空库或重置管理员。生产根配置已保存这些非密钥绑定，云端脚本自动沿用并重定位制品中的 schema；本地开发和 DO 回归显式使用 `STATE_BACKEND=legacy`，D1 回归使用独立本地库。手动 Wrangler 命令仍不能替代脚本对下载站和线上字节的保全验证。
+旧后端恢复步骤只适用于历史版本。当前版本无后端切换或迁移 API；恢复依赖既有 DO 状态及已验证源码制品。不要使用旧 D1 快照覆盖当前 DO 授权或控制状态。

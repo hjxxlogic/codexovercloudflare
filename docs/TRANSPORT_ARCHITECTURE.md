@@ -1,5 +1,8 @@
 # 协议传输架构：Worker 权限控制与 A/C 端到端可靠传输
 
+> 2026-11-03 连接授权变更：本机实现采用[连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)。授权在准入与逻辑通道握手时检查；稳定数据帧不复查凭据或查询租约，授权变化由独立控制事件使连接失效。下文旧的逐包检查要求由该契约替代。尚未部署。
+
+
 [文档索引](README.md)
 
 阅读路线：[现行协议](RELIABLE_TRANSPORT.md) → 本文责任与设计 → [最终简化决策](TRANSPORT_SIMPLIFICATION_DECISIONS.md)。第 8.2 节记录原改造，第 11.6 节记录本轮简化；中间阶段快照不是新增待办。
@@ -43,7 +46,7 @@ flowchart LR
 
 ## 2. 权限控制不能被可靠封装绕过
 
-Worker 在建立连接和每次转发时按现有策略校验发送者、接收者和操作范围，继续使用有失效机制的鉴权缓存。显式撤销使缓存失效并关闭对应连接；跨重连、HTTP 备用入口、读取、ACK、窗口查询及补发均须重新通过权限检查。
+Worker 在建立连接和每次转发时按现有策略校验发送者、接收者和操作范围，继续使用有失效机制的鉴权缓存。显式撤销使缓存失效并关闭对应连接；跨重连、HTTP 独立 HTTP 入口重新授权；已建立 WebSocket 上的读取、ACK、窗口查询及补发沿用绑定权限，不逐包重新授权。
 
 外层路由包含主机、会话、方向、流、操作类别和当前控制证明。主体身份来自已认证连接，由 Worker 绑定，不能采用客户端自报的 owner / authHash。Worker 校验外层操作类别与内层实际命令一致，禁止将写操作伪装成只读查询或 ACK。A 再次执行业务允许列表与本机权限检查。
 
@@ -318,7 +321,7 @@ WINDOW 必须包含 Agent instance、streamSerial 和 creditGeneration；CW / CC
 
 ### Worker 业务回执去状态实施记录（2026-11-01，仅本机）
 
-HostRelayDO 的全部非 ticket / attach 请求只使用有界内存转发（128 条 / 8 MiB，pending 与完成结果各最多 20 秒），不再持久写入业务 Operation、拆分正文、wire 或到期索引。重建后临时编号返回 RESULT_UNKNOWN，C 通过持久保存的原请求身份向 A 对账。权限事务使用独立 permission_ 编号及 permission-operation / permission-wire 记录，最多 64 条待定 / 256 条总数，每条 16 KiB；get 只保存 mode / sandbox，完整会话、标题和历史不进入权限回执。权限记录、wire 和到期索引同事务保存，重建恢复到期调度；D1 离线读取 / 确认仅适用于这类权限事务。归档和恢复过滤旧 operation / part / wire 与对应 due，继续保留租约、epoch 和授权。执行端旧业务处理路径、统一资源验收及真实旧更新器验证仍未完成，P1 / P4 不提前勾选。
+HostRelayDO 的全部非 ticket / attach 请求只使用有界内存转发（128 条 / 8 MiB，pending 与完成结果各最多 20 秒），不再持久写入业务 Operation、拆分正文、wire 或到期索引。重建后临时编号返回 RESULT_UNKNOWN，C 通过持久保存的原请求身份向 A 对账。权限事务使用独立 permission_ 编号及 permission-operation / permission-wire 记录，最多 64 条待定 / 256 条总数，每条 16 KiB；get 只保存 mode / sandbox，完整会话、标题和历史不进入权限回执。权限记录、wire 和到期索引同事务保存，重建恢复到期调度；权限事务与租约、epoch 原地保存在 HostRelayDO，不存在离线数据库读取或归档路径。执行端旧业务处理路径、统一资源验收及真实旧更新器验证仍未完成，P1 / P4 不提前勾选。
 
 
 ## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）

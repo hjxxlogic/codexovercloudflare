@@ -72,7 +72,11 @@ beforeEach(async () => {
     HOSTS: {
       idFromName: (id: string) => id,
       get: (id: string) => ({
-        fetch: async (req: Request) => {
+        fetch: async (input: Request | string, init?: RequestInit) => {
+          const req =
+            typeof input === 'string' ? new Request(input, init) : input;
+          if (new URL(req.url).pathname === '/authorization-change')
+            return Response.json({ ok: true });
           sent.push({
             id,
             data: req.method === 'POST' ? await req.json() : null,

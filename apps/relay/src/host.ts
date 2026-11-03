@@ -1,4 +1,4 @@
-import { DO_STATE_KEY, nativeState } from './do-migration.ts';
+import { live, retire } from './connections.ts';
 import { TransientOperations } from './transient-operations.ts';
 import { ManagementRequests } from './management.ts';
 import {
@@ -8,13 +8,10 @@ import {
 import {
   deliveryFrameSchema,
   stopsDeliveryRecovery,
-  webDeliveryLane,
-  rpcDeliveryLane,
 } from '../../../packages/protocol/src/delivery.ts';
 import { managesProjects, requireProjectManager } from './project-auth.ts';
-import { d1Enabled, type StateStorage } from './state.ts';
+import type { StateStorage } from './state.ts';
 import { DurableObject } from 'cloudflare:workers';
-import { HostLifecycle, HOST_STATE_KEY } from './host-lifecycle.ts';
 import { dueEntries, expireAt, migrateExpiry, nextExpiry } from './expiry.ts';
 import {
   AppError,
@@ -22,7 +19,6 @@ import {
   MAX_QUEUE,
   MAX_FRAME,
   historyCommandSchema,
-  webCommandSchema,
   agentBuildSchema,
   controlCommandSchema,
   controlProofSchema,
@@ -52,6 +48,9 @@ const registryCall = (env: Env, op: string, data: unknown = {}) =>
   callRegistry(env, op, data, 'host');
 
 type Attachment = {
+  retired?: boolean;
+  blocked?: boolean;
+  policy?: string;
   id?: string;
   subscription?: boolean;
   management?: boolean;
@@ -165,9 +164,6 @@ function checkPermissionSize(o: Operation) {
     );
 }
 export class HostRelayDO extends DurableObject<Env> {
-  private state?: HostLifecycle;
-  private preparing?: Promise<void>;
-  private handlers = 0;
   private managementRequests = new ManagementRequests();
   private deliveryRequests = new TransientOperations<Operation>();
   private async managementTarget(a: Attachment) {
@@ -180,157 +176,89 @@ export class HostRelayDO extends DurableObject<Env> {
               managementMetadataSchema.parse(a.managementMetadata).instance,
           ));
   }
-  private migrationReady = false;
+  private connectionsReady?: Promise<void>;
+  private async policy() {
+    return digest(
+      JSON.stringify([
+        this.env.OWNER_SECRET,
+        this.env.ACCESS_ENABLED,
+        this.env.ACCESS_TEAM_DOMAIN,
+        this.env.ACCESS_AUD,
+        this.env.ADMIN_EMAIL,
+      ]),
+    );
+  }
+  private async restoreConnections() {
+    const policy = await this.policy();
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment;
+      if (a.policy !== policy || a.blocked)
+        retire(ws, 1012, 'Connection policy changed; reconnect');
+    }
+  }
+  private async authorizationChanged() {
+    this.authorizationVersion++;
+    this.authorization.clear();
+    this.authorizing.clear();
+    const version = this.authorizationVersion;
+    const peers = this.ctx
+      .getWebSockets()
+      .filter(
+        (ws) =>
+          ws.readyState < 2 &&
+          !(ws.deserializeAttachment() as Attachment).retired,
+      );
+    for (const ws of peers)
+      ws.serializeAttachment({ ...ws.deserializeAttachment(), blocked: true });
+    for (const operation of (
+      await this.storage.list<Operation>({ prefix: 'permission-operation:' })
+    ).values()) {
+      this.authorization.delete(operation.auth.hash);
+      try {
+        await this.authorized(operation.auth.hash);
+      } catch {
+        await this.deleteOperation(operation.id);
+      }
+    }
+    for (const ws of peers) {
+      const a = ws.deserializeAttachment() as Attachment;
+      try {
+        await this.authorized(a.auth.hash);
+        const current = ws.deserializeAttachment() as Attachment;
+        if (!current.retired && version === this.authorizationVersion)
+          ws.serializeAttachment({ ...current, blocked: false });
+        else if (!current.retired)
+          retire(ws, 4001, 'Authorization changed concurrently');
+      } catch (error) {
+        retire(
+          ws,
+          authorizationFailed(error) ? 4001 : 1011,
+          'Authorization changed',
+        );
+      }
+    }
+  }
   private get storage(): StateStorage {
     return this.ctx.storage as unknown as StateStorage;
   }
-  private async prepare(hostId?: string, activity = true) {
-    if (!nativeState(this.env) && (await this.storage.get(DO_STATE_KEY)))
-      throw new AppError(
-        'STATE_MIGRATED',
-        'DO state is authoritative; retain STATE_BACKEND=do',
-        503,
-      );
-    if (nativeState(this.env)) {
-      if (this.migrationReady) return;
-      if (!this.preparing)
-        this.preparing = (async () => {
-          if (!(await this.storage.get(DO_STATE_KEY))) {
-            const legacy = await this.storage.get<{ hostId: string }>(
-              HOST_STATE_KEY,
-            );
-            const id =
-              hostId ||
-              legacy?.hostId ||
-              (
-                this.ctx.getWebSockets()[0]?.deserializeAttachment() as
-                  Attachment | undefined
-              )?.hostId ||
-              (await this.storage.get<string>('@d1Host'));
-            if (this.env.STATE_DB && id) {
-              const migration = new HostLifecycle(
-                this.ctx.storage as unknown as StateStorage & {
-                  deleteAll(): Promise<void>;
-                },
-                this.env.STATE_DB,
-                idSchema.parse(id),
-              );
-              await migration.activate();
-            } else if (legacy || (await this.storage.get('@d1Host'))) {
-              throw new AppError(
-                'STATE_MIGRATED',
-                'Restore the original D1 binding for migration',
-                503,
-              );
-            } else if (this.env.STATE_DB) {
-              return; // Empty alarm with no host identity: do not materialize state.
-            }
-            await this.storage.transaction(async (tx) => {
-              await tx.put(DO_STATE_KEY, { version: 1 });
-              await tx.delete([HOST_STATE_KEY, '@d1Host']);
-            });
-          }
-          await nextExpiry(this.storage);
-          this.migrationReady = true;
-        })().finally(() => {
-          this.preparing = undefined;
-        });
-      await this.preparing;
-      return;
-    }
-    if (!d1Enabled(this.env)) {
-      if (await this.ctx.storage.get(HOST_STATE_KEY))
-        throw new AppError(
-          'STATE_MIGRATED',
-          'Restore the D1 binding before using this host',
-          503,
-        );
-      if (!this.migrationReady) {
-        await nextExpiry(this.storage);
-        this.migrationReady = true;
-      }
-      return;
-    }
-    if (this.preparing) await this.preparing;
-    if (!hostId)
-      hostId =
-        (
-          this.ctx.getWebSockets()[0]?.deserializeAttachment() as
-            Attachment | undefined
-        )?.hostId ||
-        (await this.ctx.storage.get<{ hostId: string }>(HOST_STATE_KEY))
-          ?.hostId ||
-        (await this.ctx.storage.get<string>('@d1Host'));
-    if (!hostId) return;
-    if (!this.state)
-      this.state = new HostLifecycle(
-        this.ctx.storage as unknown as StateStorage & {
-          deleteAll(): Promise<void>;
-        },
-        this.env.STATE_DB!,
-        idSchema.parse(hostId),
-      );
-    if (!this.preparing)
-      this.preparing = (async () => {
-        const active = await this.state!.activate(activity);
-        if (active && !this.migrationReady) {
-          await this.presence();
-          await nextExpiry(this.storage);
-          this.migrationReady = true;
-        }
-      })().finally(() => {
-        this.preparing = undefined;
-      });
-    await this.preparing;
+  private prepared?: Promise<void>;
+  private prepare() {
+    return (this.prepared ??= nextExpiry(this.storage).catch((error) => {
+      this.prepared = undefined;
+      throw error;
+    }));
   }
   private fence<T>(key: string): Promise<T | undefined> {
     return this.storage.get<T>(key);
   }
-  private async presence() {
-    if (!this.state) return;
-    await this.storage.transaction(async (tx) => {
-      const epoch = (await tx.get<number>('agentEpoch')) || 0;
-      const agent = this.agent();
-      const a = agent?.deserializeAttachment() as Attachment | undefined;
-      await tx.put('presence', {
-        online: !!agent && a?.protocol === 1 && a.epoch === epoch,
-        connected: this.ctx.getWebSockets().filter((ws) => ws.readyState < 2)
-          .length,
-        epoch,
-        updatedAt: Date.now(),
-        build: a?.build,
-        protocol: a?.protocol,
-      });
-    });
-  }
-  private inactive() {
-    return (
-      !this.handlers &&
-      !this.incomingRecords &&
-      !this.forwardingRecords &&
-      !this.incomingBytes &&
-      !this.forwardingBytes &&
-      !this.ctx.getWebSockets().some((ws) => ws.readyState < 2)
-    );
-  }
-  private async cleanup() {
-    if (!this.migrationReady || !this.state || !this.inactive()) return;
-    // A short disconnect should not copy state out and straight back in.
-    // Alarm checks inactivity again and copies only one bounded page per gate.
-    await this.state.idle();
-  }
   async fetch(req: Request) {
-    this.handlers++;
     try {
-      await this.prepare(req.headers.get('x-host') || undefined);
+      await this.prepare();
+      this.connectionsReady ??= this.restoreConnections();
+      await this.connectionsReady;
       return await this.handleFetch(req);
     } catch (error) {
       return failure(error);
-    } finally {
-      this.handlers--;
-      await this.cleanup().catch(() =>
-        console.log(JSON.stringify({ event: 'relay_cleanup_deferred' })),
-      );
     }
   }
 
@@ -369,7 +297,12 @@ export class HostRelayDO extends DurableObject<Env> {
     WebSocket,
     { tail: Promise<void>; bytes: number; count: number }
   >();
-  private forward(client: WebSocket, payload: unknown, bytes: number) {
+  private forward(
+    client: WebSocket,
+    payload: unknown,
+    bytes: number,
+    source?: WebSocket,
+  ) {
     let queue = this.forwards.get(client);
     if (!queue) {
       queue = { tail: Promise.resolve(), bytes: 0, count: 0 };
@@ -382,7 +315,7 @@ export class HostRelayDO extends DurableObject<Env> {
       this.forwardingBytes + bytes > MAX_QUEUE * 2
     ) {
       this.reject('forward-queue-full', true);
-      client.close(4008, 'Forwarding budget exhausted');
+      retire(client, 4008, 'Forwarding budget exhausted');
       return;
     }
     queue.bytes += bytes;
@@ -391,12 +324,7 @@ export class HostRelayDO extends DurableObject<Env> {
     this.forwardingRecords++;
     const current = queue.tail
       .then(async () => {
-        const attachment = client.deserializeAttachment() as Attachment;
-        if (client.readyState >= 2) return;
-        if (attachment.deadline <= Date.now())
-          throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
-        await this.authorized(attachment.auth.hash);
-        if (client.readyState < 2 || client.readyState === undefined)
+        if (live(client) && (!source || live(source)))
           this.send(client, payload);
       })
       .catch((error) => {
@@ -407,7 +335,8 @@ export class HostRelayDO extends DurableObject<Env> {
           false,
           authorizationFailed(error),
         );
-        client.close(
+        retire(
+          client,
           authorizationFailed(error) ? 4001 : 1011,
           authorizationFailed(error)
             ? 'Authorization revoked'
@@ -420,10 +349,24 @@ export class HostRelayDO extends DurableObject<Env> {
         this.forwardingBytes -= bytes;
         this.forwardingRecords--;
         if (queue!.tail === current) this.forwards.delete(client);
-        await this.cleanup();
       });
     queue.tail = current;
     this.ctx.waitUntil(current);
+  }
+  private async operationAuthorized(o: Operation) {
+    if (o.socketId) {
+      const ws = this.socket(o.socketId);
+      if (!ws || !live(ws))
+        throw new AppError('UNAUTHORIZED', 'Connection closed', 401);
+      const a = ws.deserializeAttachment() as Attachment;
+      if (a.auth.expires <= Date.now())
+        throw new AppError('UNAUTHORIZED', 'Handshake credential expired', 401);
+      if (!a.authenticated) await this.authorized(a.auth.hash);
+      if (!live(ws))
+        throw new AppError('UNAUTHORIZED', 'Connection closed', 401);
+      return;
+    }
+    await this.authorized(o.auth.hash);
   }
   async authorized(hash: string) {
     const cached = this.authorization.get(hash);
@@ -480,7 +423,7 @@ export class HostRelayDO extends DurableObject<Env> {
   agent() {
     return this.ctx
       .getWebSockets('agent')
-      .filter((s) => s.readyState === 1)
+      .filter((s) => s.readyState === 1 && live(s))
       .reduce<WebSocket | undefined>(
         (newest, candidate) =>
           !newest ||
@@ -492,7 +435,7 @@ export class HostRelayDO extends DurableObject<Env> {
       );
   }
   send(ws: WebSocket, data: unknown) {
-    if (ws.readyState >= 2) return;
+    if (!live(ws)) return;
     const attachment = ws.deserializeAttachment() as Attachment | undefined;
     const receipts =
       attachment?.history ||
@@ -526,7 +469,7 @@ export class HostRelayDO extends DurableObject<Env> {
         total + bytes > MAX_QUEUE * 2 ||
         counter.seq - counter.ack >= 1000
       ) {
-        ws.close(4008, 'Reader acknowledgement budget exhausted');
+        retire(ws, 4008, 'Reader acknowledgement budget exhausted');
         return;
       }
       counter.seq++;
@@ -589,27 +532,13 @@ export class HostRelayDO extends DurableObject<Env> {
       .find((ws) => (ws.deserializeAttachment() as Attachment).id === id);
   }
   private async assertController(a: Attachment, agent: Attachment) {
-    await this.storage.transaction(async (tx) => {
-      const lease = await tx.get<Lease>('lease:' + a.sessionId);
-      if (
-        !lease?.active ||
-        lease.epoch !== a.epoch ||
-        (lease.owner && lease.owner !== a.auth.hash) ||
-        (lease.controllerId && lease.controllerId !== a.id)
-      )
-        throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
-      if (
-        lease.projectId &&
-        (await tx.get('project-writer:' + lease.projectId)) !== a.sessionId
-      )
-        throw new AppError(
-          'PROJECT_READ_ONLY',
-          'Another session holds this project write access',
-          409,
-        );
-      if (agent.epoch !== (await tx.get('agentEpoch')))
-        throw new AppError('STALE_AGENT', 'Agent replaced', 409);
-    });
+    const ws = this.socket(a.id);
+    if (!ws || !live(ws) || !a.authenticated || a.retired)
+      throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
+    const current = this.agent()?.deserializeAttachment() as
+      Attachment | undefined;
+    if (!current || current.id !== agent.id)
+      throw new AppError('STALE_AGENT', 'Agent replaced', 409);
   }
   private async resultReceipt(
     sessionId: string,
@@ -623,10 +552,7 @@ export class HostRelayDO extends DurableObject<Env> {
   ) {
     const agent = this.agent();
     if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline', 503);
-    const a = agent.deserializeAttachment() as Attachment;
-    await this.authorized(a.auth.hash);
-    if (a.epoch !== (await this.storage.get('agentEpoch')))
-      throw new AppError('STALE_AGENT', 'Agent replaced', 409);
+    if (!live(agent)) return;
     this.send(agent, {
       type: 'delivery-receipt',
       sessionId,
@@ -643,9 +569,8 @@ export class HostRelayDO extends DurableObject<Env> {
     // Notifications have no replay payload; future subscribers read a fresh
     // snapshot. Do not materialize unused host storage for an unobserved change.
     if (!this.ctx.getWebSockets().length) return;
-    // Notification counters describe live transport and need no D1 round trip.
-    // Native DO storage survives hibernation and is cleared after disconnect.
-    const notifications = this.state ? this.ctx.storage : this.storage;
+    // Persist the revision across object hibernation and reconstruction.
+    const notifications = this.storage;
     const revision = await notifications.transaction(async (tx) => {
       const value = ((await tx.get<number>('revision')) || 0) + 1;
       await tx.put('revision', value);
@@ -661,7 +586,7 @@ export class HostRelayDO extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment;
       if (a.terminalStream && a.terminalScope?.sessionId === sessionId)
-        ws.close(4009, 'Terminal controller ended');
+        retire(ws, 4009, 'Terminal controller ended');
     }
   }
   private async validateTerminal(
@@ -704,7 +629,6 @@ export class HostRelayDO extends DurableObject<Env> {
         'Upgrade Agent for streaming Terminal',
         409,
       );
-    await this.authorized(aa.auth.hash);
     if (frame.type === 'bind') {
       if (a.terminalScope)
         throw new AppError('INVALID_REQUEST', 'Terminal already bound');
@@ -714,10 +638,16 @@ export class HostRelayDO extends DurableObject<Env> {
     }
     if (!a.terminalScope)
       throw new AppError('FORBIDDEN', 'Bind Terminal first', 403);
-    await this.validateTerminal(a.terminalScope, a.auth.hash, a.hostId);
-    a.authenticated = true;
-    a.deadline = a.auth.expires;
-    ws.serializeAttachment(a);
+    if (frame.type === 'bind')
+      await this.validateTerminal(a.terminalScope, a.auth.hash, a.hostId);
+    if (frame.type === 'bind') {
+      a.authenticated = true;
+      a.deadline = a.auth.expires;
+      await expireAt(this.storage, 'connection:' + a.id, a.deadline);
+      if (!live(ws)) return;
+      ws.serializeAttachment(a);
+    }
+    if (!live(ws)) return;
     this.send(agent, {
       type: 'terminal-stream',
       route: a.id,
@@ -726,6 +656,12 @@ export class HostRelayDO extends DurableObject<Env> {
     });
   }
   async command(action: string, data: any, operation: Operation) {
+    const authorizationVersion = this.authorizationVersion;
+    if (
+      !transientOperation(operation) &&
+      !(await this.loadOperation(operation.id))
+    )
+      throw new AppError('UNAUTHORIZED', 'Permission handshake retired', 401);
     const parsed = controlCommandSchema.safeParse({ action, data });
     if (!parsed.success)
       throw new AppError('INVALID_REQUEST', 'Invalid control command');
@@ -765,9 +701,8 @@ export class HostRelayDO extends DurableObject<Env> {
         'Agent is reconnecting or negotiating; retry after the connection is ready',
         503,
       );
-    await this.authorized(agent.auth.hash);
-    if (agent.epoch !== (await this.storage.get('agentEpoch')))
-      throw new AppError('STALE_AGENT', 'Agent replaced', 409);
+    if (!live(ws)) throw new AppError('HOST_OFFLINE', 'Host offline', 503);
+    if (!operation.socketId) await this.authorized(agent.auth.hash);
     if (operationWrite(action, data) && !operation.intent)
       throw new AppError(
         'UPGRADE_REQUIRED',
@@ -789,7 +724,23 @@ export class HostRelayDO extends DurableObject<Env> {
     operation.wire = requestId;
     operation.agentEpoch = agent.epoch;
     operation.agentInstance = agent.deliveryInstance;
+    if (authorizationVersion !== this.authorizationVersion)
+      throw new AppError(
+        'UNAUTHORIZED',
+        'Authorization changed during handshake',
+        401,
+      );
     await this.saveOperation(operation);
+    if (authorizationVersion !== this.authorizationVersion) {
+      if (!transientOperation(operation))
+        await this.deleteOperation(operation.id);
+      throw new AppError(
+        'UNAUTHORIZED',
+        'Authorization changed during handshake',
+        401,
+      );
+    }
+    if (operation.socketId && !live(this.socket(operation.socketId))) return;
     this.send(ws, {
       v: 1,
       type: 'control',
@@ -920,7 +871,7 @@ export class HostRelayDO extends DurableObject<Env> {
         'Agent control confirmation does not match OPEN',
         409,
       );
-    await this.authorized(o.auth.hash);
+    await this.operationAuthorized(o);
     await this.storage.transaction(async (tx) => {
       const key = 'lease:' + o.data.sessionId;
       const lease = await tx.get<Lease>(key);
@@ -969,8 +920,7 @@ export class HostRelayDO extends DurableObject<Env> {
       const ws = this.socket(o.socketId);
       if (!ws || ws.readyState >= 2) return;
       const a = ws.deserializeAttachment() as Attachment;
-      await this.authorized(a.auth.hash);
-      if (a.auth.hash !== o.auth.hash || a.deadline <= Date.now()) return;
+      if (!live(ws) || a.auth.hash !== o.auth.hash) return;
       if (o.error)
         this.send(ws, {
           type: 'error',
@@ -978,8 +928,12 @@ export class HostRelayDO extends DurableObject<Env> {
           error: o.error,
         });
       else if (o.kind === 'history-open') {
+        await this.authorized(a.auth.hash);
+        if (!live(ws)) return;
         a.authenticated = true;
         a.deadline = a.auth.expires;
+        await expireAt(this.storage, 'connection:' + a.id, a.deadline);
+        if (!live(ws)) return;
         ws.serializeAttachment(a);
         this.send(ws, { type: 'history-ready' });
       } else if (a.authenticated)
@@ -1020,13 +974,7 @@ export class HostRelayDO extends DurableObject<Env> {
       const ws = this.socket(o.socketId);
       if (!ws || ws.readyState >= 2) return;
       const a = ws.deserializeAttachment() as Attachment;
-      await this.authorized(a.auth.hash);
-      if (
-        !a.authenticated ||
-        a.auth.hash !== o.auth.hash ||
-        a.deadline <= Date.now()
-      )
-        return;
+      if (!live(ws) || !a.authenticated || a.auth.hash !== o.auth.hash) return;
       if (o.error)
         this.send(ws, {
           type:
@@ -1065,17 +1013,11 @@ export class HostRelayDO extends DurableObject<Env> {
     )
       await this.releaseReservation(o);
     if (o.socketId) {
-      if (this.state && (!ws || ws.readyState >= 2)) {
-        await this.saveOperation(o);
-        return;
-      }
       await this.deleteOperation(o.id);
       if (!ws) return;
-      await this.authorized(
-        (ws.deserializeAttachment() as Attachment).auth.hash,
-      );
-      // close/receipt handlers can run during authorization. Re-read the
-      // attachment and never activate a lease for an already closed socket.
+      if (!live(ws)) return;
+      // Read the current attachment after deleting the operation; retirement
+      // during that await must never reactivate this route.
       if (ws.readyState >= 2) {
         if (o.reservation) await this.releaseReservation(o);
         return;
@@ -1088,11 +1030,13 @@ export class HostRelayDO extends DurableObject<Env> {
           error: o.error,
         });
         if (o.kind !== 'history' && o.kind !== 'delivery')
-          ws.close(4000, 'Request rejected');
+          retire(ws, 4000, 'Request rejected');
       } else {
         a.epoch = o.reservation!.epoch;
         a.authenticated = true;
         a.deadline = a.auth.expires;
+        await expireAt(this.storage, 'connection:' + a.id, a.deadline);
+        if (!live(ws)) return;
         ws.serializeAttachment(a);
         this.send(ws, {
           type: 'attached',
@@ -1163,7 +1107,7 @@ export class HostRelayDO extends DurableObject<Env> {
     });
     for (const ws of this.ctx.getWebSockets('session:' + sessionId)) {
       const a = ws.deserializeAttachment() as Attachment;
-      if (!a.history) ws.close(4000, 'Session ended');
+      if (!a.history) retire(ws, 4000, 'Session ended');
     }
     this.closeTerminalStreams(sessionId);
   }
@@ -1187,7 +1131,8 @@ export class HostRelayDO extends DurableObject<Env> {
         undefined,
         new AppError(error.code, error.message, agentErrorStatus(error.code)),
       );
-    await this.authorized(o.auth.hash);
+    if (o.socketId && !live(this.socket(o.socketId))) return;
+    if (!transientOperation(o)) await this.operationAuthorized(o);
     if (o.action === 'projectManage') {
       const current: Auth = await registryCall(this.env, 'authHash', {
         hash: o.auth.hash,
@@ -1201,6 +1146,7 @@ export class HostRelayDO extends DurableObject<Env> {
       };
     }
     if (o.stage === 'get') {
+      if (!transientOperation(o) && !(await this.loadOperation(o.id))) return;
       if (data.mode !== o.auth.role)
         return this.complete(
           o,
@@ -1332,7 +1278,7 @@ export class HostRelayDO extends DurableObject<Env> {
       for (const ws of this.ctx.getWebSockets('session:' + o.data.sessionId)) {
         const a = ws.deserializeAttachment() as Attachment;
         if (a.authenticated && !a.history && a.id !== o.socketId)
-          ws.close(4009, 'Control taken over');
+          retire(ws, 4009, 'Control taken over');
       }
       this.closeTerminalStreams(o.data.sessionId);
       if (o.kind === 'ticket') return this.issueTicket(o);
@@ -1396,13 +1342,15 @@ export class HostRelayDO extends DurableObject<Env> {
       const u = new URL(req.url),
         s = this.storage;
       await migrateExpiry(s, ['ticket:']);
+      if (u.pathname === '/authorization-change') {
+        await this.authorizationChanged();
+        return json({ ok: true });
+      }
       if (u.pathname === '/notify') {
         const d = await body(req);
         if (d.scope === 'requests' || d.scope === 'release') {
           const ws = this.agent();
           if (ws) {
-            const a = ws.deserializeAttachment() as Attachment;
-            await this.authorized(a.auth.hash);
             this.send(ws, {
               type: 'change',
               scope: d.scope,
@@ -1452,8 +1400,6 @@ export class HostRelayDO extends DurableObject<Env> {
         }
         return json({ state: 'requested', retryAfterMs: 60000 });
       }
-      if (u.pathname === '/migrate-native' && nativeState(this.env))
-        return json({ ok: true });
       if (u.pathname === '/status') {
         const agent = this.agent();
         const a = agent?.deserializeAttachment() as Attachment | undefined;
@@ -1462,7 +1408,7 @@ export class HostRelayDO extends DurableObject<Env> {
             await this.authorized(a.auth.hash);
           } catch (error) {
             if (!authorizationFailed(error)) throw error;
-            agent.close(4001, 'Authorization revoked');
+            retire(agent, 4001, 'Authorization revoked');
             return json({ online: false, confirmed: false });
           }
         }
@@ -1476,8 +1422,8 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       if (u.pathname === '/revoke-auth') {
         const d = await body(req);
+        this.authorizationVersion++;
         if (d.agent) {
-          this.authorizationVersion++;
           this.authorization.clear();
           this.authorizing.clear();
         } else {
@@ -1489,7 +1435,7 @@ export class HostRelayDO extends DurableObject<Env> {
             d.agent ||
             (ws.deserializeAttachment() as Attachment).auth.hash === d.hash
           )
-            ws.close(4001, 'Device revoked');
+            retire(ws, 4001, 'Device revoked');
         return json({ ok: true });
       }
       const auth: Auth = JSON.parse(
@@ -1787,16 +1733,6 @@ export class HostRelayDO extends DurableObject<Env> {
           );
         await this.authorized(aa.auth.hash);
         const payload = JSON.parse(frame.body);
-        if (auth.role === 'web') webCommandSchema.parse(payload);
-        if (
-          (auth.role === 'web'
-            ? webDeliveryLane(payload)
-            : rpcDeliveryLane(payload)) !== lane
-        )
-          throw new AppError(
-            'INVALID_REQUEST',
-            'Incorrect mutation command lane',
-          );
         // Recheck the lease after awaits, before delivering a side effect.
         const current = await this.storage.get<Lease>('lease:' + sessionId);
         if (
@@ -1805,19 +1741,16 @@ export class HostRelayDO extends DurableObject<Env> {
           current.controllerId !== lease.controllerId
         )
           throw new AppError('STALE_CONTROLLER', 'Controller replaced', 409);
-        await this.assertController(
-          {
-            role: auth.role as 'cli' | 'web',
-            auth,
-            hostId,
-            sessionId,
-            epoch: lease.epoch,
-            id: d.controller,
-            authenticated: true,
-            deadline: auth.expires,
-          },
-          aa,
-        );
+        if (
+          current.projectId &&
+          (await this.storage.get('project-writer:' + current.projectId)) !==
+            sessionId
+        )
+          throw new AppError(
+            'PROJECT_READ_ONLY',
+            'Project writer replaced',
+            409,
+          );
         this.send(agent, {
           v: 1,
           type: auth.role === 'cli' ? 'rpc' : 'web',
@@ -2011,7 +1944,7 @@ export class HostRelayDO extends DurableObject<Env> {
     owner = 'test-owner',
     projectId?: string,
   ) {
-    return this.storage.transaction(async (tx) => {
+    const pending = await this.storage.transaction(async (tx) => {
       const key = 'lease:' + sessionId;
       const lease = (await tx.get<Lease>(key)) || { epoch: 0, active: false };
       projectId ||= lease.projectId;
@@ -2135,6 +2068,12 @@ export class HostRelayDO extends DurableObject<Env> {
       });
       return pending;
     });
+    for (const ws of this.ctx.getWebSockets('session:' + sessionId)) {
+      const a = ws.deserializeAttachment() as Attachment;
+      if (a.authenticated && !a.history) retire(ws, 4009, 'Control replaced');
+    }
+    this.closeTerminalStreams(sessionId);
+    return pending;
   }
 
   async upgrade(req: Request, a: Attachment) {
@@ -2142,13 +2081,26 @@ export class HostRelayDO extends DurableObject<Env> {
       throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
     if (a.role !== 'agent' && !a.subscription && !a.management && !this.agent())
       throw new AppError('HOST_OFFLINE', 'Host is offline', 503);
+    a.policy = await this.policy();
+    for (;;) {
+      const version = this.authorizationVersion;
+      const current: Auth = await registryCall(this.env, 'authHash', {
+        hash: a.auth.hash,
+      });
+      if (version !== this.authorizationVersion) continue;
+      if (current.role !== a.auth.role || current.hostId !== a.auth.hostId)
+        throw new AppError('UNAUTHORIZED', 'Connection identity changed', 401);
+      a.auth = current;
+      if (a.authenticated) a.deadline = current.expires;
+      break;
+    }
     if (a.role === 'agent') {
       for (const ws of this.ctx.getWebSockets())
         if (
           !(ws.deserializeAttachment() as Attachment).subscription &&
           !(ws.deserializeAttachment() as Attachment).management
         )
-          ws.close(1012, 'Agent reconnected');
+          retire(ws, 1012, 'Agent reconnected');
       a.epoch = await this.storage.transaction(async (tx) => {
         const epoch = ((await tx.get<number>('agentEpoch')) || 0) + 1;
         await tx.put('agentEpoch', epoch);
@@ -2162,6 +2114,8 @@ export class HostRelayDO extends DurableObject<Env> {
     ]);
     a.id = crypto.randomUUID();
     pair[1].serializeAttachment(a);
+    if (a.authenticated)
+      await expireAt(this.storage, 'connection:' + a.id, a.deadline);
     if (!a.authenticated)
       await expireAt(this.storage, 'handshake:' + a.id, a.deadline);
     if (a.role === 'agent')
@@ -2202,7 +2156,6 @@ export class HostRelayDO extends DurableObject<Env> {
         data: { sessionId: a.sessionId },
         stage: 'get',
       });
-    await this.presence();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -2222,7 +2175,7 @@ export class HostRelayDO extends DurableObject<Env> {
       this.incomingBytes + bytes > MAX_QUEUE * 2
     ) {
       this.reject('incoming-queue-full', true);
-      ws.close(4000, 'Incoming message queue full');
+      retire(ws, 4000, 'Incoming message queue full');
       return;
     }
     queue.bytes += bytes;
@@ -2253,7 +2206,6 @@ export class HostRelayDO extends DurableObject<Env> {
         }),
       );
       this.authMetrics = { hits: 0, misses: 0, coalesced: 0 };
-      await this.cleanup();
     }
   }
   private async handleMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -2263,10 +2215,10 @@ export class HostRelayDO extends DurableObject<Env> {
       if (typeof raw !== 'string')
         throw new AppError('INVALID_REQUEST', 'Text frames required');
       const a = ws.deserializeAttachment() as Attachment;
-      await this.prepare(a.hostId);
-      if (a.deadline <= Date.now())
-        throw new AppError('UNAUTHORIZED', 'Connection expired', 401);
-      await this.authorized(a.auth.hash);
+      await this.prepare();
+      this.connectionsReady ??= this.restoreConnections();
+      await this.connectionsReady;
+      if (!live(ws)) return;
       credentialChecked = true;
       const d = parseFrame(raw);
       if (typeof d.requestId === 'string' && d.requestId.length <= 100)
@@ -2275,8 +2227,6 @@ export class HostRelayDO extends DurableObject<Env> {
         d.type === 'management-result' &&
         (a.role === 'agent' || a.management)
       ) {
-        if (a.role === 'agent' && a.epoch !== (await this.fence('agentEpoch')))
-          throw new AppError('STALE_AGENT', 'Old Agent connection', 409);
         this.managementRequests.reply(ws, d);
         return;
       }
@@ -2306,10 +2256,11 @@ export class HostRelayDO extends DurableObject<Env> {
                 'Client instance belongs to another credential',
                 403,
               );
-            peer.close(1012, 'Client management reconnected');
+            retire(peer, 1012, 'Client management reconnected');
           }
         }
         a.managementMetadata = metadata;
+        if (!live(ws)) return;
         ws.serializeAttachment(a);
         return;
       }
@@ -2327,6 +2278,7 @@ export class HostRelayDO extends DurableObject<Env> {
         ) {
           counter.ack = seq;
           counter.acked = bytes;
+          if (!live(ws)) return;
           ws.serializeAttachment(a);
         }
         return;
@@ -2344,10 +2296,13 @@ export class HostRelayDO extends DurableObject<Env> {
           403,
         );
       if (a.role === 'agent') {
+        if (this.agent() !== ws) {
+          retire(ws, 1012, 'Agent replaced');
+          return;
+        }
         if (d.v !== undefined && d.v !== 1)
           throw new AppError('PROTOCOL_MISMATCH', 'Unsupported protocol', 409);
-        if (a.epoch !== (await this.fence('agentEpoch')))
-          throw new AppError('STALE_AGENT', 'Old Agent connection');
+
         if (d.type === 'terminal-stream') {
           const target = this.socket(idSchema.parse(d.route));
           const client = target?.deserializeAttachment() as
@@ -2360,18 +2315,13 @@ export class HostRelayDO extends DurableObject<Env> {
             scope.sessionId !== d.sessionId
           )
             throw new AppError('FORBIDDEN', 'Terminal route mismatch', 403);
-          if (client.deadline <= Date.now()) {
-            target.close(4001, 'Authorization expired');
-            return;
-          }
-          try {
-            await this.validateTerminal(scope, client.auth.hash, client.hostId);
-          } catch {
-            target.close(4001, 'Terminal authorization changed');
-            return;
-          }
           const frame = terminalStreamServerSchema.parse(d.frame);
-          this.forward(target, { type: 'terminal-stream', frame }, raw.length);
+          this.forward(
+            target,
+            { type: 'terminal-stream', frame },
+            raw.length,
+            ws,
+          );
           return;
         }
         if (d.type === 'projects-changed') {
@@ -2430,11 +2380,11 @@ export class HostRelayDO extends DurableObject<Env> {
                   (client.deserializeAttachment() as Attachment).auth.hash ===
                   auth.hash
                 )
-                  client.close(4001, 'Email association removed');
+                  retire(client, 4001, 'Email association removed');
             }
           }
+          if (!live(ws)) return;
           ws.serializeAttachment(a);
-          await this.presence();
           await this.changed();
           return;
         }
@@ -2477,6 +2427,7 @@ export class HostRelayDO extends DurableObject<Env> {
             operation.expires > Date.now()
           ) {
             try {
+              if (!live(ws)) return;
               if (operation.intent && operation.stage === 'execute') {
                 const receipt = operationIntentSchema.safeParse(d.intent);
                 if (
@@ -2511,6 +2462,7 @@ export class HostRelayDO extends DurableObject<Env> {
           ].includes(d.payload?.event?.type)
         )
           await this.changed('sessions');
+        if (!live(ws)) return;
         if (['rpc', 'event', 'notice'].includes(d.type)) {
           const bytes = new TextEncoder().encode(
             JSON.stringify(d.payload),
@@ -2526,11 +2478,12 @@ export class HostRelayDO extends DurableObject<Env> {
             )
               continue;
             if (ca.history) {
-              if (d.type === 'event') this.forward(client, d.payload, bytes);
+              if (d.type === 'event')
+                this.forward(client, d.payload, bytes, ws);
               continue;
             }
             if (d.type === 'rpc' && ca.role === 'cli')
-              this.forward(client, d.payload, bytes);
+              this.forward(client, d.payload, bytes, ws);
             if (
               d.type !== 'rpc' &&
               (ca.role === 'web' ||
@@ -2538,7 +2491,7 @@ export class HostRelayDO extends DurableObject<Env> {
                   d.type === 'notice' &&
                   String(d.payload?.type).startsWith('delivery-')))
             )
-              this.forward(client, d.payload, bytes);
+              this.forward(client, d.payload, bytes, ws);
           }
         }
         return;
@@ -2578,6 +2531,7 @@ export class HostRelayDO extends DurableObject<Env> {
           a.auth.hash,
         );
         a.historyEvents = d.events === 'history';
+        if (!live(ws)) return;
         ws.serializeAttachment(a);
         await this.start({
           auth: a.auth,
@@ -2597,11 +2551,12 @@ export class HostRelayDO extends DurableObject<Env> {
       }
       const agent = this.agent();
       if (!agent) throw new AppError('HOST_OFFLINE', 'Host offline');
-      await this.authorized(
-        (agent.deserializeAttachment() as Attachment).auth.hash,
-      );
-      const lease = await this.fence<Lease>('lease:' + a.sessionId);
-      if (lease?.epoch !== a.epoch)
+
+      const lease =
+        d.type === 'delivery-open'
+          ? await this.fence<Lease>('lease:' + a.sessionId)
+          : undefined;
+      if (lease && lease.epoch !== a.epoch)
         throw new AppError('STALE_CONTROLLER', 'Controller replaced');
       if (d.type === 'delivery-output') {
         await this.assertController(
@@ -2659,6 +2614,7 @@ export class HostRelayDO extends DurableObject<Env> {
               ]),
             ),
           };
+          if (!live(ws)) return;
           ws.serializeAttachment(a);
           await this.storage.transaction(async (tx) => {
             const current = await tx.get<Lease>('lease:' + a.sessionId);
@@ -2755,20 +2711,11 @@ export class HostRelayDO extends DurableObject<Env> {
           return;
         }
         const payload = JSON.parse(frame.body);
-        if (a.role === 'web') webCommandSchema.parse(payload);
-        if (
-          (a.role === 'web'
-            ? webDeliveryLane(payload)
-            : rpcDeliveryLane(payload)) !== frame.lane
-        )
-          throw new AppError(
-            'INVALID_REQUEST',
-            'Use the original protocol for reads and the correct command lane',
-          );
         await this.assertController(
           a,
           agent.deserializeAttachment() as Attachment,
         );
+        if (!live(ws)) return;
         this.send(agent, {
           v: 1,
           type: a.role === 'cli' ? 'rpc' : 'web',
@@ -2792,15 +2739,8 @@ export class HostRelayDO extends DurableObject<Env> {
         a,
         agent.deserializeAttachment() as Attachment,
       );
-      const payload = a.role === 'web' ? webCommandSchema.parse(d) : d;
-      if (
-        a.role === 'web' ? webDeliveryLane(payload) : rpcDeliveryLane(payload)
-      )
-        throw new AppError(
-          'UPGRADE_REQUIRED',
-          'Writes require the delivery:2 command window',
-          409,
-        );
+      const payload = d;
+      if (!live(ws)) return;
       this.send(agent, {
         v: 1,
         type: a.role === 'cli' ? 'rpc' : 'web',
@@ -2835,7 +2775,8 @@ export class HostRelayDO extends DurableObject<Env> {
             'RESULT_UNKNOWN',
           ].includes(e.code)
         ))
-          ws.close(
+          retire(
+            ws,
             !credentialChecked && authorizationFailed(e)
               ? 4001
               : errorData(e).code === 'INTERNAL_ERROR'
@@ -2849,16 +2790,9 @@ export class HostRelayDO extends DurableObject<Env> {
   async webSocketClose(ws: WebSocket, code = 1000) {
     // Complete the peer's closing handshake; otherwise callers can remain in
     // CLOSING until the transport timeout and never start their recovery.
-    ws.close([1005, 1006, 1015].includes(code) ? 1000 : code, 'Closed');
-    this.handlers++;
-    try {
-      await this.prepare((ws.deserializeAttachment() as Attachment).hostId);
-      await this.closeSocket(ws);
-      await this.presence();
-    } finally {
-      this.handlers--;
-      await this.cleanup();
-    }
+    retire(ws, [1005, 1006, 1015].includes(code) ? 1000 : code, 'Closed');
+    await this.prepare();
+    await this.closeSocket(ws);
   }
   private async closeSocket(ws: WebSocket) {
     const a = ws.deserializeAttachment() as Attachment;
@@ -2871,8 +2805,6 @@ export class HostRelayDO extends DurableObject<Env> {
           const pending = await this.loadOperation(o.id);
           if (pending?.reservation) await this.releaseReservation(pending);
         }
-        if (!this.state && !nativeState(this.env))
-          await this.deleteOperation(o.id);
       }
     if (a.terminalStream) {
       const agent = this.agent();
@@ -2894,7 +2826,7 @@ export class HostRelayDO extends DurableObject<Env> {
       if (a.epoch !== (await this.storage.get('agentEpoch'))) return;
       for (const c of this.ctx.getWebSockets())
         if (c !== ws && !(c.deserializeAttachment() as Attachment).subscription)
-          c.close(1012, 'Agent disconnected');
+          retire(c, 1012, 'Agent disconnected');
       await this.changed();
       return;
     }
@@ -2910,9 +2842,6 @@ export class HostRelayDO extends DurableObject<Env> {
       this.closeTerminalStreams(a.sessionId!);
       const agent = this.agent();
       if (agent) {
-        await this.authorized(
-          (agent.deserializeAttachment() as Attachment).auth.hash,
-        );
         this.send(agent, {
           type: 'detach',
           sessionId: a.sessionId,
@@ -2923,47 +2852,25 @@ export class HostRelayDO extends DurableObject<Env> {
   }
 
   async webSocketError(ws: WebSocket) {
-    ws.close(1011, 'Transport error');
+    retire(ws, 1011, 'Transport error');
     await this.webSocketClose(ws);
   }
   async alarm() {
-    await this.prepare(undefined, false);
-    if (this.state && this.inactive()) {
-      const result = await this.ctx.blockConcurrencyWhile(async () => {
-        try {
-          if (!this.inactive()) return 'waiting';
-          return await this.state!.archivePage();
-        } catch {
-          // Catch INSIDE the gate: an exception escaping its callback resets
-          // the DO even when the returned promise is caught by its caller.
-          await this.ctx.storage.setAlarm(Date.now() + 60_000);
-          console.log(JSON.stringify({ event: 'host_archive_deferred' }));
-          return 'deferred';
-        }
-      });
-      if (result === 'deferred') return;
-      if (result === 'archived') {
-        this.migrationReady = false;
-        return;
-      }
-      if (result === 'pending') {
-        await this.ctx.storage.setAlarm(Date.now() + 1000);
-        return;
-      }
-    }
-    this.handlers++;
-    try {
-      await this.expire();
-    } finally {
-      this.handlers--;
-      await this.cleanup();
-    }
+    await this.prepare();
+    await this.expire();
   }
   private async expire() {
     const s = this.storage;
     await migrateExpiry(s, ['ticket:']);
     for (const [index, { key }] of await dueEntries(s)) {
-      if (key.startsWith('handshake:')) {
+      if (key.startsWith('connection:')) {
+        const ws = this.socket(key.slice(11));
+        if (
+          ws &&
+          (ws.deserializeAttachment() as Attachment).deadline <= Date.now()
+        )
+          retire(ws, 4001, 'Connection expired');
+      } else if (key.startsWith('handshake:')) {
         const ws = this.socket(key.slice(10));
         const a = ws?.deserializeAttachment() as Attachment | undefined;
         if (ws && a && !a.authenticated && a.deadline <= Date.now()) {
@@ -2974,7 +2881,7 @@ export class HostRelayDO extends DurableObject<Env> {
               message: 'Handshake unconfirmed; refresh before retrying',
             },
           });
-          ws.close(4002, 'Handshake unconfirmed');
+          retire(ws, 4002, 'Handshake unconfirmed');
         }
       } else {
         const value = await s.get<any>(key);

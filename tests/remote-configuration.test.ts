@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStorage } from './helpers/do-state.ts';
 vi.mock('cloudflare:workers', () => ({
@@ -38,7 +39,12 @@ const metadata = {
   },
 };
 function socket(initial: any) {
-  let attachment = structuredClone(initial);
+  let attachment = {
+    policy: createHash('sha256')
+      .update(JSON.stringify([null, null, null, null, null]))
+      .digest('hex'),
+    ...structuredClone(initial),
+  };
   return {
     readyState: 1,
     deserializeAttachment: () => structuredClone(attachment),

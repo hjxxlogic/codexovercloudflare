@@ -1,5 +1,8 @@
 # 技术架构与选型
 
+> 2026-11-03 连接授权变更：本机实现采用[连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)。授权在准入与逻辑通道握手时检查；稳定数据帧不复查凭据或查询租约，授权变化由独立控制事件使连接失效。下文旧的逐包检查要求由该契约替代。尚未部署。
+
+
 [文档索引](README.md)
 
 本文包含总体设计与版本演进。当前通信规则见 [现行协议](RELIABLE_TRANSPORT.md)，资源及状态见 [状态盘点](TRANSPORT_STATE_INVENTORY.md)，实际验证见 [测试报告](TEST_REPORT.md)。带旧版本/日期的章节保留当时设计，不覆盖现行规则。
@@ -34,7 +37,7 @@ CC 的创建 / 观察、停止、排队、审批及项目修改已接入 transpo
 
 上传执行端已将回执从普通 cache 移入 transport2_uploads；开始创建暂存文件前持久绑定主体 / 项目根 / uploadId 与原路径、大小、覆盖选择和完整 SHA-256 的意图摘要，并预留完整暂存大小和 16 KiB 元数据。全局最多 4 个未解除资源承诺 / 80 MiB 暂存，每主体最多 2 个；拒绝身份全局 1024 / 每主体 256，总预算 96 MiB。分块推进连续偏移前同步文件；完成和取消先回收暂存资源再释放对应预留，永久保留旧身份，清普通缓存和旧一天期限不重新放行。重启中的上传固定为 unknown；无法证明资源已回收时保守保留预留，不能通过重启扩大磁盘承诺。网页首发前持久保存完整文件、目标与摘要，恢复沿原编号 / 实例 / 连续偏移；云端仅作有界内存转发。
 
-Worker 的全部非 ticket / attach 请求现均只使用 128 条 / 8 MiB 的内存关联，pending / completed 各最多 20 秒，不持久保存业务正文或结果。权限事务使用独立 permission-operation / permission-wire，最多 64 条 pending / 256 条总记录，每条 16 KiB；输入仅保留准入字段，get 仅保存 mode / sandbox。记录、wire 和到期索引同事务提交，重建恢复到期调度；D1 离线读取 / 确认仅适用于权限事务。归档与恢复过滤旧业务 operation / part / wire 及对应 due，租约和 epoch 继续保留。执行端旧业务分支已删除，资源与真实旧升级验收见 TEST_REPORT。
+Worker 的全部非 ticket / attach 请求现均只使用 128 条 / 8 MiB 的内存关联，pending / completed 各最多 20 秒，不持久保存业务正文或结果。权限事务使用独立 permission-operation / permission-wire，最多 64 条 pending / 256 条总记录，每条 16 KiB；输入仅保留准入字段，get 仅保存 mode / sandbox。记录、wire 和到期索引同事务提交，重建恢复到期调度；权限事务、租约和 epoch 原地保存在 HostRelayDO。执行端旧业务分支已删除，资源与真实旧升级验收见 TEST_REPORT。
 
 
 ## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
@@ -51,7 +54,7 @@ Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 b
 
 ## 运行版本展示
 
-管理员主机目录在现有读取中合并 `hostStatus` 的连接状态和 Agent 已校验的 `build.version`，沿用活动 DO / 空闲 D1 状态读取路径；停用主机不触发状态读取。单个主机查询失败时仅将该行标为状态未知，不伪造成离线或阻止其他管理操作。网页仅对在线主机展示运行版本；功能菜单在构建时导入包版本，不依赖下载清单、远端 health 或新增轮询。
+管理员主机目录在现有读取中合并 `hostStatus` 的连接状态和 Agent 已校验的 `build.version`，统一读取所属 HostRelayDO；停用主机不触发状态读取。单个主机查询失败时仅将该行标为状态未知，不伪造成离线或阻止其他管理操作。网页仅对在线主机展示运行版本；功能菜单在构建时导入包版本，不依赖下载清单、远端 health 或新增轮询。
 
 版本列表使用独立的管理 Tab 与关联 tabpanel；“杂项”tabpanel 承载 Agent 更新及后续辅助功能。杂项面板在其他管理 Tab 下隐藏并保留组件实例，避免切换到版本页或 API Key 页时丢失在途通知、错误与完成状态；隐藏内容不进入可访问的活动面板或键盘焦点序列。
 
@@ -85,7 +88,7 @@ Worker 和 Agent 对 create / stop / queue / answer、项目修改以及上传 b
 
 Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理员覆盖优先，空覆盖禁用，缺省使用 Agent 来源；有效邮箱列表不向普通主机列表暴露。Agent 通过已认证 capabilities 或 `/api/v1/agent/access-emails` 仅修改自身主机，管理员通过 `/api/v1/admin/hosts/:id/access-emails` 设置数组或 `null` 恢复默认。邮箱数量无固定配额，C++ / Zod 使用共享样例校验，保留本地部分大小写并规范化域名。
 
-`emailHosts` 合并既有邮箱授权和当前验证 issuer / 邮箱命中的关联主机；`emailRestore` 惰性创建带 `association` 标记的现有 EmailGrant，沿用 Cookie、generation、账号及主机绑定。移除关联在同一存储事务撤销仅关联来源的 grant / auth，返回受影响凭据以关闭连接并清理 Host 鉴权缓存。每次鉴权另核对有效关联，独立配对会将关联来源升级为独立授权，后续移除配置不影响该授权。显式撤销关联 grant 会保存排除该邮箱的管理员覆盖，防止 Agent 下一次同步重新授权。配置及授权沿用 Registry 的 DO / D1 存储，无 SQL schema 变更。
+`emailHosts` 合并既有邮箱授权和当前验证 issuer / 邮箱命中的关联主机；`emailRestore` 惰性创建带 `association` 标记的现有 EmailGrant，沿用 Cookie、generation、账号及主机绑定。移除关联在同一存储事务撤销仅关联来源的 grant / auth，返回受影响凭据以关闭连接并清理 Host 鉴权缓存。每次鉴权另核对有效关联，独立配对会将关联来源升级为独立授权，后续移除配置不影响该授权。显式撤销关联 grant 会保存排除该邮箱的管理员覆盖，防止 Agent 下一次同步重新授权。配置及授权保存于 RegistryDO 原生存储。
 
 管理员网页更新按钮读取当前已部署下载清单，仅提交 version / commit 到现有 `/api/v1/admin/releases`。后端继续验证所有包可用及发布身份，Registry 幂等广播，客户端保持自动更新开关和空闲安装规则。
 
@@ -97,11 +100,9 @@ Host 目录记录 `agentAccessEmails` 和可选 `accessEmailsOverride`，管理�
 
 Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
 
-## DO 持久状态与 D1 迁移 · 2026-11-03
+## DO 原生持久状态 · 2026-11-03
 
-Registry 与 Host 均使用所属 DO 原生存储，业务接口不再走 D1 直读/确认，离线 Host 不归档搬迁。兼容版本保留 D1 读取器及 HostLifecycle，仅用于一次性恢复旧权威状态；本地 `@doState` 提交后重建不再读取 D1。Registry 一次性 alarm 分页恢复目录和孤立 D1 Host scope，完成后记录 `@doHostsDone` 并停止；失败保留游标。不能用旧 Worker 继续写已过期 D1，完整数据迁移后才能移除原绑定。
-
-WebSocket 继续使用 Hibernation API 和 attachment。终端 `streaming:2` 将 PTY 超时改为未绑定流才计时，移除网页应用心跳；断开时更新宽限起点。安全期限 alarm 与在途管理超时继续保留。详见 [实施记录](do-state-implementation-2026-11-03.md)。
+Registry 与 Host 均直接使用所属 DO 原生存储。所有 Registry 调用经 RegistryDO，Host 状态及权限回执统一经 HostRelayDO；无后端选择、D1 直读、归档、恢复、定时全主机回收或迁移路由。有限到期索引在 DO 内驱动一次性 alarm。现有 namespace、epoch、租约和回执保持原状，旧迁移标记不参与路由。删除范围、开发与部署约束见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。
 
 ## 空对象存储边界 · 2026-10-29
 
@@ -596,7 +597,7 @@ Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。�
 
 此节记录旧配额移除；2026-11-01 新传输资源预算已改为最多 16 个会话 Codex 进程，另留 4 个临时历史进程，以下旧 runtime 数量规则不再作为现行容量承诺。
 
-取消 Agent 登记 5 个、runtime 4 个、runtime 与临时历史读取合计 6 个、项目和关联邮箱各 20 个、主机连接 40 条、Registry 通知连接 240 条及待处理登录申请 200 个的固定配额。Registry 与邮箱授权的完整目录扫描通过有界分页读取，兼容 D1 默认页上限；对外原有分页接口保持分页。实际容量仍受平台、内存与协议帧大小约束，并非无限资源保证。同一 dataDir 单实例、同一 Agent 身份单连接、会话控制权互斥、单个查询防重复、背压和防滥用限流保持有效。
+取消 Agent 登记 5 个、runtime 4 个、runtime 与临时历史读取合计 6 个、项目和关联邮箱各 20 个、主机连接 40 条、Registry 通知连接 240 条及待处理登录申请 200 个的固定配额。Registry 与邮箱授权的完整目录扫描通过有界分页读取，避免平台默认页上限截断；对外原有分页接口保持分页。实际容量仍受平台、内存与协议帧大小约束，并非无限资源保证。同一 dataDir 单实例、同一 Agent 身份单连接、会话控制权互斥、单个查询防重复、背压和防滥用限流保持有效。
 
 
 ## 开发中的 Agent 命令信用预留（2026-11-01）

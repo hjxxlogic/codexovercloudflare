@@ -1,5 +1,7 @@
 # DO 存储实施 · 2026-11-03
 
+> 历史记录：文中的旧后端、迁移接口和命令已从当前代码移除。现行实现见 [DO 清理记录](DO_ONLY_STORAGE_2026-11-03.md)，下文保留当时的设计与验证证据。
+
 授权、目录、主机控制状态和权限回执由原生 SQLite-backed DO 保存。`STATE_BACKEND=do` 不再执行 D1 直读、离线回执确认、离线归档或 D1 Cron。旧后端仅用于迁移兼容和回归，未删除源数据库。
 
 Registry 首次使用前分批复制 D1，完成后提交 `@doState`，失败不得提供半成品授权。Host 复用已验证的旧权威状态恢复流程，提交本地标记后退出 HostLifecycle；活动 epoch 不被旧归档覆盖。Registry 的一次性 alarm 每页四个主机，合并本地目录和 D1 全部 Host scope，完成后写 `@doHostsDone` 并停止；失败保留游标、60 秒后重试。终态输出 `do_migration_complete`。迁移版本必须保留原数据库，禁止回滚到继续写旧 D1 的版本。

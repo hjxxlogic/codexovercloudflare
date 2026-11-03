@@ -1,3 +1,5 @@
+import { retire } from '../apps/relay/src/connections.ts';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStorage } from './helpers/do-state.ts';
 import uploadFixtures from './upload-binding-fixtures.json';
@@ -29,7 +31,12 @@ const auth = {
   created: 0,
 };
 function socket(initial: any) {
-  let attachment = structuredClone(initial);
+  let attachment = {
+    policy: createHash('sha256')
+      .update(JSON.stringify([null, null, null, null, null]))
+      .digest('hex'),
+    ...structuredClone(initial),
+  };
   return {
     readyState: 1,
     deserializeAttachment: () => structuredClone(attachment),
@@ -182,7 +189,7 @@ describe('recoverable asynchronous controls', () => {
     });
     h.sockets.push(next);
     h.storage.values.set('agentEpoch', 2);
-    h.agent.close(1012, 'Agent reconnected');
+    retire(h.agent as unknown as WebSocket, 1012, 'Agent reconnected');
     expect(h.agent.readyState).toBe(1);
     const first = await h.start();
     expect(first.response.status).toBe(202);
@@ -195,7 +202,7 @@ describe('recoverable asynchronous controls', () => {
     const result = refused.data.operationId
       ? (await h.read(refused.data.operationId)).data
       : refused.data;
-    expect(result.error.code).toBe('STALE_AGENT');
+    expect(result.error.code).toBe('HOST_OFFLINE');
     expect(h.agent.send).not.toHaveBeenCalled();
   });
   it('keeps original write forwarding in memory and binds receipts to authenticated intent across reconstruction', async () => {
@@ -623,7 +630,7 @@ describe('recoverable asynchronous controls', () => {
     ).toBe(1);
     expect((await h.storage.list({ prefix: 'due:' })).size).toBe(1);
     h.recreate();
-    await (h.relay as any).prepare('host');
+    await (h.relay as any).prepare();
     expect(h.storage.alarm).toEqual(expect.any(Number));
     vi.useFakeTimers();
     vi.setSystemTime(h.storage.alarm! + 1);
@@ -878,7 +885,7 @@ describe('recoverable asynchronous controls', () => {
   it('does not deliver an old Agent epoch result to a replacement request', async () => {
     const h = harness();
     const { data } = await h.start();
-    h.storage.values.set('agentEpoch', 2);
+    retire(h.agent as unknown as WebSocket, 1012, 'Agent replaced');
     await h.reply(h.frames()[0], { old: true });
     expect((await h.read(data.operationId)).data.state).toBe('pending');
     expect(h.agent.close).toHaveBeenCalled();
@@ -1153,8 +1160,18 @@ describe('recoverable asynchronous controls', () => {
         .map((claim) => claim.reason.code),
     ).toEqual(Array(4).fill('PROJECT_READ_ONLY'));
   });
-  it('rejects a replaced project claim before forwarding a direct controller mutation', async () => {
+  it('retires the old controller on takeover before another data frame can dispatch', async () => {
     const h = harness();
+    const writer = socket({
+      id: 'writer',
+      sessionId: 'host~writer',
+      epoch: 1,
+      auth,
+      hostId: 'host',
+      role: 'web',
+      authenticated: true,
+    });
+    h.sockets.push(writer);
     await h.storage.put('lease:host~writer', {
       epoch: 1,
       active: true,
@@ -1162,13 +1179,19 @@ describe('recoverable asynchronous controls', () => {
       controllerId: 'writer',
       owner: auth.hash,
     });
-    await h.storage.put('project-writer:shared', 'host~other');
+    await h.storage.put('project-writer:shared', 'host~writer');
+    await (h.relay as any).assertController(
+      writer.deserializeAttachment(),
+      h.agent.deserializeAttachment(),
+    );
+    await h.relay.reserve('host~writer', true);
+    expect(writer.deserializeAttachment().retired).toBe(true);
     await expect(
       (h.relay as any).assertController(
-        { sessionId: 'host~writer', epoch: 1, id: 'writer', auth },
+        writer.deserializeAttachment(),
         h.agent.deserializeAttachment(),
       ),
-    ).rejects.toMatchObject({ code: 'PROJECT_READ_ONLY' });
+    ).rejects.toMatchObject({ code: 'STALE_CONTROLLER' });
     expect(h.frames()).toHaveLength(0);
   });
   it('fences the old controller as soon as a takeover is reserved', async () => {
@@ -1317,11 +1340,6 @@ describe('flow control and authorization on activity', () => {
   it('bounds zero-byte forwarding across sockets and keeps reservations until completion', async () => {
     const h = harness();
     const relay = h.relay as any;
-    let release!: () => void;
-    const gate = new Promise<void>((done) => {
-      release = done;
-    });
-    vi.spyOn(relay, 'authorized').mockImplementation(() => gate);
     const peers = Array.from({ length: 3 }, (_, n) =>
       socket({ id: 'forward-' + n, auth, deadline: Number.MAX_SAFE_INTEGER }),
     );
@@ -1333,10 +1351,9 @@ describe('flow control and authorization on activity', () => {
     expect(relay.forwardingBytes).toBe(0);
     expect(peers[0].close).toHaveBeenCalledOnce();
     expect(peers[2].close).toHaveBeenCalledOnce();
-    release();
     await Promise.all(h.waiting);
     expect(relay.forwardingRecords).toBe(0);
-    expect(peers[0].send).toHaveBeenCalledTimes(1000);
+    expect(peers[0].send).not.toHaveBeenCalled();
     expect(peers[1].send).toHaveBeenCalledTimes(1000);
     expect(relay.trafficMetrics.queueOverflows).toBe(2);
   });
@@ -1368,8 +1385,8 @@ describe('flow control and authorization on activity', () => {
     [new AppError('INVALID_REQUEST', 'Request failed', 400), 1011, 400],
     [new AppError('UNAUTHORIZED', 'Credential revoked', 401), 4001, 401],
   ])(
-    'distinguishes backend failure from credential rejection: %s',
-    async (error, closeCode, status) => {
+    'keeps admitted forwarding independent of backend failure but validates HTTP status: %s',
+    async (error, _closeCode, status) => {
       const h = harness();
       const client = socket({
         id: 'client',
@@ -1380,8 +1397,8 @@ describe('flow control and authorization on activity', () => {
       vi.mocked(registryCall).mockRejectedValue(error);
       (h.relay as any).forward(client, { type: 'event' }, 10);
       await Promise.all(h.waiting);
-      expect(client.send).not.toHaveBeenCalled();
-      expect(client.close).toHaveBeenCalledWith(closeCode, expect.any(String));
+      expect(client.send).toHaveBeenCalledOnce();
+      expect(client.close).not.toHaveBeenCalled();
       const response = await h.relay.fetch(
         new Request('https://internal/status'),
       );
@@ -1535,7 +1552,7 @@ describe('flow control and authorization on activity', () => {
     expect(h.storage.values.has('ticket:test')).toBe(false);
     expect(h.storage.alarm).toBeNull();
   });
-  it('isolates slow recipients while preserving their event order', async () => {
+  it('preserves recipient event order without consulting the authorization backend', async () => {
     const h = harness();
     const slow = socket({
         history: true,
@@ -1552,14 +1569,7 @@ describe('flow control and authorization on activity', () => {
         deadline: Number.MAX_SAFE_INTEGER,
       });
     h.sockets.push(slow, fast);
-    let release!: () => void;
-    const block = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    vi.mocked(registryCall).mockImplementation(async (_env, _op, d: any) => {
-      if (d.hash === 'slow') await block;
-      return { expires: Number.MAX_SAFE_INTEGER };
-    });
+    vi.mocked(registryCall).mockRejectedValue(new Error('Backend unavailable'));
     // All readers subscribe to this session; the Agent epoch is independent.
     for (const ws of [slow, fast])
       ws.serializeAttachment({
@@ -1577,9 +1587,8 @@ describe('flow control and authorization on activity', () => {
         }),
       );
     await vi.waitFor(() => expect(fast.send).toHaveBeenCalledTimes(2));
-    expect(slow.send).not.toHaveBeenCalled();
-    release();
     await Promise.all(h.waiting);
+    expect(registryCall).not.toHaveBeenCalled();
     expect(
       slow.send.mock.calls.map(([raw]) => JSON.parse(raw).event.seq),
     ).toEqual([1, 2]);
@@ -1674,6 +1683,66 @@ describe('reliable session streams', () => {
       },
     };
   }
+  it('does no credential or lease queries for established bidirectional data across cache expiry and hibernation', async () => {
+    const h = await connected();
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(6000);
+    h.recreate();
+    vi.mocked(registryCall)
+      .mockClear()
+      .mockRejectedValue(new Error('Registry offline'));
+    const get = vi.spyOn(h.storage, 'get');
+    for (const payload of [
+      { action: 'models', requestId: 'read' },
+      {
+        type: 'delivery-command',
+        stream: 'browser',
+        lane: 'normal',
+        instance: 'journal',
+        streamSerial: 1,
+        creditGeneration: 'generation',
+        seq: 1,
+        end: 2,
+        body: '{}',
+      },
+      {
+        type: 'delivery-receipt',
+        stream: 'browser',
+        lane: 'normal',
+        instance: 'journal',
+        streamSerial: 1,
+        creditGeneration: 'generation',
+        received: 0,
+        receivedBytes: 0,
+      },
+    ])
+      await h.current.webSocketMessage(
+        h.client as unknown as WebSocket,
+        JSON.stringify(payload),
+      );
+    await h.current.webSocketMessage(
+      h.agent as unknown as WebSocket,
+      JSON.stringify({
+        type: 'event',
+        sessionId: 'host~reliable',
+        epoch: 5,
+        payload: { event: { type: 'sample' } },
+      }),
+    );
+    await Promise.all(h.waiting);
+    expect(registryCall).not.toHaveBeenCalled();
+    expect(
+      get.mock.calls
+        .flat()
+        .filter((key) => /^(lease:|project-writer:|auth:)/.test(String(key))),
+    ).toEqual([]);
+    expect(
+      h.client.send.mock.calls.some(
+        ([raw]) => JSON.parse(raw).event?.type === 'sample',
+      ),
+    ).toBe(true);
+    expect(h.client.close).not.toHaveBeenCalled();
+  });
   it.each([
     ['web', { action: 'prompt', requestId: 'raw', text: 'must not run' }],
     [
@@ -1707,29 +1776,28 @@ describe('reliable session streams', () => {
     ['cli', { id: 1, method: 'turn/start', params: {} }],
     ['cli', { id: 1, method: 'turn/interrupt', params: {} }],
     ['cli', { id: 1, result: { decision: 'accept' } }],
-  ])('rejects raw %s writes before forwarding: %j', async (role, payload) => {
-    const h = await connected();
-    h.client.serializeAttachment({ ...h.client.deserializeAttachment(), role });
-    h.agent.send.mockClear();
-    h.client.send.mockClear();
-    const put = vi.spyOn(h.storage, 'put');
-    const remove = vi.spyOn(h.storage, 'delete');
-    await h.current.webSocketMessage(
-      h.client as unknown as WebSocket,
-      JSON.stringify(payload),
-    );
-    expect(h.agent.send).not.toHaveBeenCalled();
-    expect(
-      h.client.send.mock.calls.map(([raw]) => JSON.parse(raw)),
-    ).toContainEqual(
-      expect.objectContaining({
-        type: 'error',
-        error: expect.objectContaining({ code: 'UPGRADE_REQUIRED' }),
-      }),
-    );
-    expect(put).not.toHaveBeenCalled();
-    expect(remove).not.toHaveBeenCalled();
-  });
+  ])(
+    'forwards raw %s business commands for authoritative Agent validation: %j',
+    async (role, payload) => {
+      const h = await connected();
+      h.client.serializeAttachment({
+        ...h.client.deserializeAttachment(),
+        role,
+      });
+      h.agent.send.mockClear();
+      h.client.send.mockClear();
+      const put = vi.spyOn(h.storage, 'put');
+      const remove = vi.spyOn(h.storage, 'delete');
+      await h.current.webSocketMessage(
+        h.client as unknown as WebSocket,
+        JSON.stringify(payload),
+      );
+      expect(h.frames()).toContainEqual(expect.objectContaining({ payload }));
+      expect(h.client.send).not.toHaveBeenCalled();
+      expect(put).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     ['web', { action: 'sync', after: 0 }],
     ['web', { action: 'models', requestId: 'read' }],
@@ -1751,7 +1819,7 @@ describe('reliable session streams', () => {
     expect(h.client.close).not.toHaveBeenCalled();
   });
   it.each(['raw', 'delivery'])(
-    'rejects an unbound %s interruption without forwarding or cloud writes',
+    'leaves unbound %s interruption validation to the Agent without cloud writes',
     async (mode) => {
       const h = await connected();
       const payload = { action: 'interrupt', requestId: 'unbound' };
@@ -1778,15 +1846,8 @@ describe('reliable session streams', () => {
               },
         ),
       );
-      expect(h.agent.send).not.toHaveBeenCalled();
-      expect(
-        h.client.send.mock.calls.map(([raw]) => JSON.parse(raw)),
-      ).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          error: expect.objectContaining({ code: 'INVALID_REQUEST' }),
-        }),
-      );
+      expect(h.frames()).toContainEqual(expect.objectContaining({ payload }));
+      expect(h.client.send).not.toHaveBeenCalled();
       expect(put).not.toHaveBeenCalled();
       expect(remove).not.toHaveBeenCalled();
     },
@@ -2182,7 +2243,7 @@ describe('reliable session streams', () => {
     expect(h.frames().at(-1).heads).toBeUndefined();
     expect(writes).not.toHaveBeenCalled();
     writes.mockRestore();
-    h.storage.values.set('agentEpoch', 2);
+    retire(h.agent as unknown as WebSocket, 1012, 'Agent replaced');
     const count = h.frames().length;
     await h.current.webSocketMessage(
       h.client as unknown as WebSocket,
@@ -2190,7 +2251,7 @@ describe('reliable session streams', () => {
     );
     expect(h.frames()).toHaveLength(count);
     expect(JSON.parse(h.client.send.mock.calls.at(-1)![0]).error.code).toBe(
-      'STALE_AGENT',
+      'HOST_OFFLINE',
     );
     expect(
       [...h.storage.values.keys()].some((key) =>
@@ -2295,6 +2356,15 @@ describe('reliable session streams', () => {
     expect(h.frames()).toHaveLength(before);
     expect((await h.request(frame)).status).toBe(200);
     expect(h.frames().at(-1)!.delivery.seq).toBe(1);
+    const bound = h.storage.values.get('lease:host~reliable');
+    h.storage.values.set('lease:host~reliable', {
+      ...bound,
+      projectId: 'shared',
+    });
+    h.storage.values.set('project-writer:shared', 'host~replacement');
+    const readOnly = await h.request(frame);
+    expect(readOnly.status).toBe(409);
+    expect(readOnly.body.error.code).toBe('PROJECT_READ_ONLY');
     await h.storage.put('lease:host~reliable', {
       epoch: 6,
       active: true,
@@ -2315,7 +2385,7 @@ describe('reliable session streams', () => {
     expect(h.frames().at(-1)!.action).toBe('delivery');
     expect(h.frames().at(-1)!.data.mode).toBe('web');
   });
-  it('rejects reads in the execution window and malformed result receipts', async () => {
+  it('delegates execution-window reads to Agent validation and rejects malformed result receipts', async () => {
     const h = await connected();
     const body = JSON.stringify({ action: 'models', requestId: 'read' });
     expect(
@@ -2333,7 +2403,7 @@ describe('reliable session streams', () => {
           controller: 'controller',
         })
       ).status,
-    ).toBe(400);
+    ).toBe(200);
     expect(
       (
         await h.request({
@@ -2346,7 +2416,7 @@ describe('reliable session streams', () => {
         })
       ).status,
     ).toBe(400);
-    expect(h.frames().some((frame) => frame.type === 'web')).toBe(false);
+    expect(h.frames().some((frame) => frame.type === 'web')).toBe(true);
   });
   it.each([true, false])(
     'requires the original CLI resume proof (valid=%s)',
@@ -2448,3 +2518,178 @@ it.each([undefined, 1, 3])(
     );
   },
 );
+
+it('retires routes before a closing handshake completes and drops queued forwards', async () => {
+  const h = harness();
+  const client = socket({ id: 'retired', auth, authenticated: true });
+  h.sockets.push(client);
+  (h.relay as any).forward(client, { secret: 'queued' }, 10);
+  const response = await h.relay.fetch(
+    new Request('https://internal/revoke-auth', {
+      method: 'POST',
+      body: JSON.stringify({ hash: auth.hash }),
+    }),
+  );
+  await Promise.all(h.waiting);
+  expect(response.status).toBe(200);
+  expect(client.readyState).toBe(1);
+  expect(client.deserializeAttachment().retired).toBe(true);
+  // A frame queued before control processing may finish before the revoke
+  // body is read, but no later frame can pass the retired route.
+  client.send.mockClear();
+  (h.relay as any).forward(client, { secret: 'late' }, 10);
+  await Promise.all(h.waiting);
+  expect(client.send).not.toHaveBeenCalled();
+});
+
+it('invalidates credentials through a control event and never revives a retired socket', async () => {
+  const h = harness();
+  const client = socket({ id: 'client', auth, authenticated: true });
+  h.sockets.push(client);
+  vi.mocked(registryCall).mockImplementation(async (_env, _op, data: any) => {
+    if (data.hash === auth.hash)
+      throw new AppError('UNAUTHORIZED', 'Revoked', 401);
+    return { expires: Number.MAX_SAFE_INTEGER };
+  });
+  expect(
+    (
+      await h.relay.fetch(
+        new Request('https://internal/authorization-change', {
+          method: 'POST',
+        }),
+      )
+    ).status,
+  ).toBe(200);
+  expect(client.deserializeAttachment().retired).toBe(true);
+  expect(h.agent.deserializeAttachment().retired).not.toBe(true);
+  h.recreate();
+  await h.relay.webSocketMessage(
+    client as unknown as WebSocket,
+    JSON.stringify({ action: 'models' }),
+  );
+  expect(client.send).not.toHaveBeenCalled();
+});
+
+it('expires an active connection from its alarm without receiving a data frame', async () => {
+  const h = harness();
+  vi.useFakeTimers();
+  const deadline = Date.now() + 1000;
+  const client = socket({ id: 'finite', auth, authenticated: true, deadline });
+  h.sockets.push(client);
+  h.storage.values.set(
+    `due:${String(deadline).padStart(16, '0')}:connection:finite`,
+    { key: 'connection:finite', at: deadline },
+  );
+  vi.setSystemTime(deadline);
+  await h.relay.alarm();
+  expect(client.deserializeAttachment().retired).toBe(true);
+  expect(registryCall).not.toHaveBeenCalled();
+});
+
+it('binds Terminal once and forwards both directions without credential or lease queries', async () => {
+  const h = harness();
+  h.agent.serializeAttachment({
+    ...h.agent.deserializeAttachment(),
+    terminalStreaming: 2,
+  });
+  const control = {
+    controlEpoch: 1,
+    connectionGeneration: 3,
+    controlId: 'control',
+    owner: auth.hash,
+  };
+  h.storage.values.set('lease:host~terminal', {
+    epoch: 3,
+    active: true,
+    projectId: 'project',
+    ...control,
+  });
+  h.storage.values.set('project-writer:project', 'host~terminal');
+  const terminal = socket({
+    id: 'terminal',
+    role: 'web',
+    hostId: 'host',
+    auth,
+    terminalStream: true,
+    authenticated: false,
+  });
+  h.sockets.push(terminal);
+  const send = (frame: object) =>
+    h.relay.webSocketMessage(
+      terminal as unknown as WebSocket,
+      JSON.stringify({ type: 'terminal-stream', frame }),
+    );
+  await send({
+    type: 'bind',
+    projectId: 'project',
+    sessionId: 'host~terminal',
+    terminalId: 'pty',
+    control,
+    offset: 0,
+  });
+  expect(terminal.deserializeAttachment().authenticated).toBe(true);
+  vi.useFakeTimers();
+  vi.advanceTimersByTime(6000);
+  vi.mocked(registryCall)
+    .mockClear()
+    .mockRejectedValue(new Error('Registry offline'));
+  const get = vi.spyOn(h.storage, 'get');
+  for (const frame of [
+    { type: 'input', seq: 1, data: 'eA==' },
+    { type: 'resize', seq: 2, cols: 80, rows: 24 },
+    { type: 'ack', offset: 1 },
+  ])
+    await send(frame);
+  await h.relay.webSocketMessage(
+    h.agent as unknown as WebSocket,
+    JSON.stringify({
+      type: 'terminal-stream',
+      route: 'terminal',
+      terminalId: 'pty',
+      sessionId: 'host~terminal',
+      frame: { type: 'output', offset: 1, data: 'eA==', gap: false },
+    }),
+  );
+  await Promise.all(h.waiting);
+  expect(registryCall).not.toHaveBeenCalled();
+  expect(
+    get.mock.calls
+      .flat()
+      .filter((key) => /^(lease:|project-writer:|auth:)/.test(String(key))),
+  ).toEqual([]);
+  expect(
+    terminal.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .some((frame) => frame.frame?.type === 'output'),
+  ).toBe(true);
+  expect(terminal.close).not.toHaveBeenCalled();
+});
+
+it('recovers suspended routes when an authorization control event must retry', async () => {
+  const h = harness();
+  const relay = h.relay as any;
+  const list = vi
+    .spyOn(h.storage, 'list')
+    .mockRejectedValueOnce(new Error('Storage unavailable'));
+  await expect(relay.authorizationChanged()).rejects.toThrow(
+    'Storage unavailable',
+  );
+  expect(h.agent.deserializeAttachment().blocked).toBe(true);
+  list.mockRestore();
+  await relay.authorizationChanged();
+  expect(h.agent.deserializeAttachment().blocked).toBe(false);
+  expect(h.agent.deserializeAttachment().retired).not.toBe(true);
+});
+
+it('rejects an expired pending principal before activating a handshake', async () => {
+  const h = harness();
+  const client = socket({
+    id: 'expired',
+    auth: { ...auth, expires: Date.now() - 1 },
+    authenticated: false,
+  });
+  h.sockets.push(client);
+  await expect(
+    (h.relay as any).operationAuthorized({ socketId: 'expired', auth }),
+  ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+});

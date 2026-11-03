@@ -302,7 +302,7 @@ P1 包含 P1a 和 P1b；P0–P3 纳入高级 Markdown 后合计约 19–29 人�
 ### 11.3 自动化与发布门禁
 
 - 网页实现后运行 `npm run typecheck`、`npm run lint`、`npm run build:web`，补充必要的消息呈现、目录状态、上下文切换和偏好迁移单测。
-- 在现有 `npm run test:ui`、`npm run test:e2e` 和 `npm run test:e2e:d1` 上补充布局/权限/审批场景；文件改动复用 `npm run test:uploads:web`，可靠操作改动复用 `npm run test:operations:web`。
+- 在现有 `npm run test:ui`和 `npm run test:e2e` 上补充布局/权限/审批场景；文件改动复用 `npm run test:uploads:web`，可靠操作改动复用 `npm run test:operations:web`。
 - P4 额外测试重复输入、崩溃写入边界、输出截断、背压、断线到期、权限撤销、项目切换、恶意控制序列和进程组清理；真实 Shell 测试放在隔离临时项目中。
 - 后续功能落地同步更新 `USER_GUIDE.md`、`CHANGELOG.md` 以及受影响的需求、架构和开发文档；测试结果写入测试报告，实际部署后才更新部署记录。
 - 所需 Actions 作业全部通过且提交身份一致后才进入发布流程；本设计不包含任何部署授权。

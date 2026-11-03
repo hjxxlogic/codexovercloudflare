@@ -4,11 +4,15 @@
 
 先完成工具链和本机构建，再按改动范围选择专项回归。本文列出复现方法；测试是否实际通过，以注明源码和环境的测试报告为准。
 
+## Worker 连接授权验证
+
+`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts` 覆盖连接绑定、稳定帧零授权查询、Terminal 双向零租约读取、到期 alarm 及持久失效事件重试。测量授权调用须先完成握手，跨越原 5 秒缓存窗口并重建 DO；不能用短时缓存命中作为验收。`npm run test:terminal:e2e` 默认使用当前原生 DO 后端，验证真实 Worker、原生 Agent、浏览器 PTY 与撤销隔离；`npm run test:e2e` 也默认使用 DO。D1 / legacy 后端和对应入口已移除。详见[连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)。
+
 ## CW 工作台专项验证
 
 `npm run test:markdown` 使用真实 Chromium 验证共享格式化、公式、图表沙箱、危险内容和移动宽度；`npm run test:ui` 覆盖工作台布局、文件预览与旧会话/审批流程。截图保存在 ignored `.local/` 下。
 
-Linux PTY 运行测试需要系统安装 `bubblewrap`、Bash、util-linux (`prlimit`)，且允许相关 namespace。`npm run build:native` 后，`ctest --test-dir build -R native-terminal --output-on-failure` 检查真实 Shell；未安装 bubblewrap / 非 Linux 返回 skip，测试环境有隔离工具但启动失败会报错，不绕过隔离。`npm run test:terminal` 通过实际 Agent 校验控制证明、可靠创建、输入去重与项目互斥，不调用模型；`npm run test:terminal:e2e` 在普通 E2E 中额外启用真实 Chromium → Worker → Agent → PTY。D1 使用 `COC_TEST_TERMINAL=1 npm run test:e2e:d1`。不要在原生集成测试运行中重新链接同一 build 目录中的二进制。
+Linux PTY 运行测试需要系统安装 `bubblewrap`、Bash、util-linux (`prlimit`)，且允许相关 namespace。`npm run build:native` 后，`ctest --test-dir build -R native-terminal --output-on-failure` 检查真实 Shell；未安装 bubblewrap / 非 Linux 返回 skip，测试环境有隔离工具但启动失败会报错，不绕过隔离。`npm run test:terminal` 通过实际 Agent 校验控制证明、可靠创建、输入去重与项目互斥，不调用模型；`npm run test:terminal:e2e` 在普通 E2E 中额外启用真实 Chromium → Worker → Agent → PTY。所有入口均使用 DO 原生存储。不要在原生集成测试运行中重新链接同一 build 目录中的二进制。
 
 CI regression 安装 bubblewrap 并运行这些专项；Windows / musl 构建保留默认关闭能力。所有平台的编译和 CI 仍须通过后才可发布；本机测试不能替代发行验证。
 
@@ -165,9 +169,9 @@ CLI 原请求账本同样由 native-operations 验证：共享数据库的并发
 
 `native-uploads` 验证相同 uploadId 的原路径 / 大小摘要、主体和根目录隔离、完成 / 取消后拒绝重开、普通缓存清理与超过原 TTL 后保留、重启 unknown、不重复分配、4 个全局 / 2 个主体暂存承诺、1024 / 256 身份上限，以及首发账本写入失败时不存在暂存副作用。Windows 和 Linux 共用持久账本，平台文件同步 / 回收仍走各自实现。
 
-Worker 进度去除回归覆盖业务帧不产生 send-head / receive-head / head-instance / agentInstance 写入、无云端发送头仍转发输出 ACK、替换 Agent 继续拒绝旧连接，以及 DO / D1 归档恢复过滤旧进度并保留权限元数据。
+Worker 进度去除回归覆盖业务帧不产生 send-head / receive-head / head-instance / agentInstance 写入、无云端发送头仍转发输出 ACK、替换 Agent 继续拒绝旧连接，并保留原生 DO 中的权限元数据。
 
-P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重查、审批模式检查、128 并发 / 8 MiB 结果背压及不写云端业务回执；D1 用例验证重建不从数据库恢复读结果。`tests/native-refresh.ts` 通过真实 CLI 验证有限重查、同编号、权限终止与写操作不重试；网页 API 测试覆盖只读 POST。取消测试另验诊断超过 64 项后仍拒绝旧身份、重建、JSON ID 类型、1024 项上限和容量不足保留待办。
+P4 只读入口使用共享内存转发关联，Vitest 覆盖重建丢失后重查、审批模式检查、128 并发 / 8 MiB 结果背压及不写云端业务回执，DO 重建不恢复业务读结果。`tests/native-refresh.ts` 通过真实 CLI 验证有限重查、同编号、权限终止与写操作不重试；网页 API 测试覆盖只读 POST。取消测试另验诊断超过 64 项后仍拒绝旧身份、重建、JSON ID 类型、1024 项上限和容量不足保留待办。
 
 新增 `native-history-budget` CTest 对实际全局 / 单会话字节配额写入至背压，验证事件 / 投影 / revision / 账本同事务回滚、存储故障回调、独立终态预留、1024 作用域上限、替换退费、重复轮询、重启和旧大历史首次计量。测试使用临时 SQLite，并明确模拟离线清理验证退费，不接触生产库；原有 native-core 与 native-projects 继续运行。
 
@@ -223,13 +227,17 @@ Vitest 的 delivery、delivery-identity 与 relay-order 用例覆盖两条独立
 
 Agent / CW / CC 使用已接收修订游标及最大修订号同步。条目 seq 可以保持不变，revision 随工具状态和输出更新递增；连续传输直接推进游标，前序修订不匹配时补读缺失范围。缓存提交游标前先保存对应事件；展开的工具输出在修订变化后按需重读，避免依赖顶部刷新。查看较早历史时仍更新已显示工具的状态。
 
-## DO 存储与旧 D1 模式开发
+## 线上只读验证
 
-`python3 scripts/d1-usage.py --database coc-relay-state [--period 7d]` 通过 Wrangler 只读读取线上使用数据，原始证据保存在忽略目录 `.local/d1-usage/`。`info` 的 24 小时滚动窗口与 Insights 采集时刻不同，Insights 可能采样且最多保留 100 种 SQL，不能将其总量等同于账单。D1 事务读取缓存仅在单次 CAS 尝试内有效，返回独立对象；相同值 UPSERT 跳过状态行写入，scope 修订仍推进。
+`npx tsx scripts/verify-cloud.ts --output .local/cloud-verification` 验证 HTTPS 健康及共享入口 Token 不具备 CoC API / WebSocket 权限。可通过 `--storage-state /private/admin.json --agent-config /private/agent.json` 使用已有浏览器邮箱身份和已登记主机，验证管理员目录、移除的迁移入口、Agent probe、会话目录、Terminal 元数据及真实 Chromium 通知连接。仅恢复登录 Cookie、查询并确认本次读取回执；不创建 PTY、接管、执行任务或撤销凭据。凭据不输出，报告和截图仅保存到指定忽略目录；缺失或失效身份会失败，不伪造线上认证。
 
-`npm run dev:d1` 生成 `.local/wrangler-d1.json`，应用本地 D1 schema 后启动开发服务；需要已有 `.dev.vars`，与原模式共用 `.wrangler/state`。`npm run test:d1:migration` 验证真实旧 DO 迁移及重启，`npm run test:e2e:d1` 运行 D1 的原生 / 浏览器完整回归；CI 两种模式均执行。旧宿主系统使用下文容器及独立原生构建目录。`tests/host-lifecycle.test.ts` 覆盖 DO / D1 权威切换和中断恢复，`tests/d1-state.test.ts` 断言活动并发控制不访问主机会话 D1。迁移集成等待真实 60 秒空闲归档，直接读取临时 D1 检查完成，避免探测请求重新激活 DO。Actions 单独运行迁移和 D1 E2E，保存 `d1-regression-evidence`；schema、并发失败及部署制品测试见 [D1 说明](d1-relay-state.md)。
+## DO 存储开发
 
-若本地磁盘造成集成测试超时，Docker 添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，让测试创建的 Wrangler / 原生 SQLite 数据库驻留内存。仍运行真实 D1 SQL、迁移和重启；不替换成放宽持久性或鉴权的假服务，也不改变生产超时策略。单元测试的 SQLite 已使用 `:memory:`。临时数据随测试容器退出丢弃，日志与截图仍保存到忽略目录。
+`npm run dev` 使用根 Wrangler 配置中的 RegistryDO 和 HostRelayDO；不再设置存储后端变量，也不创建 D1 数据库。`npm run test:e2e`、`npm run test:terminal:e2e` 及 `npm run test:projects:e2e` 在独立临时目录中运行真实 Wrangler 与 DO 存储。CI 使用相同路径，不再构建 SQL schema 或运行旧后端迁移测试。
+
+DO 重建、权限回执、控制 epoch、授权撤销重试和有限到期调度由 `tests/do-state.test.ts`、`tests/relay-order.test.ts` 和 `tests/device-auth.test.ts` 验证。部署脚本拒绝带旧后端选择变量或数据库绑定的制品，详见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。
+
+若本地磁盘造成集成测试超时，Docker 可添加 `--tmpfs /tmp:rw,exec,size=1g,mode=1777`，临时 Wrangler / 原生 SQLite 数据随测试容器退出丢弃；日志与截图仍保存到忽略目录。
 
 ## Cloudflare Access 开发与验证
 
@@ -413,8 +421,6 @@ Registry 成功执行 `auth / authHash / authHost` 时，在同一事务完成�
 
 `tests/expiry.test.ts` 验证无存储的实例不写迁移标记，重建后保持空，新票据仍由 `expireAt()` 索引。`tests/relay-order.test.ts` 验证无 socket 的全新 HostRelayDO 在 status / notify / revoke-auth 路径不落盘。不要把清理测试改成“会话结束后 deleteAll”：同主机多个会话共用 epoch、租约及有限回执。平台只读审查方法和不能直接删除的候选对象边界见 [审查记录](relay-storage-audit-2026-10-29.md)。
 
-D1 空闲归档回归的只读 SQLite 观察器设置 5 秒 busy timeout，并仅对 `SQLITE_BUSY` / `SQLITE_LOCKED` 留给外层有界轮询重试，避免与 Miniflare 归档写锁竞争造成假失败；其他数据库错误立即失败，不通过 HTTP 轮询唤醒 Host。
-
 聊天全屏几何验收前关闭前序外部审批测试可能遗留的可关闭提示栏，再测量正常布局；只识别该条审批提示，不隐藏错误，也不降低聊天区尺寸或溢出断言。失败 CI 截图可用于区分提示栏占高和实际布局回归。
 
 ## 多项目开发验证
@@ -439,7 +445,7 @@ Access TUI 夹具使用 delivery:2 attach、窗口握手和允许列表中的只
 
 Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路径；CreateProcessW 的显式 applicationName 不搜索 PATH。CI 通过 setup-node 固定 Node 22.17.0，仅测试需要 Node，运行 Agent/CLI 不需要。Windows 项目/操作磁盘事务测试与 sanitizers 使用 240 秒 CTest 上限：原 60 秒附近已有 53–57 秒成功样本及一次超时；完整断言与业务超时不变。
 
-用户显式要求本地云端发布时，`scripts/deploy-cloud.py --local-build --apply` 提供可复查入口；D1 须继续显式指定既有 UUID。该模式不等待 CI，不发布原生包，记录 clean HEAD、sourceDigest 与产物 SHA-256，复用下载保留及线上字节校验。默认 CI 路径不变。
+用户显式要求本地云端发布时，`scripts/deploy-cloud.py --local-build --apply` 提供可复查入口。该模式不等待 CI，不发布原生包，记录 clean HEAD、sourceDigest 与产物 SHA-256，复用下载保留及线上字节校验。默认 CI 路径不变。
 
 ### 原生包分阶段发布
 
@@ -449,12 +455,12 @@ Windows 历史来源测试使用 CMake find_program 查得的 node.exe 绝对路
 
 `npm run test:cache` 另外在真实 Chromium IndexedDB 中构造 16 份旧固定预留，验证两标签页迁移后 66 份空闲账本正常使用、未决原请求和已确认 HTTP / 上传身份保留、完成后释放余量、全局并发分配不能超额，以及仅回收当前 / 其它作用域分页投影与正文而保留事件、checkpoint、订阅证明和草稿。tests/web-cache-budget.test.ts 验证未决 lane、retired 流、不连续结果和未知旧格式不得提前释放。Relay 单测保持旧 socket 为 OPEN，验证新 epoch 优先、DO 重建后选择一致，旧 epoch 仍受 fencing 阻断。
 
-`npm run test:e2e` 及 `npm run test:e2e:d1` 通过 tests/helpers/browser-session-stress.ts 在真实隔离 Worker、原生 Agent、确定性 Codex peer 上运行 3 / 5 个独立 Chromium context。共享仅限隔离测试授权 Cookie，IndexedDB 与控制身份分离，所有连接握手完成后检查 1 写 N−1 读；覆盖命令审批拒绝、读端并行刷新、读端不提交 prompt、结束写者、显式获取写权限后发送、其它读者仍只读、最终结束状态及无取消弹窗。固定先 3 后 5，失败立即停止递增并清理；JSON 指标及失败截图放入 COC_ARTIFACT_DIR，CI 随现有 browser-evidence / d1-regression-evidence 上传。仅使用模拟 Codex，不访问生产凭据或模型。性能耗时只记录，不以硬件相关毫秒阈值判断正确性。
+`npm run test:e2e` 通过 tests/helpers/browser-session-stress.ts 在真实隔离 Worker、原生 Agent、确定性 Codex peer 上运行 3 / 5 个独立 Chromium context。共享仅限隔离测试授权 Cookie，IndexedDB 与控制身份分离，所有连接握手完成后检查 1 写 N−1 读；覆盖命令审批拒绝、读端并行刷新、读端不提交 prompt、结束写者、显式获取写权限后发送、其它读者仍只读、最终结束状态及无取消弹窗。固定先 3 后 5，失败立即停止递增并清理；JSON 指标及失败截图放入 COC_ARTIFACT_DIR，CI 随现有 browser-evidence 上传。仅使用模拟 Codex，不访问生产凭据或模型。性能耗时只记录，不以硬件相关毫秒阈值判断正确性。
 
 Agent 部署工具的本机/SSH 目标、指定 Git remote、候选文件不覆盖、CI 来源与回滚边界由 `python3 tests/agent-deploy.py` 验证。
 
-生产根 Wrangler 配置使用 `STATE_BACKEND=do`，已移除 D1 绑定及清理 Cron。其它仍使用 D1 的部署升级时须先通过部署脚本 `--state-db-id` 保留其原库，确认迁移完成后再使用 `--retire-state-db`。`npm run dev` 和 DO 测试启动命令显式覆盖 `STATE_BACKEND=legacy`；本地 D1 模式仍由 `state-config.ts` 改为隔离数据库并先应用 schema，不访问线上数据库。
+生产根 Wrangler 配置仅绑定两个 DO 类；保留既有 namespace 和 `v1` SQLite DO class migration，避免创建新对象或丢失当前状态。
 
 工作台菜单 / 分隔条回归：`npm run test:ui` 覆盖四个入口只在功能菜单出现、菜单自动关闭、文件树 / 预览 / 输出拖动、分隔条键盘调整和偏好保存；`COC_TEST_TERMINAL=1 npm run test:e2e` 覆盖菜单打开真实终端、调整高度后输出保留及 390×480 布局。
 
-纯 DO 反向迁移回归运行 `npm run test:do:migration`；`COC_TEST_TERMINAL_IDLE=1 npm run test:terminal` 验证已绑定 PTY 空闲超过 60 秒不退出、不发送应用帧。`streaming:2` Agent 才支持无应用心跳终端。
+`COC_TEST_TERMINAL_IDLE=1 npm run test:terminal` 验证已绑定 PTY 空闲超过 60 秒不退出、不发送应用帧。`streaming:2` Agent 才支持无应用心跳终端。

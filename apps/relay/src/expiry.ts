@@ -1,4 +1,4 @@
-import { D1State, hasAutomaticExpiry, type StateStorage } from './state.ts';
+import type { StateStorage } from './state.ts';
 // This hint only skips reads of a durable, completed migration. Hibernation
 // discards it safely; unfinished migrations always use their persisted cursor.
 const migrated = new WeakSet<StateStorage>();
@@ -6,13 +6,7 @@ const migrated = new WeakSet<StateStorage>();
 // One sorted queue per object. Permanent credentials never enter this queue.
 export async function expireAt(storage: StateStorage, key: string, at: number) {
   if (!Number.isSafeInteger(at) || at === Number.MAX_SAFE_INTEGER) return;
-  // D1 commits these indexes with the record. Only schedule the local alarm;
-  // rewriting the same index creates needless scope conflicts and latency.
-  if (!(storage instanceof D1State && hasAutomaticExpiry(key)))
-    await storage.put(`due:${String(at).padStart(16, '0')}:${key}`, {
-      key,
-      at,
-    });
+  await storage.put(`due:${String(at).padStart(16, '0')}:${key}`, { key, at });
   const alarm = await storage.getAlarm();
   if (alarm === null || alarm > at) await storage.setAlarm(at);
 }
@@ -80,7 +74,7 @@ export async function dueEntries(storage: StateStorage) {
   const entries = await storage.list<{ key: string; at: number }>({
     prefix: 'due:',
     end: `due:${String(Date.now() + 1).padStart(16, '0')}:`,
-    limit: storage instanceof D1State ? 4 : 64,
+    limit: 64,
   });
   return new Map([...entries].filter(([, value]) => value.at <= Date.now()));
 }

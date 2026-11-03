@@ -183,23 +183,14 @@ def publish_downloads(bundles, identity, site, skip_musl=False):
     return manifest
 
 
-def configure_state_db(config, worker, database_id):
-    if not database_id:
-        return
-    if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', database_id) or database_id.startswith('00000000-'):
-        raise RuntimeError('An explicit production D1 database UUID is required')
-    migrations = worker / 'state-migrations'
-    if not (migrations / '0001_relay_state.sql').is_file():
-        raise RuntimeError('Verified Worker artifact does not include the D1 schema')
-    backend = config.setdefault('vars', {}).get('STATE_BACKEND', 'do')
-    config['vars']['STATE_BACKEND'] = backend
-    config['d1_databases'] = [entry for entry in config.get('d1_databases', []) if entry['binding'] != 'STATE_DB'] + [{
-        'binding': 'STATE_DB', 'database_name': 'coc-relay-state',
-        'database_id': database_id, 'migrations_dir': str(migrations),
-    }]
-    crons = config.setdefault('triggers', {}).setdefault('crons', [])
-    if backend == 'd1' and '17 * * * *' not in crons:
-        crons.append('17 * * * *')
+def validate_storage_config(config):
+    """Reject artifacts configured for removed storage backends."""
+    if 'STATE_BACKEND' in config.get('vars', {}) or config.get('d1_databases'):
+        raise RuntimeError('Worker artifact must use Durable Objects without a storage backend selector or database binding')
+    bindings = {entry['name']: entry['class_name'] for entry in config.get('durable_objects', {}).get('bindings', [])}
+    if bindings != {'REGISTRY': 'RegistryDO', 'HOSTS': 'HostRelayDO'}:
+        raise RuntimeError('Worker artifact must bind RegistryDO and HostRelayDO')
+
 
 def completed_cloud_run(repository, commit, run_id):
     """Explicit cloud-only exception: all checks except Windows must succeed."""
@@ -230,8 +221,6 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
                         help='Explicit staged rollout: require the other five checks to pass; preserve all native downloads')
-    parser.add_argument('--retire-state-db', action='store_true', help='Remove D1 binding only after live confirmation of completed DO migration')
-    parser.add_argument('--state-db-id', help='Override the existing production D1 database UUID in the deployment configuration')
     parser.add_argument('--delete-secret', action='append', default=[],
                         help='Remove an obsolete Worker secret after publishing the verified code')
     parser.add_argument('--preserved-downloads', type=pathlib.Path,
@@ -280,7 +269,6 @@ def main():
         if identity['commit'] != commit or identity['dirty']:
             raise RuntimeError('Local build source changed during compilation')
         shutil.copyfile(ROOT / 'wrangler.jsonc', worker / 'deploy-config.jsonc')
-        shutil.copytree(ROOT / 'migrations/d1', worker / 'state-migrations')
         identities = [identity, identity]
         selected = [{'name': folder + '/' + path.relative_to(output / folder).as_posix(),
                      'digest': 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -316,19 +304,7 @@ def main():
     # The deployment configuration is archived by CI along with the Worker.
     config['main'] = str(output / 'worker/index.js')
     config['assets']['directory'] = str(output / 'site')
-    args.state_db_id = args.state_db_id or next((entry['database_id'] for entry in
-        config.get('d1_databases', []) if entry['binding'] == 'STATE_DB'), None)
-    configure_state_db(config, output / 'worker', args.state_db_id)
-    if args.retire_state_db:
-        if config.get('vars', {}).get('STATE_BACKEND') != 'do':
-            raise RuntimeError('D1 retirement requires DO mode')
-        migration_base = 'https://' + config['routes'][0]['pattern']
-        migration_status = json.loads(agent.curl(migration_base + '/api/v1/healthz?stateMigration=1'))
-        if migration_status != {'backend': 'do', 'complete': True}:
-            raise RuntimeError('Live DO migration is not complete; D1 binding retained')
-        config['d1_databases'] = [entry for entry in config.get('d1_databases', []) if entry['binding'] != 'STATE_DB']
-        config.setdefault('triggers', {})['crons'] = []
-        args.state_db_id = None
+    validate_storage_config(config)
 
     routes = config['routes']
     if len(routes) != 1 or not routes[0].get('custom_domain') or not re.fullmatch(r'[a-zA-Z0-9.-]+', routes[0]['pattern']):
@@ -361,11 +337,6 @@ def main():
                 'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
-    if args.retire_state_db:
-        evidence['retiredStateDatabaseBinding'] = True
-        evidence['migrationVerification'] = migration_status
-    if args.state_db_id:
-        evidence['stateDatabase'] = args.state_db_id
     if args.preserved_downloads:
         evidence['preservationSource'] = 'previously verified local download snapshot; package SHA256 rechecked'
     evidence_path = output / 'deployment.json'
@@ -373,16 +344,6 @@ def main():
     if not args.apply:
         print('Verified artifacts prepared: ' + str(output))
         return
-    if args.state_db_id:
-        result = subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
-                                 'd1', 'migrations', 'apply', 'STATE_DB', '--remote', '--config', str(config_path)],
-                                cwd=ROOT, input='y\n', text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        (output / 'd1-migrations.log').write_text(result.stdout)
-        print(result.stdout, flush=True)
-        if result.returncode:
-            raise RuntimeError('D1 migration failed; Worker was not published')
-        evidence['stateSchemaApplied'] = True
-        evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     command = ['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'), 'deploy',
                '--config', str(config_path), '--no-bundle', '--keep-vars',
                '--message', 'Actions ' + str(run['id']) + ' commit ' + commit]

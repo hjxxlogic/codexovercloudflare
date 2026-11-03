@@ -10,7 +10,7 @@ vi.mock('cloudflare:workers', () => ({
     }
   },
 }));
-import { RegistryDO } from '../apps/relay/src/registry.ts';
+import { RegistryDO, RegistryCore } from '../apps/relay/src/registry.ts';
 import { HostRelayDO } from '../apps/relay/src/host.ts';
 import worker from '../apps/relay/src/index.ts';
 import type { Env } from '../apps/relay/src/common.ts';
@@ -68,6 +68,10 @@ beforeEach(() => {
   storage = new Storage();
   env = {
     OWNER_SECRET: 'x'.repeat(64),
+    HOSTS: {
+      idFromName: (id: string) => id,
+      get: () => ({ fetch: async () => Response.json({ ok: true }) }),
+    },
     REGISTRY: {
       idFromName: () => 'registry',
       get: () => ({
@@ -297,7 +301,8 @@ describe('scoped persistent device authorization', () => {
     ).toBe(200);
     expect((await op('apiKeyRevoke', { id: key.id })).status).toBe(200);
     expect((await op('credentialRevoke', { id: auth.hash })).status).toBe(200);
-    expect(calls).toEqual(Array(5).fill(a.hostId));
+    expect(calls.filter((id) => id === a.hostId)).toHaveLength(7);
+    expect(calls.filter((id) => id !== a.hostId)).toHaveLength(2);
     expect((await op('auth', { token: a.token })).status).toBe(401);
     expect((await op('auth', { token: key.apiKey })).status).toBe(401);
   });
@@ -1268,4 +1273,78 @@ describe('native instance display names', () => {
     await storage.delete('auth:' + auth.hash);
     expect((await rename(agent.token, 'name')).status).toBe(401);
   });
+});
+
+it('persists failed authorization invalidations and retries independently from business traffic', async () => {
+  const device = await grant('agent');
+  const client = await grant('web', device.hostId);
+  let unavailable = true;
+  const deliveries: string[] = [];
+  env.HOSTS = {
+    idFromName: (id: string) => id,
+    get: () => ({
+      fetch: async (url: string) => {
+        if (url.endsWith('/authorization-change')) {
+          deliveries.push(url);
+          return Response.json(
+            { ok: !unavailable },
+            { status: unavailable ? 503 : 200 },
+          );
+        }
+        return Response.json({ ok: true });
+      },
+    }),
+  } as unknown as DurableObjectNamespace;
+  const result = await op('credentialRevoke', {
+    id: client.hash || (await op('auth', { token: client.token })).data.hash,
+  });
+  expect(result.status).toBe(503);
+  expect((await op('auth', { token: client.token })).status).toBe(401);
+  expect(
+    [...storage.values.keys()].filter((key) => key.startsWith('auth-change:')),
+  ).toHaveLength(1);
+  unavailable = false;
+  registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
+  vi.useFakeTimers();
+  vi.advanceTimersByTime(5001);
+  await registry.alarm();
+  expect(deliveries.length).toBeGreaterThanOrEqual(2);
+  expect(
+    [...storage.values.keys()].filter((key) => key.startsWith('auth-change:')),
+  ).toEqual([]);
+  const completed = deliveries.length;
+  vi.advanceTimersByTime(60000);
+  await registry.alarm();
+  expect(deliveries).toHaveLength(completed);
+});
+
+it('publishes Registry notifications without revalidating an admitted owner', async () => {
+  let attachment: any = {
+    kind: 'owner',
+    hash: 'owner',
+    expires: Number.MAX_SAFE_INTEGER,
+  };
+  const ws = {
+    readyState: 1,
+    deserializeAttachment: () => attachment,
+    serializeAttachment: (value: unknown) => {
+      attachment = value;
+    },
+    send: vi.fn(),
+    close: vi.fn(),
+  };
+  const core = new RegistryCore(
+    { storage, getWebSockets: () => [ws] } as unknown as DurableObjectState,
+    env,
+  ) as any;
+  const dispatch = vi
+    .spyOn(core, 'dispatch')
+    .mockRejectedValue(new Error('Registry unavailable'));
+  await core.publish('registry');
+  vi.useFakeTimers();
+  vi.advanceTimersByTime(6000);
+  await core.publish('registry');
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(ws.send).toHaveBeenCalledTimes(2);
+  expect(ws.close).not.toHaveBeenCalled();
 });

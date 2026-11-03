@@ -116,5 +116,5 @@
 | Web 账本/锁/缓存              | OperationClient、HistoryCache、deliveryIdentity             | web-operations、web-delivery-identity、web-api、browser-operations 与完整 E2E：持久首发、多标签页、重开恢复、普通缓存清理                                                     |
 | 上传独立资源生命周期          | uploads.cpp、UploadClient                                   | native-uploads、web-uploads、browser-uploads、完整 E2E：完整正文先存、偏移重查、丢首块回复、暂停重开、逐字节校验                                                              |
 | 项目/配置文件事务             | projects.cpp、remote_config.cpp                             | native-projects、projects-e2e、native-configuration：同编号恢复、版本冲突、重启前回执和资源限制                                                                               |
-| Worker 路由/权限/背压         | HostRelayDO、transient-operations、host-lifecycle、Registry | transient-operations、relay-order、host-lifecycle、完整 E2E：丢临时关联、零业务进度写入、旧备份隔离、授权撤销、多主机多标签页                                                 |
+| Worker 路由/权限/背压         | HostRelayDO、transient-operations、Registry | transient-operations、relay-order、do-state、完整 E2E：丢临时关联、零业务进度写入、旧备份隔离、授权撤销、多主机多标签页                                                 |
 | 全局资源与控制保留能力        | credit.hpp、runtime、IndexedDB 计量、Worker 收发队列        | native-runtime-budget、native-history-budget、native-core、native-delivery、relay-order：上限拒绝、预留释放、慢接收方与独立控制额度                                           |

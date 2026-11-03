@@ -4,8 +4,7 @@ import { OriginalHttpRequests } from './helpers/original-http.ts';
 import { WindowPeer } from './helpers/window-peer.ts';
 const originals = new OriginalHttpRequests();
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { localStateConfig } from '../scripts/state-config.ts';
+import { spawn } from 'node:child_process';
 import {
   mkdtempSync,
   rmSync,
@@ -36,35 +35,11 @@ await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 const port = (server.address() as any).port;
 await new Promise<void>((r) => server.close(() => r()));
 const origin = `http://127.0.0.1:${port}`;
-const stateConfig =
-  process.env.COC_STATE_BACKEND === 'd1'
-    ? localStateConfig(join(dir, 'wrangler.json'))
-    : undefined;
-if (stateConfig) {
-  const migration = spawnSync(
-    process.execPath,
-    [
-      'node_modules/wrangler/bin/wrangler.js',
-      'd1',
-      'migrations',
-      'apply',
-      'STATE_DB',
-      '--local',
-      '--config',
-      stateConfig,
-      '--persist-to',
-      join(dir, 'worker'),
-    ],
-    { encoding: 'utf8' },
-  );
-  assert.equal(migration.status, 0, migration.stdout + migration.stderr);
-}
 const worker = spawn(
   process.execPath,
   [
     'node_modules/wrangler/bin/wrangler.js',
     'dev',
-    ...(stateConfig ? ['--config', stateConfig] : []),
     '--ip',
     '127.0.0.1',
     '--port',
@@ -75,8 +50,6 @@ const worker = spawn(
     'OWNER_SECRET:' + secret,
     '--var',
     'ACCESS_ENABLED:false',
-    '--var',
-    'STATE_BACKEND:' + (stateConfig ? 'd1' : 'legacy'),
   ],
   {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
@@ -1590,11 +1563,9 @@ try {
     // The lease deadline is 15 seconds; DO alarm delivery may run later under load.
     25000,
   );
-  assert.equal(p.ws.readyState, WebSocket.OPEN);
-  p.send(JSON.stringify(prompt));
   await wait(
-    () => p.messages.some((m) => m.error?.code === 'STALE_CONTROLLER'),
-    'lost takeover confirmation keeps old writes fenced',
+    () => p.ws.readyState === WebSocket.CLOSED,
+    'takeover reservation retires the old route before confirmation',
   );
   assert.equal(
     p.messages.filter(

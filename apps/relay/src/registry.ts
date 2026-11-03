@@ -1,13 +1,6 @@
-import { DO_STATE_KEY, nativeState, restoreRegistry } from './do-migration.ts';
+import { live, retire } from './connections.ts';
 import { effectiveAdminEmail, requireProjectManager } from './project-auth.ts';
-import {
-  D1State,
-  listAll,
-  d1Enabled,
-  migrateState,
-  type StateStorage,
-  type StateTransaction,
-} from './state.ts';
+import { listAll, type StateStorage, type StateTransaction } from './state.ts';
 import { accessEnabled, type AccessUser } from './access.ts';
 import {
   createEmailGrant,
@@ -33,7 +26,6 @@ import {
   json,
   token,
   hostStub,
-  hostHasConnections,
   type Auth,
   type Env,
 } from './common.ts';
@@ -61,13 +53,56 @@ export class RegistryCore {
   constructor(
     private ctx: DurableObjectState,
     private env: Env,
-    private store?: StateStorage,
   ) {}
   private get storage(): StateStorage {
-    return this.store || (this.ctx.storage as unknown as StateStorage);
+    return this.ctx.storage as unknown as StateStorage;
   }
 
+  private policyReady?: Promise<void>;
+  private authorizationVersion = 0;
+  private async policy() {
+    return digest(
+      JSON.stringify([
+        this.env.OWNER_SECRET,
+        this.env.ACCESS_ENABLED,
+        this.env.ACCESS_TEAM_DOMAIN,
+        this.env.ACCESS_AUD,
+        this.env.ADMIN_EMAIL,
+      ]),
+    );
+  }
+  private async restoreSubscriptions() {
+    const policy = await this.policy();
+    for (const ws of this.ctx.getWebSockets())
+      if (ws.deserializeAttachment()?.policy !== policy)
+        retire(ws, 1012, 'Connection policy changed; reconnect');
+  }
+  private mutations: Promise<unknown> = Promise.resolve();
   async fetch(req: Request): Promise<Response> {
+    this.policyReady ??= this.restoreSubscriptions();
+    await this.policyReady;
+    const op = new URL(req.url).pathname.slice(1);
+    if (
+      [
+        'logout',
+        'logoutOthers',
+        'credentialRevoke',
+        'apiKeyRevoke',
+        'setAccessEmails',
+        'agentSetAccessEmails',
+        'agentSetAdminEmail',
+        'setAdminEmail',
+        'emailGrantRevoke',
+        'emailMigrate',
+      ].includes(op)
+    ) {
+      const result = this.mutations.then(() => this.handleFetch(req));
+      this.mutations = result.catch(() => {});
+      return result;
+    }
+    return this.handleFetch(req);
+  }
+  private async handleFetch(req: Request): Promise<Response> {
     try {
       const op = new URL(req.url).pathname.slice(1);
       if (op === 'subscribe') return await this.subscribe(req);
@@ -94,7 +129,28 @@ export class RegistryCore {
       ].includes(op)
         ? await this.storage.get<Auth>('auth:' + (d.hash ?? d.agentHash))
         : undefined;
+      const authorizationMutation = [
+        'logout',
+        'logoutOthers',
+        'credentialRevoke',
+        'apiKeyRevoke',
+        'setAccessEmails',
+        'agentSetAccessEmails',
+        'agentSetAdminEmail',
+        'setAdminEmail',
+        'emailGrantRevoke',
+        'emailMigrate',
+      ].includes(op);
+      const invalidation = authorizationMutation
+        ? 'auth-change:' + crypto.randomUUID()
+        : undefined;
+      if (invalidation) {
+        this.authorizationVersion++;
+        await this.storage.put(invalidation, { until: Date.now() });
+        await expireAt(this.storage, invalidation, Date.now());
+      }
       const response = await this.dispatch(req);
+      if (invalidation) await this.deliverAuthorizationChange(invalidation);
       const mutations = [
         'login',
         'logout',
@@ -219,17 +275,80 @@ export class RegistryCore {
         throw new AppError('UNAUTHORIZED', 'Invalid login subscription', 401);
       attachment = { kind: 'device', id, pollHash, expires: request.expires };
     }
+    const policy = await this.policy();
+    if (attachment.kind === 'owner') {
+      for (;;) {
+        const version = this.authorizationVersion;
+        const response = await this.dispatch(
+          new Request('https://internal/authHash', {
+            method: 'POST',
+            body: JSON.stringify({ hash: attachment.hash }),
+          }),
+        );
+        if (version !== this.authorizationVersion) continue;
+        if (!response.ok) return response;
+        break;
+      }
+    }
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [attachment.kind]);
-    pair[1].serializeAttachment(attachment);
-    pair[1].send(
-      JSON.stringify({
-        type: 'subscribed',
-        revision: (await this.storage.get('revision')) || 0,
-        demand: 1,
+    pair[1].serializeAttachment({ ...attachment, policy });
+    await expireAt(
+      this.storage,
+      'subscription:' + crypto.randomUUID(),
+      attachment.expires,
+    );
+    const revision = (await this.storage.get('revision')) || 0;
+    if (live(pair[1]))
+      pair[1].send(JSON.stringify({ type: 'subscribed', revision, demand: 1 }));
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+  private async deliverAuthorizationChange(key: string) {
+    // A broadcast is intentionally conservative: it also covers cascading A
+    // revocation and global administrator changes. Each Host owns its state.
+    const hosts = [
+      ...(await listAll<Host>(this.storage, { prefix: 'host:' })).values(),
+    ];
+    const results = await Promise.allSettled(
+      hosts.map(async (host) => {
+        const response = await hostStub(this.env, host.id).fetch(
+          'https://internal/authorization-change',
+          {
+            method: 'POST',
+            headers: { 'x-host': host.id, 'x-coc-authorization-event': key },
+          },
+        );
+        if (!response.ok)
+          throw new Error('Authorization invalidation deferred');
       }),
     );
-    return new Response(null, { status: 101, webSocket: pair[0] });
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!live(ws) || a.kind !== 'owner') continue;
+      const response = await this.dispatch(
+        new Request('https://internal/authHash', {
+          method: 'POST',
+          body: JSON.stringify({ hash: a.hash }),
+        }),
+      );
+      if (!response.ok)
+        retire(
+          ws,
+          [401, 403].includes(response.status) ? 4001 : 1011,
+          'Authorization changed',
+        );
+    }
+    if (results.some((result) => result.status === 'rejected')) {
+      // Persist retry before returning; the alarm is independent of packets.
+      await this.storage.put(key, { until: Date.now() + 5000 });
+      await expireAt(this.storage, key, Date.now() + 5000);
+      throw new AppError(
+        'INVALIDATION_PENDING',
+        'Credentials changed; connection invalidation is pending and will retry',
+        503,
+      );
+    }
+    await this.storage.delete(key);
   }
   private async publish(
     scope: string,
@@ -246,28 +365,11 @@ export class RegistryCore {
         expires: number;
       };
       try {
-        if (a.expires <= Date.now()) {
-          ws.close(4001, 'Subscription expired');
-          continue;
-        }
-        if (a.kind === 'owner') {
-          const auth = await this.dispatch(
-            new Request('https://internal/authHash', {
-              method: 'POST',
-              body: JSON.stringify({ hash: a.hash }),
-            }),
-          );
-          if (!auth.ok) {
-            ws.close(
-              [401, 403].includes(auth.status) ? 4001 : 1011,
-              'Subscription validation failed',
-            );
-            continue;
-          }
-        } else if (a.id !== deviceId) continue;
+        if (!live(ws) || (a.kind !== 'owner' && a.id !== deviceId)) continue;
         ws.send(JSON.stringify({ type: 'change', scope, revision }));
       } catch (error) {
-        ws.close(
+        retire(
+          ws,
           authorizationFailed(error) ? 4001 : 1011,
           'Subscription validation failed',
         );
@@ -285,7 +387,6 @@ export class RegistryCore {
         : undefined;
     await Promise.allSettled(
       hosts.map(async (id) => {
-        if (!(await hostHasConnections(this.env, id))) return;
         return hostStub(this.env, id).fetch('https://internal/notify', {
           method: 'POST',
           headers: { 'x-host': id },
@@ -307,13 +408,13 @@ export class RegistryCore {
     );
   }
   async webSocketMessage(ws: WebSocket) {
-    ws.close(4000, 'Notification channel is read only');
+    retire(ws, 4000, 'Notification channel is read only');
   }
   async webSocketClose(ws: WebSocket) {
-    ws.close(1000, 'Closed');
+    retire(ws, 1000, 'Closed');
   }
   async webSocketError(ws: WebSocket) {
-    ws.close(1011, 'Transport error');
+    retire(ws, 1011, 'Transport error');
   }
   private async dispatch(req: Request) {
     try {
@@ -1173,42 +1274,6 @@ export class RegistryCore {
             (await listAll<Host>(s, { prefix: 'host:' })).values(),
           ).filter((host) => host.version === 2),
         );
-      if (op === 'migrationHosts') {
-        if (nativeState(this.env) && this.env.STATE_DB) {
-          const after = d.after ? idSchema.parse(d.after) : '';
-          const archived = await this.env.STATE_DB.prepare(
-            "SELECT DISTINCT scope FROM relay_state WHERE scope > ? AND scope < 'host;' ORDER BY scope LIMIT 4",
-          )
-            .bind('host:' + after)
-            .all<{ scope: string }>();
-          const local = await s.list<Host>({
-            prefix: 'host:',
-            startAfter: 'host:' + after,
-            limit: 4,
-          });
-          const ids = [
-            ...new Set([
-              ...archived.results.map((row) =>
-                idSchema.parse(row.scope.slice(5)),
-              ),
-              ...[...local.keys()].map((key) => idSchema.parse(key.slice(5))),
-            ]),
-          ]
-            .sort()
-            .slice(0, 4);
-          return json({ ids, after: ids.at(-1), done: ids.length < 4 });
-        }
-        const after = d.after ? 'host:' + idSchema.parse(d.after) : undefined;
-        const hosts = await s.list<Host>({
-          prefix: 'host:',
-          startAfter: after,
-          limit: 4,
-        });
-        const ids = [...hosts.keys()].map((key) =>
-          idSchema.parse(key.slice(5)),
-        );
-        return json({ ids, after: ids.at(-1), done: hosts.size < 4 });
-      }
       if (op === 'host') {
         const h = await s.get<Host>('host:' + idSchema.parse(d.id));
         if (!h || h.version !== 2 || h.disabled)
@@ -1281,15 +1346,40 @@ export class RegistryCore {
     return auth;
   }
   async alarm() {
+    this.policyReady ??= this.restoreSubscriptions();
+    await this.policyReady;
+    await this.mutations;
     const s = this.storage;
     await migrateExpiry(s, ['device:', 'limit:', 'auth:']);
     for (const [index, { key }] of await dueEntries(s)) {
+      if (key.startsWith('auth-change:')) {
+        const pending = await s.get<{ until: number }>(key);
+        if (!pending || pending.until > Date.now()) {
+          await s.delete(index);
+          continue;
+        }
+        try {
+          await this.deliverAuthorizationChange(key);
+        } catch {
+          await s.put(key, { until: Date.now() + 5000 });
+          await expireAt(s, key, Date.now() + 5000);
+        }
+        await s.delete(index);
+        continue;
+      }
       let deviceId: string | undefined;
       let hostId: string | undefined;
       await s.transaction(async (tx) => {
         const value = await tx.get<any>(key);
         if (!value || (value.expires ?? value.until) > Date.now()) return;
         if (value.result && !value.delivered) {
+          const at = Date.now();
+          const event = 'auth-change:' + crypto.randomUUID();
+          await tx.put(event, { until: at });
+          await tx.put(`due:${String(at).padStart(16, '0')}:${event}`, {
+            key: event,
+            at,
+          });
           await this.revokeCredential(tx, await digest(value.result.token));
         }
         await tx.delete(key);
@@ -1305,7 +1395,7 @@ export class RegistryCore {
     }
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.deserializeAttachment().expires <= Date.now())
-        ws.close(4001, 'Subscription expired');
+        retire(ws, 4001, 'Subscription expired');
     }
     await nextExpiry(s);
   }
@@ -1314,166 +1404,38 @@ export class RegistryCore {
 export class RegistryDO extends DurableObject<Env> {
   private core?: RegistryCore;
   private preparing?: Promise<void>;
-  private async prepare() {
-    if (this.core) return;
-    if (!nativeState(this.env) && (await this.ctx.storage.get(DO_STATE_KEY)))
-      throw new AppError(
-        'STATE_MIGRATED',
-        'DO state is authoritative; retain STATE_BACKEND=do',
-        503,
-      );
-    if (nativeState(this.env)) {
-      if (!this.preparing)
-        this.preparing = this.ctx
-          .blockConcurrencyWhile(async () => {
-            const storage = this.ctx.storage as unknown as StateStorage;
-            await restoreRegistry(storage, this.env.STATE_DB);
-            await nextExpiry(storage);
-            if (this.env.STATE_DB && !(await storage.get('@doHostsDone')))
-              await storage.setAlarm(Date.now());
-            if (!this.env.STATE_DB && !(await storage.get('@doHostsDone')))
-              await storage.put('@doHostsDone', { version: 1 });
-            this.core = new RegistryCore(this.ctx, this.env, storage);
-          })
-          .finally(() => {
-            this.preparing = undefined;
-          });
-      await this.preparing;
-      return;
-    }
-    if (!d1Enabled(this.env)) {
-      if (await this.ctx.storage.get('@d1Migrated'))
-        throw new AppError(
-          'STATE_MIGRATED',
-          'Restore the D1 binding; legacy state is no longer authoritative',
-          503,
-        );
-      this.core = new RegistryCore(this.ctx, this.env);
-      return;
-    }
-    if (!this.preparing)
-      this.preparing = this.ctx
-        .blockConcurrencyWhile(async () => {
-          let storage: StateStorage = this.ctx
-            .storage as unknown as StateStorage;
-          if (d1Enabled(this.env)) {
-            const target = new D1State(this.env.STATE_DB, 'registry', storage);
-            if (
-              (await this.ctx.storage.get('@d1Migrated')) &&
-              !(await target.get('@migrated'))
-            )
-              throw new AppError(
-                'STATE_MIGRATED',
-                'D1 state is missing; restore the original database before continuing',
-                503,
-              );
-            await migrateState(storage, target);
-            // D1 is now authoritative. Keep only the rollback guard locally,
-            // never an old authorization copy that could be imported again.
-            await this.ctx.storage.put('@d1Migrated', true);
-            let after: string | undefined;
-            for (;;) {
-              const page = await this.ctx.storage.list({
-                startAfter: after,
-                limit: 64,
-              });
-              const keys = [...page.keys()].filter(
-                (key) => key !== '@d1Migrated',
-              );
-              if (keys.length) await this.ctx.storage.delete(keys);
-              after = [...page.keys()].at(-1);
-              if (page.size < 64) break;
-            }
-            await this.ctx.storage.deleteAlarm();
-            await nextExpiry(target);
-            storage = target;
-          }
-          this.core = new RegistryCore(this.ctx, this.env, storage);
-        })
-        .finally(() => {
-          this.preparing = undefined;
-        });
-    await this.preparing;
+  private prepare() {
+    if (this.core) return Promise.resolve();
+    return (this.preparing ??= nextExpiry(
+      this.ctx.storage as unknown as StateStorage,
+    )
+      .then(() => {
+        this.core = new RegistryCore(this.ctx, this.env);
+      })
+      .catch((error) => {
+        this.preparing = undefined;
+        throw error;
+      }));
   }
-  private requests: Promise<unknown> = Promise.resolve();
   async fetch(req: Request) {
     try {
       await this.prepare();
-      if (
-        nativeState(this.env) &&
-        new URL(req.url).pathname === '/migration-status'
-      )
-        return json({
-          backend: 'do',
-          complete: !!(await this.ctx.storage.get('@doHostsDone')),
-        });
-      // Native storage supplies input gates in legacy mode. Do not hold an
-      // extra queue across publish(): a notified Host can call back for auth.
-      if (!d1Enabled(this.env)) return this.core!.fetch(req);
-      const result = this.requests.then(() => this.core!.fetch(req));
-      this.requests = result.catch(() => {});
-      return await result;
+      return await this.core!.fetch(req);
     } catch (error) {
       return failure(error);
     }
   }
   async alarm() {
     await this.prepare();
-    if (
-      nativeState(this.env) &&
-      this.env.STATE_DB &&
-      !(await this.ctx.storage.get('@doHostsDone'))
-    ) {
-      try {
-        const after = await this.ctx.storage.get<string>('@doHostsCursor');
-        const response = await this.core!.fetch(
-          new Request('https://internal/migrationHosts', {
-            method: 'POST',
-            body: JSON.stringify({ after }),
-          }),
-        );
-        if (!response.ok) throw new Error('Migration enumeration failed');
-        const page = (await response.json()) as {
-          ids: string[];
-          after?: string;
-          done: boolean;
-        };
-        for (const id of page.ids) {
-          const result = await hostStub(this.env, id).fetch(
-            'https://internal/migrate-native',
-            { headers: { 'x-host': id } },
-          );
-          if (!result.ok) throw new Error('Host migration failed');
-        }
-        await this.ctx.storage.put('@doHostsCursor', page.after || after || '');
-        if (page.done) {
-          await this.ctx.storage.put('@doHostsDone', {
-            version: 1,
-            at: Date.now(),
-          });
-          console.log(JSON.stringify({ event: 'do_migration_complete' }));
-        } else {
-          await this.ctx.storage.setAlarm(Date.now());
-          return;
-        }
-      } catch {
-        console.log(JSON.stringify({ event: 'do_migration_retry' }));
-        await this.ctx.storage.setAlarm(Date.now() + 60_000);
-        return;
-      }
-    }
-    if (!d1Enabled(this.env)) return this.core!.alarm();
-    const result = this.requests.then(() => this.core!.alarm());
-    this.requests = result.catch(() => {});
-    return result;
+    await this.core!.alarm();
   }
   async webSocketMessage(ws: WebSocket) {
-    ws.close(4000, 'Notification channel is read only');
+    retire(ws, 4000, 'Notification channel is read only');
   }
   async webSocketClose(ws: WebSocket) {
-    ws.close(1000, 'Closed');
+    retire(ws, 1000, 'Closed');
   }
   async webSocketError(ws: WebSocket) {
-    ws.close(1011, 'Transport error');
+    retire(ws, 1011, 'Transport error');
   }
 }

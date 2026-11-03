@@ -1,5 +1,7 @@
 # 文档索引
 
+当前云端存储：[DO 唯一路径清理](DO_ONLY_STORAGE_2026-11-03.md)。
+
 本目录区分当前使用说明、设计依据、验收结果和历史证据。**0.6.0 已于 2026-11-01 发布云端及四平台下载包**：delivery:2 和协议简化通过本机回归与六项必需 CI。现场 Agent / CLI 仍需手动升级。线上版本不能从源码版本推断，请查[发布记录](DEPLOYMENT_STATUS.md)中的日期与制品身份。
 
 ## 按任务阅读
@@ -12,6 +14,10 @@
 | 评审协议简化         | [最终决策矩阵](TRANSPORT_SIMPLIFICATION_DECISIONS.md) → [分批审计记录](TRANSPORT_SIMPLIFICATION_AUDIT.md) → [验收结果](TEST_REPORT.md) |
 | 准备发行或回退       | [发行流程](RELEASE.md) → [0.6.0 切换方案](TRANSPORT_CUTOVER.md) → [已执行的发布记录](DEPLOYMENT_STATUS.md)                             |
 | 理解项目与权限边界   | [项目需求](REQUIREMENTS.md) → [总体架构](ARCHITECTURE.md) → [多项目设计](multi-project-design.md)                                      |
+
+- [Worker 连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)、[DO 唯一路径清理](DO_ONLY_STORAGE_2026-11-03.md)：准入、稳定数据流、撤销事件、到期与重连的当前本机实现。
+
+- [Worker 授权与建连后转发审计（2026-11-03）](WORKER_AUTHORIZATION_AUDIT_2026-11-03.md)：逐包鉴权、Terminal 与通知路径的源码证据，以及仅建连授权、控制事件断连和端点业务校验的分阶段改进计划及本机实施记录。
 
 ## 当前参考文档
 
@@ -58,7 +64,7 @@
 | 2026-10-24 评估与稳定化 | [完整评估](audit-2026-10-24.md)、[网页 UI 评估](wc-ui-2026-10-24.md)、[实施记录](stabilization-2026-10-24.md)                         |
 | 2026-10-25 性能         | [性能审计](perf-audit-2026-10-25.md)、[修复与验证](perf-fixes-2026-10-25.md)                                                          |
 | DO 成本与用量           | [计费优化](do-billing-optimization-2026-10-26.md)、[实际用量](do-usage-2026-10-27.md)                                                 |
-| D1 / DO 状态演进        | [存储审计](relay-storage-audit-2026-10-29.md)、[活动会话方案评估](d1-active-session-review.md)、[D1 使用分析](d1-usage-2026-10-31.md) |
+| 存储演进（历史）        | [存储审计](relay-storage-audit-2026-10-29.md)、[活动会话方案评估](d1-active-session-review.md)、[D1 使用分析](d1-usage-2026-10-31.md) |
 
 `assets/` 保存可公开的截图、测量和发布证据；凭据、私有备份及本机临时日志继续放在忽略目录，不纳入文档归档。
 

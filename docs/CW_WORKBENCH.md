@@ -43,7 +43,6 @@
 | `npm run test:markdown`                                                              | Chromium 中公式/图表、脚注/内部锚点、提示块、脚本/危险链接/外部请求限制及手机宽度                 |
 | `npm run test:ui`                                                                    | 工作台浅色/文件预览/路径引用/输出截图及旧 UI 完整回归，含 390×480 审批布局                        |
 | `npm run test:terminal:e2e`                                                          | DO 完整 E2E 加真实 Chromium → Worker → Agent → PTY 的打开、输入、输出和关闭                       |
-| `COC_TEST_TERMINAL=1 npm run test:e2e:d1`                                            | D1 后端同一完整 E2E                                                                               |
 
 测试结果以 [测试报告](TEST_REPORT.md) 的当前工作台条目为准。原生 PTY 用临时项目与假的 Codex 协议进程；Shell 为实际 Bash/bubblewrap，验证项目 symlink 无法逃逸、重复输入无重复副作用、resize、Ctrl+C、退出码、输出缺口与进程回收。尚未注入 PTY 内核 write 与进程崩溃之间所有时序，也未运行未支持平台的真实交互终端。
 

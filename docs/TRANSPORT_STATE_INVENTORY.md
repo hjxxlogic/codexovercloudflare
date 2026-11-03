@@ -22,7 +22,6 @@ open/close 的永久身份、短结果尾部沿用现有端点操作预算；输
 | `lease:*` / socket attachment 的 delivery.id、normal、priority | 已认证主体、会话、lane 到内部流的绑定 | 保留必要的授权路由绑定，移除发送头依赖；不能从客户端自报 owner 或 epoch 建立权限 |
 | `agentEpoch`、ticket、handshake、授权缓存、session-mode | Agent fencing、一次性准入与读取模式检查 | 保留权限核验及失效边界；不得把移除可靠进度扩大为删除这些状态 |
 | Registry 的授权、撤销、目录及管理元数据 | 凭据权限、主机可见性、控制入口 | 保留；缓存失效、断连及 HTTP 入口必须一致执行 |
-| `host-lifecycle.ts` DO / D1 复制、`host-state.ts` 的 `d1PermissionReceipt` | 权限事务归档 / 离线读取 | 已过滤旧 operation / part / wire 及对应 due，旧业务回执不能恢复；仅 permission-operation / permission-wire 的 ticket / 接管事务继续持久化 |
 | `management.ts` 的 ManagementRequests | 管理通道临时 wire 关联 | 继续有界临时转发；配置执行回执在执行端，不混入业务 ACK |
 
 ## 业务入口责任
@@ -219,7 +218,7 @@ Linux 私有配置、凭据及更新状态的原子替换在父目录锁内清�
 | A HTTP 原请求 / 上传 | 原请求 128 MiB / 主体 32 MiB / 1024 身份；上传 96 MiB / 4 个 active / 主体 2 个 / 单文件 20 MiB | native-operations、native-uploads、完整 E2E |
 | A 项目 / 配置 | 项目含替换副本 16 MiB / 1024 永久身份；配置每实例 256 身份 / 每项 8192 字节，原文 64 KiB | native-projects、native-configuration、SIGKILL 暂存回收 |
 | A 进程 / RPC / Web / 审批 | 16 会话 + 4 历史进程；普通 / priority 独立条数与字节预留；审批单会话 32 / 全局 128 与独立线编码上限 | runtime-budget、runtime-scopes、probe 元数据 |
-| W 业务 / 权限 / 管理 | 业务 128 条 / 8 MiB / 20 秒临时关联；权限 64 pending / 256 总数 / 每项 16 KiB；管理 128 条 / 8 MiB | relay-order、host-lifecycle |
+| W 业务 / 权限 / 管理 | 业务 128 条 / 8 MiB / 20 秒临时关联；权限 64 pending / 256 总数 / 每项 16 KiB；管理 128 条 / 8 MiB | relay-order、do-state |
 | W 收发与鉴权集合 | 收入每连接 1024 / 全局 2048 条、每连接 8 MiB / 全局 16 MiB；转发每连接 1000 / 全局 2000 条及相同字节边界；在途鉴权 128 | 零字节帧、跨连接转发、鉴权并发专项 |
 
 `/tmp/coc-runtime-resource-samples.log` 的真实 Agent 样本：512 条 Web 队列时 RSS 17,817,600 字节、状态文件 1,442,507 字节；Web 字节压力时 RSS 19,275,776 字节、状态文件 2,851,547 字节；128 项待决审批时峰值 RSS 19,832,832 字节、状态文件 4,964,499 字节。这是当前确定性夹具的观测，未包含子进程 RSS，不作为整机内存上限、磁盘硬配额或生产容量承诺。逻辑字节包含独立计量开销，不能与 RSS 直接比较或推出费用节省比例。正常空闲无鉴权轮询 / 周期 alarm 已有测试，持续 1000 帧结果 / 窗口负载加消费确认的 Host 存储写入为零；权限状态仍可写入。

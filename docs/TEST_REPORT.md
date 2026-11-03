@@ -2,6 +2,33 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：DO 唯一存储路径（本机工作区）
+
+基于同一工作区继续清理，仅保留 RegistryDO / HostRelayDO 原生存储。删除 D1 / legacy 后端、归档恢复、跨库迁移、SQL schema、后端变量及配套开发、部署和 CI 入口；现有 DO namespace、授权、租约、epoch 和权限回执保持。范围及历史兼容边界见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。未推送、未运行 CI、未部署。
+
+- Vitest：33 个文件、462 项通过。旧后端专属测试删除，新增目录分页、有限到期分页及无周期 alarm、既有 DO 授权与控制状态跨重建保留。
+- 部署脚本：15 项通过；新增拒绝旧后端配置及错误 DO 类绑定，保留制品来源、摘要及下载站检查。CI 命令包装器回归通过。
+- 完整 native / web 构建、TypeScript、ESLint / Prettier、Worker dry-run 通过；dry-run 绑定仅含两个 DO、Assets 和现有 Access 配置。
+- CTest：10/10 通过。`npm run test:projects:e2e` 通过，覆盖真实 Worker、原生 Agent / CC、Chromium 项目 CRUD、管理员绑定及远程配置读取 / 替换 / 重启与去重。
+
+- `npm run test:terminal:e2e` 全部通过：真实 Wrangler、原生 Agent / CC、Chromium 3 / 5 浏览器、sandboxed PTY、接管丢包恢复、重连、去重、授权撤销及隔离。
+
+以下连接授权记录和既有迁移 / 发布记录描述各自阶段，不代表当前代码仍支持旧后端。
+
+## 2026-11-03：Worker 建连授权改造（后端清理前的本机验证）
+
+基于 `069be79a5030a8c6eb501cbf42e7e8d0fdb99e28` 加本次未提交工作区变更；未推送、未运行 CI、未部署。行为与限制见[连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)。
+
+- Vitest：35 个文件、503 项通过。新增跨越原缓存窗口及 DO 重建的双向零凭据查询、Terminal 零租约查询、Registry 通知不复查、关闭握手仍 OPEN 时路由退休、active 到期，以及失效事件在 Registry 重建后重试。
+- CTest：10/10 通过，包含真实本机 PTY、项目、历史、delivery / runtime 等原生测试。
+- `npm run build`：native / web 构建、TypeScript 及 Worker dry-run 通过；最后的 HTTP / 握手竞争边界修订另通过类型检查与单元回归。没有把本机构建当作发行制品。
+- `npm run typecheck`、`npm run lint`：通过。
+- 当前原生 DO 后端：`COC_STATE_BACKEND=do COC_TEST_TERMINAL=1 npm run test:e2e` 全链路通过，使用最终 Worker 实现，覆盖真实 Wrangler、原生 Agent / CLI、Chromium、sandboxed PTY、丢失 attach 确认恢复、控制接管、重复命令及撤销隔离。测试默认后端随后从旧 legacy 更正为 DO，默认 `npm run test:e2e` / `npm run test:terminal:e2e` 均使用 DO。
+- 此前额外运行的 legacy / D1 全链路通过，只作为旧迁移兼容证据，不代表当前有两个或三个运行后端。旧测试断言“接管后旧连接保持 OPEN 并逐包拒绝”已更新为“接管预约后关闭旧连接”；开发期一次 Wrangler reload 干扰超时，冻结源码后重跑通过。
+- 最终 Worker dry-run：通过。
+
+未验证线上版本、生产用量、P50/P95/P99 或跨平台 CI；未执行任何模型任务。授权变更的保守全目录广播成本仍需后续测量。原有发行与 CI 记录保留如下，仅适用于各自注明的源码。
+
 0.6.0 源码 `4b164c6` 已通过下述本机回归及全部必需 CI，云端与四平台下载包已发布。现场原生服务未自动更新；准确制品与线上验证见 [发布记录](DEPLOYMENT_STATUS.md)。
 
 ## DO 存储迁移与终端休眠 · 2026-11-03
