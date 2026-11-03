@@ -2,7 +2,6 @@
 
 > 2026-11-03 连接授权变更：本机实现采用[连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)。授权在准入与逻辑通道握手时检查；稳定数据帧不复查凭据或查询租约，授权变化由独立控制事件使连接失效。下文旧的逐包检查要求由该契约替代。上线版本见 [发布记录](DEPLOYMENT_STATUS.md)。
 
-
 [文档索引](README.md)
 
 本文包含总体设计与版本演进。当前通信规则见 [现行协议](RELIABLE_TRANSPORT.md)，资源及状态见 [状态盘点](TRANSPORT_STATE_INVENTORY.md)，实际验证见 [测试报告](TEST_REPORT.md)。带旧版本/日期的章节保留当时设计，不覆盖现行规则。
@@ -38,7 +37,6 @@ CC 的创建 / 观察、停止、排队、审批及项目修改已接入 transpo
 上传执行端已将回执从普通 cache 移入 transport2_uploads；开始创建暂存文件前持久绑定主体 / 项目根 / uploadId 与原路径、大小、覆盖选择和完整 SHA-256 的意图摘要，并预留完整暂存大小和 16 KiB 元数据。全局最多 4 个未解除资源承诺 / 80 MiB 暂存，每主体最多 2 个；拒绝身份全局 1024 / 每主体 256，总预算 96 MiB。分块推进连续偏移前同步文件；完成和取消先回收暂存资源再释放对应预留，永久保留旧身份，清普通缓存和旧一天期限不重新放行。重启中的上传固定为 unknown；无法证明资源已回收时保守保留预留，不能通过重启扩大磁盘承诺。网页首发前持久保存完整文件、目标与摘要，恢复沿原编号 / 实例 / 连续偏移；云端仅作有界内存转发。
 
 Worker 的全部非 ticket / attach 请求现均只使用 128 条 / 8 MiB 的内存关联，pending / completed 各最多 20 秒，不持久保存业务正文或结果。权限事务使用独立 permission-operation / permission-wire，最多 64 条 pending / 256 条总记录，每条 16 KiB；输入仅保留准入字段，get 仅保存 mode / sandbox。记录、wire 和到期索引同事务提交，重建恢复到期调度；权限事务、租约和 epoch 原地保存在 HostRelayDO。执行端旧业务分支已删除，资源与真实旧升级验收见 TEST_REPORT。
-
 
 ## 控制类写入口的唯一原请求路径（2026-11-01，仅本机）
 
@@ -599,7 +597,6 @@ Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。�
 
 取消 Agent 登记 5 个、runtime 4 个、runtime 与临时历史读取合计 6 个、项目和关联邮箱各 20 个、主机连接 40 条、Registry 通知连接 240 条及待处理登录申请 200 个的固定配额。Registry 与邮箱授权的完整目录扫描通过有界分页读取，避免平台默认页上限截断；对外原有分页接口保持分页。实际容量仍受平台、内存与协议帧大小约束，并非无限资源保证。同一 dataDir 单实例、同一 Agent 身份单连接、会话控制权互斥、单个查询防重复、背压和防滥用限流保持有效。
 
-
 ## 开发中的 Agent 命令信用预留（2026-11-01）
 
 `transport2_credit` 在 OPEN 事务中分配单调 streamSerial、不可变 creditGeneration 及预算预留，作用域由会话与可信控制主体绑定。重复 OPEN 不重复计费。normal 全局 512 MiB / 单会话 128 MiB，priority 全局 256 MiB / 单会话 64 MiB；另为控制元数据计量保留 16 MiB。每流预留公告的正文窗口、每槽 2 MiB + 16 KiB 结果空间和最多 1024 条命令每条 8192 字节的身份 / 索引空间。该计量是逻辑资源承诺，不是 SQLite 文件或 WAL 的物理预分配；I/O 失败不得确认。
@@ -607,7 +604,6 @@ Registry 保存 agentAdminEmail 和可选 adminEmailOverride，后者优先。�
 received / started 和未确认结果都占命令槽；RESULT ACK 在同事务压缩正文及内容，保留摘要、请求身份和连续水位。关闭先持久拒绝旧代际，再释放可释放资源；尚未确认的终态、started 命令或 session.activeTask 仍锚定该流时保持预留。每流最多 1024 条命令，结果全部确认且无未完成命令后退役。分配和 tombstone 总数最多 1024，不能压缩时停止新分配；不是无限增长或删除最后拒绝边界。CW / CC 保存流序号与代际，当前恢复快照不匹配时冻结。
 
 这是 R4 的 Agent 命令 / 结果阶段；完整输出 / 历史及客户端全局配额、唯一 delivery:2 和其余业务的去状态仍见 TRANSPORT_STATE_INVENTORY。
-
 
 ## 开发中的客户端全局计量与输出背压（2026-11-01）
 
@@ -619,9 +615,7 @@ CC 的输出接收信用取连续 consumed + 32、consumedBytes + 2 MiB；落盘
 
 关闭 / exhausted 只停止新命令的发布，仍允许原结果查询与确认；同身份重新 OPEN 关闭流不会重开信用。会话 runtime 退出时关闭该会话输入流，未确认结果继续保留。完整历史订阅、A 权威历史和其它业务资源仍需统一预算及最终新版协议切换。
 
-
 原生 CC 缓存进一步收敛为所选 cache-dir / COC_HISTORY_DIR 下的 transport-v3 公共 SQLite；relay / host / token 的 SHA-256 前缀隔离 cache 与 local_credit 键，各身份 / 连接共享同一预算事务。旧凭据分库原样隔离，不读取旧 outbox，也不删除旧文件。普通缓存独立维护 transport2_cache_entries / transport2_cache_budget，全局 64 MiB / 100000 条、单身份 16 MiB / 10000 条、最多 1024 个缓存作用域。正文、索引 / 键开销与计数同事务；替换、清理及已到期上传回执回收同步扣账。清理只影响当前身份的普通缓存，保留所有已预留的可靠 outbox / 输出，其他身份不可见且不受清理影响。已有持久承诺不能通过新凭据再放大。
-
 
 ## 开发中的历史端到端订阅
 
@@ -635,13 +629,11 @@ Worker 在受鉴权 socket 上覆盖 owner / route，重新核验通知接收者
 
 CC 附着期间的历史观察器使用 HistorySubscription 与共享 SQLite 的原身份恢复，页 / 实时缓存提交后才确认；过期连接页与旧 exchange 忽略，实例、分配代际与当前权威回退检查同 CW。移除原先每 10 秒的空闲读页，仅在缺口、重连或请求超时恢复时发起读取；历史缓存错误暂停其确认，不影响 TUI 的独立可靠输出。单次 coc-client history 是有限只读，不建立长驻订阅。
 
-
 ## 读取转发与本地取消身份
 
 只读控制关联共用 128 条 / 8 MiB 内存容器；pending 最多 20 秒，完成后结果另保留最多 20 秒供查询，无定时补发、持久到期索引或完成通知计数写入。内存容量不足时返回 BACKPRESSURE，拒绝正文不随错误回执继续占用。D1 不查询这些临时编号；DO 重建使编号失效，C 重新读取 A。审批列表保留前置会话模式检查，项目管理 list / browse 保留管理权限复核。CW 的显式只读请求及 CC GET 使用最多三次有限恢复；写请求继续按原身份对账。
 
 本地取消的身份拒绝与诊断正文分开：每份 outbox 持久保存最多 1024 个 SHA-256 身份，终结后不随 64 条 / 512 KiB 正文尾部淘汰。满时拒绝后续取消，原排队项仍在。CC 摘要包含 RPC 请求方向和 JSON ID 类型，不能将数字 / 字符串或审批答复混用。集合纳入既有 32 MiB 客户端预留；完整的 A 历史及其它业务统一预算仍待实现。自动审批的尝试标记随当前审批对象回收，不再累积所有已解决版本。
-
 
 ## A 权威历史计量
 
@@ -649,11 +641,9 @@ CC 附着期间的历史观察器使用 HistorySubscription 与共享 SQLite 的
 
 计量首次建立时保留并核算已有历史，超额仍允许读取和释放，不再增加占用。容量不足返回 BACKPRESSURE，调用既有存储失败回调停止 Agent 新副作用及 runtime；命令终态预留不被历史消耗，已登记内容不因配额被淘汰。现有指标记录 historyBytes / historyRecords。逻辑计量不等于 SQLite 文件 / 空闲页 / WAL 的物理配额；其它业务及控制资源仍须纳入完整 R4。
 
-
 ## 私有原子替换的遗留回收（2026-11-01）
 
 Linux 私有配置、凭据及更新状态的原子替换在父目录锁内清理同一目标的精确 `.tmp-UUID` 遗留，再写入新暂存文件；清理与发布均同步父目录。锁随进程退出由内核释放，活跃写入期间其它私有写入返回 CONFIG_BUSY，不删除对方文件；不增加回执目录中的锁文件，不跟随遗留符号链接，也不清理其它命名文件。重复崩溃不会为同一目标无限累积暂存正文。
-
 
 中继收入队列在每连接 8 MiB / 全局 16 MiB 之外，限制每连接 1024 / 全局 2048 条；转发另限制每连接 1000 / 全局 2000 条，同样限制字节。零字节帧仍占条数。不同身份在途鉴权最多 128 项，相同身份合并；完成或失败释放。拒绝 / 溢出 / 鉴权失败只记录数量及原因类别，无正文和凭据。
 
@@ -689,8 +679,8 @@ Markdown 的工具栏由调用方显式启用，仅文件预览启用；对话�
 
 ### Terminal 流式字节通道
 
-`GET /ws/v1/hosts/:host/terminal` 以 Web Cookie / Origin 鉴权升级；首帧 bind 固定 project/session/runtime/control 与输出 offset。Agent 通过 terminalStreaming:1 能力和 info.streaming:1 协商支持。后续 input/resize 带严格递增 seq，ready/ack 返回 next；output 为有界 base64 字节与结束 offset/gap，ack 只允许已发送范围，另有 ping/pong 与 exit/error。Relay 不把此帧开放给通知 / 历史 / CLI socket，也不允许终端 socket 执行其它业务；使用 socket route 与 runtime/session 双重匹配回包。Agent 每次操作及输出推送再次验证真实控制状态。
+`GET /ws/v1/hosts/:host/terminal` 以 Web Cookie / Origin 鉴权升级；首帧 bind 固定 project/session/runtime/control 与输出 offset。Agent 通过 terminalStreaming:2 能力和 info.streaming:2 协商支持。后续 input/resize 带严格递增 seq，ready/ack 返回 next；output 为有界 base64 字节与结束 offset/gap，ack 只允许已发送范围，另有 ping/pong 与 exit/error。Relay 不把此帧开放给通知 / 历史 / CLI socket，也不允许终端 socket 执行其它业务；使用 socket route 与 runtime/session 双重匹配回包。Agent 每次操作及输出推送再次验证真实控制状态。
 
-字节流沿既有 Agent WebSocket 转发，不创建临时 operation、正文日志或云端持久进度；原 delivery:2 助手正文与 lifecycle HTTP 不改变。Relay 沿用短期鉴权缓存及撤销 / 到期校验，租约与 writer 从本地权威活动状态复核，输出仅发给仍获授权的目标。终端 socket 关闭不走控制连接的 detach 路径，不会把整个会话设为 inactive；父控制连接 detach / 接管 / 会话结束会关闭对应终端流。
+字节流沿既有 Agent WebSocket 转发，不创建临时 operation、正文日志或云端持久进度；原 delivery:2 助手正文与 lifecycle HTTP 不改变。Relay 在连接 / bind 准入时验证身份与 writer/control，稳定字节和 ACK 沿用连接绑定；撤销、到期及控制权变化通过连接生命周期事件退休路由，Agent 继续权威验证每项实际操作。终端 socket 关闭不走控制连接的 detach 路径，不会把整个会话设为 inactive；父控制连接 detach / 接管 / 会话结束会关闭对应终端流。
 
-64 KiB 输出信用由浏览器 xterm.write 完成回调释放；Agent 输出环最多 256 KiB，在线接收方慢时暂停异步 PTY read，内核进一步背压 Shell。仅断线或历史尾部不足时允许显式 gap。输入仍按序确认且不自动重放，超过 15 秒未知输入关闭流；20 秒握手时限、15 秒 WebSocket 心跳，Agent 60 秒无授权活动终止 runtime。所有字节 / 确认均易失，不能与原可靠操作的持久 ACK 混淆。
+64 KiB 输出信用由浏览器 xterm.write 完成回调释放；Agent 输出环最多 256 KiB，在线接收方慢时暂停异步 PTY read，内核进一步背压 Shell。仅断线或历史尾部不足时允许显式 gap。输入使用最多 32 帧 / 64 KiB base64 在途窗口，按序确认且不自动重放，超过 15 秒未知输入关闭流；20 秒握手时限，无在线应用心跳，Agent 从断流时开始 60 秒恢复宽限。原生 WebSocket 使用 TCP_NODELAY，终端模块和只读 info 并行准备；不提前开启 Shell。所有字节 / 确认均易失，不能与原可靠操作的持久 ACK 混淆。

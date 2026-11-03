@@ -1,0 +1,1891 @@
+{
+  "baseline": {
+    "started": "2026-11-03T04:21:21.466Z",
+    "target": "https://r.xlogic.cc",
+    "scope": "Sequential read-only online measurements, existing authorized host/session, no model, PTY, takeover or configuration change",
+    "setup": [
+      {
+        "name": "email",
+        "ms": 2004.6802819999998,
+        "status": 200
+      },
+      {
+        "name": "restore",
+        "ms": 474.8748999999998,
+        "status": 200
+      }
+    ],
+    "http": [
+      {
+        "name": "health",
+        "sample": 1,
+        "ms": 236.39999997615814,
+        "headersMs": 235.80000001192093,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 1,
+        "ms": 652.9000000357628,
+        "headersMs": 652.4000000357628,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 1,
+        "ms": 860.8000000119209,
+        "headersMs": 607.5,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 2,
+        "ms": 349.5999999642372,
+        "headersMs": 349.19999998807907,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 2,
+        "ms": 393.80000001192093,
+        "headersMs": 393.39999997615814,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 2,
+        "ms": 585.1999999880791,
+        "headersMs": 584.5,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 3,
+        "ms": 248.30000001192093,
+        "headersMs": 248,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 3,
+        "ms": 409.30000001192093,
+        "headersMs": 408.9000000357628,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 3,
+        "ms": 594.5,
+        "headersMs": 593.8999999761581,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 4,
+        "ms": 235.5999999642372,
+        "headersMs": 235.19999998807907,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 4,
+        "ms": 388.7000000476837,
+        "headersMs": 388.4000000357628,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 4,
+        "ms": 565.1999999880791,
+        "headersMs": 564.7999999523163,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 5,
+        "ms": 249,
+        "headersMs": 248.5,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 5,
+        "ms": 394.5,
+        "headersMs": 394,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 5,
+        "ms": 609.5999999642372,
+        "headersMs": 609.1999999880791,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 6,
+        "ms": 233.89999997615814,
+        "headersMs": 233.39999997615814,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 6,
+        "ms": 411.4000000357628,
+        "headersMs": 410.9000000357628,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 6,
+        "ms": 618.5,
+        "headersMs": 618.1000000238419,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 7,
+        "ms": 238.0999999642372,
+        "headersMs": 237.79999995231628,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 7,
+        "ms": 653,
+        "headersMs": 652.5999999642372,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 7,
+        "ms": 556.8999999761581,
+        "headersMs": 556.3999999761581,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 8,
+        "ms": 235.9000000357628,
+        "headersMs": 235.60000002384186,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 8,
+        "ms": 386.7000000476837,
+        "headersMs": 386.2000000476837,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 8,
+        "ms": 564.6999999880791,
+        "headersMs": 564.1000000238419,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 9,
+        "ms": 501.9000000357628,
+        "headersMs": 501.5,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 9,
+        "ms": 400.7999999523163,
+        "headersMs": 400.39999997615814,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 9,
+        "ms": 572.5,
+        "headersMs": 572.0999999642372,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 10,
+        "ms": 232.70000004768372,
+        "headersMs": 232.4000000357628,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 10,
+        "ms": 394.19999998807907,
+        "headersMs": 393.69999998807907,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 10,
+        "ms": 691.5,
+        "headersMs": 691.1999999880791,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 11,
+        "ms": 234.39999997615814,
+        "headersMs": 234,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 11,
+        "ms": 390.19999998807907,
+        "headersMs": 389.89999997615814,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 11,
+        "ms": 1042.4000000357628,
+        "headersMs": 820.1000000238419,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 12,
+        "ms": 233.10000002384186,
+        "headersMs": 232.69999998807907,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 12,
+        "ms": 400.4000000357628,
+        "headersMs": 400.10000002384186,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 12,
+        "ms": 692.0999999642372,
+        "headersMs": 691.3999999761581,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 13,
+        "ms": 251.10000002384186,
+        "headersMs": 250.60000002384186,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 13,
+        "ms": 388,
+        "headersMs": 387.60000002384186,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 13,
+        "ms": 1134.800000011921,
+        "headersMs": 912.6999999880791,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 14,
+        "ms": 234.29999995231628,
+        "headersMs": 233.79999995231628,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 14,
+        "ms": 394.30000001192093,
+        "headersMs": 393.9000000357628,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 14,
+        "ms": 562.4000000357628,
+        "headersMs": 561.9000000357628,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 15,
+        "ms": 233.5,
+        "headersMs": 233.0999999642372,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 15,
+        "ms": 391.89999997615814,
+        "headersMs": 391.5,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 15,
+        "ms": 578.5,
+        "headersMs": 577.8999999761581,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 16,
+        "ms": 508.69999998807907,
+        "headersMs": 508.19999998807907,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 16,
+        "ms": 383.5999999642372,
+        "headersMs": 383.19999998807907,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 16,
+        "ms": 1051.3999999761581,
+        "headersMs": 828.3000000119209,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 17,
+        "ms": 237.79999995231628,
+        "headersMs": 237.39999997615814,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 17,
+        "ms": 390.30000001192093,
+        "headersMs": 389.7000000476837,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 17,
+        "ms": 573.6999999880791,
+        "headersMs": 573.1000000238419,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 18,
+        "ms": 261.10000002384186,
+        "headersMs": 260.60000002384186,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 18,
+        "ms": 390,
+        "headersMs": 389.5999999642372,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 18,
+        "ms": 568.2000000476837,
+        "headersMs": 567.4000000357628,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 19,
+        "ms": 491.7999999523163,
+        "headersMs": 491.39999997615814,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 19,
+        "ms": 413.19999998807907,
+        "headersMs": 412.89999997615814,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 19,
+        "ms": 557,
+        "headersMs": 556.3999999761581,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "health",
+        "sample": 20,
+        "ms": 235.5,
+        "headersMs": 235.20000004768372,
+        "bytes": 53,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "identity",
+        "sample": 20,
+        "ms": 415.69999998807907,
+        "headersMs": 415.30000001192093,
+        "bytes": 40,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      },
+      {
+        "name": "hosts",
+        "sample": 20,
+        "ms": 635.8000000119209,
+        "headersMs": 635.3000000119209,
+        "bytes": 2223,
+        "status": 200,
+        "colo": "AMS",
+        "cache": null
+      }
+    ],
+    "operations": [
+      {
+        "name": "probe",
+        "sample": 1,
+        "acceptedMs": 834.6999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 549.6999999880791,
+            "headersMs": 549.1999999880791,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1391.4448550000016,
+        "resultBytes": 366,
+        "ackMs": 549.7000000476837
+      },
+      {
+        "name": "sessions",
+        "sample": 1,
+        "acceptedMs": 722.8000000119209,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 558,
+            "headersMs": 557.3999999761581,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 582.1000000238419,
+            "headersMs": 545.7000000476837,
+            "bytes": 50787,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2140.4499819999983,
+        "resultBytes": 50756,
+        "ackMs": 546.2999999523163
+      },
+      {
+        "name": "snapshot",
+        "sample": 1,
+        "acceptedMs": 562.1999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 551,
+            "headersMs": 541.4000000357628,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1124.1990189999997,
+        "resultBytes": 15804,
+        "ackMs": 548
+      },
+      {
+        "name": "probe",
+        "sample": 2,
+        "acceptedMs": 557,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 543.8999999761581,
+            "headersMs": 543.3999999761581,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1106.918310999994,
+        "resultBytes": 366,
+        "ackMs": 539.6999999880791
+      },
+      {
+        "name": "sessions",
+        "sample": 2,
+        "acceptedMs": 695,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 552.9000000357628,
+            "headersMs": 552.5,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 573.6999999880791,
+            "headersMs": 541,
+            "bytes": 50787,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2096.516039000002,
+        "resultBytes": 50756,
+        "ackMs": 802.0999999642372
+      },
+      {
+        "name": "snapshot",
+        "sample": 2,
+        "acceptedMs": 558.1999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 625.7999999523163,
+            "headersMs": 616.3999999761581,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1193.0048249999963,
+        "resultBytes": 15804,
+        "ackMs": 541.3000000119209
+      },
+      {
+        "name": "probe",
+        "sample": 3,
+        "acceptedMs": 555.6999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 547,
+            "headersMs": 546.3999999761581,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1108.253549999994,
+        "resultBytes": 366,
+        "ackMs": 546.4000000357628
+      },
+      {
+        "name": "sessions",
+        "sample": 3,
+        "acceptedMs": 710.4000000357628,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 548.4000000357628,
+            "headersMs": 547.6999999880791,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 802.3000000119209,
+            "headersMs": 800.8000000119209,
+            "bytes": 50787,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2341.9923449999987,
+        "resultBytes": 50756,
+        "ackMs": 550.4000000357628
+      },
+      {
+        "name": "snapshot",
+        "sample": 3,
+        "acceptedMs": 544.4000000357628,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 556.8000000119209,
+            "headersMs": 547.1999999880791,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1111.492594000003,
+        "resultBytes": 15804,
+        "ackMs": 545.4000000357628
+      },
+      {
+        "name": "probe",
+        "sample": 4,
+        "acceptedMs": 580,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 554.3999999761581,
+            "headersMs": 553.8000000119209,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1140.0122090000004,
+        "resultBytes": 366,
+        "ackMs": 550.3000000119209
+      },
+      {
+        "name": "sessions",
+        "sample": 4,
+        "acceptedMs": 709.5,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 539.3000000119209,
+            "headersMs": 538.8000000119209,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 593.1000000238419,
+            "headersMs": 556.1000000238419,
+            "bytes": 50786,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2115.686969999995,
+        "resultBytes": 50755,
+        "ackMs": 554.6999999880791
+      },
+      {
+        "name": "snapshot",
+        "sample": 4,
+        "acceptedMs": 542.3000000119209,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 547,
+            "headersMs": 546.5,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 564.9000000357628,
+            "headersMs": 553.6000000238419,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1917.297676000002,
+        "resultBytes": 15804,
+        "ackMs": 550.6000000238419
+      },
+      {
+        "name": "probe",
+        "sample": 5,
+        "acceptedMs": 559.8999999761581,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 540.3000000119209,
+            "headersMs": 539.7000000476837,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1105.9753720000008,
+        "resultBytes": 366,
+        "ackMs": 551.6000000238419
+      },
+      {
+        "name": "sessions",
+        "sample": 5,
+        "acceptedMs": 718.1999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 544.6000000238419,
+            "headersMs": 544,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 842.3999999761581,
+            "headersMs": 540.5999999642372,
+            "bytes": 50786,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2375.9617819999985,
+        "resultBytes": 50755,
+        "ackMs": 530.8000000119209
+      },
+      {
+        "name": "snapshot",
+        "sample": 5,
+        "acceptedMs": 576.3000000119209,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 548.3000000119209,
+            "headersMs": 540.8000000119209,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1133.493631999998,
+        "resultBytes": 15804,
+        "ackMs": 538.5999999642372
+      },
+      {
+        "name": "probe",
+        "sample": 6,
+        "acceptedMs": 573,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 553.5,
+            "headersMs": 552.8999999761581,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1131.3988619999946,
+        "resultBytes": 366,
+        "ackMs": 544.9000000357628
+      },
+      {
+        "name": "sessions",
+        "sample": 6,
+        "acceptedMs": 700.1000000238419,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 586.8000000119209,
+            "headersMs": 586.3000000119209,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 588.3999999761581,
+            "headersMs": 555.1999999880791,
+            "bytes": 50786,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2148.785327999998,
+        "resultBytes": 50755,
+        "ackMs": 612.8999999761581
+      },
+      {
+        "name": "snapshot",
+        "sample": 6,
+        "acceptedMs": 546.3000000119209,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 544.0999999642372,
+            "headersMs": 543.6999999880791,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 1310.3999999761581,
+            "headersMs": 548.3999999761581,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2662.137004999997,
+        "resultBytes": 15804,
+        "ackMs": 547.3000000119209
+      },
+      {
+        "name": "probe",
+        "sample": 7,
+        "acceptedMs": 546,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 547.5,
+            "headersMs": 547,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1097.9899129999976,
+        "resultBytes": 366,
+        "ackMs": 539.5
+      },
+      {
+        "name": "sessions",
+        "sample": 7,
+        "acceptedMs": 713.5999999642372,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 1313.5999999642372,
+            "headersMs": 1313.300000011921,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 591.1999999880791,
+            "headersMs": 551,
+            "bytes": 50786,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2892.570737999995,
+        "resultBytes": 50755,
+        "ackMs": 541
+      },
+      {
+        "name": "snapshot",
+        "sample": 7,
+        "acceptedMs": 545.5,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 560,
+            "headersMs": 538,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1115.5957389999967,
+        "resultBytes": 15804,
+        "ackMs": 537.6999999880791
+      },
+      {
+        "name": "probe",
+        "sample": 8,
+        "acceptedMs": 540.0999999642372,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 544.5,
+            "headersMs": 544.1000000238419,
+            "bytes": 397,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1092.3902780000062,
+        "resultBytes": 366,
+        "ackMs": 548.6999999880791
+      },
+      {
+        "name": "sessions",
+        "sample": 8,
+        "acceptedMs": 713.1999999880791,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 548.8999999761581,
+            "headersMs": 548.2999999523163,
+            "bytes": 19,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "pending"
+          },
+          {
+            "ms": 813.6999999880791,
+            "headersMs": 550.1000000238419,
+            "bytes": 50786,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 2352.7717929999926,
+        "resultBytes": 50755,
+        "ackMs": 541.5
+      },
+      {
+        "name": "snapshot",
+        "sample": 8,
+        "acceptedMs": 560.3000000119209,
+        "initialStatus": 202,
+        "polls": [
+          {
+            "ms": 1029.6000000238419,
+            "headersMs": 541,
+            "bytes": 15835,
+            "status": 200,
+            "colo": "AMS",
+            "cache": null,
+            "state": "completed"
+          }
+        ],
+        "resultMs": 1598.6467539999867,
+        "resultBytes": 15804,
+        "ackMs": 550.3999999761581
+      }
+    ],
+    "sockets": [
+      {
+        "sample": 1,
+        "openMs": 1605.5999999642372,
+        "subscribedMs": 2636
+      },
+      {
+        "sample": 2,
+        "openMs": 1380.8999999761581,
+        "subscribedMs": 1381.199999988079
+      },
+      {
+        "sample": 3,
+        "openMs": 1132.800000011921,
+        "subscribedMs": 1133.0999999642372
+      },
+      {
+        "sample": 4,
+        "openMs": 1561,
+        "subscribedMs": 1561.3999999761581
+      },
+      {
+        "sample": 5,
+        "openMs": 1391.5,
+        "subscribedMs": 1392
+      },
+      {
+        "sample": 6,
+        "openMs": 1141.300000011921,
+        "subscribedMs": 1141.5999999642372
+      },
+      {
+        "sample": 7,
+        "openMs": 1166.800000011921,
+        "subscribedMs": 1167.0999999642372
+      },
+      {
+        "sample": 8,
+        "openMs": 1123,
+        "subscribedMs": 1123.3999999761581
+      },
+      {
+        "sample": 9,
+        "openMs": 1107.2000000476837,
+        "subscribedMs": 1107.6000000238419
+      },
+      {
+        "sample": 10,
+        "openMs": 1305.5999999642372,
+        "subscribedMs": 1305.8999999761581
+      }
+    ],
+    "pages": [
+      {
+        "context": 1,
+        "kind": "empty-browser-cache",
+        "rootReadyMs": 2306.330341000008,
+        "navigation": {
+          "dnsMs": 0.800000011920929,
+          "tcpMs": 462.5,
+          "tlsMs": 237.5,
+          "ttfbMs": 261.2999999523163,
+          "responseMs": 1.100000023841858,
+          "domContentLoadedMs": 2267.699999988079,
+          "loadMs": 2267.699999988079,
+          "protocol": "h2",
+          "transferBytes": 890
+        },
+        "fcpMs": 2296,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 1488.4000000357628,
+            "ttfbMs": 481.2000000476837,
+            "transferBytes": 228512,
+            "encodedBytes": 228212,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 487.19999998807907,
+            "ttfbMs": 251.80000001192093,
+            "transferBytes": 741,
+            "encodedBytes": 441,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 488.30000001192093,
+            "ttfbMs": 480.30000001192093,
+            "transferBytes": 8446,
+            "encodedBytes": 8146,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 475.89999997615814,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 482.5,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 612.3999999761581,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 414.7999999523163,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 1,
+        "kind": "reload",
+        "rootReadyMs": 520.9727480000001,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 239.19999998807907,
+          "responseMs": 1,
+          "domContentLoadedMs": 501.10000002384186,
+          "loadMs": 501.10000002384186,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 516,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 223.5,
+            "ttfbMs": 222.29999995231628,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 236.69999998807907,
+            "ttfbMs": 235.0999999642372,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 241.5,
+            "ttfbMs": 240,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 364.10000002384186,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 395.2999999523163,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 547.1999999880791,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 385.69999998807907,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 1,
+        "kind": "reload",
+        "rootReadyMs": 518.3596529999922,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 240.89999997615814,
+          "responseMs": 0.699999988079071,
+          "domContentLoadedMs": 497.10000002384186,
+          "loadMs": 497.19999998807907,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 504,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 228.39999997615814,
+            "ttfbMs": 227.29999995231628,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 229.10000002384186,
+            "ttfbMs": 228,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 233.10000002384186,
+            "ttfbMs": 231.89999997615814,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 369.60000002384186,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 387.60000002384186,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 537.8000000119209,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 397.0999999642372,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 2,
+        "kind": "empty-browser-cache",
+        "rootReadyMs": 2929.932949000009,
+        "navigation": {
+          "dnsMs": 1.5,
+          "tcpMs": 473.60000002384186,
+          "tlsMs": 242.10000002384186,
+          "ttfbMs": 652.9000000357628,
+          "responseMs": 0.8999999761581421,
+          "domContentLoadedMs": 2895,
+          "loadMs": 2895,
+          "protocol": "h2",
+          "transferBytes": 890
+        },
+        "fcpMs": 2928,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 1705.5,
+            "ttfbMs": 564.1000000238419,
+            "transferBytes": 228995,
+            "encodedBytes": 228695,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 1704,
+            "ttfbMs": 646.1000000238419,
+            "transferBytes": 741,
+            "encodedBytes": 441,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 568.8000000119209,
+            "ttfbMs": 266.30000001192093,
+            "transferBytes": 8404,
+            "encodedBytes": 8104,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 395.30000001192093,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 393.89999997615814,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 571.5,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 399.5,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 2,
+        "kind": "reload",
+        "rootReadyMs": 533.095135999989,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 242.39999997615814,
+          "responseMs": 1.300000011920929,
+          "domContentLoadedMs": 511.5999999642372,
+          "loadMs": 511.69999998807907,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 532,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 229.9000000357628,
+            "ttfbMs": 227.60000002384186,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 240.69999998807907,
+            "ttfbMs": 239.19999998807907,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 241.19999998807907,
+            "ttfbMs": 239.29999995231628,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 628.7999999523163,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 421.9000000357628,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 553.5,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 388.5999999642372,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 2,
+        "kind": "reload",
+        "rootReadyMs": 777.2074820000125,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 228.60000002384186,
+          "responseMs": 0.699999988079071,
+          "domContentLoadedMs": 755.3000000119209,
+          "loadMs": 755.3000000119209,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 764,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 223.9000000357628,
+            "ttfbMs": 223,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 223.20000004768372,
+            "ttfbMs": 221.19999998807907,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 502.5,
+            "ttfbMs": 500.9000000357628,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 390,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 556.5,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 583.8000000119209,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 387.0999999642372,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 3,
+        "kind": "empty-browser-cache",
+        "rootReadyMs": 1738.142372000002,
+        "navigation": {
+          "dnsMs": 1.899999976158142,
+          "tcpMs": 424.5,
+          "tlsMs": 215.69999998807907,
+          "ttfbMs": 243.0999999642372,
+          "responseMs": 0.9000000357627869,
+          "domContentLoadedMs": 1704.800000011921,
+          "loadMs": 1704.800000011921,
+          "protocol": "h2",
+          "transferBytes": 890
+        },
+        "fcpMs": 1740,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 979.4000000357628,
+            "ttfbMs": 289.0999999642372,
+            "transferBytes": 228584,
+            "encodedBytes": 228284,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 294.5,
+            "ttfbMs": 288.5,
+            "transferBytes": 741,
+            "encodedBytes": 441,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 293.60000002384186,
+            "ttfbMs": 286.5,
+            "transferBytes": 8409,
+            "encodedBytes": 8109,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 414.10000002384186,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 427.60000002384186,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 871.1999999880791,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 409.69999998807907,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 3,
+        "kind": "reload",
+        "rootReadyMs": 851.121908000001,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 261.19999998807907,
+          "responseMs": 0.8999999761581421,
+          "domContentLoadedMs": 829.9000000357628,
+          "loadMs": 830,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 848,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 272.2999999523163,
+            "ttfbMs": 270.0999999642372,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 546.3000000119209,
+            "ttfbMs": 544.1000000238419,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 265.80000001192093,
+            "ttfbMs": 263.89999997615814,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 401.69999998807907,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 422.7999999523163,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 580.4000000357628,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 410.39999997615814,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      },
+      {
+        "context": 3,
+        "kind": "reload",
+        "rootReadyMs": 561.9276269999973,
+        "navigation": {
+          "dnsMs": 0,
+          "tcpMs": 0,
+          "tlsMs": 0,
+          "ttfbMs": 251.60000002384186,
+          "responseMs": 0.699999988079071,
+          "domContentLoadedMs": 538.6999999880791,
+          "loadMs": 538.6999999880791,
+          "protocol": "h3",
+          "transferBytes": 890
+        },
+        "fcpMs": 556,
+        "assets": [
+          {
+            "path": "/assets/index-D6ovgha3.js",
+            "durationMs": 256.4000000357628,
+            "ttfbMs": 254.69999998807907,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/rolldown-runtime-XKyaHtl9.js",
+            "durationMs": 256.5,
+            "ttfbMs": 255.0999999642372,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          },
+          {
+            "path": "/assets/index-DONSqRtm.css",
+            "durationMs": 263.5999999642372,
+            "ttfbMs": 262.2999999523163,
+            "transferBytes": 300,
+            "encodedBytes": 0,
+            "protocol": "h2"
+          }
+        ],
+        "api": [
+          {
+            "path": "/api/v1/auth/email",
+            "durationMs": 415.19999998807907,
+            "transferBytes": 439
+          },
+          {
+            "path": "/api/v1/auth/email/admin",
+            "durationMs": 421.89999997615814,
+            "transferBytes": 325
+          },
+          {
+            "path": "/api/v1/hosts",
+            "durationMs": 567.7000000476837,
+            "transferBytes": 1077
+          },
+          {
+            "path": "/api/v1/auth/me",
+            "durationMs": 406.5,
+            "transferBytes": 340
+          }
+        ],
+        "rootTextLength": 96,
+        "uncaughtErrors": 0
+      }
+    ],
+    "errors": [],
+    "finished": "2026-11-03T04:23:29.211Z",
+    "passed": true
+  },
+  "terminalBefore": {
+    "time": "2026-11-03T04:26:24.907Z",
+    "scope": "Dedicated temporary project and session, no existing controller takeover, no model calls",
+    "stages": {
+      "projectRegistered": true,
+      "menuToOpenEnabledMs": 5956.963592,
+      "sessionAndMetadataMs": 8822.834872,
+      "openToConnectedMs": 3868.0254330000025
+    },
+    "characters": [
+      1241.9000000357628, 2058.800000011921, 943.4000000357628,
+      992.8999999761581, 926.5999999642372, 1140, 942.6999999880791,
+      980.2999999523163
+    ],
+    "commands": [
+      940.1000000238419, 1392.300000011921, 1314.300000011921, 1311.800000011921
+    ],
+    "cleanup": {
+      "terminalClosed": true,
+      "sessionClosed": true,
+      "projectRemoved": true,
+      "emptyDirectoryRemoved": true
+    },
+    "charactersSummary": {
+      "samples": 8,
+      "min": 926.5999999642372,
+      "p50": 980.2999999523163,
+      "p95": 2058.800000011921,
+      "max": 2058.800000011921
+    },
+    "commandsSummary": {
+      "samples": 4,
+      "min": 940.1000000238419,
+      "p50": 1311.800000011921,
+      "p95": 1392.300000011921,
+      "max": 1392.300000011921
+    }
+  }
+}

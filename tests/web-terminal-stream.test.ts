@@ -92,23 +92,83 @@ describe('streaming Terminal', () => {
     expect(callbacks.error).not.toHaveBeenCalled();
     stream.close();
   });
-  it('waits for the exact input sequence confirmation', async () => {
+  it('sends later input before earlier ACKs and confirms each sequence in order', async () => {
     const { stream, socket } = setup();
     const done = vi.fn();
     const pending = stream.write({ type: 'input', data: btoa('x') }).then(done);
     expect(socket.sent.at(-1).frame.seq).toBe(1);
     expect(done).not.toHaveBeenCalled();
-    await expect(
-      stream.write({ type: 'input', data: btoa('y') }),
-    ).rejects.toThrow('not ready');
+    const laterDone = vi.fn();
+    const later = stream
+      .write({ type: 'input', data: btoa('y') })
+      .then(laterDone);
+    expect(socket.sent.at(-1).frame).toEqual({
+      type: 'input',
+      data: btoa('y'),
+      seq: 2,
+    });
     socket.receive({ type: 'ack', next: 2 });
     await pending;
     expect(done).toHaveBeenCalled();
-    const resize = stream.write({ type: 'resize', cols: 80, rows: 24 });
-    expect(socket.sent.at(-1).frame.seq).toBe(2);
+    expect(laterDone).not.toHaveBeenCalled();
     socket.receive({ type: 'ack', next: 3 });
+    await later;
+    const resize = stream.write({ type: 'resize', cols: 80, rows: 24 });
+    expect(socket.sent.at(-1).frame.seq).toBe(3);
+    socket.receive({ type: 'ack', next: 4 });
     await resize;
     stream.close();
+  });
+  it('bounds outstanding frames and resumes without allocating skipped sequences', async () => {
+    const { stream, socket } = setup();
+    const writes = Array.from({ length: 32 }, () =>
+      stream.write({ type: 'input', data: btoa('x') }),
+    );
+    const settled = Promise.allSettled(writes);
+    expect(stream.writable).toBe(false);
+    await expect(
+      stream.write({ type: 'input', data: btoa('overflow') }),
+    ).rejects.toThrow('not ready');
+    socket.receive({ type: 'ack', next: 2 });
+    expect(stream.writable).toBe(true);
+    const next = stream.write({ type: 'resize', cols: 80, rows: 24 });
+    expect(socket.sent.at(-1).frame.seq).toBe(33);
+    for (let n = 3; n <= 34; n++) socket.receive({ type: 'ack', next: n });
+    await next;
+    expect((await settled).every((r) => r.status === 'fulfilled')).toBe(true);
+    stream.close();
+  });
+  it('bounds outstanding input bytes even when the frame limit has room', async () => {
+    const { stream, socket } = setup();
+    const input = { type: 'input' as const, data: btoa('x'.repeat(4096)) };
+    const writes = Array.from({ length: 11 }, () => stream.write(input));
+    const settled = Promise.allSettled(writes);
+    expect(stream.writable).toBe(false);
+    await expect(stream.write(input)).rejects.toThrow('not ready');
+    expect(socket.sent.filter((v) => v.frame?.type === 'input')).toHaveLength(
+      11,
+    );
+    socket.receive({ type: 'ack', next: 2 });
+    expect(stream.writable).toBe(true);
+    stream.close();
+    const outcomes = await settled;
+    expect(outcomes[0].status).toBe('fulfilled');
+    expect(outcomes.slice(1).every((r) => r.status === 'rejected')).toBe(true);
+  });
+  it('rejects every outstanding write on a skipped acknowledgment without replay', async () => {
+    const { stream, socket, callbacks } = setup();
+    const settled = Promise.allSettled([
+      stream.write({ type: 'input', data: btoa('x') }),
+      stream.write({ type: 'input', data: btoa('y') }),
+    ]);
+    socket.receive({ type: 'ack', next: 3 });
+    expect((await settled).every((r) => r.status === 'rejected')).toBe(true);
+    expect(callbacks.error).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(socket.sent.filter((v) => v.frame?.type === 'input')).toHaveLength(
+      2,
+    );
+    expect(stream.writable).toBe(false);
   });
   it('fails closed on offset mismatch', () => {
     const { socket, callbacks } = setup();

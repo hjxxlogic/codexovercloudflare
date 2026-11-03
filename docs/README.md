@@ -4,6 +4,9 @@
 
 本目录区分当前使用说明、设计依据、验收结果和历史证据。**0.6.0 已于 2026-11-01 发布云端及四平台下载包**：delivery:2 和协议简化通过本机回归与六项必需 CI。现场 Agent / CLI 仍需手动升级。线上版本不能从源码版本推断，请查[发布记录](DEPLOYMENT_STATUS.md)中的日期与制品身份。
 
+- [线上响应速度与 Terminal 0.6.2](RESPONSE_SPEED_2026-11-03.md)：真实接口与终端采样、并行准备、有界输入窗口和 Actions 发布证据。
+- [OpenAI 公式修复](MATH_RENDERING_FIX_2026-11-03.md)：公式被块解析拆开的原因与生产资源渲染验收。
+
 ## 按任务阅读
 
 | 要做的事             | 阅读顺序                                                                                                                               |
@@ -49,10 +52,10 @@
 
 | 文档                                              | 用途                                                     |
 | ------------------------------------------------- | -------------------------------------------------------- |
-| [TEST_REPORT](TEST_REPORT.md)                     | 最新本机与 CI 验收、对应提交和未验证范围                       |
+| [TEST_REPORT](TEST_REPORT.md)                     | 最新本机与 CI 验收、对应提交和未验证范围                 |
 | [DEPLOYMENT_STATUS](DEPLOYMENT_STATUS.md)         | 实际发布过的源码、CI、制品和生产验证；不等于实时线上状态 |
 | [RELEASE](RELEASE.md)                             | 发布前检查、制品校验、更新与回退要求                     |
-| [TRANSPORT_CUTOVER](TRANSPORT_CUTOVER.md)         | 0.6.0 隔离演练和现场原生升级步骤；方案不是部署证明     |
+| [TRANSPORT_CUTOVER](TRANSPORT_CUTOVER.md)         | 0.6.0 隔离演练和现场原生升级步骤；方案不是部署证明       |
 | [测试历史](history/TEST_REPORT_2026-11-01.md)     | 截至 2026-11-01 的阶段测试与旧版验收原始记录             |
 | [简化审计过程](TRANSPORT_SIMPLIFICATION_AUDIT.md) | 八批变更、事务证明和各批当时范围；当前结论由最终矩阵汇总 |
 

@@ -74,6 +74,15 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
     root.mkdir()
     for executable in ('coc-client', 'coc-agent'):
         shutil.copy2(pathlib.Path(args.build_dir) / (executable + suffix), root / (executable + suffix))
+    if args.platform == 'musl':
+        # Static executables otherwise carry large symbol tables into the site
+        # archive. Strip staged copies only; retain build outputs for diagnostics.
+        for executable in ('coc-client', 'coc-agent'):
+            staged = root / executable
+            subprocess.run(['strip', '--strip-unneeded', str(staged)], check=True)
+            stripped = json.loads(subprocess.check_output([str(staged), '--version'], text=True))
+            if any(stripped.get(key) != metadata[key] for key in ('version', 'commit', 'sourceDigest', 'protocol', 'dirty', 'target')):
+                parser.error(f'{executable}: stripped release identity does not match source')
     shutil.copy2('examples/agent.example.json', root / 'agent.example.json')
     if not windows:
         shutil.copy2('examples/coc-agent.service', root / 'coc-agent.service')

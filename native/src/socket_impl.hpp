@@ -115,6 +115,13 @@ public:
         self->finish();
         return;
       }
+      // Small interactive frames (input ACK and PTY output) must not wait for
+      // outstanding TCP data to be acknowledged before the next write.
+      beast::get_lowest_layer(self->ws_).socket().set_option(tcp::no_delay(true), ec);
+      if (ec) {
+        self->finish();
+        return;
+      }
       const auto ready = [self](boost::system::error_code ec) {
         if (ec || self->ended_) {
           self->finish();

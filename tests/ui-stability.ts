@@ -65,6 +65,7 @@ let toolRevision = 90,
   historyPages = 0;
 let controlSyncCalls = 0;
 let probeCalls = 0;
+let terminalInfoCalls = 0;
 let hostNotificationConnections = 0;
 const submitted = new Set<string>();
 const promptCommands: { requestId: string; text: string; model?: string }[] =
@@ -286,6 +287,9 @@ const server = createServer((req, res) => {
     } else if (path === '/hosts/sample/probe') {
       probeCalls++;
       body = { online, confirmedAt: Date.now() };
+    } else if (path === '/hosts/sample/terminal') {
+      terminalInfoCalls++;
+      body = { enabled: false, streaming: 2, deliveryInstance: 'ui-instance' };
     } else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
       body =
@@ -1469,8 +1473,27 @@ try {
     .locator('.command-output')
     .getByRole('button', { name: '收起' })
     .click();
+  const infoBeforeTerminal = terminalInfoCalls;
+  let heldTerminalModule = false;
+  const terminalModule = /\/assets\/terminal-[^/]+\.js$/;
+  await page.route(terminalModule, async (route) => {
+    heldTerminalModule = true;
+    // The metadata read must run while the optional engine is still loading.
+    await expect.poll(() => terminalInfoCalls).toBe(infoBeforeTerminal + 1);
+    await route.continue();
+  });
   await workbenchAction('Terminal');
   await expect(page.locator('.interactive-terminal')).toBeVisible();
+  assert(
+    heldTerminalModule,
+    'startup regression actually held the engine download',
+  );
+  assert.equal(
+    terminalInfoCalls,
+    infoBeforeTerminal + 1,
+    'mount reuses the parallel info read',
+  );
+  await page.unroute(terminalModule);
   await enterFullscreen('.terminal-shell');
   await page
     .locator('.interactive-terminal')

@@ -8,6 +8,11 @@ import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import { t } from '../i18n.ts';
 import { TerminalStream } from './terminal-stream.ts';
 import { FullscreenButton } from './fullscreen.tsx';
+export type TerminalMetadata = {
+  enabled: boolean;
+  deliveryInstance: string;
+  streaming?: number;
+};
 type Props = {
   host: string;
   project: string;
@@ -17,6 +22,7 @@ type Props = {
   enabled: boolean;
   visible: boolean;
   close: () => void;
+  prepared?: Promise<TerminalMetadata>;
 };
 export default function InteractiveTerminal({
   host,
@@ -27,15 +33,12 @@ export default function InteractiveTerminal({
   enabled,
   visible,
   close,
+  prepared,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(null);
   const fit = useRef<FitAddon>(null);
-  const [metadata, setMetadata] = useState<{
-    enabled: boolean;
-    deliveryInstance: string;
-    streaming?: number;
-  }>();
+  const [metadata, setMetadata] = useState<TerminalMetadata>();
   const [error, setError] = useState('');
   const [runtime, setRuntime] = useState<string>();
   const [starting, setStarting] = useState(false);
@@ -48,16 +51,18 @@ export default function InteractiveTerminal({
   const renderRuntime = useRef<string | undefined>(undefined);
   const stream = useRef<TerminalStream | null>(null);
   const queue = useRef('');
-  const sending = useRef(false);
   const active = useRef(true);
   const path = `/hosts/${host}/terminal`;
   const scope = () => ({ projectId: project, sessionId: session, control });
   useEffect(() => {
     const controller = new AbortController();
-    void queryApi(
-      path,
-      { operation: 'info', projectId: project },
-      controller.signal,
+    void (
+      prepared ??
+      queryApi(
+        path,
+        { operation: 'info', projectId: project },
+        controller.signal,
+      )
     )
       .then((data) => {
         if (!controller.signal.aborted) setMetadata(data);
@@ -66,8 +71,9 @@ export default function InteractiveTerminal({
         if (!controller.signal.aborted) setError(String(e));
       });
     return () => controller.abort();
-  }, [host, project, path]);
+  }, [host, project, path, prepared]);
   useEffect(() => {
+    active.current = true;
     const term = new Terminal({
       cursorBlink: true,
       scrollback: 3000,
@@ -169,10 +175,10 @@ export default function InteractiveTerminal({
     };
     let resizePending = true;
     const timer = setInterval(() => {
-      if (sending.current || (!queue.current && !resizePending)) return;
+      if (!stream.current?.writable || (!queue.current && !resizePending))
+        return;
       const value = queue.current;
       queue.current = '';
-      sending.current = true;
       // Input remains memory-only; unknown writes are never replayed.
       let request:
         | { type: 'input'; data: string }
@@ -192,16 +198,12 @@ export default function InteractiveTerminal({
       void (
         stream.current?.write(request) ??
         Promise.reject(new Error('Terminal stream disconnected'))
-      )
-        .catch((e: unknown) => {
-          if (!controller.signal.aborted) {
-            setError(String(e));
-            setConnected(false);
-          }
-        })
-        .finally(() => {
-          sending.current = false;
-        });
+      ).catch((e: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(String(e));
+          setConnected(false);
+        }
+      });
     }, 16);
     const resized = term.onResize(({ cols, rows }) => {
       if (cols < 2 || rows < 2) return;

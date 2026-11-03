@@ -35,14 +35,14 @@
 
 在本工作树中运行，无模型调用：
 
-| 命令                                                                                 | 覆盖                                                                                              |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `npm run typecheck` / `npm run lint` / `npm run lint:cpp` / `npm run protocol:check` | 类型、格式、生成契约一致性                                                                        |
+| 命令                                                                                 | 覆盖                                                                                                |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `npm run typecheck` / `npm run lint` / `npm run lint:cpp` / `npm run protocol:check` | 类型、格式、生成契约一致性                                                                          |
 | `npm test`                                                                           | 10 项 CTest，34 个文件 / 486 项 Vitest；含终端流式确认、Markdown、Relay writer/proof 和文件预览上限 |
-| `npm run test:terminal`                                                              | 真实 Agent、创建重试、旧控制权拒绝、项目互斥、实际 PTY 输出、输入去重、关闭及 detach 后拒绝旧输入 |
-| `npm run test:markdown`                                                              | Chromium 中公式/图表、脚注/内部锚点、提示块、脚本/危险链接/外部请求限制及手机宽度                 |
-| `npm run test:ui`                                                                    | 工作台浅色/文件预览/路径引用/输出截图及旧 UI 完整回归，含 390×480 审批布局                        |
-| `npm run test:terminal:e2e`                                                          | DO 完整 E2E 加真实 Chromium → Worker → Agent → PTY 的打开、输入、输出和关闭                       |
+| `npm run test:terminal`                                                              | 真实 Agent、创建重试、旧控制权拒绝、项目互斥、实际 PTY 输出、输入去重、关闭及 detach 后拒绝旧输入   |
+| `npm run test:markdown`                                                              | Chromium 中公式/图表、脚注/内部锚点、提示块、脚本/危险链接/外部请求限制及手机宽度                   |
+| `npm run test:ui`                                                                    | 工作台浅色/文件预览/路径引用/输出截图及旧 UI 完整回归，含 390×480 审批布局                          |
+| `npm run test:terminal:e2e`                                                          | DO 完整 E2E 加真实 Chromium → Worker → Agent → PTY 的打开、输入、输出和关闭                         |
 
 测试结果以 [测试报告](TEST_REPORT.md) 的当前工作台条目为准。原生 PTY 用临时项目与假的 Codex 协议进程；Shell 为实际 Bash/bubblewrap，验证项目 symlink 无法逃逸、重复输入无重复副作用、resize、Ctrl+C、退出码、输出缺口与进程回收。尚未注入 PTY 内核 write 与进程崩溃之间所有时序，也未运行未支持平台的真实交互终端。
 
@@ -116,3 +116,7 @@ ResizeObserver、DOM 内容变化及字体加载触发溢出检测，比较实�
 [脱敏本地验证结果](assets/cw-terminal-stream-2026-11-03/validation.json)；下图使用合成项目和真实隔离 Shell，无现场凭据或用户内容。
 
 ![流式 Terminal 命令回显](assets/cw-terminal-stream-2026-11-03/terminal-stream.png)
+
+## 0.6.2 Terminal 响应
+
+Terminal 入口将模块与只读 info 并行准备，仍需确认才开启 Shell。输入改为最多 32 个未确认帧 / 64 KiB base64 输入窗口，每帧依序 ACK；断开、ACK 错序或超时拒绝全部未知写入，不重放。原生 TCP_NODELAY 需要升级 Agent / CLI；当前能力要求 streaming:2，在线空闲没有应用心跳，60 秒宽限从断流时开始。验收、生产基线及 Actions 版本发布以 [响应记录](RESPONSE_SPEED_2026-11-03.md) 为准，旧节的 streaming:1 与单批等待是对应阶段记录。

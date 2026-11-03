@@ -6,12 +6,17 @@ import { relaySocketPath } from '../routes.ts';
 // Ephemeral bytes never enter the reliable operation journal or browser storage.
 export class TerminalStream {
   private socket: WebSocket;
-  private pending?: {
-    next: number;
-    resolve: () => void;
-    reject: (error: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
-  };
+  private pending = new Map<
+    number,
+    {
+      bytes: number;
+      resolve: () => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private pendingBytes = 0;
+  private acknowledged = 1;
   private deadline: ReturnType<typeof setTimeout>;
   private stopped = false;
   private bound = false;
@@ -88,14 +93,17 @@ export class TerminalStream {
           this.bound = true;
           clearTimeout(this.deadline);
           this.next = frame.next;
+          this.acknowledged = frame.next;
           this.callbacks.ready();
         } else if (frame.type === 'ack') {
-          if (!this.pending || frame.next !== this.pending.next)
+          const pending = this.pending.get(frame.next);
+          if (!pending || frame.next !== this.acknowledged + 1)
             throw new Error('Terminal input acknowledgment mismatch');
-          clearTimeout(this.pending.timer);
-          this.next = frame.next;
-          this.pending.resolve();
-          this.pending = undefined;
+          clearTimeout(pending.timer);
+          this.pending.delete(frame.next);
+          this.pendingBytes -= pending.bytes;
+          this.acknowledged = frame.next;
+          pending.resolve();
         } else if (frame.type === 'exit') {
           this.callbacks.exit(frame.exitCode);
           this.close();
@@ -117,6 +125,17 @@ export class TerminalStream {
   private send(frame: object) {
     this.sendEnvelope({ type: 'terminal-stream', frame });
   }
+  // Reserve room for a maximum-size input. Sequence allocation remains local;
+  // each frame is confirmed separately and unconfirmed frames are never replayed.
+  get writable() {
+    return (
+      !this.stopped &&
+      this.bound &&
+      this.socket.readyState === WebSocket.OPEN &&
+      this.pending.size < 32 &&
+      this.pendingBytes + 5464 <= 65536
+    );
+  }
   private sendEnvelope(envelope: object) {
     if (this.stopped || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.socket.bufferedAmount > 65536) {
@@ -134,18 +153,23 @@ export class TerminalStream {
       | { type: 'input'; data: string }
       | { type: 'resize'; cols: number; rows: number },
   ): Promise<void> {
+    const bytes = frame.type === 'input' ? frame.data.length : 0;
     if (
       this.stopped ||
       !this.bound ||
       this.socket.readyState !== WebSocket.OPEN ||
-      this.pending
+      this.pending.size >= 32 ||
+      bytes > 5464 ||
+      this.pendingBytes + bytes > 65536
     )
       return Promise.reject(
         new Error('Terminal stream is not ready for input'),
       );
     return new Promise((resolve, reject) => {
-      this.pending = {
-        next: this.next + 1,
+      const seq = this.next++;
+      this.pendingBytes += bytes;
+      this.pending.set(seq + 1, {
+        bytes,
         resolve,
         reject,
         timer: setTimeout(
@@ -157,8 +181,8 @@ export class TerminalStream {
             ),
           15000,
         ),
-      };
-      this.send({ ...frame, seq: this.next });
+      });
+      this.send({ ...frame, seq });
     });
   }
   private fail(error: Error) {
@@ -170,13 +194,14 @@ export class TerminalStream {
     if (this.stopped) return;
     this.stopped = true;
     clearTimeout(this.deadline);
-    if (this.pending) {
-      clearTimeout(this.pending.timer);
-      this.pending.reject(
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(
         new Error('Terminal input result unknown; input was not replayed'),
       );
-      this.pending = undefined;
     }
+    this.pending.clear();
+    this.pendingBytes = 0;
     this.socket.onclose =
       this.socket.onerror =
       this.socket.onmessage =

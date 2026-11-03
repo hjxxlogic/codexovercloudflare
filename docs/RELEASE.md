@@ -4,6 +4,10 @@
 
 本文说明发行与回退流程，执行过的发布见 [发布记录](DEPLOYMENT_STATUS.md)。0.6.0 本机与 CI 验收见 [测试报告](TEST_REPORT.md)，切换前同时阅读 [专用方案](TRANSPORT_CUTOVER.md)。
 
+## 0.6.2 Terminal 响应与 DO 唯一路径
+
+本次明确使用准确提交的 GitHub Actions 制品发布网页 / Worker、Ubuntu 20.04、Debian 12、musl 与 Windows x64 新版本，含之前已上线的连接授权、DO 唯一路径和公式修复。六项必需作业全部成功后才部署；tag 流程组装同源校验和并生成 GitHub Release。musl 暂存副本使用 strip 并复核 `--version` 身份，原始构建保留；静态归档必须小于 Cloudflare 25 MiB 单文件限制，不再沿用旧版 musl 暂缓作为本次四平台完成证明。现场服务只在空闲时升级，不中断活动会话。采样与发布结果见 [响应分析](RESPONSE_SPEED_2026-11-03.md)。
+
 ## 0.6.1 历史存储优化发布候选
 
 本机全量回归已完成，版本统一为 0.6.1，等待本次准确提交的六项必需 CI 后发布 Worker、网页及四平台原生下载。不得覆盖已有 0.6.0 归档，不直接安装或重启现场 Agent。历史配置、回源边界和缺口恢复见 HISTORY_STORAGE_OPTIMIZATION；retainedRecords 默认 0，发布不自动开启生产退休。线上最终状态以 DEPLOYMENT_STATUS 中的完成记录为准。

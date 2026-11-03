@@ -23,7 +23,10 @@ import { ThemeContext } from '../theme.ts';
 import { FullscreenContext, usePaneFullscreen } from './fullscreen.tsx';
 import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import type { OperationClient } from '../operations.ts';
-const InteractiveTerminal = lazy(() => import('./terminal.tsx'));
+import { queryApi } from '../api.ts';
+import type { TerminalMetadata } from './terminal.tsx';
+const loadTerminal = () => import('./terminal.tsx');
+const InteractiveTerminal = lazy(loadTerminal);
 type Preferences = {
   theme: 'dark' | 'light' | 'system';
   density: 'standard' | 'compact';
@@ -124,6 +127,32 @@ export function Workbench({
   );
   const [terminalShown, setTerminalShown] = useState(false);
   const [terminalLoaded, setTerminalLoaded] = useState(false);
+  const terminalScope = JSON.stringify([
+    host,
+    project,
+    terminal.control?.owner,
+  ]);
+  const preparation = useRef<{
+    scope: string;
+    time: number;
+    promise: Promise<TerminalMetadata>;
+  }>(undefined);
+  function prepareTerminal() {
+    void loadTerminal().catch(() => {});
+    if (terminalLoaded || !host || !project) return;
+    if (
+      preparation.current?.scope === terminalScope &&
+      Date.now() - preparation.current.time < 5000
+    )
+      return;
+    const promise = queryApi(`/hosts/${host}/terminal`, {
+      operation: 'info',
+      projectId: project,
+    });
+    // A failed speculative read is shown if the user opens the terminal.
+    void promise.catch(() => {});
+    preparation.current = { scope: terminalScope, time: Date.now(), promise };
+  }
   const [appearance, setAppearance] = useState(false);
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
@@ -210,7 +239,10 @@ export function Workbench({
                     </button>
                     <button
                       aria-pressed={terminalShown}
+                      onPointerEnter={prepareTerminal}
+                      onFocus={prepareTerminal}
                       onClick={() => {
+                        prepareTerminal();
                         closeMenu();
                         setTerminalLoaded(true);
                         setAppearance(false);
@@ -283,6 +315,7 @@ export function Workbench({
                       {
                         label: 'Terminal',
                         run: () => {
+                          prepareTerminal();
                           setTerminalLoaded(true);
                           setAppearance(false);
                           update({ output: false });
@@ -466,6 +499,11 @@ export function Workbench({
                       project={project}
                       session={session}
                       {...terminal}
+                      prepared={
+                        preparation.current?.scope === terminalScope
+                          ? preparation.current.promise
+                          : undefined
+                      }
                       visible={terminalShown}
                       close={() => {
                         fullscreen.exit();

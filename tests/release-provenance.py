@@ -73,7 +73,16 @@ with tempfile.TemporaryDirectory(prefix='coc-release-test-') as directory:
         needed = run(*musl, check=False)
         assert needed.returncode and 'shared library dependencies' in needed.stderr
         compile_fixture(True)
+        unstripped = (root / 'build/coc-agent').read_bytes()
         run(*musl)
+        assert (root / 'build/coc-agent').read_bytes() == unstripped, 'Packaging must preserve original build outputs'
+        with tarfile.open(root / 'dist/web/downloads/coc-0.5.0-linux-x86_64-musl.tar.gz') as package:
+            staged = root / '.local/stripped-agent'
+            staged.parent.mkdir(exist_ok=True)
+            staged.write_bytes(package.extractfile('coc-0.5.0-linux-x86_64-musl/coc-agent').read())
+            staged.chmod(0o700)
+            assert staged.stat().st_size < len(unstripped), 'musl package must omit symbol tables'
+            assert json.loads(run(str(staged), '--version').stdout) == metadata
         compile_fixture(True, pie=True)
         run(*musl)
         output = root / 'dist/web/downloads'
