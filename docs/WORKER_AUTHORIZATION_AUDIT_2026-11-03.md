@@ -3,7 +3,7 @@
 [文档索引](README.md)
 
 日期：2026-11-03。审计基线：`069be79a5030a8c6eb501cbf42e7e8d0fdb99e28`。
-状态：原始审计及计划保留；已按计划实施本机改造，尚未部署。改造后的契约见 [Worker 连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)，验证记录见 TEST_REPORT。当前工作区仅保留原生 DO，旧后端清理见 [记录](DO_ONLY_STORAGE_2026-11-03.md)。下列现状证据描述审计基线，不代表改造后的工作区。
+状态：原始审计及计划保留；已实施并本地发布，准确源码与验证见 [发布记录](DEPLOYMENT_STATUS.md)。改造后的契约见 [Worker 连接授权契约](WORKER_CONNECTION_AUTHORIZATION.md)，验证记录见 TEST_REPORT。当前工作区仅保留原生 DO，旧后端清理见 [记录](DO_ONLY_STORAGE_2026-11-03.md)。下列现状证据描述审计基线，不代表改造后的工作区。
 
 ## 1. 目标与结论
 

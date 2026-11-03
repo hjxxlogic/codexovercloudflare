@@ -2,6 +2,16 @@
 
 [文档索引](README.md) · [发布流程](RELEASE.md) · [本机测试报告](TEST_REPORT.md)
 
+## DO 唯一路径与连接授权 · 2026-11-03
+
+按用户明确要求跳过 GitHub Actions，通过仓库脚本本地构建发布源码 `5ed8debda615387db4e573b28f8c83f30c0165da`，部署 ID `6dd828bb-3b4f-4814-89dc-ed7fe550680a`，Worker `d1c64f46-d57b-4b95-ba96-921222216475` 接收 100% 流量。证据明确标记 `localBuild: true` / `ciVerified: false`；未推送或触发 CI，不发布原生包和更新通知。
+
+D1 / legacy 存储后端、迁移接口及工具已删除；版本详情确认无 D1 绑定和后端选择变量。与首版部署对比，既有 RegistryDO / HostRelayDO namespace 和 Secret 绑定完全一致，其余普通变量逐项匹配源码配置。当前源码手册已同步线上；原生下载包、清单及校验文件原样保留，本机 Agent 未升级或重启。
+
+本机 462 项 Vitest、10 项 CTest、15 项部署回归、完整终端 E2E 和项目 E2E、类型、格式及构建通过。最终线上验证通过健康、4 项 API 和 3 项 WebSocket 认证边界、真实管理员身份、54 个主机目录、现有 Agent probe、86 条会话查询及 Terminal `streaming:2` 元数据；旧迁移接口返回 404。真实 Chromium 页面渲染，无未捕获异常，通知 WebSocket 返回 101 并保持超过 6 秒。线上没有模型调用、PTY 创建、接管、任务修改或凭据撤销。
+
+首版 `d03db12` 已完成 Worker 功能发布；最终补发修订只涉及部署工具、验证脚本和手册，Worker 源码相同。线上测试脚本初次误期望所有拒绝均为 401，且遗漏 WebSocket upgrade / `delivery=2`，纠正后重测通过，不将这些脚本失败记作 Worker 功能故障。[来源、制品 SHA256、配置与验证证据](assets/do-only-2026-11-03/deployment.json)；[清理范围](DO_ONLY_STORAGE_2026-11-03.md)。私有日志和截图在 `.local/do-only-2026-11-03/`。
+
 ## Terminal 全流式传输 · 2026-11-03
 
 按明确授权跳过 Actions，源码 `de93dc7` 已本地构建并部署网页、Relay 与本机 Agent。Worker `9938aa32-193b-4f8f-9753-58a2889239f3`；Agent 安装及 Relay 发布后的重新握手均通过 30 秒连接核验。健康、73 项资源字节、真实邮箱身份下 streaming:1 元数据和 WebSocket 控制权拒绝通过。原 D1、Secret、Agent 配置及数据库、原生公开下载保留，无更新通知。

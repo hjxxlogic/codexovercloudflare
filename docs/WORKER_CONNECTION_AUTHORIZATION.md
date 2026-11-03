@@ -2,7 +2,7 @@
 
 [文档索引](README.md) · [审计与计划](WORKER_AUTHORIZATION_AUDIT_2026-11-03.md)
 
-状态：本机实现，尚未部署。Worker 指入口、RegistryDO 和 HostRelayDO，唯一存储路径为 DO 原生存储。D1 / legacy 后端、归档恢复、迁移接口及对应开发、部署和测试入口已从代码中移除，详见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。
+状态：已上线，源码及验证见 [发布记录](DEPLOYMENT_STATUS.md)。Worker 指入口、RegistryDO 和 HostRelayDO，唯一存储路径为 DO 原生存储。D1 / legacy 后端、归档恢复、迁移接口及对应开发、部署和测试入口已从代码中移除，详见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。
 
 ## 准入与数据流
 

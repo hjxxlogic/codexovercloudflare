@@ -2,6 +2,10 @@
 
 [文档索引](README.md) · [开发与复现命令](DEVELOPMENT.md) · [发布记录](DEPLOYMENT_STATUS.md)
 
+## 2026-11-03：DO 唯一路径线上验证
+
+源码 `5ed8deb` 已按用户明确要求跳过 Actions 本地构建部署；最终健康和资源逐字节校验通过。线上真实邮箱管理员、Agent probe、会话只读查询、Terminal `streaming:2` 元数据、旧迁移入口 404、API / WebSocket 权限边界均通过；Chromium 通知连接 101，保持超过 6 秒且页面无未捕获异常。生产无 D1 绑定或后端选择变量，原 DO namespace 与 Secret 绑定保留。无线上模型、PTY、接管或任务修改；[完整来源、SHA256 及验证范围](assets/do-only-2026-11-03/deployment.json)。下列本机记录为该部署的功能回归基础。
+
 ## 2026-11-03：DO 唯一存储路径（本机工作区）
 
 基于同一工作区继续清理，仅保留 RegistryDO / HostRelayDO 原生存储。删除 D1 / legacy 后端、归档恢复、跨库迁移、SQL schema、后端变量及配套开发、部署和 CI 入口；现有 DO namespace、授权、租约、epoch 和权限回执保持。范围及历史兼容边界见 [清理记录](DO_ONLY_STORAGE_2026-11-03.md)。未推送、未运行 CI、未部署。
