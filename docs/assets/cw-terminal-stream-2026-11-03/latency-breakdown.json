@@ -1,0 +1,238 @@
+{
+  "date": "2026-11-03",
+  "sourceCommit": "de93dc7ebf49df9ac6ea85a969d4300f42aac782",
+  "workerVersion": "9938aa32-193b-4f8f-9753-58a2889239f3",
+  "method": "Browser-only passive WebSocket send/receive timestamp wrappers and DOM MutationObserver; each character starts after previous input ACK. Real production temporary projects, real PTY, no model calls. No product code changes or deployment.",
+  "phases": [
+    {
+      "time": "2026-11-03T02:02:07.535Z",
+      "settledInputBeforeEachCharacter": true,
+      "pingRoundTripsMs": [755.6, 749.8, 3215.2, 747.2],
+      "measurements": [
+        {
+          "operation": "character",
+          "keydownToSendMs": 18.8,
+          "sendToAckMs": 748.8,
+          "sendToLastOutputMs": 972.5,
+          "lastOutputToDomMs": 11.8,
+          "totalMs": 1003.1
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.2,
+          "sendToAckMs": 2500.9,
+          "sendToLastOutputMs": 3220.4,
+          "lastOutputToDomMs": 12.1,
+          "totalMs": 3238.7
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 10.5,
+          "sendToAckMs": 740.9,
+          "sendToLastOutputMs": 974.5,
+          "lastOutputToDomMs": 4.8,
+          "totalMs": 989.8
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 8.9,
+          "sendToAckMs": 810.9,
+          "sendToLastOutputMs": 971.1,
+          "lastOutputToDomMs": 9.7,
+          "totalMs": 989.7
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.6,
+          "sendToAckMs": 750.4,
+          "sendToLastOutputMs": 986.7,
+          "lastOutputToDomMs": 13.1,
+          "totalMs": 1006.4
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 5.6,
+          "sendToAckMs": 3158.3,
+          "sendToLastOutputMs": 3388.9,
+          "lastOutputToDomMs": 10.9,
+          "totalMs": 3405.4
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.8,
+          "sendToAckMs": 742.6,
+          "sendToLastOutputMs": 970.1,
+          "lastOutputToDomMs": 13.9,
+          "totalMs": 990.8
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 15.1,
+          "sendToAckMs": 748.7,
+          "sendToLastOutputMs": 1013.0,
+          "lastOutputToDomMs": 10.6,
+          "totalMs": 1038.7
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 14.3,
+          "sendToAckMs": 2880.0,
+          "sendToLastOutputMs": 3106.7,
+          "lastOutputToDomMs": 4.8,
+          "totalMs": 3125.8
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.2,
+          "sendToAckMs": 746.3,
+          "sendToLastOutputMs": 977.4,
+          "lastOutputToDomMs": 6.4,
+          "totalMs": 990.0
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 5.7,
+          "sendToAckMs": 745.8,
+          "sendToLastOutputMs": 1386.3,
+          "lastOutputToDomMs": 13.5,
+          "totalMs": 1405.5
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 15.5,
+          "sendToAckMs": 2918.7,
+          "sendToLastOutputMs": 3153.8,
+          "lastOutputToDomMs": 3.1,
+          "totalMs": 3172.4
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 3087.9,
+          "sendToAckMs": 753.6,
+          "sendToLastOutputMs": 981.3,
+          "lastOutputToDomMs": 12.4,
+          "totalMs": 4081.6
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 398.3,
+          "sendToAckMs": 1954.0,
+          "sendToLastOutputMs": 3080.1,
+          "lastOutputToDomMs": 13.6,
+          "totalMs": 3492
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 446.3,
+          "sendToAckMs": 768.0,
+          "sendToLastOutputMs": 992.5,
+          "lastOutputToDomMs": 5.8,
+          "totalMs": 1444.6
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 2887.3,
+          "sendToAckMs": 748.8,
+          "sendToLastOutputMs": 1243.9,
+          "lastOutputToDomMs": 5.1,
+          "totalMs": 4136.3
+        }
+      ],
+      "cleanup": {
+        "terminalClosed": true,
+        "sessionClosed": true,
+        "projectRemoved": true,
+        "emptyDirectoryRemoved": true
+      }
+    },
+    {
+      "time": "2026-11-03T02:06:07.497Z",
+      "settledInputBeforeEachCharacter": true,
+      "pingRoundTripsMs": [1941, 775.2],
+      "measurements": [
+        {
+          "operation": "character",
+          "keydownToSendMs": 4.6,
+          "sendToAckMs": 2012.4,
+          "sendToLastOutputMs": 2234.7,
+          "lastOutputToDomMs": 12.6,
+          "totalMs": 2251.9
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.3,
+          "sendToAckMs": 2218.5,
+          "sendToLastOutputMs": 2446.7,
+          "lastOutputToDomMs": 2.9,
+          "totalMs": 2455.9
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 7.3,
+          "sendToAckMs": 782.3,
+          "sendToLastOutputMs": 1489.0,
+          "lastOutputToDomMs": 10.1,
+          "totalMs": 1506.4
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.6,
+          "sendToAckMs": 1864.1,
+          "sendToLastOutputMs": 2109.3,
+          "lastOutputToDomMs": 6.9,
+          "totalMs": 2122.8
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 7.2,
+          "sendToAckMs": 2222.2,
+          "sendToLastOutputMs": 2444.7,
+          "lastOutputToDomMs": 4.9,
+          "totalMs": 2456.8
+        },
+        {
+          "operation": "character",
+          "keydownToSendMs": 6.0,
+          "sendToAckMs": 771.6,
+          "sendToLastOutputMs": 997.7,
+          "lastOutputToDomMs": 2.0,
+          "totalMs": 1005.7
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 1747.9,
+          "sendToAckMs": 1680.9,
+          "sendToLastOutputMs": 1919.2,
+          "lastOutputToDomMs": 7.3,
+          "totalMs": 3674.4
+        },
+        {
+          "operation": "Enter",
+          "keydownToSendMs": 476.0,
+          "sendToAckMs": 763.6,
+          "sendToLastOutputMs": 2281.4,
+          "lastOutputToDomMs": 1.2,
+          "totalMs": 2758.6
+        }
+      ],
+      "cleanup": {
+        "terminalClosed": true,
+        "sessionClosed": true,
+        "projectRemoved": true,
+        "emptyDirectoryRemoved": true
+      }
+    }
+  ],
+  "agentTcpSnapshot": {
+    "rttMs": 234.685,
+    "minRttMs": 228.004
+  },
+  "serverTraceAvailable": false,
+  "serverTraceLimitation": "Wrangler Tail failed with direct DNS/connectivity errors; supplied localhost proxy failed TLS; alternate TLS-verified endpoint reached API but Tail reset. No server timing attribution claimed.",
+  "limitations": [
+    "Input ACK and PTY output do not share browser timestamps with server monotonic clocks. Send-to-output spans routing, queueing, authorization, native execution and network.",
+    "Only 18 characters, 6 commands and 6 pings across two runs; not stable service percentiles.",
+    "TCP_NODELAY/Nagle and authorization-cache explanations are hypotheses; no controlled production A/B was performed.",
+    "No input/output bytes, credentials, host/session/project identifiers or private paths are included."
+  ]
+}
