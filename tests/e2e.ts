@@ -249,15 +249,12 @@ async function sessionId(page: Page) {
   return id;
 }
 async function focusedChat(page: Page) {
-  // Earlier external-approval checks may leave this dismissible advisory.
-  // Measure the normal chat layout after closing it, as a user would.
-  const approvalNotice = page.locator('.notice').filter({
-    hasText: '审批决定已发送，等待原客户端确认；请勿重复提交。',
-  });
-  if (await approvalNotice.isVisible())
-    await approvalNotice
-      .getByRole('button', { name: '关闭', exact: true })
-      .click();
+  // Approval and injected-disconnect checks can leave a dismissible advisory.
+  // Close it before measuring the normal chat layout, as a user would.
+  const dismiss = page
+    .locator('.notice')
+    .getByRole('button', { name: '关闭', exact: true });
+  if (await dismiss.isVisible()) await dismiss.click();
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.getByLabel('主机').count(), 0);
   assert.equal(
@@ -2231,9 +2228,16 @@ try {
   agent.releaseInterruptedRequest();
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await idle(visitorPage);
-  agent.interruptNextReply();
+  agent.interruptReplyWhen(() => true);
   await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await wait(
+    async () =>
+      agent!.replyPaused &&
+      (await visitorPage.getByLabel('任务内容').inputValue()) === '',
+    'browser persists the prompt before the opaque reply link is closed',
+  );
+  agent.releaseInterruptedReply();
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
     .waitFor();
@@ -2896,6 +2900,16 @@ try {
   });
   await visitorPage.keyboard.press('Escape');
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  // The upload channel can recover before the independent chat controller.
+  // Await its recovery, then dismiss the expected fault-injection alert.
+  await idle(visitorPage);
+  const offlineAlert = visitorPage.locator('.error').filter({
+    hasText: 'HOST_OFFLINE: Target offline',
+  });
+  if (await offlineAlert.isVisible())
+    await offlineAlert
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
   await focusedChat(visitorPage);
   await visitorPage.setViewportSize({ width: 1280, height: 900 });
   pass(

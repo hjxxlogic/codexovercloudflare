@@ -66,7 +66,9 @@ const probe = createServer();
 await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
 const port = (probe.address() as any).port;
 await new Promise<void>((r) => probe.close(() => r()));
-const origin = online ? 'https://r2.xlogic.cc' : `http://127.0.0.1:${port}`;
+const origin = online
+  ? 'https://r2.xlogic.cc' + (accessConfig ? '/guest' : '')
+  : `http://127.0.0.1:${port}`;
 function start(binary: string, args: string[], env = process.env) {
   const p = spawn(binary, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(p);
@@ -99,7 +101,7 @@ async function control(
     method: data === undefined ? 'GET' : 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Origin: origin,
+      Origin: new URL(origin).origin,
       ...admission,
       ...headers,
     },
@@ -112,14 +114,18 @@ async function control(
 const ownerHeaders = () => ({
   ...admission,
   Authorization: 'Bearer ' + owner,
-  Origin: origin,
+  Origin: new URL(origin).origin,
 });
 const cliHeaders = () => ({
   ...admission,
   Authorization: 'Bearer ' + cli,
-  Origin: origin,
+  Origin: new URL(origin).origin,
 });
-const webHeaders = () => ({ ...admission, Cookie: cookie, Origin: origin });
+const webHeaders = () => ({
+  ...admission,
+  Cookie: cookie,
+  Origin: new URL(origin).origin,
+});
 async function api(
   path: string,
   body?: any,
@@ -187,7 +193,7 @@ try {
   cli = (await enroll('cli')).b.token;
   cookie = (await enroll('web')).r.headers.get('set-cookie')!.split(';')[0];
   const config = {
-    relayUrl: origin,
+    relayUrl: new URL(origin).origin,
     hostId: host,
     token: enrolled.token,
     dataDir: join(root, 'agent'),
@@ -366,6 +372,10 @@ try {
     });
   }
   await context.close();
+  if (accessConfig)
+    report.checks.push(
+      'Service Auth native admission; browser CoC guest flow (email login not exercised)',
+    );
   report.checks.push(
     'encrypted projects, configuration and permission denial',
     'session create original request deduplication',

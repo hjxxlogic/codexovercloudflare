@@ -23,6 +23,9 @@ export class Agent {
   interruptReplyWhen(condition: () => boolean) {
     this.replyCondition = condition;
   }
+  get replyPaused() {
+    return !!this.replyInterruption;
+  }
   releaseInterruptedReply() {
     if (!this.replyInterruption) throw new Error('No paused reply');
     this.replyInterruption();

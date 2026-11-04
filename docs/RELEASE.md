@@ -53,7 +53,7 @@ npm run test:opaque -- --online-r2 \
   --owner-secret-file /absolute/private/r2-owner
 ```
 
-Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与独立 Service Auth 凭据。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
+Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与独立 Service Auth 凭据；原生 Agent 经主入口验证，网页设备配对测试走现有 `/guest/` 入口，不将 Service Auth 冒充邮箱用户，邮箱登录须另行验证。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
 
 ## 部署 Linux systemd 用户服务 Agent
 
@@ -95,7 +95,7 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 运行状态格式
 
-发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0` 或 `1`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本项目不提供旧库迁移或配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。结构完整的未标记库直接读取，不修改版本；缺列的库不自动升级。具体错误见用户手册。
+发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0`、`1` 或 `2`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本次支持结构完整的 SQLite 0/1 单向迁移到 2，不提供配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。新版写入端将结构完整的 0/1 库升级到 2；缺列的库不自动升级，旧版程序不能读取升级后的库。具体错误见用户手册。
 
 ## 当前线上版本
 
