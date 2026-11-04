@@ -39,6 +39,8 @@
 
 Worker 授权专项：`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts`。覆盖握手后的双向零授权查询、DO 重建、退休连接、授权变更、到期及持久失效事件重试。稳定数据转发不能依赖短时缓存命中；控制面授权仍需完整检查。
 
+2026-11-04 授权竞态回归新增 7 项：有效 Agent 在两轮刷新不同返回顺序下保持连接，过期成功或拒绝结果均重新核验；当前撤权即使随后收到旧成功也保持退休；状态查询遇到授权刷新不会误踢 Agent。校验期间禁止转发，最新授权通过后恢复。修复前新增项中 5 项失败、2 项通过；修复后本地 Vitest 499/499、类型检查、Lint 和 Worker dry-run 通过，未调用模型或部署。线上状态、隔离复现及验证边界见 [事故记录](INCIDENT-2026-11-04.md)。
+
 Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on-failure`。需要 Bash、bubblewrap、prlimit 和可用 namespace；工具存在但启动失败不能当作通过。原生测试入口与实际跳过项以 CTest 输出为准。
 
 ## 真实 Codex

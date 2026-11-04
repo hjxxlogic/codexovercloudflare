@@ -218,23 +218,28 @@ export class HostRelayDO extends DurableObject<Env> {
     for (const operation of (
       await this.storage.list<Operation>({ prefix: 'permission-operation:' })
     ).values()) {
+      if (version !== this.authorizationVersion) return;
       this.authorization.delete(operation.auth.hash);
       try {
         await this.authorized(operation.auth.hash);
       } catch {
+        if (version !== this.authorizationVersion) return;
         await this.deleteOperation(operation.id);
       }
     }
     for (const ws of peers) {
+      // A newer refresh owns these blocked routes. An obsolete pass must
+      // neither retire them nor undo the newer pass's validation.
+      if (version !== this.authorizationVersion) return;
       const a = ws.deserializeAttachment() as Attachment;
       try {
         await this.authorized(a.auth.hash);
+        if (version !== this.authorizationVersion) return;
         const current = ws.deserializeAttachment() as Attachment;
-        if (!current.retired && version === this.authorizationVersion)
+        if (!current.retired)
           ws.serializeAttachment({ ...current, blocked: false });
-        else if (!current.retired)
-          retire(ws, 4001, 'Authorization changed concurrently');
       } catch (error) {
+        if (version !== this.authorizationVersion) return;
         retire(
           ws,
           authorizationFailed(error) ? 4001 : 1011,
@@ -273,7 +278,7 @@ export class HostRelayDO extends DurableObject<Env> {
   >();
   private authorizing = new Map<
     string,
-    { promise: Promise<void>; token: object }
+    { promise: Promise<boolean>; token: object }
   >();
   private authorizationVersion = 0;
   private authMetrics = { hits: 0, misses: 0, coalesced: 0 };
@@ -374,51 +379,65 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.authorized(o.auth.hash);
   }
   async authorized(hash: string) {
-    const cached = this.authorization.get(hash);
-    if (
-      cached &&
-      cached.checked + 5000 > Date.now() &&
-      cached.expires > Date.now()
-    ) {
-      this.authMetrics.hits++;
-      return;
-    }
-    const active = this.authorizing.get(hash);
-    if (active) {
-      this.authMetrics.coalesced++;
-      return active.promise;
-    }
-    if (this.authorizing.size >= 128) {
-      this.reject('authorization-capacity', true);
-      throw new AppError('OVERLOADED', 'Authorization checks are busy', 429);
-    }
-    this.authMetrics.misses++;
-    const version = this.authorizationVersion;
-    const token = {};
-    const check = (async () => {
-      const auth: Auth = await registryCall(this.env, 'authHash', { hash });
+    for (;;) {
+      const version = this.authorizationVersion;
+      const cached = this.authorization.get(hash);
       if (
-        version !== this.authorizationVersion ||
-        this.authorizing.get(hash)?.token !== token
-      )
-        throw new AppError(
-          'UNAUTHORIZED',
-          'Authorization changed during validation',
-          401,
-        );
-      if (this.authorization.size >= 128)
-        this.authorization.delete(this.authorization.keys().next().value!);
-      this.authorization.set(hash, {
-        expires: auth.expires,
-        checked: Date.now(),
-      });
-    })();
-    this.authorizing.set(hash, { promise: check, token });
-    try {
-      await check;
-    } finally {
-      if (this.authorizing.get(hash)?.promise === check)
-        this.authorizing.delete(hash);
+        cached &&
+        cached.checked + 5000 > Date.now() &&
+        cached.expires > Date.now()
+      ) {
+        this.authMetrics.hits++;
+        return;
+      }
+      const active = this.authorizing.get(hash);
+      if (active) {
+        this.authMetrics.coalesced++;
+        try {
+          if ((await active.promise) && version === this.authorizationVersion)
+            return;
+        } catch (error) {
+          if (version === this.authorizationVersion) throw error;
+        }
+        continue;
+      }
+      if (this.authorizing.size >= 128) {
+        this.reject('authorization-capacity', true);
+        throw new AppError('OVERLOADED', 'Authorization checks are busy', 429);
+      }
+      this.authMetrics.misses++;
+      const token = {};
+      const current = () =>
+        version === this.authorizationVersion &&
+        this.authorizing.get(hash)?.token === token;
+      const check = (async () => {
+        let auth: Auth;
+        try {
+          auth = await registryCall(this.env, 'authHash', { hash });
+        } catch (error) {
+          // Both successful and failed results from an older generation are
+          // obsolete. Recheck current permissions before deciding on revocation.
+          if (!current()) return false;
+          throw error;
+        }
+        if (!current()) return false;
+        if (this.authorization.size >= 128)
+          this.authorization.delete(this.authorization.keys().next().value!);
+        this.authorization.set(hash, {
+          expires: auth.expires,
+          checked: Date.now(),
+        });
+        return true;
+      })();
+      this.authorizing.set(hash, { promise: check, token });
+      try {
+        if ((await check) && version === this.authorizationVersion) return;
+      } catch (error) {
+        if (version === this.authorizationVersion) throw error;
+      } finally {
+        if (this.authorizing.get(hash)?.promise === check)
+          this.authorizing.delete(hash);
+      }
     }
   }
   private messages = new WeakMap<

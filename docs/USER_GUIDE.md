@@ -710,6 +710,8 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 先运行 `coc-agent doctor` 或 `coc-client doctor`，核对实际版本、配置、Codex、TLS、目录权限和磁盘。Agent 不在线时检查其运行用户、HOME、PATH、项目目录及服务日志；Access 故障按 [接入说明](cloudflare-access-coc-auth.md) 检查入口策略和 CoC 凭据。
 
+并发修改授权时，中继暂停连接转发并按最新权限复核，过期校验不会被当作设备撤权；仍有效的 Agent 保持连接，真实撤权仍关闭连接。若旧版中继已使 Agent 记录“Device authorization revoked”后退出，应先核对设备授权是否仍有效；有效时可在中继修复部署后启动已退出的 Agent，保留原配置及数据，无需重新注册。仅配置 `Restart=on-failure` 的服务不会自动拉起这种正常退出的进程；恢复后沿原请求编号核对任务，不重发未确认请求。
+
 `RESULT_UNKNOWN`、超时、过期或断线不能证明任务未执行。保留原编号，用 `coc-client request REQUEST_ID` 或网页原请求恢复核对结果，不自动换编号重复业务。Agent 实例变化、权限拒绝或本地存储失败会停止自动恢复。命令、结果和上传的详细规则见 [可靠传输协议](RELIABLE_TRANSPORT.md)。
 
 手动更新运行中的 Agent 后须自行重启服务。回退前先停止进程并备份状态；二进制回退不回退数据库或工作区，不应将新库直接交给不兼容程序。具体见 [发布操作](RELEASE.md)。

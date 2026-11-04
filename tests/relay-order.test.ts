@@ -1655,12 +1655,14 @@ describe('flow control and authorization on activity', () => {
   it('invalidates a pending auth check rather than restoring a revoked cache entry', async () => {
     const h = harness();
     let release!: (value: unknown) => void;
-    vi.mocked(registryCall).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
+    vi.mocked(registryCall)
+      .mockRejectedValue(new AppError('UNAUTHORIZED', 'Revoked', 401))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
     const results = Promise.allSettled([
       h.relay.authorized('same'),
       h.relay.authorized('same'),
@@ -1675,7 +1677,8 @@ describe('flow control and authorization on activity', () => {
     expect(
       (await results).every((result) => result.status === 'rejected'),
     ).toBe(true);
-    expect(registryCall).toHaveBeenCalledOnce();
+    expect(registryCall).toHaveBeenCalledTimes(2);
+    expect((h.relay as any).authorization.has('same')).toBe(false);
   });
   it('does no authorization or periodic scheduling for permanent idle sockets', async () => {
     const h = harness();
@@ -2738,6 +2741,102 @@ it('invalidates credentials through a control event and never revives a retired 
     JSON.stringify({ action: 'models' }),
   );
   expect(client.send).not.toHaveBeenCalled();
+});
+
+describe('overlapping authorization refreshes', () => {
+  function pendingChecks() {
+    const checks: {
+      resolve: (value: unknown) => void;
+      reject: (error: unknown) => void;
+    }[] = [];
+    vi.mocked(registryCall).mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          checks.push({ resolve, reject });
+        }),
+    );
+    return checks;
+  }
+  function refresh(h: ReturnType<typeof harness>) {
+    return h.relay.fetch(
+      new Request('https://internal/authorization-change', { method: 'POST' }),
+    );
+  }
+  const valid = { expires: Number.MAX_SAFE_INTEGER };
+  it.each([
+    { staleDenied: false, latestFirst: false },
+    { staleDenied: true, latestFirst: false },
+    { staleDenied: false, latestFirst: true },
+    { staleDenied: true, latestFirst: true },
+  ])(
+    'keeps valid Agent connected: %j',
+    async ({ staleDenied, latestFirst }) => {
+      const h = harness();
+      const checks = pendingChecks();
+      const first = refresh(h);
+      await vi.waitFor(() => expect(checks).toHaveLength(1));
+      const second = refresh(h);
+      await vi.waitFor(() => expect(checks).toHaveLength(2));
+      expect(h.agent.deserializeAttachment().blocked).toBe(true);
+      (h.relay as any).forward(h.agent, { type: 'blocked' }, 10);
+      await Promise.all(h.waiting);
+      expect(h.agent.send).not.toHaveBeenCalled();
+      if (latestFirst) {
+        checks[1].resolve(valid);
+        expect((await second).status).toBe(200);
+      }
+      if (staleDenied)
+        checks[0].reject(new AppError('UNAUTHORIZED', 'Obsolete denial', 401));
+      else checks[0].resolve(valid);
+      if (!latestFirst) checks[1].resolve(valid);
+      expect((await first).status).toBe(200);
+      expect((await second).status).toBe(200);
+      expect(h.agent.close).not.toHaveBeenCalled();
+      expect(h.agent.deserializeAttachment().blocked).toBe(false);
+      (h.relay as any).forward(h.agent, { type: 'available' }, 10);
+      await Promise.all(h.waiting);
+      expect(h.agent.send).toHaveBeenCalledWith('{"type":"available"}');
+    },
+  );
+  it.each([false, true])(
+    'keeps a revoked Agent retired despite an obsolete success (latest first: %s)',
+    async (latestFirst) => {
+      const h = harness();
+      const checks = pendingChecks();
+      const first = refresh(h);
+      await vi.waitFor(() => expect(checks).toHaveLength(1));
+      const second = refresh(h);
+      await vi.waitFor(() => expect(checks).toHaveLength(2));
+      vi.mocked(registryCall).mockRejectedValue(
+        new AppError('UNAUTHORIZED', 'Revoked', 401),
+      );
+      if (!latestFirst) checks[0].resolve(valid);
+      checks[1].reject(new AppError('UNAUTHORIZED', 'Revoked', 401));
+      expect((await second).status).toBe(200);
+      if (latestFirst) checks[0].resolve(valid);
+      expect((await first).status).toBe(200);
+      expect(h.agent.close).toHaveBeenCalledWith(4001, 'Authorization changed');
+      expect(h.agent.deserializeAttachment().retired).toBe(true);
+      (h.relay as any).forward(h.agent, { type: 'forbidden' }, 10);
+      await Promise.all(h.waiting);
+      expect(h.agent.send).not.toHaveBeenCalled();
+    },
+  );
+  it('rechecks a status query interrupted by an authorization refresh', async () => {
+    const h = harness();
+    const checks = pendingChecks();
+    const status = h.relay.fetch(new Request('https://internal/status'));
+    await vi.waitFor(() => expect(checks).toHaveLength(1));
+    const changed = refresh(h);
+    await vi.waitFor(() => expect(checks).toHaveLength(2));
+    checks[0].resolve(valid);
+    checks[1].resolve(valid);
+    expect((await changed).status).toBe(200);
+    const response = await status;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ online: true });
+    expect(h.agent.close).not.toHaveBeenCalled();
+  });
 });
 
 it('expires an active connection from its alarm without receiving a data frame', async () => {

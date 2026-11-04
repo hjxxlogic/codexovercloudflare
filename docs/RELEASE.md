@@ -75,19 +75,20 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 当前线上版本
 
-Worker、网页与当前线上 Linux Agent 为 `0.6.7`，目标为 `https://r.xlogic.cc` 与既有 systemd 用户服务。本次按明确授权使用未提交源码本地构建，GitHub Actions 跳过，无 Actions URL，`ciVerified=false`、`dirty=true`；不作为 CI 验证发行制品。活动会话重启获得了明确授权，配置与 SQLite 已备份，安装后完成 120 秒连接验证。
+截至 2026-11-04，`https://r.xlogic.cc` 的 Worker / 网页已部署审核提交 `589c26b45ed62c74c8610b26fbc48f9b1c42f4e5`，版本为 `0.6.7`。按用户明确授权使用干净 HEAD 本地构建，`dirty=false`、`ciVerified=false`。GitHub Actions dispatch 被当前令牌拒绝（HTTP 403），没有对应成功运行或 Actions URL；本次构建不能作为 CI 验证发行制品。
 
 | 构建或制品           | 身份 / SHA256                                                      |
 | -------------------- | ------------------------------------------------------------------ |
-| 构建基准 commit      | `c3ffef94afd3bd09c0598df2d19aa0697b463d0c`                         |
-| 构建时源码摘要       | `1057fdcd349956a6c3dc51d9d1940e2bb10a416ae212bb33bb9058e69cbaee9c` |
-| Worker Version ID    | `17d8ac2e-c840-40ed-a944-f04966a8d953`                             |
+| 源码摘要             | `38fe9b59d0e6561dec3ccbddbd6de5028a21364d384f880bd30bdca33cf315f9` |
+| Worker Version ID    | `b2c999e6-12de-47f5-959d-70232ff6b7d3`                             |
 | Worker bundle SHA256 | `7defb0533db96f974ffabdb0565d5eb878c849cdb5dee671015c5cb7a3f273aa` |
 | 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
-| 运行 Agent SHA256    | `7c8e0ce89098be2d25cad05a222fdf2e35434f7b954549b296e30360487ea368` |
+| 待安装 Agent SHA256  | `ce5a2d8655a75084ced7e55555d5c42b2bff1961f8b10859bfed799d524d30ff` |
 
-当前验证覆盖真实 Access 邮箱登录与授权恢复、主机版本和在线状态、邮箱专属目录、旧会话历史、Codex 线程目录、Terminal WebSocket 命令与输出、旧 HTTP 字节操作拒绝、真实模型回复、刷新后历史和草稿恢复、任务不重复提交、文件上传 / 侧栏与新窗口预览 / 下载的字节一致性。测试会话已结束，测试文件已清理；107 条原有会话记录保留，原 SQLite 版本标记仍为 `0`，配置仅移除废弃的 `autoUpdate.intervalHours`。
+部署脚本核对健康接口及 69 个静态资源、在线手册、下载清单与校验和的字节一致性。真实 Access 登录状态验证共 13 项 API / 页面步骤通过，包括邮箱授权恢复、主机在线、项目、邮箱专属会话目录、旧会话历史、线程目录、Terminal streaming:2 及旧 HTTP 字节操作拒绝；桌面和手机截图已保存，浏览器无页面错误。本次没有调用模型或提交测试任务。重新构建后的 CTest 11/11、Vitest 492/492 和 Worker dry-run 通过；审核时类型、Lint、协议一致性及 35 项部署工具检查通过。
 
-本地 CTest 11/11、Vitest 492/492、部署工具 35 项检查通过。69 个线上静态资源与准备制品逐字节一致。构建源码快照、详细日志、浏览器截图和机器证据位于忽略的 `.local/deployment-0.6.7/`，来源摘要以部署时快照为准。
+Linux Agent 候选程序已构建并验证准确提交与摘要。既有 systemd 用户服务仍有 2 个活动 runtime；部署脚本等待空闲 180 秒后退出，未安装、未重启。运行 Agent 保持此前 `0.6.7` 本地构建：基准提交 `c3ffef94afd3bd09c0598df2d19aa0697b463d0c`、源码摘要 `1057fdcd349956a6c3dc51d9d1940e2bb10a416ae212bb33bb9058e69cbaee9c`、`dirty=true`。候选程序不代表已安装；继续部署须等空闲，或取得中断活动会话的明确授权。
 
-本次保留下载站原有安装包：Linux 和源码为 `0.6.6`，Windows 为 `0.6.5`；Windows 包未部署，也未发布更新通知。其它 Agent 不在本次升级范围。
+配置、项目目录及 SQLite 已备份，未转换存储。原有下载包保留：Linux 和源码 `0.6.6`、Windows `0.6.5`；未发布 GitHub Release 或发送自动更新通知。其它 Agent 不在本次升级范围。
+
+机器证据与私有备份位于忽略的 `.local/deployment-589c26b/`；部署脚本证据位于 `.local/deploy-cloud/local-589c26b45ed62c74c8610b26fbc48f9b1c42f4e5-38fe9b59d0e6/` 和同名 `.local/deploy-agent/` 子目录。
