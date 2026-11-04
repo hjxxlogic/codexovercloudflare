@@ -75,7 +75,24 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 当前线上版本
 
-截至 2026-11-04，`https://r.xlogic.cc` 的 Worker / 网页已部署审核提交 `589c26b45ed62c74c8610b26fbc48f9b1c42f4e5`，版本为 `0.6.7`。按用户明确授权使用干净 HEAD 本地构建，`dirty=false`、`ciVerified=false`。GitHub Actions dispatch 被当前令牌拒绝（HTTP 403），没有对应成功运行或 Actions URL；本次构建不能作为 CI 验证发行制品。
+2026-11-04 10:21（北京时间），`https://r.xlogic.cc` 的 Worker / 网页已直接发布授权刷新竞态修复，源码提交 `ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8`，版本仍为 `0.6.7`。用户明确授权“跳过 github action，直接部署”；使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply`，干净来源 `dirty=false`、`ciVerified=false`。没有 Actions 运行或 URL，不作为 CI 验证发行制品。源码已推送 origin 与 GitHub，提交含 `[skip ci]`。
+
+| 构建或制品           | 身份 / SHA256                                                      |
+| -------------------- | ------------------------------------------------------------------ |
+| 源码摘要             | `8aaaadc904423d7d594ff9dcac88bd777ae980ec0f5f24683af94c785bde4f90` |
+| Worker Version ID    | `0c4458c6-4b89-466e-ba86-fc84c58966c1`                             |
+| Worker bundle SHA256 | `3d50bd742f92e9e287f49505a6619a7e9b72fcdc5b6da38fe5c21578ef0dc364` |
+| 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
+
+部署脚本验证健康接口、69 个静态资源、网页入口、在线手册、下载清单及校验和与准备制品字节一致。既有下载包与 DO 存储配置保留，未发布原生下载、GitHub Release 或更新通知。首次经本机代理尝试在下载保全阶段因 TLS 连接失败退出，尚未上传；改用直连后部署及校验成功。
+
+10:22 启动此前已退出的本机 `coc-agent.service`，沿用原程序、凭据和数据，未安装 Agent 二进制或重启活动实例。10:23 真实 Access 状态验证健康接口、管理主机目录、邮箱授权恢复、3 个项目及首批 100 条会话记录查询通过，未调用模型。截至该快照，14 台有效主机中 7 台有中继连接，7 台仍离线；仅本机完成启动，其余离线实例尚未恢复，不将部署成功当作全部主机恢复。
+
+本地 Vitest 499/499、类型检查、Lint 与 Worker dry-run 通过。机器证据在 `.local/incident-2026-11-04/`，部署来源及文件摘要在 `.local/deploy-cloud/local-ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8-8aaaadc90442/deployment.json`；具体故障链和限制见 [事故记录](INCIDENT-2026-11-04.md)。
+
+### 上一次部署
+
+本次发布前，Worker / 网页已部署审核提交 `589c26b45ed62c74c8610b26fbc48f9b1c42f4e5`，版本为 `0.6.7`。按用户明确授权使用干净 HEAD 本地构建，`dirty=false`、`ciVerified=false`。GitHub Actions dispatch 被当前令牌拒绝（HTTP 403），没有对应成功运行或 Actions URL；本次构建不能作为 CI 验证发行制品。
 
 | 构建或制品           | 身份 / SHA256                                                      |
 | -------------------- | ------------------------------------------------------------------ |
