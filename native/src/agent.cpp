@@ -20,7 +20,6 @@
 #include <csignal>
 #include <iostream>
 #include <map>
-#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <set>
 #include <thread>
@@ -94,12 +93,12 @@ class Agent {
   asio::steady_timer retry_, maintenance_, event_timer_, history_retry_;
   asio::signal_set signals_;
   std::atomic<bool> stopped_{false};
+  std::atomic<bool> exit_requested_{false};
   bool listing_threads_ = false, negotiated_ = false;
   std::set<std::string> archive_loading_;
   size_t history_readers_ = 0;
   bool queue_recovery_web_ = false;
   uint64_t history_prepared_ = 0, history_prepare_skipped_ = 0;
-  int attempts_ = 0;
 
 public:
   Agent(asio::io_context &io, Json c, std::filesystem::path config_file, AgentUpdater &updater)
@@ -112,6 +111,7 @@ public:
         signals_(io_, SIGINT, SIGTERM) {}
   bool remote_restart() const { return remote_restart_; }
   bool update_restart() const { return update_restart_; }
+  bool exit_requested() const { return exit_requested_; }
   ~Agent() {
     if (worker_.joinable()) {
       asio::post(io_, [this] { close(); });
@@ -167,14 +167,12 @@ public:
         return;
 #ifndef _WIN32
       if (signal == SIGUSR1) {
-        attempts_ = 0;
         retry_.cancel();
         asio::post(relay_io_, [this] {
           if (socket_)
             socket_->close();
           asio::post(io_, [this] {
             retry_.cancel();
-            attempts_ = 0;
             connect();
           });
         });
@@ -182,6 +180,7 @@ public:
         return;
       }
 #endif
+      exit_requested_ = true;
       close();
     });
   }
@@ -192,23 +191,11 @@ public:
     for (auto &[id, r] : runtimes_)
       if (!r->detached)
         r->detached = now();
-    if (code == 4001) {
-      std::cerr << "Device authorization revoked; stopping Agent\n";
-      close();
-      return;
-    }
     if (stopped_)
       return;
-    int delay = 180000;
-    if (attempts_ < 5) {
-      delay = std::min(30000, 1000 * (1 << std::min(5, attempts_++)));
-      unsigned char random = 0;
-      RAND_bytes(&random, 1);
-      delay = delay * (0.8 + random / 255.0 * 0.4);
-    } else {
-      std::cerr << "Reconnect budget exhausted; next attempt in 180 seconds\n";
-    }
-    retry_.expires_after(std::chrono::milliseconds(delay));
+    std::cerr << "Relay disconnected (code " << code
+              << "); retrying in 30 seconds; Agent continues running\n";
+    retry_.expires_after(std::chrono::seconds(30));
     retry_.async_wait([this](auto ec) {
       if (!ec)
         connect();
@@ -637,7 +624,10 @@ public:
       if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1 ||
           d.value("delivery", 0) != 2) {
         std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
-        close();
+        asio::post(relay_io_, [this] {
+          if (socket_)
+            socket_->close();
+        });
         return;
       }
       Json capabilities = {{"type", "capabilities"},
@@ -657,7 +647,6 @@ public:
       if (config_.contains("displayName"))
         capabilities["displayName"] = config_["displayName"];
       send(capabilities);
-      attempts_ = 0;
       check_client_requests();
       if (negotiated_)
         updater_.request();
@@ -3109,6 +3098,70 @@ public:
     }
   }
 };
+
+bool wait_agent_retry() {
+  asio::io_context io;
+  asio::signal_set signals(io, SIGINT, SIGTERM);
+#ifndef _WIN32
+  signals.add(SIGUSR1);
+#endif
+  asio::steady_timer retry(io);
+  bool exiting = false;
+  signals.async_wait([&](auto ec, int signal) {
+    if (!ec) {
+      exiting = signal == SIGINT || signal == SIGTERM;
+      retry.cancel();
+    }
+  });
+  retry.expires_after(std::chrono::seconds(30));
+  retry.async_wait([&](auto ec) {
+    if (!ec)
+      signals.cancel();
+  });
+  std::cerr << "Agent initialization or runtime failed; retrying in 30 seconds; "
+               "Agent continues running\n";
+  io.run();
+  return exiting;
+}
+
+int run_agent(int argc, char **argv, const Options &options, const std::filesystem::path &file) {
+  for (;;) {
+    try {
+      // Each attempt owns a fresh executor and runtime. Failed storage must be
+      // reopened and validated before any new work can be admitted.
+      auto config = read_json(file);
+      configure_proxy(options.get("proxy", config.value("proxy", "")));
+      configure_access(options.get("access-config", config.value("cloudflareAccessFile", "")));
+      config = agent_config(std::move(config));
+      config["proxy"] = options.get("proxy", config.value("proxy", ""));
+      update_settings(config);
+      verify_codex(config);
+      asio::io_context io;
+      AgentUpdater updater;
+      bool restart = false, remote_restart = false, exiting = false;
+      {
+        Agent agent(io, config, file, updater);
+        agent.start();
+        io.run();
+        restart = agent.update_restart();
+        remote_restart = agent.remote_restart();
+        exiting = agent.exit_requested();
+      }
+      if (exiting)
+        return 0;
+      if (remote_restart)
+        restart_process(argc, argv);
+      if (restart && updater.install())
+        restart_updated(argc, argv);
+    } catch (const std::exception &error) {
+      std::cerr << error_data(error).dump() << '\n';
+    } catch (...) {
+      std::cerr << "Unknown Agent runtime failure\n";
+    }
+    if (wait_agent_retry())
+      return 0;
+  }
+}
 } // namespace coc
 int coc_main(int argc, char **argv) {
   try {
@@ -3156,6 +3209,8 @@ int coc_main(int argc, char **argv) {
     }
     if (options.api_key && command != "login")
       throw coc::Error("USAGE", "--api-key is only valid for login");
+    if (command == "run")
+      return coc::run_agent(argc, argv, options, file);
     const auto settings =
         std::filesystem::exists(file) ? coc::read_json(file) : coc::Json::object();
     coc::configure_proxy(command == "proxy" ? ""
@@ -3322,27 +3377,7 @@ int coc_main(int argc, char **argv) {
                 << '\n';
       return 0;
     }
-    if (command != "run")
-      throw coc::Error("USAGE", "Unknown command: " + command);
-    auto config = coc::agent_config(coc::read_json(file));
-    config["proxy"] = options.get("proxy", config.value("proxy", ""));
-    coc::update_settings(config);
-    coc::verify_codex(config);
-    boost::asio::io_context io;
-    coc::AgentUpdater updater;
-    bool restart = false, remote_restart = false;
-    {
-      coc::Agent agent(io, config, file, updater);
-      agent.start();
-      io.run();
-      restart = agent.update_restart();
-      remote_restart = agent.remote_restart();
-    }
-    if (remote_restart)
-      coc::restart_process(argc, argv);
-    if (restart && updater.install())
-      coc::restart_updated(argc, argv);
-    return 0;
+    throw coc::Error("USAGE", "Unknown command: " + command);
   } catch (const std::exception &e) {
     std::cerr << coc::error_data(e).dump() << '\n';
     return 1;

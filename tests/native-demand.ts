@@ -126,14 +126,14 @@ try {
     await wait(
       () => connections === 2 && approvals === 3,
       'Pong timeout reconnect',
-      100000,
+      130000,
     );
   } finally {
     clearInterval(traffic);
   }
   assert.ok(
-    Date.now() - lostAt >= 55000,
-    'must not close before Pong deadline',
+    Date.now() - lostAt >= 85000,
+    'Pong timeout must be followed by a full 30-second retry delay',
   );
   assert.match(output, /WebSocket Pong timeout after 90 seconds/);
   assert.equal(agent.exitCode, null);
@@ -141,56 +141,48 @@ try {
   const pongRecoveryMs = Date.now() - lostAt;
   const beforeOutage = connections;
   const approvalsBeforeOutage = approvals;
+  const outageAt = performance.now();
   rejectConnections = true;
   peer!.close(1012, 'Synthetic outage');
   await wait(
-    () => connections === beforeOutage + 5,
-    'five failed fast reconnects',
-    45000,
+    () => connections === beforeOutage + 2,
+    'two failed reconnects at fixed 30-second intervals',
+    70000,
   );
-  await wait(
-    () =>
-      output.includes(
-        'Reconnect budget exhausted; next attempt in 180 seconds',
-      ),
-    'three-minute retry scheduled',
-  );
+  assert.equal(agent.exitCode, null, 'failed retries must not stop the Agent');
   assert.equal(
-    agent.exitCode,
-    null,
-    'exhausting fast retries must not stop the Agent',
+    approvals,
+    approvalsBeforeOutage,
+    'no polling during failed connections',
   );
-  const lastFastAttempt = connectedAt.at(-1)!;
+  assert.ok(connectedAt[beforeOutage] - outageAt >= 30000);
+  assert.ok(connectedAt[beforeOutage + 1] - connectedAt[beforeOutage] >= 30000);
   rejectConnections = false;
   await wait(
     () =>
-      connections === beforeOutage + 6 &&
+      connections === beforeOutage + 3 &&
       approvals === approvalsBeforeOutage + 1,
-    'automatic recovery after three-minute cooldown',
-    205000,
+    'automatic recovery after the next 30-second delay',
+    40000,
   );
-  const slowRecoveryMs = connectedAt.at(-1)! - lastFastAttempt;
-  assert.ok(
-    slowRecoveryMs >= 180000,
-    'slow retry must wait a full three minutes',
-  );
-  const recoveredAt = performance.now();
-  peer!.close(1012, 'Verify fast retries reset after successful negotiation');
+  assert.ok(connectedAt.at(-1)! - connectedAt[beforeOutage + 1] >= 30000);
+  const revokedAt = performance.now();
+  peer!.close(4001, 'Synthetic authorization rejection');
   await wait(
     () =>
-      connections === beforeOutage + 7 &&
-      approvals === approvalsBeforeOutage + 2,
-    'successful recovery resets the fast retry budget',
-    5000,
+      output.includes('Relay disconnected (code 4001); retrying in 30 seconds'),
+    'authorization rejection keeps the process running',
   );
-  assert.ok(performance.now() - recoveredAt < 5000);
-  peer!.close(4001, 'Synthetic authorization revocation');
+  assert.equal(agent.exitCode, null);
   await wait(
-    () => agent.exitCode !== null,
-    'revocation still stops the Agent',
-    5000,
+    () =>
+      connections === beforeOutage + 4 &&
+      approvals === approvalsBeforeOutage + 2,
+    'automatic recovery after authorization rejection',
+    40000,
   );
-  assert.match(output, /Device authorization revoked; stopping Agent/);
+  assert.ok(connectedAt.at(-1)! - revokedAt >= 30000);
+  assert.equal(agent.exitCode, null);
   console.log(
     JSON.stringify({
       scenario: 'A-only',
@@ -201,9 +193,8 @@ try {
       idleReconnects: 0,
       missingPongReconnect: 'passed',
       missingPongRecoveryMs: pongRecoveryMs,
-      exhaustedRetryRecoveryMs: slowRecoveryMs,
-      retryBudgetReset: 'passed',
-      revokedAuthorizationStops: 'passed',
+      fixedThirtySecondRetries: 'passed',
+      revokedAuthorizationRetries: 'passed',
       approvalEvent: 'passed',
       probe: 'passed',
     }),

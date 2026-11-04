@@ -32,6 +32,8 @@ Attachment 保存授权配置摘要、退休状态及绑定信息。休眠恢复
 
 配置或 owner secret 轮换通过恢复时的摘要变化使旧连接重连。关闭连接和撤销入口资格不代表已经取消 Agent 上的任务；已开始工作保留真实结果，恢复沿原请求身份进行。
 
+Agent 收到 4001 或握手被拒绝后保持进程，每 30 秒发起新的认证连接；Relay 对已撤销凭据仍拒绝准入。重新尝试不恢复已撤销权限，也不自动注册新身份或重放未确认业务。用户明确停止 Agent 时取消重连。
+
 ## 实现与验证入口
 
 源码：`apps/relay/src/connections.ts`、`host.ts`、`registry.ts`。Agent 的校验位于 `native/src/agent.cpp` 与 `delivery.cpp`，

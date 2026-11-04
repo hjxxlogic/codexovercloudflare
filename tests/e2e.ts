@@ -1784,14 +1784,22 @@ try {
     1,
     'real CLI recovered a lost committed CONTROL_READY',
   );
-  agent.socket?.close(1012);
+  const interruptedTransport = agent.socket;
+  interruptedTransport?.close(1012);
+  await wait(
+    () =>
+      agent!.socket !== interruptedTransport &&
+      agent!.socket?.readyState === WebSocket.OPEN,
+    'Agent replaces the interrupted transport after its retry delay',
+    45000,
+  );
   await wait(
     async () =>
       (await api('/hosts')).some(
         (host: any) => host.id === enrolled.hostId && host.online,
       ),
     'Agent recovered for the original TUI',
-    15000,
+    45000,
   );
   agent.loseNextOutput();
   agent.loseNextDeliveryResult();
@@ -3034,7 +3042,7 @@ try {
   await wait(
     () => agent!.socket?.readyState === WebSocket.OPEN,
     'Agent reconnect',
-    15000,
+    45000,
   );
   await wait(
     async () =>

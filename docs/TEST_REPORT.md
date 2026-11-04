@@ -36,8 +36,11 @@
 | `npm run test:release`                                    | 发行来源和部署工具拒绝路径                   |
 | `npm run test:update`                                     | 当前自动更新、校验失败拒绝                   |
 | `npm run test:billing` / `npm run test:billing:web`       | 按需通讯、刷新与通知行为                     |
+| `npm run test:retry`                                      | Agent 固定 30 秒重试、初始化恢复与显式停止   |
 
 Worker 授权专项：`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts`。覆盖握手后的双向零授权查询、DO 重建、退休连接、授权变更、到期及持久失效事件重试。稳定数据转发不能依赖短时缓存命中；控制面授权仍需完整检查。
+
+Agent 重试专项使用真实原生进程、Socket 与实际计时，不加速重试定时器。`test:retry` 覆盖连续 HTTP 401 / 403、协议不匹配、4001、非法配置、Codex 不可用、状态锁占用、配置修复和锁释放后的自动恢复，以及在重连 / 初始化等待中明确停止后不再尝试。`test:billing` 同时验证空闲零业务轮询、Pong 超时后固定延迟与连续连接失败后的恢复，并包含该重试专项。
 
 2026-11-04 授权竞态回归新增 7 项：有效 Agent 在两轮刷新不同返回顺序下保持连接，过期成功或拒绝结果均重新核验；当前撤权即使随后收到旧成功也保持退休；状态查询遇到授权刷新不会误踢 Agent。校验期间禁止转发，最新授权通过后恢复。修复前新增项中 5 项失败、2 项通过；修复后本地 Vitest 499/499、类型检查、Lint 和 Worker dry-run 通过，未调用模型或部署。线上状态、隔离复现及验证边界见 [事故记录](INCIDENT-2026-11-04.md)。
 
