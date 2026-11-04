@@ -53,7 +53,7 @@ npm run test:opaque -- --online-r2 \
   --owner-secret-file /absolute/private/r2-owner
 ```
 
-Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与独立 Service Auth 凭据；原生 Agent 经主入口验证，网页设备配对测试走现有 `/guest/` 入口，不将 Service Auth 冒充邮箱用户，邮箱登录须另行验证。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
+Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与获准用于该入口的 Service Auth 凭据；原生 Agent 经主入口验证，测试浏览器的 HTTP / WebSocket 同样携带机器入口凭据且仅放行 r2 域请求；网页设备配对测试走现有 `/guest/` 入口，不将 Service Auth 冒充邮箱用户，邮箱登录须另行验证。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
 
 ## 部署 Linux systemd 用户服务 Agent
 
@@ -99,19 +99,6 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 当前线上版本
 
-Worker、网页与当前线上 Linux Agent 为 `0.6.7`，目标为 `https://r.xlogic.cc` 与既有 systemd 用户服务。本次按明确授权使用未提交源码本地构建，GitHub Actions 跳过，无 Actions URL，`ciVerified=false`、`dirty=true`；不作为 CI 验证发行制品。活动会话重启获得了明确授权，配置与 SQLite 已备份，安装后完成 120 秒连接验证。
+独立测试站 `https://r2.xlogic.cc` 的 Worker / 网页及下载包为 `0.6.7`，源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。该准确提交的六项必需 CI 作业全部成功，使用经过来源与摘要校验的 CI 制品部署，`ciVerified=true`。线上健康、静态资源、下载包及隔离端到端验证通过，详见 [r2 部署记录](R2_DEPLOYMENT.md)。
 
-| 构建或制品           | 身份 / SHA256                                                      |
-| -------------------- | ------------------------------------------------------------------ |
-| 构建基准 commit      | `c3ffef94afd3bd09c0598df2d19aa0697b463d0c`                         |
-| 构建时源码摘要       | `1057fdcd349956a6c3dc51d9d1940e2bb10a416ae212bb33bb9058e69cbaee9c` |
-| Worker Version ID    | `17d8ac2e-c840-40ed-a944-f04966a8d953`                             |
-| Worker bundle SHA256 | `7defb0533db96f974ffabdb0565d5eb878c849cdb5dee671015c5cb7a3f273aa` |
-| 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
-| 运行 Agent SHA256    | `7c8e0ce89098be2d25cad05a222fdf2e35434f7b954549b296e30360487ea368` |
-
-当前验证覆盖真实 Access 邮箱登录与授权恢复、主机版本和在线状态、邮箱专属目录、旧会话历史、Codex 线程目录、Terminal WebSocket 命令与输出、旧 HTTP 字节操作拒绝、真实模型回复、刷新后历史和草稿恢复、任务不重复提交、文件上传 / 侧栏与新窗口预览 / 下载的字节一致性。测试会话已结束，测试文件已清理；107 条原有会话记录保留，原 SQLite 版本标记仍为 `0`，配置仅移除废弃的 `autoUpdate.intervalHours`。
-
-本地 CTest 11/11、Vitest 492/492、部署工具 35 项检查通过。69 个线上静态资源与准备制品逐字节一致。构建源码快照、详细日志、浏览器截图和机器证据位于忽略的 `.local/deployment-0.6.7/`，来源摘要以部署时快照为准。
-
-本次保留下载站原有安装包：Linux 和源码为 `0.6.6`，Windows 为 `0.6.5`；Windows 包未部署，也未发布更新通知。其它 Agent 不在本次升级范围。
+本次仅部署 r2。旧站 `r.xlogic.cc` 和既有本机 Agent 保持独立，未由此升级；两者运行身份不能从 r2 版本推断。测试 Agent 为临时进程，测试后停止并撤销授权。

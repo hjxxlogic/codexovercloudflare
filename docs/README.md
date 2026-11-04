@@ -15,6 +15,7 @@
 | 远程读取配置、替换与重启   | [远程配置](REMOTE_CONFIGURATION.md)                   |
 | 构建、开发和本机测试       | [开发说明](DEVELOPMENT.md)                            |
 | 选择测试入口和了解验证边界 | [测试说明](TEST_REPORT.md)                            |
+| 查看 r2 当前部署和线上验证 | [r2 部署记录](R2_DEPLOYMENT.md)                       |
 | 发布、部署与回退           | [发布操作](RELEASE.md)                                |
 
 [protocol.generated.json](protocol.generated.json) 由 `packages/protocol` 的 schema 生成，修改协议后运行 `npm run protocol:generate`，不要手工编辑。

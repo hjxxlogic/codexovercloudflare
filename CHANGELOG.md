@@ -13,4 +13,4 @@
 
 功能范围见 [项目需求](docs/REQUIREMENTS.md)，操作与限制见 [用户手册](docs/USER_GUIDE.md)，构建与发布见 [开发说明](docs/DEVELOPMENT.md) 和 [发布操作](docs/RELEASE.md)。历史版本变更通过 Git 提交记录查询。
 
-- 增加独立 `r2.xlogic.cc` 部署目标与隔离线上测试入口，保持旧站 Worker、授权和本机 Agent 服务独立。
+- 增加独立 `r2.xlogic.cc` 部署目标与隔离线上测试入口，已使用完整 CI 制品部署并通过线上隔离验证；旧站 Worker、授权和本机 Agent 服务保持独立，见 [部署记录](docs/R2_DEPLOYMENT.md)。

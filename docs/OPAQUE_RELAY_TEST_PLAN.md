@@ -102,7 +102,7 @@ V01 必须涵盖上表 F01–F07 的请求、回复、错误和通知。简单�
 
 ### 本机证据（2026-11-04）
 
-源码为基线 `589c26b` 加本 worktree 的未提交更改。Linux x86_64、C++17 Debug、Node 22.23.4、真实本地 workerd / Chromium；测试配置、凭据和数据库全部隔离，未调用模型。下列 `/tmp/opaque-*.log` 为本机运行证据，不随源码提交，也不充当平台 CI 结果。
+初始本机检查使用基线 `589c26b` 加本 worktree 更改；最终部署源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。Linux x86_64、C++17 Debug、Node 22.23.4、真实本地 workerd / Chromium；测试配置、凭据和数据库全部隔离，未调用模型。下列 `/tmp/opaque-*.log` 为本机运行证据，不随源码提交，也不充当平台 CI 结果。
 
 | 用例     | 实际入口与证据                                                                                                                                                             | 验证范围                                                                                                                                |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -115,11 +115,11 @@ V01 必须涵盖上表 F01–F07 的请求、回复、错误和通知。简单�
 | F02、F07 | projects 两组、`native-configuration.ts`；`opaque-configuration.log`                                                                                                       | 真实 Agent/CLI 的项目管理、配置读取/替换、回执去重和进程重启                                                                            |
 | F03–F05  | 完整 E2E、history、native core、`browser-uploads.ts`                                                                                                                       | 外部 Codex/审批、邮箱隔离、历史、路径和文件校验                                                                                         |
 | F08      | `native-wake.ts`、`ui-wake.ts`、`native-update.py`、`release-provenance.py`、UI/cache/rendering                                                                            | 唤醒、更新、公开制品、页面与缓存；更新制品为隔离合成物                                                                                  |
-| F09      | `native-tls.ts`、`native-access.ts`、browser-access / guest-access                                                                                                         | TLS 拒绝与代理、Access/访客前缀、真实 Worker 通道撤销；Windows 等待 CI                                                                  |
+| F09      | `native-tls.ts`、`native-access.ts`、browser-access / guest-access                                                                                                         | TLS 拒绝与代理、Access/访客前缀、真实 Worker 通道撤销；Windows 已由完整 CI 验证                                                         |
 | V01–V03  | relay-order 真实密码双向敏感标记用例 + opaque E2E；Worker 仅依赖 admission schema                                                                                          | 提示词、会话、路径、文件、Terminal、配置、错误及通知不进入中继可见封装/附件/存储/日志参数；新增测试方法无需 Worker 分发                 |
 | M01–M02  | native-store-compaction、native operations、relay-order、backup/login；`opaque-old-binary.log`                                                                             | 完整 0/1 库保留记录后标记 2、未知/残缺库不变、准确基线 Agent 拒绝版本 2 且数据库字节不变、旧业务入口 426、DO 清理旧业务状态保留唤醒冷却 |
 
-`test:task` 不属于本轮确定性验收。真实 TUI、完整 E2E 和 Terminal 的最终结果如下，未用 app-server 初始化替代 TUI 验证。CI 的 sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64，以及线上升级/回退演练未执行。
+`test:task` 不属于本轮确定性验收。真实 TUI、完整 E2E 和 Terminal 的最终结果如下，未用 app-server 初始化替代 TUI 验证。sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 已由最终完整 CI 验证；生产数据升级 / 回退演练未执行。
 
 ### 最终本机结果
 
@@ -137,7 +137,7 @@ V01 必须涵盖上表 F01–F07 的请求、回复、错误和通知。简单�
 
 生产通道故障代理只观察密文与文件落盘证据：浏览器命令先写入本地待办，再中断连接；上传首块已落盘后丢失加密回包，暂停并重开面板后按原意图恢复。精确业务帧的丢失、重复、预算和崩溃边界仍由原生端点/内部引擎测试及独立浏览器上传测试覆盖。
 
-本次未推送 CI、未部署、未调用模型。尚未执行的平台 CI、线上长稳和实际升级/回退不计为通过；上线前仍须按仓库发布流程验证准确提交的全部必要作业。
+最终提交已完成全部必要 CI 作业，并使用验证制品部署到独立 r2；未调用模型。线上长稳和生产数据升级 / 回退未执行，不计为通过。
 
 ### r2 发布门禁发现
 
@@ -147,6 +147,10 @@ V01 必须涵盖上表 F01–F07 的请求、回复、错误和通知。简单�
 
 连续注入断线时，下一次背景密文回复可能在浏览器提交表单前触发关闭。测试现先暂停密文回复，确认浏览器已持久化原请求并清空已提交草稿，再关闭链路；保留真实恢复和任务去重断言，不依赖密文承载哪一种业务消息。
 
-首轮整体未通过，不能用于部署；后继修复必须重新等待完整 CI。独立 r2 的目标、首次部署与线上测试命令见 [发布操作](RELEASE.md#独立-r2-测试站)。
+首轮整体未通过，未用于部署；后继修复 `a61423f` 已重新完成全部必要 CI。独立 r2 的目标、首次部署与线上测试命令见 [发布操作](RELEASE.md#独立-r2-测试站)。
 
-修复后本地启用 Terminal 的完整生产通道 E2E 46 项通过，日志 `/tmp/r2-fixed-e2e-3.log`；类型与 lint 检查通过。Windows 实机门禁仍以新提交的完整 CI 结果为准。
+修复后本地启用 Terminal 的完整生产通道 E2E 46 项通过，日志 `/tmp/r2-fixed-e2e-3.log`；类型与 lint 检查通过。[最终 CI](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 包含 Windows 在内的六项必需作业全部成功。
+
+### r2 线上验证
+
+使用准确提交 `a61423f` 的 CI Worker、网页及 musl Agent，在真实 Cloudflare 上验证加密业务、权限、原请求去重、控制接管、文件和历史，以及浏览器项目选择、任务流式回复和刷新恢复。隔离测试使用模拟 Codex，不调用模型；Service Auth 与 CoC 访客授权不替代邮箱登录验证。临时 Agent 和测试授权已清理，旧站与本机 Agent 在实际发布前后身份保持一致。来源、摘要、截图和具体限制见 [r2 部署记录](R2_DEPLOYMENT.md)。

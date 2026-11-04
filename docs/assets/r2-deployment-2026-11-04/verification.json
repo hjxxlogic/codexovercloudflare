@@ -1,0 +1,125 @@
+{
+  "commit": "a61423f4f1cbd82b018dbcf3f29c1ac2acb43859",
+  "deploymentToolCommit": "a61423f4f1cbd82b018dbcf3f29c1ac2acb43859",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561",
+  "ciVerified": true,
+  "sourceDigest": "a67d4f0fba0b48380f760e9ec7e70fadb8c3242818a7cfff0a38981e13338151",
+  "worker": "codex-over-cloudflare-r2",
+  "target": "https://r2.xlogic.cc",
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13292129413,
+      "digest": "sha256:0dc33fc622634d9bc2b3c4632001e73e1629749483288013f32ba434ab2417ba"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13293142426,
+      "digest": "sha256:326b9df2da8adab67a863383ce65164cd34363c33abdf67101b9d64a769bd56d"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 13292207044,
+      "digest": "sha256:9710f247f5657a23f7e71ced11817588e6d60170b3ab757c87e8c8f5472cf40a"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 13292500906,
+      "digest": "sha256:1e87c2707b7ff9acb0cec1f8d1309328ca6e1e54ebc6f2487120489743975d58"
+    },
+    {
+      "name": "linux-musl",
+      "id": 13291769925,
+      "digest": "sha256:76caee04b46cd227e90bc0216dbf1c24d91648a9d6296fcbd3b02c121a8c7811"
+    },
+    {
+      "name": "windows-x64",
+      "id": 13292576864,
+      "digest": "sha256:55e306380555b18da164468cac4adafcd137aa7ca743d30fcb7982adcb03735a"
+    }
+  ],
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.7",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "nativeChecksums": {
+    "coc-0.6.7-linux-x86_64-debian12.tar.gz": "575dcbc66461ff8ba5c7b989067c2150ad57eb393f8cd883d534978dd623aa95",
+    "coc-0.6.7-linux-x86_64-musl.tar.gz": "40ca680c5d7808155879d361d9da44390efabeea377a2ace5f5d645e3e6278f9",
+    "coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz": "dc00f47ece5e409e96a4352d8dba62e5fcbe26d51228a9b6066d017c6ff16b89",
+    "coc-0.6.7-windows-x64.zip": "0d443a33d3ce6aafbc95443a3eb110389cc4e71097dd9c61910e7f42a5ee4628",
+    "codex-over-cloudflare-0.6.7-source.tar.gz": "e7f7b7f6c61dcf2e4c12657dda6b10823f2def3ede14c8347106df17bacfa153"
+  },
+  "jobs": [
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped"
+    }
+  ],
+  "isolation": {
+    "productionWorkerDeploymentUnchanged": true,
+    "productionWorkerVersion": "0c4458c6-4b89-466e-ba86-fc84c58966c1",
+    "r2WorkerVersion": "c43346e0-d76c-404a-b93a-b759cc16055c",
+    "durableObjectNamespacesDisjoint": true,
+    "productionAgentPidAndStartUnchanged": true,
+    "routesIsolated": true
+  },
+  "onlineTest": {
+    "target": "https://r2.xlogic.cc",
+    "passed": true,
+    "checks": [
+      "Browser project selection, prompt streaming and history after reload",
+      "Service Auth native admission; browser CoC guest flow (email login not exercised)",
+      "encrypted projects, configuration and permission denial",
+      "session create original request deduplication",
+      "CONTROL_READY, models, prompt and streamed task completion",
+      "file byte transfer and history",
+      "control takeover and stable retry ticket",
+      "ciphertext excludes prompt and session ID",
+      "Worker directory excludes business metadata",
+      "Chromium desktop/mobile without page errors"
+    ],
+    "temporaryHostGrantsRemoved": true,
+    "scriptSha256": "e21782308360084eb521f557ff31090a02e9a326616ce64ef60b89b03613c909"
+  },
+  "checksums": {
+    "workerBundle": "e34e111c380abcb74b41227ad7212f14b20e04391418dd79f929b8c92046e478",
+    "webIndex": "23f742efbdf9d12e8c675f2e648d1d7c2cd48c326d7289940cdaddd192f08a46",
+    "isolatedAgent": "e3162610458b21f2d768aad078f26a3c063a45471c0a0e35d76dbd6f46190efc"
+  },
+  "limitations": [
+    "Simulated Codex; no model calls",
+    "Browser CoC guest flow behind Service Auth; email/OTP login not exercised",
+    "Temporary Agent stopped and test grants removed; existing Agent not connected to r2",
+    "No long-duration soak or production data migration/rollback test"
+  ],
+  "recordedAt": "2026-11-04T03:50:34.508011+00:00"
+}

@@ -64,8 +64,8 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 
 ## 不透明中继实施记录（2026-11-04）
 
-本轮基于 `589c26b` 的 `docs/opaque-relay-architecture` worktree 未提交源码执行。具体用例和证据见 [不透明中继验收](OPAQUE_RELAY_TEST_PLAN.md)。原生/网页、Worker dry-run、静态检查与确定性集成分别记录，不把组件夹具通过写成完整公网通道通过。`test:delivery`、`test:runtime`、`test:terminal` 的内部引擎压力测试使用 `coc-agent-component`；生产通道由独立端点和端到端测试验证。
+本轮在基于 `589c26b` 的独立 `docs/opaque-relay-architecture` worktree 实施，最终部署源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。具体用例和证据见 [不透明中继验收](OPAQUE_RELAY_TEST_PLAN.md)。原生/网页、Worker dry-run、静态检查与确定性集成分别记录，不把组件夹具通过写成完整公网通道通过。`test:delivery`、`test:runtime`、`test:terminal` 的内部引擎压力测试使用 `coc-agent-component`；生产通道由独立端点和端到端测试验证。
 
 本机结果：13/13 CTest、35 文件 / 379 Vitest、完整 E2E 46 项通过（含 Terminal）；加密互通、真实 Codex TUI 初始化和原生/浏览器专项通过。构建与静态检查证据见验收记录。
 
-尚未推送 CI、执行发布或线上切换；跨平台、sanitizers 和真实 Cloudflare 部署结果不能从本机测试推断。
+该准确提交的 [完整 CI](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 六项必需作业全部成功，已使用 CI 制品部署到独立 r2。真实 Cloudflare、CI 原生 Agent 和 Chromium 的线上协议、浏览器任务及刷新恢复测试通过；模拟 Codex 未调用模型，邮箱登录和长稳未验证。来源摘要、截图及旧站 / Agent 隔离核对见 [r2 部署记录](R2_DEPLOYMENT.md)。

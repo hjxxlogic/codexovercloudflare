@@ -158,6 +158,7 @@ async function enroll(role: string) {
   );
 }
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let cleanupError: unknown;
 try {
   if (!online)
     start(
@@ -341,14 +342,24 @@ try {
     .b;
   assert(!JSON.stringify(directory).includes('operationInstance'));
   assert(!JSON.stringify(directory).includes('build'));
-  browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
   if (online)
-    await context.route('https://r2.xlogic.cc/**', (route) =>
-      route.continue({
-        headers: { ...route.request().headers(), ...admission },
-      }),
+    await api(
+      `/sessions/${session.id}/stop`,
+      {},
+      webHeaders(),
+      randomUUID(),
+      state.operationInstance,
     );
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    extraHTTPHeaders: online ? admission : {},
+  });
+  if (online)
+    await context.route('**/*', (route) => {
+      if (new URL(route.request().url()).origin !== 'https://r2.xlogic.cc')
+        return route.abort();
+      return route.continue();
+    });
   const [name, value] = cookie.split('=');
   await context.addCookies([
     { name, value, url: origin, httpOnly: true, sameSite: 'Strict' },
@@ -358,6 +369,29 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(origin);
   await page.locator('.chat-workspace').waitFor();
+  if (online) {
+    await page
+      .getByRole('button', { name: '连接远程项目', exact: true })
+      .click();
+    await page.getByLabel('主机', { exact: true }).selectOption(host);
+    await page.getByLabel('项目', { exact: true }).selectOption('project');
+    await page
+      .getByRole('button', { name: '创建网页会话', exact: true })
+      .click();
+    await page.getByLabel('任务内容').fill('r2 浏览器验证');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
+    await page.reload();
+    await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
+    await page.getByText('已连接', { exact: true }).first().waitFor();
+    assert.equal(
+      await page.getByText('echo: r2 浏览器验证', { exact: true }).count(),
+      1,
+    );
+    report.checks.push(
+      'Browser project selection, prompt streaming and history after reload',
+    );
+  }
   assert.equal(errors.length, 0, errors.join('\n'));
   if (online) {
     mkdirSync('.local/r2-deployment', { recursive: true });
@@ -386,13 +420,6 @@ try {
     'Worker directory excludes business metadata',
     'Chromium desktop/mobile without page errors',
   );
-  // Revoke only the disposable r2 test host; production is a different Worker.
-  if (online) {
-    const devices = (await control('/admin/devices', undefined, ownerHeaders()))
-      .b.credentials;
-    for (const device of devices.filter((d: any) => d.hostId === host))
-      await control('/admin/revoke', { id: device.id }, ownerHeaders());
-  }
   report.passed = true;
   console.log(
     'PASS: real Worker + native Agent + browser encrypted projects, permissions, configuration, original deduplication, control, tasks, files, history, takeover and opaque directory',
@@ -401,6 +428,30 @@ try {
   report.error = String(error);
   throw error;
 } finally {
+  try {
+    // Revoke only the disposable r2 test host; production is a different Worker.
+    if (online && host && owner) {
+      const devices = (
+        await control('/admin/devices', undefined, ownerHeaders())
+      ).b.credentials;
+      const device = devices.find(
+        (d: any) => d.hostId === host && d.role === 'agent',
+      );
+      assert(device, 'Temporary Agent credential must exist');
+      // Agent revocation also deletes its dependent client credentials.
+      await control('/admin/revoke', { id: device.id }, ownerHeaders());
+      const remaining = (
+        await control('/admin/devices', undefined, ownerHeaders())
+      ).b.credentials;
+      assert(!remaining.some((d: any) => d.hostId === host));
+    }
+  } catch (error) {
+    cleanupError = error;
+    report.passed = false;
+    report.error = [report.error, `Cleanup: ${String(error)}`]
+      .filter(Boolean)
+      .join('; ');
+  }
   if (online) {
     mkdirSync('.local/r2-deployment', { recursive: true });
     writeFileSync(
@@ -435,3 +486,4 @@ try {
   );
   rmSync(root, { recursive: true, force: true });
 }
+if (cleanupError) throw cleanupError;
