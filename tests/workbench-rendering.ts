@@ -1,3 +1,5 @@
+import { WebSocketServer } from 'ws';
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 // Isolated built-web rendering checks. No production credentials or model calls.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -76,7 +78,7 @@ const server = createServer(async (req, res) => {
   else
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     );
   const root = resolve('dist/web');
   const file = resolve(
@@ -110,6 +112,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end();
   }
 });
+const endpoints = new WebSocketServer({ server });
+endpoints.on('connection', (ws, req) => encryptedFixture(ws, req));
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const port = (server.address() as { port: number }).port;
 const browser = await chromium.launch({ headless: true });

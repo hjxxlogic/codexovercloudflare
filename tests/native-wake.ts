@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 // Deterministic native wake checks with a local relay peer; no model calls.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -93,6 +94,15 @@ const server = createServer(async (req, res) => {
   } else reply({ error: { code: 'NOT_FOUND' } }, 404);
 });
 const wss = new WebSocketServer({ server });
+wss.on('connection', (ws, req) => {
+  if (
+    req.url?.startsWith('/ws/v1/channel/') ||
+    req.url?.startsWith('/ws/v1/client-management/')
+  ) {
+    (req as any).endpointOffline = !online;
+    encryptedFixture(ws, req);
+  }
+});
 let agent: ChildProcess | undefined;
 async function run(binary: string, args: string[]) {
   const child = spawn(resolve(binary), args, {
@@ -202,18 +212,27 @@ try {
       () => reject(new Error('Agent did not advertise wake URL')),
       10000,
     );
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+      if (
+        req.url?.startsWith('/ws/v1/channel/') ||
+        req.url?.startsWith('/ws/v1/client-management/')
+      )
+        return;
       ws.send(
         JSON.stringify({
-          type: 'hello',
+          type: 'channel-welcome',
           delivery: 2,
           demand: 1,
           minProtocol: 1,
         }),
       );
       ws.on('message', (raw) => {
+        if (JSON.parse(String(raw)).type === 'channel-register')
+          ws.send(JSON.stringify({ type: 'channel-registered' }));
+      });
+      ws.on('message', (raw) => {
         const frame = JSON.parse(raw.toString());
-        if (frame.type === 'capabilities') {
+        if (frame.type === 'channel-register') {
           clearTimeout(timeout);
           done(frame.wakeUrl);
         }

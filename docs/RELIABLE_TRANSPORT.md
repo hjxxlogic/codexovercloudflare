@@ -2,19 +2,21 @@
 
 唯一业务版本为 `delivery:2`；缺失、旧版或未知版本在业务处理前拒绝，不降级。发行清单的 `protocol:1` 用于更新兼容，不表示支持旧业务。
 
-Worker 持久保存授权、撤销、租约和控制代际；业务正文、结果、发送头、ACK、信用与补发日志由 A / C 保存。Worker 只提供有界尽力转发，重建可丢失全部临时关联。连接成功和 HTTP 成功不能代替端点持久确认。
+Worker 持久保存授权、撤销及连接失效事件；Agent SQLite 保存租约和控制代际；业务正文、结果、发送头、ACK、信用与补发日志由 A / C 保存。Worker 只提供有界尽力转发，重建可关闭连接，不保留业务请求关联。连接成功和 HTTP 成功不能代替端点持久确认。
+
+所有业务请求、控制证明、窗口、ACK、历史和 Terminal 消息均在端点加密通道内传输。Worker 仅处理连接级公开握手材料和密文，不解析这些字段。详见 [加密封装](OPAQUE_RELAY_DESIGN.md#4-业务通过加密通道直接到端点)。
 
 ## Terminal 字节通道
 
-Terminal 创建和关闭使用可靠 HTTP 操作，绑定原 requestId 与请求准入代次；runtime 绑定稳定 Agent 实例、owner、project、session 和 control proof。
+Terminal 创建和关闭使用通道内可靠请求，绑定原 requestId 与请求准入代次；runtime 绑定稳定 Agent 实例、owner、project、session 和 control proof。
 
-当前浏览器使用 `streaming:2` 独立 WebSocket：bind 固定 terminalId/control/offset，input/resize 使用连续 seq，ready/ack 确认 next，output 携带 base64、字节 offset 和 gap。输出 ACK 只在 xterm 渲染后发送，不落盘、不推进 delivery:2 日志。HTTP 仅提供 info/open/close；read/input/resize 返回 `UPGRADE_REQUIRED`，读写和 resize 均走字节流。
+当前浏览器使用 `streaming:2` 独立逻辑流：bind 固定 terminalId/control/offset，input/resize 使用连续 seq，ready/ack 确认 next，output 携带 base64、字节 offset 和 gap。输出 ACK 只在 xterm 渲染后发送，不落盘、不推进 delivery:2 日志。请求接口仅提供 info/open/close；read/input/resize 返回 `UPGRADE_REQUIRED`，读写和 resize 均走字节流。
 
 单次输入最多 4 KiB，每输出帧最多 16 KiB，未渲染输出最多 64 KiB，Agent 保留最近 256 KiB；压力传回 PTY。浏览器最多 32 帧 / 64 KiB base64 输入在途，未知按键不重放。独立流断开后 runtime 最多保留 60 秒恢复宽限，按已渲染 offset 接续，缺口明确报告；Agent 重启不能恢复。控制权丢失、会话结束或 Agent 上行断开清理终端。
 
 ## 原请求与控制权
 
-非会话窗口的创建 / 停止、外部排队 / 审批、项目修改及上传 begin / finish，首次网络发送前保存完整固定意图、原 requestId、稳定 Agent 身份及请求准入代次。HTTP 使用 `Idempotency-Key`、`X-CoC-Operation-Instance`，确认另带 `X-CoC-Operation-Ack: 1`；owner 由 Worker 鉴权绑定。A 执行前提交 started，终态先落盘再回复，C 保存原终态后才确认。回包或确认丢失只重查原意图；重启后 started 固定为 RESULT_UNKNOWN，不派发新副作用。已确认正文可回收，在保留期限内拒绝原身份重执行；记录清理后由准入代次拒绝过期原请求。
+非会话窗口的创建 / 停止、外部排队 / 审批、项目修改及上传 begin / finish，首次网络发送前保存完整固定意图、原 requestId、稳定 Agent 身份及请求准入代次。端点请求携带加密的 requestId 和 intent（instance / ack）；原 HTTP 请求头仅在客户端适配层转换，不发送到 Worker 业务接口。owner 由 Worker 连接身份绑定。A 执行前提交 started，终态先落盘再回复，C 保存原终态后才确认。回包或确认丢失只重查原意图；重启后 started 固定为 RESULT_UNKNOWN，不派发新副作用。已确认正文可回收，在保留期限内拒绝原身份重执行；记录清理后由准入代次拒绝过期原请求。
 
 会话控制使用持久 controlEpoch / controlId / owner，连接代际另行绑定。接管分配 pending 即拒绝旧端新写入；A 提交新代际并终结旧 received 命令后才返回匹配 exchangeId 的 CONTROL_READY。C 等待当前两 lane 的确认再发送。旧 started 工作保持原真实状态，接管回执不表示它已停止。
 
@@ -53,7 +55,7 @@ CC RPC 输出先保存正文和连续接收位置，再确认并交给 TUI；TUI
 
 CW/CC 未闭合缺口的结果正文只进入持久 buffer；连续前缀推进时在同一提交中移入有界结果 cache，不重复持久保存正文。旧账本已有副本在缺口闭合时一并压缩，确认及 transfer 正文保留条件不变。
 
-恢复拒绝错误由共享 deliveryRecoveryErrorSchema 定义；Worker 的 reset 分类和 CW HTTP 恢复停止条件复用该定义。传输未知、结果待定、背压与主机离线不属于 reset 分类。当前交换/连接校验仍先于冻结状态转换。
+恢复拒绝错误由共享 deliveryRecoveryErrorSchema 定义；Agent 的 reset 分类和 CW 端点请求恢复停止条件复用该定义。传输未知、结果待定、背压与主机离线不属于 reset 分类。当前交换/连接校验仍先于冻结状态转换。
 
 Agent 恢复响应复用 ACK 前经过水位校验的结果后缀页；ACK 只回收该水位及以前的前缀，响应窗口仍在 ACK 后读取。大结果描述符的 contentId/digest 复用一次固定正文摘要计算，wire 与保留语义不变。
 
@@ -67,4 +69,4 @@ Agent 恢复响应复用 ACK 前经过水位校验的结果后缀页；ACK 只�
 
 正文、请求和遗留积压默认最多一周，容量压力可提前回收，活动执行受保护。清理后的原请求由准入代次和单调屏障拒绝，返回 REQUEST_EXPIRED；历史订阅过期后重建，保留已提交内容。恢复凭证及不可恢复边界见 [数据保留](HISTORY_STORAGE.md)。
 
-授权在准入和逻辑通道握手时检查，稳定数据帧不复查凭据或租约。授权变更以独立控制事件关闭连接，详见 [Worker 连接授权](WORKER_CONNECTION_AUTHORIZATION.md)。
+Worker 在准入和连接握手时检查授权，稳定数据帧不查询权限存储。Agent 在业务派发时检查绑定权限、有效期和当前控制代际。授权变更以独立控制事件关闭连接，详见 [Worker 连接授权](WORKER_CONNECTION_AUTHORIZATION.md)。

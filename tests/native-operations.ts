@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Real endpoint receipts, process death and recovery; no cloud or model calls.
 import assert from 'node:assert/strict';
 import uploadFixtures from './upload-binding-fixtures.json';
@@ -8,13 +9,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 
 const root = mkdtempSync(join(tmpdir(), 'coc-operations-'));
 const config = join(root, 'agent.json');
 const frames: any[] = [];
 let child: ChildProcess | undefined;
-let peer: WebSocket | undefined;
+let peer: AgentEndpoint | undefined;
 let log = '';
 let database: DatabaseSync | undefined;
 const server = createServer((_request, response) =>
@@ -27,16 +28,9 @@ const server = createServer((_request, response) =>
     .end(JSON.stringify({ pending: [] })),
 );
 const sockets = new WebSocketServer({ server });
-sockets.on('connection', (socket) => {
-  socket.send(
-    JSON.stringify({
-      type: 'hello',
-      delivery: 2,
-      minProtocol: 1,
-      demand: 1,
-      epoch: 1,
-    }),
-  );
+sockets.on('connection', (rawSocket) => {
+  const socket = new AgentEndpoint(rawSocket, 'host');
+
   socket.on('message', (raw) => {
     const frame = JSON.parse(String(raw));
     frames.push(frame);
@@ -117,10 +111,7 @@ try {
     Number(database!.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n);
   const probe = await control('probe', {});
   const instance = probe.data.operationInstance;
-  assert.equal(
-    probe.data.deliveryInstance,
-    frames.find((frame) => frame.type === 'capabilities').deliveryInstance,
-  );
+  assert(instance.startsWith(probe.data.deliveryInstance + '_'));
   const refusedIntent = {
     owner: 'e'.repeat(64),
     requestId: randomUUID(),

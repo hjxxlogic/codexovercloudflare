@@ -158,7 +158,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
   try {
     const auto version = query("PRAGMA user_version").at(0).at("user_version").get<int>();
     const bool populated = !query("SELECT name FROM sqlite_master WHERE type='table'").empty();
-    if ((populated && version != 0 && version != 1) || (!populated && version != 0))
+    if ((populated && version != 0 && version != 1 && version != 2) || (!populated && version != 0))
       throw Error("UNSUPPORTED_STORAGE_VERSION",
                   "Unsupported journal schema; automatic migration is disabled");
     if (populated) {
@@ -331,8 +331,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
     history_budget_init(authoritative);
     retention_init();
-    if (!populated)
-      run("PRAGMA user_version=1");
+    run("PRAGMA user_version=2");
     run("COMMIT");
     // Restart terminal records enter the same durable completion log as live results.
     for (const auto &record :

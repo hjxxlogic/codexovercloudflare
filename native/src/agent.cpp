@@ -5,6 +5,7 @@
 #include "coc/cw_sessions.hpp"
 #include "coc/delivery.hpp"
 #include "coc/diagnostics.hpp"
+#include "coc/endpoint.hpp"
 #include "coc/external.hpp"
 #include "coc/files.hpp"
 #include "coc/login.hpp"
@@ -72,6 +73,7 @@ class Agent {
   AgentUpdater &updater_;
   std::atomic<bool> update_restart_{false};
   Store store_;
+  std::unique_ptr<EndpointService> endpoint_;
   Projects projects_;
   std::unique_ptr<ProjectControl> project_control_;
   Store file_store_;
@@ -130,6 +132,11 @@ public:
     });
     file_store_.on_failure([this] { asio::post(io_, [this] { close(); }); });
     asio::post(io_, [this] {
+#ifndef COC_COMPONENT_TEST
+      endpoint_ = std::make_unique<EndpointService>(
+          store_, config_.at("hostId"), [this](const Json &d) { send_wire(d); },
+          [this](const Json &d) { receive(d, true); });
+#endif
       config_["projects"] = projects_.list().at("projects");
       project_control_ = std::make_unique<ProjectControl>(io_, config_, [this](Json d) {
         if (d.contains("requestId") && !d.contains("revision"))
@@ -186,6 +193,8 @@ public:
     });
   }
   void disconnected(unsigned code) {
+    if (endpoint_)
+      endpoint_->disconnected();
     terminals_.clear();
     history_routes_.clear();
     history_retry_.cancel();
@@ -252,6 +261,15 @@ public:
     });
   }
   void send(const Json &d) {
+    if (endpoint_ && endpoint_->outgoing(d))
+      return;
+#ifdef COC_COMPONENT_TEST
+    send_wire(d);
+#else
+    throw Error("INVALID_REQUEST", "Business output requires an endpoint route");
+#endif
+  }
+  void send_wire(const Json &d) {
     auto envelope = d;
     envelope["v"] = 1;
     auto encoded = envelope.dump();
@@ -599,8 +617,17 @@ public:
       terminals_.detach(route);
     }
   }
-  void receive(const Json &d) {
+  void receive(const Json &d, bool endpoint = false) {
     flush_events();
+    if (!endpoint) {
+#ifndef COC_COMPONENT_TEST
+      if (endpoint_ && endpoint_->receive(d))
+        return;
+      const auto kind = d.value("type", "");
+      if (kind != "channel-welcome" && kind != "channel-registered" && kind != "change")
+        throw Error("UPGRADE_REQUIRED", "Encrypted endpoint channel required");
+#endif
+    }
     if (d.value("v", 1) != 1)
       throw Error("PROTOCOL_MISMATCH", "Unsupported relay protocol");
     auto type = d.value("type", "");
@@ -615,10 +642,15 @@ public:
     }
     if (type == "management-request") {
       Json reply = {{"type", "management-result"}, {"wire", d.value("wire", "")}};
+      if (d.contains("endpointLink"))
+        reply["endpointLink"] = d.at("endpointLink");
       bool restart = false;
       try {
-        reply["result"] = remote_config_.request(
-            d.at("data"), !runtimes_.empty() || file_requests_ || listing_threads_, restart);
+        if (d.at("data").value("action", "") == "metadata")
+          reply["result"] = remote_config_.metadata();
+        else
+          reply["result"] = remote_config_.request(
+              d.at("data"), !runtimes_.empty() || file_requests_ || listing_threads_, restart);
       } catch (const std::exception &error) {
         reply["error"] = error_data(error);
       }
@@ -633,41 +665,42 @@ public:
       }
       return;
     }
-    if (type == "hello") {
-      if (d.value("minProtocol", 1) > 1 || d.value("demand", 0) != 1 ||
-          d.value("delivery", 0) != 2) {
-        std::cerr << "Relay does not support demand-v1; upgrade the Relay before this Agent\n";
-        close();
-        return;
-      }
-      Json capabilities = {{"type", "capabilities"},
-                           {"build", Json::parse(COC_BUILD_JSON)},
-                           {"protocol", 1},
-                           {"delivery", 2},
-                           {"terminalStreaming", 2},
-                           {"deliveryInstance", store_.delivery_instance()},
-                           {"management", remote_config_.metadata()}};
-      if (config_.contains("wakeUrl"))
-        capabilities["wakeUrl"] = config_["wakeUrl"];
+    if (type == "channel-welcome") {
+      Json registration = {{"type", "channel-register"}};
       const auto latest = read_json(config_file_);
-      if (latest.contains("adminEmail"))
-        capabilities["adminEmail"] = latest["adminEmail"];
-      if (latest.contains("accessEmails"))
-        capabilities["accessEmails"] = access_emails(latest["accessEmails"]);
-      if (config_.contains("displayName"))
-        capabilities["displayName"] = config_["displayName"];
-      send(capabilities);
+      for (const auto *field : {"wakeUrl", "adminEmail", "accessEmails", "displayName"})
+        if (latest.contains(field))
+          registration[field] = latest.at(field);
+      send_wire(registration);
+      return;
+    }
+    if (type == "channel-registered") {
       attempts_ = 0;
-      check_client_requests();
-      if (negotiated_)
-        updater_.request();
       negotiated_ = true;
-      check_update();
-      std::cout << "Agent connected: "
-                << config_.value("displayName", config_.at("hostId").get<std::string>()) << "\n"
+      check_client_requests();
+      std::cout << "Agent connected: " << config_.at("hostId").get<std::string>() << "\n"
                 << std::flush;
       return;
     }
+    if (type == "hello") {
+#ifdef COC_COMPONENT_TEST
+      // Component executable only: exercise the unchanged business engine with
+      // deterministic internal frames. This code is absent from release builds.
+      send_wire({{"type", "capabilities"},
+                 {"delivery", 2},
+                 {"demand", 1},
+                 {"deliveryInstance", store_.delivery_instance()}});
+      attempts_ = 0;
+      negotiated_ = true;
+      check_client_requests();
+      std::cout << "Agent connected: " << config_.at("hostId").get<std::string>() << "\n"
+                << std::flush;
+      return;
+#else
+      throw Error("UPGRADE_REQUIRED", "Encrypted channel relay required");
+#endif
+    }
+
     if (type == "change") {
       if (d.value("scope", "") == "requests")
         check_client_requests();
@@ -1058,6 +1091,10 @@ public:
       }
       prune_result_routes();
       done(result, nullptr);
+      return;
+    }
+    if (action == "build") {
+      done(Json::parse(COC_BUILD_JSON), nullptr);
       return;
     }
     if (action == "probe") {
@@ -2494,7 +2531,8 @@ public:
       store_.history_release(id);
   }
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {
-    if (rt->busy || rt->commands.empty() || !runtimes_.count(id))
+    if (rt->busy || rt->commands.empty() || !runtimes_.count(id) ||
+        (endpoint_ && !endpoint_->can_dispatch(id, rt->epoch)))
       return;
     auto queued = std::move(rt->commands.front());
     rt->commands.pop_front();

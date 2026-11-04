@@ -4,10 +4,10 @@
 
 ## 本机快速开始
 
-本机 Agent / CLI 使用 C++17，无 Node.js 运行依赖；需 CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、SQLite3、nlohmann/json ≥ 3.7。中转和网页开发需要 Node.js ≥ 22.17、npm；Codex 已验证版本为 `0.164.0`，Agent / CLI 不强制版本号，其他版本仍需兼容所用 app-server / TUI API。本机原生构建支持 Linux x86_64 和 Windows x64；Windows 使用 MSVC / vcpkg 构建并以 ZIP 分发，安装方式见[用户手册](docs/USER_GUIDE.md#windows-x64)；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
+本机 Agent / CLI 使用 C++17，无 Node.js 运行依赖；需 CMake ≥ 3.16、Boost ≥ 1.71、OpenSSL、libsodium、SQLite3、nlohmann/json ≥ 3.7。中转和网页开发需要 Node.js ≥ 22.17、npm；Codex 已验证版本为 `0.164.0`，Agent / CLI 不强制版本号，其他版本仍需兼容所用 app-server / TUI API。本机原生构建支持 Linux x86_64 和 Windows x64；Windows 使用 MSVC / vcpkg 构建并以 ZIP 分发，安装方式见[用户手册](docs/USER_GUIDE.md#windows-x64)；Wrangler 本地运行时还需要兼容的系统库，Ubuntu 20.04 用户参见 [开发说明](docs/DEVELOPMENT.md) 的容器方案。
 
 ```bash
-sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
+sudo apt-get install build-essential cmake libboost-system-dev libssl-dev libsodium-dev libsqlite3-dev nlohmann-json3-dev
 npm ci
 npm run build:native
 npm run setup:local
@@ -38,6 +38,8 @@ CC 填写留言申请访问，由管理员在批准时选择服务器：
 
 提供 `coc-agent` / `coc-client` 两个程序；配置、systemd 与操作步骤见 [用户手册](docs/USER_GUIDE.md)。服务器必须先以 Agent 用户完成 Codex 配置。
 
+Worker 负责身份、权限与连接路由；Agent / CLI / 网页使用端到端业务加密，Agent 仲裁会话控制与项目单写。升级、可见信息及信任边界见 [不透明中继设计](docs/OPAQUE_RELAY_DESIGN.md)。
+
 ## 验证
 
 ```bash
@@ -64,7 +66,7 @@ npm run test:native
 - 网络单帧上限 256 KiB；本地 Codex RPC 缓冲上限约 8 MiB。大历史正文以引用和带 revision 的分块读取；超大控制响应返回单请求错误，不关闭共享上行。超出本地 RPC 缓冲仍会关闭对应 runtime。
 - Agent 重启后会将原活动会话标记失败；CW 可从同一运行用户、同一项目的 Codex 本地历史显式恢复线程，不恢复旧进程或自动重发任务。
 - 网页中的补充问题/MCP elicitation 暂不支持，会明确拒绝；不隐式批准操作。
-- 代码修改留在远程服务器；不提供文件同步、端到端加密或不可信多用户隔离。
+- 代码修改留在远程服务器；不提供文件同步或不可信多用户隔离。
 
 ## 文档
 

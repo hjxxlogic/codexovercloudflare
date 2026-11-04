@@ -26,7 +26,7 @@ export async function browserSessionStress(options: {
       page: Page;
       index: number;
       reader?: boolean;
-      commands: number;
+      plaintextCommands: number;
       refreshMs?: number;
       closed?: boolean;
       acquired?: boolean;
@@ -65,7 +65,7 @@ export async function browserSessionStress(options: {
             context,
             page,
             index,
-            commands: 0,
+            plaintextCommands: 0,
             errors: [],
           };
           entries.push(entry);
@@ -81,7 +81,7 @@ export async function browserSessionStress(options: {
               frame?.type === 'delivery-command' &&
               JSON.parse(frame.body).action === 'prompt'
             )
-              entry.commands++;
+              entry.plaintextCommands++;
           });
           await page.goto(origin);
           await button(page, '历史').click();
@@ -123,6 +123,8 @@ export async function browserSessionStress(options: {
       );
       assert.equal(readers.length, size - 1);
       const writer = writers[0];
+      assert.equal(writer.plaintextCommands, 0);
+
       await writer.page
         .getByRole('textbox', { name: '任务内容', exact: true })
         .fill(`CW_STRESS_${size} approval`);
@@ -144,9 +146,9 @@ export async function browserSessionStress(options: {
           );
           reader.refreshMs = Date.now() - refreshStart;
           assert.equal(
-            reader.commands,
+            reader.plaintextCommands,
             0,
-            'read-only browsers cannot submit prompts',
+            'business commands must stay inside encrypted records',
           );
         }),
       );
@@ -170,11 +172,13 @@ export async function browserSessionStress(options: {
       ).toContainText(`echo: CW_STRESS_HANDOFF_${size}`);
       await expect(successor.page.locator('.thinking')).toHaveCount(0);
       successor.acquired = true;
+      assert.equal(successor.plaintextCommands, 0);
+
       for (const reader of readers.slice(1)) {
         await expect(
           reader.page.getByRole('textbox', { name: '任务内容', exact: true }),
         ).toHaveCount(0);
-        assert.equal(reader.commands, 0);
+        assert.equal(reader.plaintextCommands, 0);
       }
       assert(
         entries.every((entry) => !entry.errors.length),
@@ -213,7 +217,7 @@ export async function browserSessionStress(options: {
           ({
             index,
             reader,
-            commands,
+            plaintextCommands,
             refreshMs,
             closed,
             acquired,
@@ -221,7 +225,7 @@ export async function browserSessionStress(options: {
           }) => ({
             index,
             reader,
-            commands,
+            plaintextCommands,
             refreshMs,
             closed,
             acquired,

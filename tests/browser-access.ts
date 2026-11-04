@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import { createHash } from 'node:crypto';
 // Browser flow checks with synthetic identities; server authorization is tested separately.
 import assert from 'node:assert/strict';
@@ -149,9 +150,10 @@ const server = createServer(async (req, res) => {
   res.end(JSON.stringify(result));
 });
 const wss = new WebSocketServer({ server });
-wss.on('connection', (ws) =>
-  ws.send(JSON.stringify({ type: 'subscribed', revision: 1 })),
-);
+wss.on('connection', (ws, req) => {
+  if (encryptedFixture(ws, req)) return;
+  ws.send(JSON.stringify({ type: 'subscribed', revision: 1 }));
+});
 await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 const origin = 'http://127.0.0.1:' + (server.address() as any).port;
 const browser = await chromium.launch({ headless: true });
@@ -339,7 +341,7 @@ try {
       .locator('option'),
   ).toHaveCount(2);
   await expect
-    .poll(() => guestSockets.includes('/guest/ws/v1/hosts/a'))
+    .poll(() => guestSockets.includes('/guest/ws/v1/channel/a'))
     .toBe(true);
   assert(guestRequests.some((path) => path.startsWith('/guest/assets/')));
   assert(guestRequests.includes('/guest/api/v1/auth/email'));

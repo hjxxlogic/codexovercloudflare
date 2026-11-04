@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Exercise actual native HTTPS/WSS clients with a temporary local CA.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -136,23 +137,10 @@ try {
           req.headers.authorization,
           'Bearer local-device-token-placeholder',
         );
-        ws.send(
-          JSON.stringify({ type: 'hello', delivery: 2, demand: 1, epoch: 1 }),
-        );
-        ws.send(
-          JSON.stringify({
-            type: 'control',
-            requestId: 'tls-test',
-            action: 'projects',
-            data: {},
-          }),
-        );
-        ws.on('message', (raw) => {
-          const m = JSON.parse(raw.toString());
-          if (m.type === 'result') {
-            assert.equal(m.data[0].id, 'test');
-            resolveProjects();
-          }
+        const endpoint = new AgentEndpoint(ws, 'tls-host');
+        void endpoint.call('/hosts/tls-host/projects').then((reply) => {
+          assert.equal(reply.data[0].id, 'test');
+          resolveProjects();
         });
       });
       await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

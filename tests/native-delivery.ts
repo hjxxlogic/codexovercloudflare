@@ -1,3 +1,4 @@
+// Internal business component executable; public encrypted transport has separate integration coverage.
 // Real native Agent, deterministic Codex peer; no model calls or production state.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -191,7 +192,7 @@ async function open(
 }
 try {
   child = spawn(
-    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
+    resolve('build/coc-agent-component'),
     ['run', '--config', config],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -1990,7 +1991,7 @@ try {
   await exitedAgent;
   await until(() => !peer);
   child = spawn(
-    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
+    resolve('build/coc-agent-component'),
     ['run', '--config', config],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );

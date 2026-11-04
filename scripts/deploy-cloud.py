@@ -248,10 +248,41 @@ def completed_cloud_run(repository, commit, run_id):
     return run, jobs
 
 
+def deployment_target(config, target, access_aud=None, without_access=False):
+    """Select the isolated r2 Worker without changing the production configuration."""
+    if target == 'production':
+        if access_aud or without_access:
+            raise RuntimeError('r2 Access options cannot modify production')
+        return config
+    if target != 'r2' or bool(access_aud) == bool(without_access):
+        raise RuntimeError('r2 requires exactly one explicit Access configuration')
+    if access_aud and not re.fullmatch(r'[a-f0-9]{64}', access_aud):
+        raise RuntimeError('Invalid r2 Access audience')
+    config = json.loads(json.dumps(config))
+    config['name'] = 'codex-over-cloudflare-r2'
+    config['routes'] = [{'pattern': 'r2.xlogic.cc', 'custom_domain': True}]
+    config['workers_dev'] = False
+    config['preview_urls'] = False
+    # Each class belongs to this Worker. Never reference a production namespace.
+    for binding in config['durable_objects']['bindings']:
+        if set(binding) != {'name', 'class_name'}:
+            raise RuntimeError('r2 requires Worker-local Durable Object bindings')
+    config['vars']['ACCESS_ENABLED'] = 'false' if without_access else 'true'
+    config['vars'].pop('ACCESS_AUD', None)
+    if access_aud:
+        config['vars']['ACCESS_AUD'] = access_aud
+    return config
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
     parser.add_argument('--commit', default='HEAD')
+    parser.add_argument('--initialize-owner-secret-file', type=pathlib.Path, help='Private independent owner secret for first r2 deployment')
+    parser.add_argument('--target', choices=['production', 'r2'], default='production')
+    parser.add_argument('--r2-access-aud', help='Audience of the independent r2 Access application')
+    parser.add_argument('--r2-without-access', action='store_true', help='Explicitly use CoC authentication alone on r2')
+    parser.add_argument('--initialize-downloads', action='store_true', help='Initialize a new r2 download site from all four verified CI platforms')
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true',
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
@@ -273,6 +304,20 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    if args.initialize_owner_secret_file:
+        path = args.initialize_owner_secret_file
+        if args.target != 'r2' or not args.initialize_downloads:
+            parser.error('Owner initialization is only for a new r2 deployment')
+        if os.name != 'nt' and (path.stat().st_mode & 0o077 or path.stat().st_uid != os.geteuid()):
+            raise RuntimeError('r2 owner secret file must be private and owned by the current user')
+        if not 32 <= len(path.read_text().strip()) <= 4096:
+            raise RuntimeError('Invalid r2 owner secret')
+    if args.target == 'production' and (args.r2_access_aud or args.r2_without_access):
+        parser.error('r2 options cannot modify production')
+    if args.target == 'r2' and (bool(args.r2_access_aud) == bool(args.r2_without_access)):
+        parser.error('r2 requires exactly one of --r2-access-aud or --r2-without-access')
+    if args.initialize_downloads and (args.target != 'r2' or not args.publish_downloads or args.skip_native_platform):
+        parser.error('Initialization requires r2 and all four CI native platforms')
     if args.allow_uncommitted and not args.local_build:
         parser.error('--allow-uncommitted requires --local-build')
     if args.local_native_build_dir and not args.local_build:
@@ -300,7 +345,7 @@ def main():
             raise RuntimeError('Local deployment requires --commit HEAD')
         before = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
         run, jobs, artifacts = {'id': 'local-' + commit + '-' + before['sourceDigest'][:12], 'html_url': None}, [], []
-        output = ROOT / '.local/deploy-cloud' / str(run['id'])
+        output = ROOT / '.local/deploy-cloud' / (str(run['id']) + ('-r2' if args.target == 'r2' else ''))
         output.mkdir(parents=True, exist_ok=True)
         subprocess.run(['npm', 'run', 'build:web'], cwd=ROOT, check=True)
         subprocess.run(['npm', 'run', 'typecheck'], cwd=ROOT, check=True)
@@ -326,7 +371,7 @@ def main():
         run, jobs = (completed_cloud_run(args.repository, commit, args.run_id)
                      if args.cloud_only_after_windows_failure else
                      agent.wait_run(args.repository, commit, args.run_id, args.timeout))
-        output = ROOT / '.local/deploy-cloud' / str(run['id'])
+        output = ROOT / '.local/deploy-cloud' / (str(run['id']) + ('-r2' if args.target == 'r2' else ''))
         output.mkdir(parents=True, exist_ok=True)
         artifacts = agent.api(args.repository, 'runs/' + str(run['id']) + '/artifacts?per_page=100')['artifacts']
         identities = []
@@ -350,6 +395,7 @@ def main():
     config = json.loads(re.sub(r',(\s*[}\]])', r'\1',
                                (output / 'worker/deploy-config.jsonc').read_text()))
     # The deployment configuration is archived by CI along with the Worker.
+    config = deployment_target(config, args.target, args.r2_access_aud, args.r2_without_access)
     config['main'] = str(output / 'worker/index.js')
     config['assets']['directory'] = str(output / 'site')
     validate_storage_config(config)
@@ -358,9 +404,9 @@ def main():
     if len(routes) != 1 or not routes[0].get('custom_domain') or not re.fullmatch(r'[a-zA-Z0-9.-]+', routes[0]['pattern']):
         raise RuntimeError('Expected one explicit custom domain deployment target')
     base = 'https://' + routes[0]['pattern']
-    cache = ROOT / '.local/deploy-cloud/download-cache'
+    cache = ROOT / '.local/deploy-cloud' / ('download-cache-r2' if args.target == 'r2' else 'download-cache')
     cache.mkdir(parents=True, exist_ok=True)
-    manifest = preserve_downloads(base, output / 'site', cache, args.preserved_downloads)
+    manifest = None if args.initialize_downloads else preserve_downloads(base, output / 'site', cache, args.preserved_downloads)
     if args.local_build:
         shutil.copyfile(ROOT / 'docs/USER_GUIDE.md', output / 'site/downloads/USER_GUIDE.md')
     published = None
@@ -390,6 +436,7 @@ def main():
                 'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure,
                 'skippedNativePlatform': args.skip_native_platform, 'run': run['html_url'], 'jobs': jobs,
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
+                'worker': config['name'], 'initializeDownloads': args.initialize_downloads,
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
     if args.preserved_downloads:
         evidence['preservationSource'] = 'previously verified local download snapshot; package SHA256 rechecked'
@@ -408,6 +455,12 @@ def main():
     print(result.stdout, flush=True)
     if result.returncode:
         raise RuntimeError('Wrangler deployment failed; inspect local evidence')
+    if args.initialize_owner_secret_file:
+        subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
+                        'secret', 'put', 'OWNER_SECRET', '--config', str(config_path)],
+                       cwd=ROOT, input=args.initialize_owner_secret_file.read_text().strip() + '\n',
+                       text=True, check=True)
+        evidence['independentOwnerSecretInitialized'] = True
     evidence['applied'] = True
     evidence['verification'] = 'pending'
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')

@@ -4,7 +4,7 @@ import {
   AppError,
   idSchema,
   accessEmailsSchema,
-} from '../../../packages/protocol/src/index.ts';
+} from '../../../packages/protocol/src/admission.ts';
 import { digest, token, type Auth, type Env } from './common.ts';
 import {
   adminEmailMatches,

@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:https';
@@ -77,11 +78,12 @@ const server = createServer(
 );
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws, req) => {
+  if (encryptedFixture(ws, req)) return;
   assert.equal(req.headers['cf-access-client-id'], 'native-access-id');
   assert.equal(req.headers['cf-access-client-secret'], 'native-access-secret');
   if (req.url?.startsWith('/ws/v1/cli/')) {
     wsCalls++;
-    assert.equal(req.headers.authorization, 'Bearer native-access-ticket');
+    assert.equal(req.headers.authorization, 'Bearer native-coc-key');
     const delivery = new SyntheticDelivery();
     const send = (value: unknown) => ws.send(JSON.stringify(value));
     send({

@@ -19,6 +19,8 @@
 
 [protocol.generated.json](protocol.generated.json) 由 `packages/protocol` 的 schema 生成，修改协议后运行 `npm run protocol:generate`，不要手工编辑。
 
+[不透明中继架构](OPAQUE_RELAY_DESIGN.md) 说明本次职责迁移：Agent / Client 承担业务路由、控制权和可靠传输，Worker 保留权限管理、连接准入与密文转发。实施用例、运行入口与本机证据见 [设计测试与验收](OPAQUE_RELAY_TEST_PLAN.md)。
+
 ## 维护约定
 
 - 功能、配置和限制写入对应主题，直接修改原说明，避免追加版本补充和重复结论。

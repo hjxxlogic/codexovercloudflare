@@ -31,6 +31,30 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --publish-
 
 需要通知自动更新时，在全部下载验证后加 `--notify-release --owner-secret-file /absolute/private/owner-secret`。通知只触发检查，不代表 Agent 已安装；安装仍等待空闲。需要删除已废弃 Secret 可显式重复 `--delete-secret NAME`。下载快照恢复可使用 `--preserved-downloads /absolute/path/downloads`，仍须逐包 SHA256 校验。
 
+## 独立 r2 测试站
+
+`--target r2` 固定使用 `codex-over-cloudflare-r2` 与 `r2.xlogic.cc`，两个 DO 类仅绑定这个 Worker 的独立 namespace；不修改默认 `wrangler.jsonc` 或旧站路由。r2 必须明确指定新 Access 应用的 `--r2-access-aud AUD`，或经授权选择 `--r2-without-access`（仅 CoC 身份与权限）。不沿用旧站 AUD 或 owner secret。
+
+首次部署须准备权限为 0600 的独立 owner secret 文件，并用完整 CI 制品初始化下载站：
+
+```bash
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID \
+  --target r2 --r2-access-aud AUD --publish-downloads --initialize-downloads \
+  --initialize-owner-secret-file /absolute/private/r2-owner --apply
+```
+
+仅 Worker / 网页配置中的目标与 Access audience 按显式参数选择；业务代码和四平台包仍必须来自同一完整成功的 Actions。首次初始化只用于新站，后续省略两个 `--initialize-*` 参数以保全原有下载和 Secret；r2 的证据、缓存均与默认目标分开。
+
+线上测试复用本地加密端到端套件，固定请求 r2，启动一个临时独立 Agent，使用临时配置、SQLite 和项目，结束时只撤销测试授权并停止自己的子进程：
+
+```bash
+npm run test:opaque -- --online-r2 \
+  --agent /absolute/verified-ci/coc-agent \
+  --owner-secret-file /absolute/private/r2-owner
+```
+
+Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与独立 Service Auth 凭据。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
+
 ## 部署 Linux systemd 用户服务 Agent
 
 ```bash

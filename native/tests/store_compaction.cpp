@@ -100,9 +100,10 @@ int main() {
                   store.session_page({{"cwAccountId", "other"}}).at("data").empty(),
               "Explicit session ownership persists and remains isolated after reopening");
       }
-      check(fixture.count("PRAGMA user_version") == 0 &&
+      check(fixture.count("PRAGMA user_version") == 2 &&
                 fixture.count("SELECT legacy_allowed FROM transport2_retention") == 1,
-            "Current unmarked storage is used without schema conversion or compatibility flags");
+            "Current storage gains the encrypted control compatibility fence without rewriting "
+            "journals");
     }
     for (int kind = 0; kind < 3; ++kind) {
       Fixture fixture(kind == 1, kind == 2);

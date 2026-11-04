@@ -105,14 +105,10 @@ beforeEach(async () => {
   });
 });
 describe('project management identities', () => {
-  it('binds administrator operation discovery to owner authentication and an existing host', async () => {
+  it('keeps owner discovery protected and rejects old plaintext business transport', async () => {
     expect(
       (await request('/admin/hosts/alice/identity', 'client')).status,
     ).toBe(403);
-    expect(
-      (await request('/admin/hosts/alice/probe', 'client', {})).status,
-    ).toBe(403);
-    expect(sent).toHaveLength(0);
     expect(
       (await request('/admin/hosts/alice/identity', 'owner')).data,
     ).toEqual({ identity: await digest('owner') });
@@ -120,23 +116,14 @@ describe('project management identities', () => {
       (await request('/admin/hosts/absent/identity', 'owner')).status,
     ).toBe(404);
     expect(
-      (await request('/admin/hosts/absent/probe', 'owner', {})).status,
-    ).toBe(404);
+      (await request('/admin/hosts/alice/probe', 'client', {})).status,
+    ).toBe(403);
     expect(
       (await request('/admin/hosts/alice/probe', 'owner', {})).status,
-    ).toBe(202);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      id: 'alice',
-      data: { action: 'probe', data: {} },
-      auth: { role: 'owner', hash: await digest('owner') },
-    });
-    expect((await request('/hosts/alice/probe', 'client', {})).status).toBe(
-      202,
-    );
-    expect((await request('/hosts/bob/probe', 'client', {})).status).toBe(403);
+    ).toBe(426);
+    expect(sent).toHaveLength(0);
   });
-  it('exposes running Agent builds only to administrators and preserves unknown status on failure', async () => {
+  it('returns only connection status and preserves unknown status on failure', async () => {
     const status = vi.fn((id: string) => ({
       fetch: async () =>
         id === 'alice'
@@ -155,60 +142,29 @@ describe('project management identities', () => {
       expect.objectContaining({
         id: 'alice',
         online: true,
-        build: { version: '0.5.16' },
       }),
       expect.objectContaining({ id: 'bob', online: null }),
     ]);
-    expect(result.data[1]).not.toHaveProperty('build');
+    for (const host of result.data) expect(host).not.toHaveProperty('build');
   });
-  it('allows ordinary clients to list only their instance, rejects mutations and forged identity', async () => {
-    expect(
-      (await request('/hosts/alice/project-management', 'client')).status,
-    ).toBe(202);
+  it('derives ordinary and platform project permission independently of request contents', async () => {
+    const host = (await op('host', { id: 'alice' })).data;
+    const ordinary = (await op('auth', { token: 'client' })).data;
+    const owner = (await op('auth', { token: 'owner' })).data;
+    expect(await managesProjects(env, ordinary, host)).toBe(false);
+    expect(await managesProjects(env, owner, host)).toBe(true);
     expect(
       (await request('/hosts/bob/project-management', 'client')).status,
     ).toBe(403);
     expect(
       (
         await request('/hosts/alice/project-management', 'client', {
-          operation: 'add',
-          path: '/work',
-          revision: 0,
-          requestId: 'request',
-          email: 'admin@example.com',
           role: 'owner',
+          operation: 'add',
         })
       ).status,
-    ).toBe(403);
-    expect(
-      (
-        await request('/hosts/alice/project-management', 'client', {
-          operation: 'browse',
-          path: '/',
-        })
-      ).status,
-    ).toBe(403);
-    expect(sent).toHaveLength(1);
-  });
-  it('allows platform administrators on either instance and namespaces request IDs by credential', async () => {
-    for (const id of ['alice', 'bob'])
-      expect(
-        (
-          await request(`/admin/hosts/${id}/project-management`, 'owner', {
-            operation: 'add',
-            path: '/work',
-            revision: 0,
-            requestId: 'request',
-          })
-        ).status,
-      ).toBe(202);
-    expect(sent.map((s) => s.id)).toEqual(['alice', 'bob']);
-    expect(sent[0].data.data.requestId).toBe(
-      await digest((await digest('owner')) + ':request'),
-    );
-    expect(
-      (await request('/admin/hosts/alice/project-management', 'client')).status,
-    ).toBe(403);
+    ).toBe(426);
+    expect(sent).toHaveLength(0);
   });
   it('binds Agent email only to its own instance, with platform override precedence', async () => {
     expect(
@@ -356,14 +312,14 @@ describe('project management identities', () => {
     expect(
       (await op('auth', { token: grant.token })).data.manager,
     ).toBeUndefined();
+    const authenticated = (await op('auth', { token: grant.token })).data;
     expect(
-      (
-        await request('/hosts/alice/project-management', grant.token, {
-          operation: 'browse',
-          path: '/',
-        })
-      ).status,
-    ).toBe(403);
+      await managesProjects(
+        env,
+        authenticated,
+        (await op('host', { id: 'alice' })).data,
+      ),
+    ).toBe(false);
   });
   it('allows platform identity pairing and invalidates it after platform secret rotation', async () => {
     const pending = (
@@ -389,13 +345,12 @@ describe('project management identities', () => {
       })
     ).data;
     expect(
-      (
-        await request('/hosts/bob/project-management', grant.token, {
-          operation: 'browse',
-          path: '/',
-        })
-      ).status,
-    ).toBe(202);
+      await managesProjects(
+        env,
+        (await op('auth', { token: grant.token })).data,
+        (await op('host', { id: 'bob' })).data,
+      ),
+    ).toBe(true);
     expect(
       (await request('/hosts/alice/project-management', grant.token)).status,
     ).toBe(403);

@@ -16,26 +16,27 @@
 
 先构建原生和网页，浏览器测试先安装 Playwright Chromium。集成测试使用原生 Agent / CLI、本地 Wrangler、SQLite 和模拟 Codex；与真实 Codex 的检查分开。
 
-| 命令                                                      | 验证目标                                     |
-| --------------------------------------------------------- | -------------------------------------------- |
-| `npm run test:e2e`                                        | 完整原生、Relay、浏览器会话、审批和文件流程  |
-| `npm run test:tls`                                        | 原生 TLS 与 Access 入口                      |
-| `npm run test:access:web`                                 | 浏览器 Access 与访客授权                     |
-| `npm run test:wake`                                       | 离线唤醒与 UI                                |
-| `npm run test:ui` / `npm run test:cache`                  | 工作台交互、布局、缓存与恢复                 |
-| `npm run test:projects` / `npm run test:projects:e2e`     | 多项目、管理身份、目录边界与浏览器流程       |
-| `npm run test:delivery`                                   | 可靠传输、丢包重连、历史恢复与保留策略       |
-| `npm run test:operations` / `npm run test:operations:web` | 原请求持久化、去重、结果未知和恢复           |
-| `npm run test:configuration`                              | 远程配置替换、冲突与重启回执                 |
-| `npm run test:uploads:web`                                | 上传完整意图与恢复                           |
-| `npm run test:runtime`                                    | 进程、队列、审批、RPC 资源隔离               |
-| `npm run test:markdown`                                   | 公式、图表沙箱、流式解析、危险内容和手机视口 |
-| `npm run test:terminal`                                   | 原生 PTY、控制证明、输入去重与项目互斥       |
-| `npm run test:terminal:e2e`                               | Chromium → Worker → Agent → 隔离 PTY         |
-| `npm run test:backup`                                     | SQLite 一致备份、恢复与实例锁                |
-| `npm run test:release`                                    | 发行来源和部署工具拒绝路径                   |
-| `npm run test:update`                                     | 当前自动更新、校验失败拒绝                   |
-| `npm run test:billing` / `npm run test:billing:web`       | 按需通讯、刷新与通知行为                     |
+| 命令                                                      | 验证目标                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------- |
+| `npm run test:opaque`                                     | 真实 Worker/Agent/Chromium 加密互通、权限、去重和业务不可见性 |
+| `npm run test:e2e`                                        | 完整原生、Relay、浏览器会话、审批和文件流程                   |
+| `npm run test:tls`                                        | 原生 TLS 与 Access 入口                                       |
+| `npm run test:access:web`                                 | 浏览器 Access 与访客授权                                      |
+| `npm run test:wake`                                       | 离线唤醒与 UI                                                 |
+| `npm run test:ui` / `npm run test:cache`                  | 工作台交互、布局、缓存与恢复                                  |
+| `npm run test:projects` / `npm run test:projects:e2e`     | 多项目、管理身份、目录边界与浏览器流程                        |
+| `npm run test:delivery`                                   | 可靠传输、丢包重连、历史恢复与保留策略                        |
+| `npm run test:operations` / `npm run test:operations:web` | 原请求持久化、去重、结果未知和恢复                            |
+| `npm run test:configuration`                              | 远程配置替换、冲突与重启回执                                  |
+| `npm run test:uploads:web`                                | 上传完整意图与恢复                                            |
+| `npm run test:runtime`                                    | 进程、队列、审批、RPC 资源隔离                                |
+| `npm run test:markdown`                                   | 公式、图表沙箱、流式解析、危险内容和手机视口                  |
+| `npm run test:terminal`                                   | 原生 PTY、控制证明、输入去重与项目互斥                        |
+| `npm run test:terminal:e2e`                               | Chromium → Worker → Agent → 隔离 PTY                          |
+| `npm run test:backup`                                     | SQLite 一致备份、恢复与实例锁                                 |
+| `npm run test:release`                                    | 发行来源和部署工具拒绝路径                                    |
+| `npm run test:update`                                     | 当前自动更新、校验失败拒绝                                    |
+| `npm run test:billing` / `npm run test:billing:web`       | 按需通讯、刷新与通知行为                                      |
 
 Worker 授权专项：`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts`。覆盖握手后的双向零授权查询、DO 重建、退休连接、授权变更、到期及持久失效事件重试。稳定数据转发不能依赖短时缓存命中；控制面授权仍需完整检查。
 
@@ -60,3 +61,11 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 确定性测试不能替代真实 Cloudflare Access 策略、跨网络长稳、平台账单、所有 Codex 版本兼容性或线上部署验证。逻辑预算不是 RSS、cgroup 或物理磁盘承诺。模型输出、真实文件变化和外部 Codex 来源需在对应环境单独验证。
 
 CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 全部必要作业。运行中、已触发或仅部分通过不构成发布验证。部署后的运行身份与下载包身份分别核对，见 [发布操作](RELEASE.md)。
+
+## 不透明中继实施记录（2026-11-04）
+
+本轮基于 `589c26b` 的 `docs/opaque-relay-architecture` worktree 未提交源码执行。具体用例和证据见 [不透明中继验收](OPAQUE_RELAY_TEST_PLAN.md)。原生/网页、Worker dry-run、静态检查与确定性集成分别记录，不把组件夹具通过写成完整公网通道通过。`test:delivery`、`test:runtime`、`test:terminal` 的内部引擎压力测试使用 `coc-agent-component`；生产通道由独立端点和端到端测试验证。
+
+本机结果：13/13 CTest、35 文件 / 379 Vitest、完整 E2E 46 项通过（含 Terminal）；加密互通、真实 Codex TUI 初始化和原生/浏览器专项通过。构建与静态检查证据见验收记录。
+
+尚未推送 CI、执行发布或线上切换；跨平台、sanitizers 和真实 Cloudflare 部署结果不能从本机测试推断。

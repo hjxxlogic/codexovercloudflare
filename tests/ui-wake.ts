@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import { WebSocketServer, WebSocket } from 'ws';
 // Browser checks against a local deterministic relay peer; no model calls.
 import assert from 'node:assert/strict';
@@ -109,9 +110,10 @@ function notify() {
         }),
       );
 }
-notifications.on('connection', (ws) =>
-  ws.send(JSON.stringify({ type: 'subscribed', revision, demand: 1 })),
-);
+notifications.on('connection', (ws, req) => {
+  if (encryptedFixture(ws, req)) return;
+  ws.send(JSON.stringify({ type: 'subscribed', revision, demand: 1 }));
+});
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ headless: true });
 try {

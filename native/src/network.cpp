@@ -1,10 +1,12 @@
 #include "coc/network.hpp"
 #include "coc/access.hpp"
+#include "coc/endpoint.hpp"
 #include "coc/proxy.hpp"
 #include "coc/tls.hpp"
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/ssl.hpp>
+#include <regex>
 #ifndef _WIN32
 #include <fcntl.h>
 #include <set>
@@ -334,6 +336,8 @@ static Json http_json_once(const Url &u, const std::string &path, const Json &bo
 Json http_json(const Url &u, const std::string &path, const Json &body, const std::string &token,
                const std::string &request_id, std::chrono::milliseconds timeout,
                const HttpIntent *intent) {
+  if (!business_host(path, body).empty())
+    return endpoint_http(u, path, body, token, request_id, timeout, intent);
   const auto end = std::chrono::steady_clock::now() + timeout;
   auto accepted = http_json_once(u, path, body, token, request_id, timeout, intent);
   if (!accepted.is_object() || !accepted.value("accepted", false)) {
@@ -457,6 +461,10 @@ std::string http_download(const Url &u, const std::string &path, size_t limit,
 }
 std::shared_ptr<Socket> connect_socket(asio::io_context &io, const Url &u, const std::string &t,
                                        SocketMessage m, SocketClosed c, const std::string &path) {
+  std::smatch match;
+  if (std::regex_search(path, match, std::regex("/ws/v1/(?:web|cli|history)/([\\w-]+)~")) ||
+      std::regex_search(path, match, std::regex("/ws/v1/hosts/([\\w-]+)(?:/terminal)?(?:[?]|$)")))
+    return endpoint_socket(io, u, t, std::move(m), std::move(c), path, match[1]);
   return u.tls ? tls_socket(io, u, t, m, c, path) : plain_socket(io, u, t, m, c, path);
 }
 } // namespace coc

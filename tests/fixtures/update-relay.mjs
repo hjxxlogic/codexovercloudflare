@@ -43,7 +43,12 @@ const sockets = new WebSocketServer({ server, path: '/ws/v1/agent' });
 sockets.on('connection', (socket) => {
   peer = socket;
   socket.send(
-    JSON.stringify({ type: 'hello', delivery: 2, demand: 1, minProtocol: 1 }),
+    JSON.stringify({
+      type: 'channel-welcome',
+      delivery: 2,
+      demand: 1,
+      minProtocol: 1,
+    }),
   );
   socket.on('message', (bytes) => {
     const message = JSON.parse(bytes.toString());

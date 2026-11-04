@@ -1,3 +1,4 @@
+// Internal business component executable; public encrypted transport has separate integration coverage.
 // Actual isolated Agent, Codex protocol fixture and Linux bubblewrap PTY; no model calls.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -93,9 +94,13 @@ async function control(action: string, data: any = {}, id = randomUUID()) {
   return result.data;
 }
 try {
-  child = spawn(resolve('build/coc-agent'), ['run', '--config', config], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  child = spawn(
+    resolve('build/coc-agent-component'),
+    ['run', '--config', config],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
   child.stdout!.on('data', (data) => {
     log += data;
   });

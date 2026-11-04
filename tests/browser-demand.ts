@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
@@ -103,6 +104,7 @@ const server = createServer((req, res) => {
 });
 const notifications = new WebSocketServer({ server });
 notifications.on('connection', (ws, req) => {
+  if (encryptedFixture(ws, req)) return;
   if (dropAdminNotifications && req.url === '/ws/v1/admin') return;
   ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
 });

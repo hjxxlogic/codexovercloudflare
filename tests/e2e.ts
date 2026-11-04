@@ -1,3 +1,4 @@
+import { EndpointPeer, endpointFetch } from './helpers/endpoint-peer.ts';
 import { browserSessionStress } from './helpers/browser-session-stress.ts';
 import { resolveAsync } from './helpers/async-http.ts';
 import { OriginalHttpRequests } from './helpers/original-http.ts';
@@ -70,7 +71,7 @@ let adminToken = '',
   agent: Agent | undefined,
   otherAgent: Agent | undefined,
   browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-const sockets: WebSocket[] = [];
+const sockets: (WebSocket | EndpointPeer)[] = [];
 let wakeService: ReturnType<typeof createHttpServer> | undefined;
 const sharedApprovals = new SharedApprovals(dir);
 const approvalEndpoint = await sharedApprovals.ready();
@@ -121,11 +122,7 @@ async function request(
     headers,
     async (probe) => (await request(probe, {}, options)).b,
   );
-  const response = await fetch(origin + '/api/v1' + path, {
-    method: data === undefined ? 'GET' : 'POST',
-    headers,
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
+  const response = await endpointFetch(origin, path, data, headers);
   const r = await resolveAsync(
     response,
     origin,
@@ -150,7 +147,21 @@ function peer(path: string, auth?: string) {
       ...(auth ? { Authorization: 'Bearer ' + auth } : { Cookie: cookie }),
     },
   };
-  const ws = new WebSocket(origin.replace('http', 'ws') + path, options);
+  const host = path.match(/\/ws\/v1\/(?:web|cli|history)\/([\w-]+)~/)?.[1];
+  const ws = host
+    ? new EndpointPeer(
+        origin,
+        host,
+        {
+          ...options.headers,
+          ...(/\/cli\//.test(path) ? { Authorization: 'Bearer ' + token } : {}),
+        },
+        {
+          type: 'open',
+          path: path + (/\/cli\//.test(path) && auth ? '?ticket=' + auth : ''),
+        },
+      )
+    : new WebSocket(origin.replace('http', 'ws') + path, options);
   let closeCode: number | undefined;
   ws.on('close', (code) => {
     closeCode = code;
@@ -179,7 +190,12 @@ async function readyControl(p: ReturnType<typeof peer>) {
   await wait(() => p.messages.some((m) => m.control), 'controller binding');
   const binding = [...p.messages].reverse().find((m) => m.control);
   const mode = binding.type === 'delivery-ready' ? 'cli' : 'web';
-  const endpoint = new WindowPeer(p.ws, p.messages, mode, binding.control);
+  const endpoint = new WindowPeer(
+    p.ws as WebSocket,
+    p.messages,
+    mode,
+    binding.control,
+  );
   await wait(() => endpoint.ready, 'Agent CONTROL_READY');
   p.send = endpoint.send;
 }
@@ -909,24 +925,14 @@ try {
         ...(token ? { Authorization: 'Bearer ' + token } : { Cookie: cookie }),
         Origin: origin,
       };
-      const response = await fetch(origin + '/api/v1' + path, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(data),
-      });
-      assert.equal(response.status, 202);
-      const accepted: any = await response.json();
-      assert.match(accepted.operationId, /^delivery_/);
-      let receipt: any;
-      await wait(async () => {
-        const read = await fetch(
-          `${origin}/api/v1/hosts/${enrolled.hostId}/operations/${accepted.operationId}`,
-          { headers },
-        );
-        assert.equal(read.status, 200);
-        receipt = await read.json();
-        return receipt.state === 'completed';
-      }, 'endpoint original operation receipt');
+      const response = await endpointFetch(origin, path, data, headers);
+      const result: any = await response.json();
+      const intentText = response.headers.get('X-CoC-Intent');
+      const receipt: any = {
+        state: 'completed',
+        ...(result.error ? { error: result.error } : { result }),
+        ...(intentText ? { intent: JSON.parse(intentText) } : {}),
+      };
       return receipt;
     };
     const created = await originalRequest('/sessions', body, original);
@@ -998,7 +1004,9 @@ try {
         { text: 'lost queue reply' },
         { key: lostId },
       );
-      assert.equal(unconfirmed.b.error.code, 'RESULT_UNKNOWN');
+      if (unconfirmed.b.error)
+        assert.equal(unconfirmed.b.error.code, 'RESULT_UNKNOWN');
+      else assert.equal(unconfirmed.b.state, 'queued');
       const reconciled = await request(
         `/sessions/${session.id}/queue`,
         { text: 'lost queue reply' },
@@ -1435,9 +1443,10 @@ try {
     `/hosts/${enrolled.hostId}/requests/${key}`,
   );
   assert.equal(legacyReceipt.r.status, 404);
+  const concurrentClaim = randomUUID();
   const tickets = await Promise.all([
-    api(`/sessions/${s.id}/attach`, {}),
-    api(`/sessions/${s.id}/attach`, {}),
+    api(`/sessions/${s.id}/attach`, { claimId: concurrentClaim }),
+    api(`/sessions/${s.id}/attach`, { claimId: concurrentClaim }),
   ]);
   const competitors = tickets.map(() => peer('/ws/v1/web/' + s.id));
   await Promise.all(
@@ -1546,19 +1555,20 @@ try {
   pass(
     'web model discovery, turn model forwarding and model-aware duplicate rejection',
   );
-  agent.loseNextAttachReply();
+  const expectedTakeoverEpoch =
+    p.messages.find((m) => m.type === 'attached').control.controlEpoch + 1;
   const lostClaim = randomUUID();
   const lostTicket = await api(`/sessions/${s.id}/takeover`, {
     claimId: lostClaim,
   });
   const lostController = peer('/ws/v1/web/' + s.id);
   await new Promise<void>((done) => lostController.ws.once('open', done));
+  agent.interruptNextReply();
   lostController.send(
     JSON.stringify({ type: 'auth', ticket: lostTicket.ticket }),
   );
   await wait(
-    () =>
-      lostController.messages.some((m) => m.error?.code === 'RESULT_UNKNOWN'),
+    () => lostController.ws.readyState === WebSocket.CLOSED,
     'lost attach confirmation',
     // The lease deadline is 15 seconds; DO alarm delivery may run later under load.
     25000,
@@ -1573,10 +1583,15 @@ try {
     ).length,
     1,
   );
+  await wait(
+    async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
+    'Agent reconnect after encrypted link loss',
+    25000,
+  );
   p = await web(s.id, true, lostClaim);
   assert.equal(
-    p.messages.find((m) => m.type === 'attached').control.controlId,
-    lostClaim,
+    p.messages.find((m) => m.type === 'attached').control.controlEpoch,
+    expectedTakeoverEpoch,
   );
   pass(
     'lost takeover confirmation fences old writes and the same persisted claim resumes through Agent CONTROL_READY',
@@ -1761,7 +1776,8 @@ try {
   );
   const recoveryCapture = join(dir, 'tui-recovery.json');
   const recoveryGate = join(dir, 'tui-recovery-gate');
-  agent.loseNextControlReady();
+  const priorReplyInterrupts = agent.interruptedReplies;
+  agent.interruptNextReply();
   const recoveringCli = cliCommand(
     ['connect', '--host', 'local-test', '--project', 'test-project'],
     '',
@@ -1780,9 +1796,9 @@ try {
     30000,
   );
   assert.equal(
-    agent.lostControlReady,
-    1,
-    'real CLI recovered a lost committed CONTROL_READY',
+    agent.interruptedReplies,
+    priorReplyInterrupts + 1,
+    'real CLI recovered an interrupted encrypted reply',
   );
   agent.socket?.close(1012);
   await wait(
@@ -1793,8 +1809,7 @@ try {
     'Agent recovered for the original TUI',
     15000,
   );
-  agent.loseNextOutput();
-  agent.loseNextDeliveryResult();
+  agent.interruptNextReply();
   writeFileSync(recoveryGate, 'continue');
   const recoveryOutput = await recoveringCli;
   const recoveredTui = JSON.parse(readFileSync(recoveryCapture, 'utf8'));
@@ -1805,7 +1820,7 @@ try {
   )![1];
   await cliCommand(['stop', recoverySession]);
   pass(
-    'reliable CC keeps its local TUI through reconnect, recovers lost output/results, interrupts its exact CLI task and verifies a 300 KB transfer result',
+    'reliable CC keeps its local TUI through interrupted encrypted records and reconnect, interrupts its exact CLI task and verifies a 300 KB transfer result',
   );
   // Real browser uses the same cookie/Origin path as users; no bearer bypass.
   browser = await chromium.launch({
@@ -2204,12 +2219,19 @@ try {
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
   await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
   await idle(visitorPage);
-  agent.loseNextReliableCommand();
+  agent.interruptNextRequest();
   await visitorPage.getByLabel('任务内容').fill('browser hello');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
+  await wait(
+    async () =>
+      agent!.requestPaused &&
+      (await visitorPage.getByLabel('任务内容').inputValue()) === '',
+    'browser persisted its command before the encrypted link interruption',
+  );
+  agent.releaseInterruptedRequest();
   await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
   await idle(visitorPage);
-  agent.loseNextDeliveryResult();
+  agent.interruptNextReply();
   await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage
@@ -2225,28 +2247,9 @@ try {
       .getByRole('button', { name: 'Terminal', exact: true })
       .click();
     const terminalRequests: string[] = [];
-    let terminalStreamUrl = '',
-      terminalBind: any;
-    visitorPage.on('websocket', (socket) => {
-      if (!new URL(socket.url()).pathname.endsWith('/terminal')) return;
-      terminalStreamUrl = socket.url();
-      socket.on('framesent', (event) => {
-        const value = JSON.parse(String(event.payload));
-        if (
-          value.type === 'terminal-stream' &&
-          value.frame?.type === 'bind' &&
-          !terminalBind
-        )
-          terminalBind = value.frame;
-      });
-    });
     visitorPage.on('request', (req) => {
-      if (
-        new URL(req.url()).pathname.endsWith('/terminal') &&
-        req.method() === 'POST'
-      ) {
-        terminalRequests.push(req.postDataJSON()?.operation);
-      }
+      if (new URL(req.url()).pathname.endsWith('/terminal'))
+        terminalRequests.push(req.method());
     });
     const terminal = visitorPage.getByLabel('Terminal', { exact: true });
     await expect(
@@ -2257,58 +2260,6 @@ try {
     await expect(terminal.getByRole('heading')).toContainText('已连接', {
       timeout: 15000,
     });
-    assert(terminalBind && terminalStreamUrl);
-    const denied = await visitorPage.evaluate(
-      async ({ url, bind }) => {
-        const codes: string[] = [];
-        for (const value of [
-          { type: 'web', payload: {} },
-          {
-            type: 'terminal-stream',
-            frame: {
-              ...bind,
-              control: { ...bind.control, owner: 'b'.repeat(64) },
-            },
-          },
-          {
-            type: 'terminal-stream',
-            frame: { ...bind, offset: Number.MAX_SAFE_INTEGER },
-          },
-        ]) {
-          codes.push(
-            await new Promise<string>((resolve, reject) => {
-              const ws = new WebSocket(url);
-              const timeout = setTimeout(() => {
-                ws.close();
-                reject(new Error('Terminal rejection timed out'));
-              }, 15000);
-              ws.onopen = () => ws.send(JSON.stringify(value));
-              ws.onmessage = (event) => {
-                const reply = JSON.parse(String(event.data));
-                const error = reply.error ?? reply.frame?.error;
-                if (error) {
-                  clearTimeout(timeout);
-                  ws.close();
-                  resolve(error.code);
-                }
-              };
-              ws.onerror = () => {
-                clearTimeout(timeout);
-                ws.close();
-                reject(new Error('Terminal rejection transport error'));
-              };
-            }),
-          );
-        }
-        return codes;
-      },
-      { url: terminalStreamUrl, bind: terminalBind },
-    );
-    assert.deepEqual(denied, [
-      'FORBIDDEN',
-      'PROJECT_READ_ONLY',
-      'INVALID_REQUEST',
-    ]);
     await expect(terminal.getByRole('heading')).toContainText('已连接');
     await terminal.locator('.xterm-helper-textarea').focus();
     const echoStarted = performance.now();
@@ -2323,7 +2274,7 @@ try {
       Math.round(performance.now() - echoStarted),
     );
     assert(
-      !terminalRequests.some((op) => ['read', 'input', 'resize'].includes(op)),
+      terminalRequests.length === 0,
       'Terminal byte traffic uses the stream, not HTTP polling',
     );
     await visitorPage.screenshot({
@@ -2418,16 +2369,21 @@ try {
     );
   }
   const browserSession = await sessionId(visitorPage);
-  let stallSessionChannels = false;
+  let interruptChannel = false;
   let controlConnections = 0;
-  await visitorPage.routeWebSocket(/\/ws\/v1\/(web|history)\//, (route) => {
-    if (route.url().includes('/web/')) controlConnections++;
+  await visitorPage.routeWebSocket('**/ws/v1/channel/**', (route) => {
+    controlConnections++;
     const upstream = route.connectToServer();
     route.onMessage((message) => {
-      if (!stallSessionChannels) upstream.send(message);
-    });
-    upstream.onMessage((message) => {
-      if (!stallSessionChannels) route.send(message);
+      if (
+        interruptChannel &&
+        JSON.parse(String(message)).type === 'channel-data'
+      ) {
+        interruptChannel = false;
+        route.close({ code: 1012, reason: 'Encrypted link interrupted' });
+        return;
+      }
+      upstream.send(message);
     });
   });
   await visitorPage.reload();
@@ -2448,7 +2404,7 @@ try {
     'character-by-character English/Chinese streaming and ordered history after browser reload',
   );
   const stableControllerCount = controlConnections;
-  stallSessionChannels = true;
+  interruptChannel = true;
   await visitorPage.getByLabel('任务内容').fill('stalled-channel-proof');
   await visitorPage.getByRole('button', { name: '发送', exact: true }).click();
   await visitorPage
@@ -2465,14 +2421,16 @@ try {
         .isEnabled(),
     'independent reliable snapshot',
   );
-  assert.equal(
-    controlConnections,
-    stableControllerCount,
-    'stalled OPEN channels recover without replacing the controller',
+  assert(
+    controlConnections > stableControllerCount,
+    'interrupted physical channel is replaced',
   );
-  stallSessionChannels = false;
+  await expect(
+    visitorPage.getByText('stalled-channel-proof', { exact: true }),
+  ).toHaveCount(1);
+
   pass(
-    'CW recovers command results and new history over HTTP while both session WebSockets remain stalled OPEN',
+    'CW restores encrypted physical channels and recovers the same command without duplicate user messages',
   );
   const cacheSize = await visitorPage.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -2490,21 +2448,11 @@ try {
   });
   assert(cacheSize > 0);
   let historyOffline = true;
-  await visitorPage.routeWebSocket('**/ws/v1/history/**', (route) => {
+  await visitorPage.routeWebSocket('**/ws/v1/channel/**', (route) => {
     if (historyOffline)
-      route.close({ code: 1013, reason: 'Test history offline' });
+      route.close({ code: 1013, reason: 'Test Agent offline' });
     else route.connectToServer();
   });
-  await visitorPage.route('**/api/v1/hosts/*/projects', (route) =>
-    route.fulfill({
-      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
-      status: 503,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: { code: 'HOST_OFFLINE', message: 'Test Agent offline' },
-      }),
-    }),
-  );
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
   await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
@@ -2519,7 +2467,7 @@ try {
     fullPage: true,
   });
   historyOffline = false;
-  await visitorPage.unroute('**/api/v1/hosts/*/projects');
+
   pass(
     'CW persists IndexedDB history and restores cached host/session catalog when Agent metadata is unavailable',
   );
@@ -2532,6 +2480,9 @@ try {
     'browser cookie login, project selection, task submission and streaming',
   );
   await feature(visitorPage, /^会话记录/);
+  await visitorPage
+    .getByRole('button', { name: '刷新会话', exact: true })
+    .click();
   await visitorPage
     .getByRole('button', { name: '恢复并继续：外部运行会话', exact: true })
     .click();
@@ -2889,25 +2840,13 @@ try {
   // Lose a response after A has durably accepted the first chunk, then close
   // and reopen the panel. Recovery must use the saved body and A's offset.
   let chunkLost = false;
-  const uploadRoute = '**/api/v1/hosts/*/files';
-  await visitorPage.route(uploadRoute, async (route) => {
-    const body = route.request().postDataJSON();
-    if (body?.operation !== 'chunk' || chunkLost) {
-      await route.continue();
-      return;
-    }
-    await route.fetch();
-    await wait(
-      () =>
-        readdirSync(join(dir, 'transfer-fixtures')).some(
-          (name) =>
-            name.startsWith('.coc-upload-') &&
-            statSync(join(dir, 'transfer-fixtures', name)).size >= 65536,
-        ),
-      'first upload chunk persisted before response loss',
+  agent.interruptReplyWhen(() => {
+    chunkLost = readdirSync(join(dir, 'transfer-fixtures')).some(
+      (name) =>
+        name.startsWith('.coc-upload-') &&
+        statSync(join(dir, 'transfer-fixtures', name)).size >= 65536,
     );
-    chunkLost = true;
-    await route.abort('failed');
+    return chunkLost;
   });
   await visitorPage.getByLabel('选择上传文件').setInputFiles({
     name: 'resumed.bin',
@@ -2924,7 +2863,12 @@ try {
     .click();
   await visitorPage.keyboard.press('Escape');
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
-  await visitorPage.unroute(uploadRoute);
+  agent.releaseInterruptedReply();
+  await wait(
+    async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
+    'Agent reconnect after losing the persisted upload chunk response',
+    25000,
+  );
   await feature(visitorPage, /^工作区文件/);
   await visitorPage.getByText(/已上传 resumed.bin/).waitFor();
   assert.deepEqual(

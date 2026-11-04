@@ -1,5 +1,6 @@
 #pragma once
 #include "network.hpp"
+#include "secure_channel.hpp"
 #include <atomic>
 #include <thread>
 namespace coc {
@@ -24,6 +25,14 @@ class ClientManagement {
   std::thread thread_;
   std::atomic<bool> restart_{false};
   bool stopped_ = false;
+  struct Link {
+    std::unique_ptr<SecureChannel> cipher;
+    std::string partial;
+    int64_t expires;
+  };
+  std::map<std::string, Link> links_;
+  void channel(const Json &);
+  void encrypted(const std::string &, const Json &);
   void connect();
 
 public:

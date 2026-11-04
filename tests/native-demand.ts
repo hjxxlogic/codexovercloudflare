@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Real native sockets and elapsed time; no model or production requests.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -12,6 +13,7 @@ let approvals = 0,
   frames = 0,
   pings = 0;
 let peer: WebSocket | undefined;
+let endpoint: AgentEndpoint | undefined;
 let replyToPing = true;
 let rejectConnections = false;
 const connectedAt: number[] = [];
@@ -32,9 +34,7 @@ sockets.on('connection', (ws) => {
     return;
   }
   if (connections > 1) replyToPing = true;
-  ws.send(
-    JSON.stringify({ type: 'hello', delivery: 2, minProtocol: 1, demand: 1 }),
-  );
+  endpoint = new AgentEndpoint(ws, 'host', false);
   ws.on('message', () => frames++);
   ws.on('ping', (payload) => {
     assert.equal(payload.toString(), 'coc-keepalive');
@@ -101,26 +101,17 @@ try {
     JSON.stringify({ type: 'change', scope: 'requests', revision: 1 }),
   );
   await wait(() => approvals === 2, 'event-driven approval read');
-  let confirmed = false;
-  peer!.on('message', (raw) => {
-    const d = JSON.parse(raw.toString());
-    if (d.requestId === 'probe') confirmed = d.data?.online === true;
-  });
-  peer!.send(
-    JSON.stringify({
-      type: 'control',
-      requestId: 'probe',
-      action: 'probe',
-      data: {},
-    }),
+  assert.equal(
+    (await endpoint!.call('/hosts/host/probe', {})).data.online,
+    true,
+    'Encrypted on-demand round trip',
   );
-  await wait(() => confirmed, 'on-demand round trip');
   const healthyPings = pings;
   replyToPing = false;
   const lostAt = Date.now();
   // Data frames must not substitute for protocol Pong or mask a broken heartbeat.
   const traffic = setInterval(() => {
-    if (peer?.readyState === 1) peer.send(JSON.stringify({ type: 'pong' }));
+    if (peer?.readyState === 1) void endpoint!.call('/hosts/host/probe', {});
   }, 1000);
   try {
     await wait(

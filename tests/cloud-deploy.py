@@ -24,6 +24,36 @@ class CloudArtifactTests(unittest.TestCase):
                 cloud.main()
             self.assertEqual(error.exception.code, 2)
 
+    def test_r2_target_isolates_routes_bindings_and_access(self):
+        import re
+        config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))
+        original = json.loads(json.dumps(config))
+        result = cloud.deployment_target(config, 'r2', 'a' * 64)
+        self.assertEqual(config, original)
+        self.assertEqual(result['name'], 'codex-over-cloudflare-r2')
+        self.assertEqual(result['routes'], [{'pattern': 'r2.xlogic.cc', 'custom_domain': True}])
+        self.assertEqual(result['vars']['ACCESS_AUD'], 'a' * 64)
+        self.assertFalse(result['workers_dev'])
+        self.assertEqual(result['durable_objects'], original['durable_objects'])
+        self.assertEqual(cloud.deployment_target(config, 'production'), original)
+        result = cloud.deployment_target(config, 'r2', without_access=True)
+        self.assertEqual(result['vars']['ACCESS_ENABLED'], 'false')
+        self.assertNotIn('ACCESS_AUD', result['vars'])
+        for args in [('production', 'a' * 64, False), ('production', None, True),
+                     ('r2', None, False), ('r2', 'a' * 64, True), ('r2', 'bad', False)]:
+            with self.assertRaises(RuntimeError):
+                cloud.deployment_target(config, *args)
+        config['durable_objects']['bindings'][0]['script_name'] = original['name']
+        with self.assertRaisesRegex(RuntimeError, 'Worker-local'):
+            cloud.deployment_target(config, 'r2', 'a' * 64)
+
+    def test_initialization_cannot_skip_platforms_or_modify_production(self):
+        for args in [[], ['--publish-downloads'], ['--target', 'r2', '--r2-without-access'],
+                     ['--target', 'r2', '--r2-without-access', '--publish-downloads', '--skip-native-platform', 'linux-musl']]:
+            with patch('sys.argv', ['deploy-cloud.py', '--initialize-downloads', *args]):
+                with self.assertRaises(SystemExit):
+                    cloud.main()
+
     def test_production_config_uses_only_durable_objects(self):
         import re
         config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))

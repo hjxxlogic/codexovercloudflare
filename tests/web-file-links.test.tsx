@@ -1,3 +1,15 @@
+vi.mock('../apps/web/src/channel.ts', () => ({
+  endpointHost: (path: string) => (path.includes('/files') ? 'host' : ''),
+  endpointRequest: async (path: string, data: unknown) => {
+    const response = await fetch(path, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const result: any = await response.json();
+    return response.ok ? { data: result } : { error: result.error };
+  },
+  ChannelError: class extends Error {},
+}));
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {

@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Two real native Agent processes and both CLIs, using a local simulated relay/Codex.
 import assert from 'node:assert/strict';
 import { operationWrite } from '../packages/protocol/src/index.ts';
@@ -13,11 +14,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-project-integration-'));
 const agentBinary = resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent');
 const clientBinary = resolve(process.env.COC_CLI_BINARY || 'build/coc-client');
-const peers = new Map<string, WebSocket>();
+const peers = new Map<string, AgentEndpoint>();
 const instances = new Map<string, string>();
 const pending = new Map<string, (message: any) => void>();
 const receipts = new Map<string, any>();
@@ -122,11 +123,20 @@ const server = createServer(async (req, res) => {
   }
 });
 const sockets = new WebSocketServer({ server });
-sockets.on('connection', (ws, req) => {
+sockets.on('connection', (raw, req) => {
   const host = req.headers.authorization?.includes('bob') ? 'bob' : 'alice';
-  ws.send(
-    JSON.stringify({ type: 'hello', delivery: 2, minProtocol: 1, demand: 1 }),
-  );
+  if (req.url?.startsWith('/ws/v1/channel/')) {
+    peers.get(host)!.route(raw);
+    return;
+  }
+  if (req.url?.startsWith('/ws/v1/client-management/')) {
+    raw.send(JSON.stringify({ type: 'channel-welcome', version: 1 }));
+    raw.on('message', () =>
+      raw.send(JSON.stringify({ type: 'channel-registered' })),
+    );
+    return;
+  }
+  const ws = new AgentEndpoint(raw, host);
   ws.on('message', (raw) => {
     const d = JSON.parse(String(raw));
     if (d.type === 'capabilities') {

@@ -1,4 +1,4 @@
-import { AppError } from '../../../packages/protocol/src/index.ts';
+import { AppError } from '../../../packages/protocol/src/admission.ts';
 import type { StateStorage } from './state.ts';
 // One sorted queue per object. Permanent credentials never enter this queue.
 export async function expireAt(storage: StateStorage, key: string, at: number) {

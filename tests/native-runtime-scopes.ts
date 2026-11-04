@@ -1,3 +1,4 @@
+// Internal business component executable; public encrypted transport has separate integration coverage.
 // Actual native Agent and stdio/WebSocket peers; isolated local state, no models.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -262,7 +263,7 @@ async function history(session: any) {
 }
 try {
   child = spawn(
-    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
+    resolve('build/coc-agent-component'),
     ['run', '--config', config],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );

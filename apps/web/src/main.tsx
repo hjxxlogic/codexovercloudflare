@@ -1,3 +1,4 @@
+import { businessSocket } from './channel.ts';
 import { ActiveSessions } from './active-sessions.tsx';
 import { Workbench } from './workbench/workbench.tsx';
 import { promptAcknowledged } from './prompt-state.ts';
@@ -1276,7 +1277,7 @@ function App() {
           controller.signal,
         );
         if (disposed) return;
-        const ws = new WebSocket(
+        const ws = businessSocket(
           location.origin.replace(/^http/, 'ws') +
             relaySocketPath('/ws/v1/web/' + selected.id),
         );
@@ -1886,7 +1887,7 @@ function App() {
           };
         }
         if (disposed) return;
-        const hs = new WebSocket(
+        const hs = businessSocket(
           location.origin.replace(/^http/, 'ws') +
             relaySocketPath('/ws/v1/history/' + selected.id),
         );

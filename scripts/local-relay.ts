@@ -1,4 +1,5 @@
 import { resolveAsync } from '../tests/helpers/async-http.ts';
+import { endpointFetch } from '../tests/helpers/endpoint-peer.ts';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
@@ -86,11 +87,7 @@ export async function localRelay(dir: string) {
         'X-CoC-Demand': '1',
       };
       await originals.prepare(path, data, headers, (probe) => api(probe, {}));
-      const response = await fetch(origin + '/api/v1' + path, {
-        method: data === undefined ? 'GET' : 'POST',
-        headers,
-        body: data === undefined ? undefined : JSON.stringify(data),
-      });
+      const response = await endpointFetch(origin, path, data, headers);
       const r = await resolveAsync(response, origin, headers);
       const b: any = await r.json();
       if (!r.ok) throw new Error(b.error?.code + ': ' + b.error?.message);
@@ -189,7 +186,12 @@ else {
       await new Promise((done) => setTimeout(done, 50));
     }
     const bridge = JSON.parse(readFileSync(endpointFile, 'utf8'));
-    return { endpoint: bridge.endpoint, ticket: bridge.ticket, close };
+    return {
+      endpoint: bridge.endpoint,
+      ticket: bridge.ticket,
+      close,
+      diagnostics: () => logs.replaceAll(secret, '[test-secret]'),
+    };
   } catch (e) {
     console.error(logs.replaceAll(secret, '[test-secret]'));
     await close();

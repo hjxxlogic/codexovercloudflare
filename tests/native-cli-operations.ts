@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 // Real CLI journal and HTTP transport; the simulated relay may lose all correlations.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -196,9 +197,10 @@ const server = createServer(async (request, response) => {
   }
 });
 const sockets = new WebSocketServer({ server });
-sockets.on('connection', (socket) =>
-  socket.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 })),
-);
+sockets.on('connection', (socket, request) => {
+  if (encryptedFixture(socket, request)) return;
+  socket.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
+});
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const relay = `http://127.0.0.1:${(server.address() as any).port}`;
 writeFileSync(

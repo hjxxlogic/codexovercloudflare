@@ -1,3 +1,8 @@
+import {
+  encryptedFixture,
+  fixtureRoutes,
+  fixtureStreams,
+} from './helpers/encrypted-fixture.ts';
 // Synthetic UI stress checks: no production credentials or model tasks.
 import assert from 'node:assert/strict';
 import { SyntheticDelivery } from './helpers/synthetic-delivery.ts';
@@ -246,6 +251,7 @@ const server = createServer((req, res) => {
             },
           ]
         : [];
+    else if (path === '/admin/hosts/sample/build') body = adminHost.build;
     else if (path === '/admin/hosts')
       body = adminSamples
         ? [
@@ -290,7 +296,9 @@ const server = createServer((req, res) => {
     } else if (path === '/hosts/sample/terminal') {
       terminalInfoCalls++;
       body = { enabled: false, streaming: 2, deliveryInstance: 'ui-instance' };
-    } else if (path === '/hosts/sample/projects') body = availableProjects;
+    } else if (path === '/admin/hosts/sample/connections')
+      body = { targets: ['client-runtime'] };
+    else if (path === '/hosts/sample/projects') body = availableProjects;
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
@@ -459,6 +467,7 @@ const sync = (ws: WebSocket) =>
     }),
   );
 wss.on('connection', (ws, request) => {
+  if (encryptedFixture(ws, request)) return;
   sockets.add(ws);
   if (
     request.url?.split('?')[0] === '/ws/v1/admin' ||
@@ -1139,7 +1148,7 @@ try {
     await new Promise<void>((resolve) => setTimeout(resolve, 22000));
     await route.abort().catch(() => {});
   };
-  await page.route('**/api/v1/sessions/**/delivery*', stallDelivery);
+  await fixtureRoutes.route('**/api/v1/sessions/**/delivery*', stallDelivery);
   const beforeIndependentSnapshot = controlSyncCalls;
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
@@ -1150,7 +1159,7 @@ try {
     controlSyncCalls > beforeIndependentSnapshot,
     'snapshot refresh bypasses stalled command recovery',
   );
-  await page.unroute('**/api/v1/sessions/**/delivery*', stallDelivery);
+  await fixtureRoutes.unroute('**/api/v1/sessions/**/delivery*', stallDelivery);
   // A stalled HTTP read must release the refresh button at the total deadline.
   let stalledSnapshot = false;
   const stallSnapshot = async (route: import('@playwright/test').Route) => {
@@ -1158,7 +1167,7 @@ try {
     await new Promise<void>((resolve) => setTimeout(resolve, 22000));
     await route.abort().catch(() => {});
   };
-  await page.route('**/api/v1/sessions/**/snapshot*', stallSnapshot);
+  await fixtureRoutes.route('**/api/v1/sessions/**/snapshot*', stallSnapshot);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
     page.getByRole('button', { name: '刷新状态', exact: true }),
@@ -1170,7 +1179,7 @@ try {
   await expect(page.getByRole('alert')).toContainText(
     '刷新超时，已恢复操作；请稍后重试。',
   );
-  await page.unroute('**/api/v1/sessions/**/snapshot*', stallSnapshot);
+  await fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*', stallSnapshot);
   await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
@@ -1250,7 +1259,7 @@ try {
     version?: string;
   }[] = [];
   const previewFiles = new Map<string, Buffer>();
-  await page.context().route('**/api/v1/hosts/sample/files', async (route) => {
+  await fixtureRoutes.route('**/api/v1/hosts/sample/files', async (route) => {
     const data = route.request().postDataJSON();
     if (!['read', 'list'].includes(data.operation)) return route.continue();
     fileReads.push(data);
@@ -2643,7 +2652,7 @@ try {
   let failReplacement = true;
   let failRestart = true;
   const configRevision = 'a'.repeat(64);
-  await page.route(
+  await fixtureRoutes.route(
     '**/api/v1/admin/hosts/sample/configuration',
     async (route) => {
       if (route.request().method() === 'GET') {
@@ -2784,7 +2793,7 @@ try {
     .getByRole('button', { name: 'Clear configuration from page', exact: true })
     .click();
   await expect(configEditor).toHaveCount(0);
-  await page.unroute('**/api/v1/admin/hosts/sample/configuration');
+  await fixtureRoutes.unroute('**/api/v1/admin/hosts/sample/configuration');
   const notifyUpdate = updates.getByRole('button');
   const publishedRelease = {
     version: '0.5.15',
@@ -3147,29 +3156,28 @@ try {
     retainedAfter: retained.seq - 1,
     gap: true,
   };
-  await gapContext.route('**/api/v1/sessions/**/snapshot*', async (route) => {
-    if (!gapMode) return route.continue();
-    assert.equal(
-      new URL(route.request().url()).searchParams.get('historyVersion'),
-      '2',
-    );
-    await route.fulfill({
-      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
-      json: { session, approvals: [], history: gapPageData },
-    });
-  });
-  await gapContext.routeWebSocket('**/ws/v1/history/**', (route) => {
-    const backend = route.connectToServer();
-    route.onMessage((message) => backend.send(message));
-    backend.onMessage((message) => {
-      const frame = JSON.parse(String(message));
-      if (gapMode && frame.type === 'history' && Array.isArray(frame.events))
-        Object.assign(frame, gapPageData);
-      if (gapMode && ['history-window', 'history-dirty'].includes(frame.type))
-        frame.maxRevision = retained.revision;
-      route.send(JSON.stringify(frame));
-    });
-  });
+  await fixtureRoutes.route(
+    '**/api/v1/sessions/**/snapshot*',
+    async (route) => {
+      if (!gapMode) return route.continue();
+      assert.equal(
+        new URL(route.request().url()).searchParams.get('historyVersion'),
+        '2',
+      );
+      await route.fulfill({
+        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+        json: { session, approvals: [], history: gapPageData },
+      });
+    },
+  );
+  fixtureStreams.send = (path, frame) => {
+    if (!path.includes('/history/')) return frame;
+    if (gapMode && frame.type === 'history' && Array.isArray(frame.events))
+      Object.assign(frame, gapPageData);
+    if (gapMode && ['history-window', 'history-dirty'].includes(frame.type))
+      frame.maxRevision = retained.revision;
+    return frame;
+  };
   const gapPage = await gapContext.newPage();
   gapPage.on('pageerror', (error) => failures.push(error.message));
   await gapPage.goto(origin);
@@ -3197,29 +3205,26 @@ try {
   ).toBeVisible();
   await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
   await gapContext.close();
+  fixtureStreams.send = undefined;
+  fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*');
   availableProjects = [
     { id: 'project', name: '示例项目', path: '/workspace/example' },
     { id: 'other-project', name: '第二项目', path: '/workspace/other' },
   ];
   const readerContext = await browser.newContext();
   let denyProjectWrite = true;
-  await readerContext.routeWebSocket('**/ws/v1/web/**', (route) => {
-    if (!denyProjectWrite) {
-      route.connectToServer();
-      return;
-    }
-    route.onMessage(() =>
-      route.send(
-        JSON.stringify({
-          type: 'error',
-          error: {
-            code: 'PROJECT_READ_ONLY',
-            message: 'Another session holds this project write access',
-          },
-        }),
-      ),
-    );
-  });
+  fixtureStreams.receive = (path, frame) => {
+    if (!denyProjectWrite || !path.includes('/web/')) return frame;
+    return {
+      fixtureReply: {
+        type: 'error',
+        error: {
+          code: 'PROJECT_READ_ONLY',
+          message: 'Another session holds this project write access',
+        },
+      },
+    };
+  };
   const reader = await readerContext.newPage();
   await reader.goto(origin);
   await openMenu(reader);
@@ -3243,7 +3248,7 @@ try {
   await expect(
     reader.getByRole('button', { name: '发送', exact: true }),
   ).toBeEnabled({ timeout: 20000 });
-  await readerContext.route('**/api/v1/sessions/*/attach', (route) =>
+  await fixtureRoutes.route('**/api/v1/sessions/*/attach', (route) =>
     route.fulfill({
       status: 409,
       json: {
@@ -3253,7 +3258,7 @@ try {
   );
   await reader.reload();
   await expect(reader.locator('.error')).toContainText('SESSION_CLOSED:');
-  await readerContext.unroute('**/api/v1/sessions/*/attach');
+  await fixtureRoutes.unroute('**/api/v1/sessions/*/attach');
   await openMenu(reader);
   await reader.getByRole('button', { name: /^会话记录/ }).click();
   await reader

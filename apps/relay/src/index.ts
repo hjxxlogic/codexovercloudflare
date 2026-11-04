@@ -1,4 +1,3 @@
-import { requireProjectManager } from './project-auth.ts';
 import {
   accessEnabled,
   accessUser,
@@ -7,19 +6,14 @@ import {
   bindBrowser,
   adminEmailMatches,
 } from './access.ts';
-import { z } from 'zod';
 import { version } from '../../../package.json';
 import {
   AppError,
   idSchema,
-  workspaceFileCommandSchema,
-  terminalCommandSchema,
-  projectManagementSchema,
-} from '../../../packages/protocol/src/index.ts';
+} from '../../../packages/protocol/src/admission.ts';
 import {
   body,
   authorizationFailed,
-  digest,
   failure,
   hostStub,
   hostStatus,
@@ -113,29 +107,12 @@ function internal(
   auth: Auth,
   hostId: string,
   data?: unknown,
-  ticket?: string,
 ) {
   const headers = new Headers({
     'x-auth': encodeURIComponent(JSON.stringify(auth)),
     'x-host': hostId,
   });
   if (req.headers.has('upgrade')) headers.set('upgrade', 'websocket');
-  if (req.headers.get('x-coc-async') === '1') headers.set('x-coc-async', '1');
-  for (const name of [
-    'x-coc-delivery',
-    'idempotency-key',
-    'x-coc-operation-instance',
-    'x-coc-operation-ack',
-  ]) {
-    const value = req.headers.get(name);
-    if (value !== null) headers.set(name, value);
-  }
-  if (
-    !req.headers.has('x-coc-delivery') &&
-    new URL(req.url).searchParams.get('delivery') === '2'
-  )
-    headers.set('x-coc-delivery', '2');
-  if (ticket) headers.set('x-ticket', ticket);
   return new Request('https://internal' + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers,
@@ -180,7 +157,7 @@ export default {
         headers.set('Referrer-Policy', 'no-referrer');
         headers.set(
           'Content-Security-Policy',
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         );
         // The isolated chart renderer may be framed only by this application.
         // Its script cannot access the parent origin or initiate network requests.
@@ -212,6 +189,28 @@ export default {
           'WebSocket upgrade required',
           426,
         );
+      const channel = p.match(/^\/ws\/v1\/channel\/([\w-]+)$/);
+      if (channel) {
+        const hostId = idSchema.parse(channel[1]);
+        const admin = u.searchParams.get('admin') === '1';
+        const auth = await authenticate(
+          req,
+          env,
+          admin ? undefined : hostId,
+          admin,
+        );
+        await registryCall(env, 'host', { id: hostId });
+        const target = u.searchParams.get('target') || 'agent';
+        if (!/^(agent|client-[a-f0-9]{64})$/.test(target))
+          throw new AppError(
+            'INVALID_REQUEST',
+            'Invalid connection target',
+            400,
+          );
+        return hostStub(env, hostId).fetch(
+          internal(req, '/channel?target=' + target, auth, hostId),
+        );
+      }
       if (p === '/api/v1/auth/email' && req.method === 'GET') {
         if (!accessEnabled(env)) return json({ enabled: false });
         const identity = requireAccessUser(req);
@@ -398,70 +397,6 @@ export default {
             : {},
         );
       }
-      const adminReceipt = p.match(
-        /^\/api\/v1\/admin\/hosts\/([\w-]+)\/operations\/([\w-]+)$/,
-      );
-      if (adminReceipt && ['GET', 'POST'].includes(req.method)) {
-        const auth = await authenticate(req, env, undefined, true);
-        await registryCall(env, 'host', { id: adminReceipt[1] });
-        return hostStub(env, adminReceipt[1]).fetch(
-          internal(
-            req,
-            '/operation/' + adminReceipt[2],
-            auth,
-            adminReceipt[1],
-            req.method === 'POST' ? {} : undefined,
-          ),
-        );
-      }
-      const projectManagement = p.match(
-        /^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/project-management$/,
-      );
-      if (projectManagement && ['GET', 'POST'].includes(req.method)) {
-        const hostId = projectManagement[2];
-        const auth = await authenticate(
-          req,
-          env,
-          projectManagement[1] ? undefined : hostId,
-          !!projectManagement[1],
-        );
-        const host = await registryCall(env, 'host', { id: hostId });
-        const data = projectManagementSchema.parse(
-          req.method === 'GET' ? { operation: 'list' } : await body(req),
-        );
-        if (data.operation !== 'list')
-          await requireProjectManager(env, auth, host);
-        if ('requestId' in data)
-          data.requestId = await digest(auth.hash + ':' + data.requestId);
-        return hostStub(env, hostId).fetch(
-          internal(req, '/control', auth, hostId, {
-            action: 'projectManage',
-            data,
-          }),
-        );
-      }
-      const subscription = p.match(/^\/ws\/v1\/hosts\/([\w-]+)$/);
-      if (subscription) {
-        const auth = await authenticate(req, env, subscription[1]);
-        return hostStub(env, subscription[1]).fetch(
-          internal(req, '/subscribe', auth, subscription[1]),
-        );
-      }
-      const receipt = p.match(
-        /^\/api\/v1\/hosts\/([\w-]+)\/operations\/([\w-]+)$/,
-      );
-      if (receipt && ['GET', 'POST'].includes(req.method)) {
-        const auth = await authenticate(req, env, receipt[1]);
-        return hostStub(env, receipt[1]).fetch(
-          internal(
-            req,
-            '/operation/' + receipt[2],
-            auth,
-            receipt[1],
-            req.method === 'POST' ? {} : undefined,
-          ),
-        );
-      }
       const adminIdentity = p.match(
         /^\/api\/v1\/admin\/hosts\/([\w-]+)\/identity$/,
       );
@@ -469,22 +404,6 @@ export default {
         const auth = await authenticate(req, env, undefined, true);
         await registryCall(env, 'host', { id: adminIdentity[1] });
         return json({ identity: auth.hash });
-      }
-      const probe = p.match(/^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/probe$/);
-      if (probe && req.method === 'POST') {
-        const auth = await authenticate(
-          req,
-          env,
-          probe[1] ? undefined : probe[2],
-          !!probe[1],
-        );
-        if (probe[1]) await registryCall(env, 'host', { id: probe[2] });
-        return hostStub(env, probe[2]).fetch(
-          internal(req, '/control', auth, probe[2], {
-            action: 'probe',
-            data: {},
-          }),
-        );
       }
       if (p === '/api/v1/auth/device/poll' && req.method === 'POST') {
         const d = await body(req),
@@ -531,22 +450,49 @@ export default {
           'Set-Cookie': cookieHeader(req, 'coc_web_' + hostId, '', 0),
         });
       }
+      // Old business transports are authenticated only to return a clear
+      // upgrade error. Their bodies never enter the relay or endpoint.
+      const legacyHost = p.match(
+        /^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/(?:projects|project-management|probe|files|terminal|threads|configuration|operations)(?:[/?]|$)/,
+      );
+      const legacySession = p.match(/^\/api\/v1\/sessions\/([\w-]+)~/);
+      const legacySocket =
+        p.match(/^\/ws\/v1\/(?:web|cli|history)\/([\w-]+)~/) ||
+        p.match(/^\/ws\/v1\/hosts\/([\w-]+)/);
+      if (
+        legacyHost ||
+        legacySession ||
+        legacySocket ||
+        p === '/api/v1/sessions'
+      ) {
+        const hostId =
+          legacyHost?.[2] ||
+          legacySession?.[1] ||
+          legacySocket?.[1] ||
+          u.searchParams.get('hostId') ||
+          '';
+        await authenticate(
+          req,
+          env,
+          legacyHost?.[1] ? undefined : hostId,
+          !!legacyHost?.[1],
+        );
+        await registryCall(env, 'host', { id: hostId });
+        throw new AppError(
+          'UPGRADE_REQUIRED',
+          'Use the encrypted endpoint channel',
+          426,
+        );
+      }
       if (p.startsWith('/api/v1/admin/')) {
         const owner = await authenticate(req, env, undefined, true);
-        const configuration = p.match(
-          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/configuration$/,
+        const connections = p.match(
+          /^\/api\/v1\/admin\/hosts\/([\w-]+)\/connections$/,
         );
-        if (configuration && ['GET', 'POST'].includes(req.method)) {
-          const hostId = idSchema.parse(configuration[1]);
-          await registryCall(env, 'host', { id: hostId });
-          return hostStub(env, hostId).fetch(
-            internal(
-              req,
-              '/configuration',
-              owner,
-              hostId,
-              req.method === 'POST' ? await body(req) : undefined,
-            ),
+        if (connections && req.method === 'GET') {
+          await registryCall(env, 'host', { id: connections[1] });
+          return hostStub(env, connections[1]).fetch(
+            internal(req, '/connections', owner, connections[1]),
           );
         }
         if (p === '/api/v1/admin/releases' && req.method === 'POST') {
@@ -904,366 +850,11 @@ export default {
           internal(req, '/agent', auth, auth.hostId),
         );
       }
-      const cli = p.match(/^\/ws\/v1\/cli\/([\w~-]+)$/);
-      if (cli) {
-        const hostId = idSchema.parse(cli[1].split('~')[0]);
-        await registryCall(env, 'host', { id: hostId });
-        return hostStub(env, hostId).fetch(
-          internal(
-            req,
-            '/cli?sessionId=' + cli[1],
-            {} as Auth,
-            hostId,
-            undefined,
-            bearer(req),
-          ),
-        );
-      }
       const wake = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/wake$/);
       if (wake && req.method === 'POST') {
         const auth = await authenticate(req, env, wake[1]);
         return hostStub(env, wake[1]).fetch(
           internal(req, '/wake', auth, wake[1], {}),
-        );
-      }
-      const projects = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/projects$/);
-      if (projects && req.method === 'GET') {
-        const auth = await authenticate(req, env, projects[1]);
-        await registryCall(env, 'host', { id: projects[1] });
-        return hostStub(env, projects[1]).fetch(
-          internal(req, '/control', auth, projects[1], {
-            action: 'projects',
-            data: {},
-          }),
-        );
-      }
-      const terminal = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/terminal$/);
-      if (terminal && req.method === 'POST') {
-        const auth = await authenticate(req, env, terminal[1]);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
-        const input = await body(req);
-        if (['read', 'input', 'resize'].includes(input.operation))
-          throw new AppError(
-            'UPGRADE_REQUIRED',
-            'Use the Terminal WebSocket byte stream',
-            426,
-          );
-        const data = terminalCommandSchema.parse(input);
-        return hostStub(env, terminal[1]).fetch(
-          internal(req, '/control', auth, terminal[1], {
-            action: 'terminal',
-            data: { ...data, owner: auth.hash },
-          }),
-        );
-      }
-      const files = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/files$/);
-      if (files && req.method === 'POST') {
-        const auth = await authenticate(req, env, files[1]);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
-        const data = await body(req);
-        const projectId = idSchema.parse(data.projectId);
-        const command = workspaceFileCommandSchema.parse(data);
-        await registryCall(env, 'host', { id: files[1] });
-        return hostStub(env, files[1]).fetch(
-          internal(req, '/control', auth, files[1], {
-            action: 'files',
-            data: { ...command, projectId, owner: auth.hash },
-          }),
-        );
-      }
-      const threads = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/threads$/);
-      if (threads && req.method === 'GET') {
-        const auth = await authenticate(req, env, threads[1]);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
-        await registryCall(env, 'host', { id: threads[1] });
-        return hostStub(env, threads[1]).fetch(
-          internal(req, '/control', auth, threads[1], {
-            action: 'threads',
-            data: {
-              projectId: idSchema.parse(u.searchParams.get('projectId')),
-              cursor: z
-                .string()
-                .max(4000)
-                .nullable()
-                .parse(u.searchParams.get('cursor')),
-            },
-          }),
-        );
-      }
-      if (p === '/api/v1/sessions') {
-        const d =
-          req.method === 'POST'
-            ? await body(req)
-            : {
-                hostId: u.searchParams.get('hostId'),
-                paged: u.searchParams.get('paged') === 'true',
-                cursor: z
-                  .string()
-                  .max(200)
-                  .parse(u.searchParams.get('cursor') || ''),
-                projectId: u.searchParams.get('projectId') || undefined,
-                state: u.searchParams.get('state') || undefined,
-                mine: u.searchParams.get('mine') === 'true',
-              };
-        const hostId = idSchema.parse(d.hostId);
-        const auth = await authenticate(req, env, hostId);
-        await registryCall(env, 'host', { id: hostId });
-        if (!['GET', 'POST'].includes(req.method))
-          throw new AppError('NOT_FOUND', 'Unknown route', 404);
-        if (req.method === 'POST') {
-          idSchema.parse(d.projectId);
-          z.enum(['web', 'cli']).parse(d.mode);
-          if (d.external !== undefined) z.boolean().parse(d.external);
-          if (d.external === true && d.threadId === undefined)
-            throw new AppError(
-              'INVALID_REQUEST',
-              'External connection requires threadId',
-              400,
-            );
-          if (d.threadId !== undefined) {
-            idSchema.parse(d.threadId);
-            if (d.mode !== 'web' && d.external !== true)
-              throw new AppError(
-                'FORBIDDEN',
-                'Only web sessions support history resume',
-                403,
-              );
-          }
-          if (d.mode !== auth.role)
-            throw new AppError(
-              'FORBIDDEN',
-              'Session mode must match credential role',
-              403,
-            );
-          idSchema.parse(req.headers.get('idempotency-key'));
-        }
-        if (req.method === 'GET') d.mode = auth.role;
-        return hostStub(env, hostId).fetch(
-          internal(req, '/control', auth, hostId, {
-            action: req.method === 'POST' ? 'create' : 'list',
-            data: d,
-          }),
-        );
-      }
-      const approvalSession = p.match(
-        /^\/api\/v1\/sessions\/([\w~-]+)\/(approvals|approval)$/,
-      );
-      if (
-        approvalSession &&
-        ((approvalSession[2] === 'approvals' && req.method === 'GET') ||
-          (approvalSession[2] === 'approval' && req.method === 'POST'))
-      ) {
-        const hostId = idSchema.parse(approvalSession[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
-        const input = req.method === 'POST' ? await body(req) : {};
-        const answer =
-          req.method === 'POST'
-            ? {
-                requestId: idSchema.parse(req.headers.get('idempotency-key')),
-                approvalId: z.string().min(1).max(200).parse(input.approvalId),
-                allow: z.boolean().parse(input.allow),
-                runtimeId: idSchema.parse(input.runtimeId),
-                approvalVersion: idSchema.parse(input.approvalVersion),
-              }
-            : {};
-        return hostStub(env, hostId).fetch(
-          internal(req, '/control', auth, hostId, {
-            action: req.method === 'POST' ? 'answer' : 'approvals',
-            data: { sessionId: approvalSession[1], mode: auth.role, ...answer },
-          }),
-        );
-      }
-      const queuedSession = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/queue$/);
-      if (queuedSession && req.method === 'POST') {
-        const hostId = idSchema.parse(queuedSession[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
-        const input = await body(req);
-        const text = z.string().trim().min(1).max(64000).parse(input.text);
-        const requestId = idSchema.parse(req.headers.get('idempotency-key'));
-        return hostStub(env, hostId).fetch(
-          internal(req, '/control', auth, hostId, {
-            action: 'queue',
-            data: {
-              sessionId: queuedSession[1],
-              mode: auth.role,
-              text,
-              requestId,
-            },
-          }),
-        );
-      }
-      const delivery = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/delivery$/);
-      if (delivery && ['GET', 'POST'].includes(req.method)) {
-        const hostId = idSchema.parse(delivery[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        const data =
-          req.method === 'GET'
-            ? {
-                operation: 'read',
-                controller: req.headers.get('x-coc-controller'),
-                stream: u.searchParams.get('stream'),
-                lane: u.searchParams.get('lane'),
-                ...(u.searchParams.has('contentSeq')
-                  ? {
-                      contentSeq: z.coerce
-                        .number()
-                        .int()
-                        .positive()
-                        .max(Number.MAX_SAFE_INTEGER)
-                        .parse(u.searchParams.get('contentSeq')),
-                      offset: z.coerce
-                        .number()
-                        .int()
-                        .min(0)
-                        .max(2 * 1024 * 1024)
-                        .parse(u.searchParams.get('offset')),
-                    }
-                  : {}),
-                ...(u.searchParams.has('instance')
-                  ? { instance: idSchema.parse(u.searchParams.get('instance')) }
-                  : {}),
-                ...(u.searchParams.has('streamSerial')
-                  ? {
-                      streamSerial: z.coerce
-                        .number()
-                        .int()
-                        .positive()
-                        .max(Number.MAX_SAFE_INTEGER)
-                        .parse(u.searchParams.get('streamSerial')),
-                    }
-                  : {}),
-                ...(u.searchParams.has('creditGeneration')
-                  ? {
-                      creditGeneration: idSchema.parse(
-                        u.searchParams.get('creditGeneration'),
-                      ),
-                    }
-                  : {}),
-                ...(u.searchParams.has('resultReceived')
-                  ? {
-                      resultReceived: z.coerce
-                        .number()
-                        .int()
-                        .min(0)
-                        .max(Number.MAX_SAFE_INTEGER)
-                        .parse(u.searchParams.get('resultReceived')),
-                      resultBytes: z.coerce
-                        .number()
-                        .int()
-                        .min(0)
-                        .max(Number.MAX_SAFE_INTEGER)
-                        .parse(u.searchParams.get('resultBytes')),
-                    }
-                  : {}),
-                ...(u.searchParams.has('exchangeId')
-                  ? {
-                      exchangeId: idSchema.parse(
-                        u.searchParams.get('exchangeId'),
-                      ),
-                    }
-                  : {}),
-                ...(u.searchParams.has('seq')
-                  ? {
-                      seq: z.coerce
-                        .number()
-                        .int()
-                        .min(1)
-                        .max(Number.MAX_SAFE_INTEGER)
-                        .parse(u.searchParams.get('seq')),
-                    }
-                  : {}),
-              }
-            : await body(req);
-        return hostStub(env, hostId).fetch(
-          internal(req, '/delivery', auth, hostId, {
-            ...data,
-            sessionId: delivery[1],
-          }),
-        );
-      }
-      const snapshot = p.match(/^\/api\/v1\/sessions\/([\w~-]+)\/snapshot$/);
-      if (snapshot && req.method === 'GET') {
-        const hostId = idSchema.parse(snapshot[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
-        const after = u.searchParams.has('after')
-          ? z.coerce
-              .number()
-              .int()
-              .min(0)
-              .max(Number.MAX_SAFE_INTEGER)
-              .parse(u.searchParams.get('after'))
-          : undefined;
-        return hostStub(env, hostId).fetch(
-          internal(req, '/control', auth, hostId, {
-            action: 'snapshot',
-            data: {
-              sessionId: snapshot[1],
-              mode: auth.role,
-              ...(u.searchParams.has('historyVersion')
-                ? {
-                    historyVersion: z.coerce
-                      .number()
-                      .pipe(z.literal(2))
-                      .parse(u.searchParams.get('historyVersion')),
-                  }
-                : {}),
-              ...(u.searchParams.has('snapshotGeneration')
-                ? {
-                    snapshotGeneration: z.coerce
-                      .number()
-                      .int()
-                      .nonnegative()
-                      .max(Number.MAX_SAFE_INTEGER)
-                      .parse(u.searchParams.get('snapshotGeneration')),
-                  }
-                : {}),
-              ...(after === undefined ? {} : { after }),
-            },
-          }),
-        );
-      }
-      const session = p.match(
-        /^\/api\/v1\/sessions\/([\w~-]+)\/(attach|takeover|stop)$/,
-      );
-      if (session && req.method === 'POST') {
-        const hostId = idSchema.parse(session[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        await registryCall(env, 'host', { id: hostId });
-        const options = session[2] === 'stop' ? {} : await body(req);
-        const resume =
-          options.resume === undefined
-            ? undefined
-            : z
-                .object({ stream: idSchema, controller: idSchema })
-                .parse(options.resume);
-        return hostStub(env, hostId).fetch(
-          internal(
-            req,
-            session[2] === 'stop' ? '/control' : '/ticket',
-            auth,
-            hostId,
-            session[2] === 'stop'
-              ? { action: 'stop', data: { sessionId: session[1] } }
-              : {
-                  sessionId: session[1],
-                  takeover: session[2] === 'takeover',
-                  delivery: options.delivery === 2 ? 2 : undefined,
-                  claimId:
-                    options.claimId === undefined
-                      ? undefined
-                      : idSchema.parse(options.claimId),
-                  ...(resume ? { resume } : {}),
-                },
-          ),
         );
       }
       if (p === '/api/v1/client/identity' && req.method === 'GET') {
@@ -1272,37 +863,6 @@ export default {
         if (!['web', 'cli'].includes(auth.role))
           throw new AppError('FORBIDDEN', 'Client credential required', 403);
         return json({ identity: auth.hash });
-      }
-      const historySocket = p.match(/^\/ws\/v1\/history\/([\w~-]+)$/);
-      if (historySocket && req.method === 'GET') {
-        const hostId = idSchema.parse(historySocket[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        if (!['web', 'cli'].includes(auth.role))
-          throw new AppError('FORBIDDEN', 'Client credential required', 403);
-        await registryCall(env, 'host', { id: hostId });
-        return hostStub(env, hostId).fetch(
-          internal(req, '/history?sessionId=' + historySocket[1], auth, hostId),
-        );
-      }
-      const terminalSocket = p.match(/^\/ws\/v1\/hosts\/([\w-]+)\/terminal$/);
-      if (terminalSocket && req.method === 'GET') {
-        const auth = await authenticate(req, env, terminalSocket[1]);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
-        return hostStub(env, terminalSocket[1]).fetch(
-          internal(req, '/terminal-stream', auth, terminalSocket[1]),
-        );
-      }
-      const web = p.match(/^\/ws\/v1\/web\/([\w~-]+)$/);
-      if (web && req.method === 'GET') {
-        const hostId = idSchema.parse(web[1].split('~')[0]);
-        const auth = await authenticate(req, env, hostId);
-        if (auth.role !== 'web')
-          throw new AppError('FORBIDDEN', 'Web credential required', 403);
-        await registryCall(env, 'host', { id: hostId });
-        return hostStub(env, hostId).fetch(
-          internal(req, '/web?sessionId=' + web[1], auth, hostId),
-        );
       }
       throw new AppError('NOT_FOUND', 'Unknown route', 404);
     } catch (e) {

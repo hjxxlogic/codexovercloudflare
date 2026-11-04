@@ -22,7 +22,7 @@ import {
   idSchema,
   accessEmailSchema,
   wakeUrlSchema,
-} from '../../../packages/protocol/src/index.ts';
+} from '../../../packages/protocol/src/admission.ts';
 import {
   body,
   authorizationFailed,

@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Real Agent and read-only deterministic Codex peer; no model or production state.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -7,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 const root = mkdtempSync(join(tmpdir(), 'coc-history-recovery-'));
 const server = createServer((_req, res) =>
   res
@@ -19,19 +20,12 @@ const server = createServer((_req, res) =>
     .end(JSON.stringify({ pending: [] })),
 );
 const sockets = new WebSocketServer({ server });
-let peer: WebSocket | undefined;
+let peer: AgentEndpoint | undefined;
 let output = '';
 const replies = new Map<string, any>();
-sockets.on('connection', (ws) => {
-  ws.send(
-    JSON.stringify({
-      type: 'hello',
-      delivery: 2,
-      minProtocol: 1,
-      demand: 1,
-      epoch: 1,
-    }),
-  );
+sockets.on('connection', (rawSocket) => {
+  const ws = new AgentEndpoint(rawSocket, 'host');
+
   ws.on('close', () => {
     if (peer === ws) peer = undefined;
   });

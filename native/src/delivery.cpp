@@ -65,7 +65,9 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
   positive_sequence(epoch);
   if (!valid_id(control_id) || !valid_id(owner))
     throw Error("INVALID_REQUEST", "Invalid control proof identity");
-  run("BEGIN IMMEDIATE");
+  const bool transaction = sqlite3_get_autocommit(db_);
+  if (transaction)
+    run("BEGIN IMMEDIATE");
   try {
     const auto previous = control_state(session);
     if (!previous.is_null()) {
@@ -74,7 +76,8 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
       if (epoch == previous.at("controlEpoch")) {
         if (previous.at("controlId") != control_id || previous.at("owner") != owner)
           throw Error("IDEMPOTENCY_CONFLICT", "Control epoch identity changed");
-        run("COMMIT");
+        if (transaction)
+          run("COMMIT");
         return previous;
       }
     }
@@ -114,10 +117,12 @@ Json Store::control_apply(const std::string &session, int64_t epoch, const std::
         "CONFLICT(session) DO UPDATE SET "
         "epoch=excluded.epoch,control_id=excluded.control_id,owner=excluded.owner",
         {session, epoch, control_id, owner});
-    run("COMMIT");
+    if (transaction)
+      run("COMMIT");
     return ready;
   } catch (...) {
-    run("ROLLBACK");
+    if (transaction)
+      run("ROLLBACK");
     throw;
   }
 }
@@ -797,5 +802,105 @@ Json Store::output_page(const std::string &stream, int64_t after) {
       "SELECT seq,end_bytes AS 'end',body FROM transport2_outputs WHERE stream=? AND seq>? "
       "ORDER BY seq LIMIT 32",
       {stream, after});
+}
+} // namespace coc
+
+namespace coc {
+Json Store::endpoint_claim(const std::string &id, const std::string &owner,
+                           const std::string &claim, bool takeover, const Json &resume) {
+  if (!valid_id(owner) || !valid_id(claim))
+    throw Error("INVALID_REQUEST", "Invalid control claim");
+  run("BEGIN IMMEDIATE");
+  try {
+    auto session = get(id);
+    auto lease = session.value("endpointLease", Json());
+    const auto current = control_state(id);
+    const auto renew = [&] {
+      if (lease.value("ticketUsed", false) || lease.value("reservedUntil", int64_t(0)) <= now()) {
+        lease["ticket"] = uuid();
+        lease["ticketUsed"] = false;
+        lease["reservedUntil"] = now() + 15000;
+        session["endpointLease"] = lease;
+        save(session);
+      }
+    };
+    if (!lease.is_null() && !current.is_null() &&
+        lease.at("controlId") == current.at("controlId")) {
+      if (lease.at("owner") == owner && lease.at("claimId") == claim) {
+        renew();
+        run("COMMIT");
+        return lease;
+      }
+      if (!resume.is_null() && lease.at("owner") == owner &&
+          resume.value("controller", "") == lease.value("controller", "") &&
+          resume.value("stream", "") == lease.value("stream", "") &&
+          !lease.value("stream", "").empty()) {
+        renew();
+        run("COMMIT");
+        return lease;
+      }
+      if (!takeover && (lease.value("connectionGeneration", int64_t(0)) > 0 ||
+                        lease.value("reservedUntil", int64_t(0)) > now()))
+        throw Error("SESSION_BUSY", "Session requires explicit takeover");
+    }
+    const auto generation =
+        lease.is_null() ? int64_t(0) : lease.value("connectionGeneration", int64_t(0));
+    const auto epoch = current.is_null() ? 1 : current.at("controlEpoch").get<int64_t>() + 1;
+    const auto proof = control_apply(id, epoch, uuid(), owner);
+    lease = {{"controlEpoch", epoch},
+             {"controlId", proof.at("controlId")},
+             {"owner", owner},
+             {"ticket", uuid()},
+             {"ticketUsed", false},
+             {"claimId", claim},
+             {"controller", uuid()},
+             {"connectionGeneration", generation},
+             {"reservedUntil", now() + 15000},
+             {"stream", ""}};
+    session["endpointLease"] = lease;
+    save(session);
+    run("COMMIT");
+    return lease;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+Json Store::endpoint_attach(const std::string &id, const std::string &owner,
+                            const std::string &ticket) {
+  run("BEGIN IMMEDIATE");
+  try {
+    auto session = get(id);
+    auto lease = session.value("endpointLease", Json());
+    const auto current = control_state(id);
+    if (lease.is_null() || current.is_null() || lease.at("owner") != owner ||
+        lease.at("ticket") != ticket || lease.value("ticketUsed", false) ||
+        current.at("controlId") != lease.at("controlId"))
+      throw Error("STALE_CONTROLLER", "Control ticket is stale or belongs to another identity");
+    if (lease.value("reservedUntil", int64_t(0)) <= now())
+      throw Error("ATTACH_EXPIRED", "Attach ticket expired");
+    lease["ticketUsed"] = true;
+    lease["connectionGeneration"] = lease.at("connectionGeneration").get<int64_t>() + 1;
+    session["endpointLease"] = lease;
+    save(session);
+    run("COMMIT");
+    return lease;
+  } catch (...) {
+    run("ROLLBACK");
+    throw;
+  }
+}
+void Store::endpoint_stream(const std::string &id, const std::string &owner,
+                            const std::string &stream) {
+  if (!valid_id(stream))
+    throw Error("INVALID_REQUEST", "Invalid delivery stream");
+  auto session = get(id);
+  auto lease = session.value("endpointLease", Json());
+  if (lease.is_null() || lease.at("owner") != owner ||
+      (!lease.value("stream", "").empty() && lease.at("stream") != stream))
+    throw Error("STREAM_CLOSED", "Control claim already owns another stream");
+  lease["stream"] = stream;
+  session["endpointLease"] = lease;
+  save(session);
 }
 } // namespace coc

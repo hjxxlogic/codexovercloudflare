@@ -2,7 +2,7 @@ import {
   AppError,
   errorData,
   MAX_FRAME,
-} from '../../../packages/protocol/src/index.ts';
+} from '../../../packages/protocol/src/admission.ts';
 export interface Env {
   OWNER_SECRET: string;
   ACCESS_ENABLED?: string;
@@ -151,5 +151,9 @@ export async function hostStatus(env: Env, id: string): Promise<any> {
       result.error?.message || 'Host status temporarily unavailable',
       response.status,
     );
-  return result;
+  return {
+    online: result.online,
+    confirmed: result.confirmed ?? false,
+    ...(result.reachability ? { reachability: result.reachability } : {}),
+  };
 }

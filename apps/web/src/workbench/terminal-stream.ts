@@ -1,3 +1,4 @@
+import { businessSocket } from '../channel.ts';
 import {
   terminalStreamServerSchema,
   type ControlProof,
@@ -40,7 +41,7 @@ export class TerminalStream {
     },
   ) {
     this.offset = scope.offset;
-    this.socket = new WebSocket(
+    this.socket = businessSocket(
       `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${relaySocketPath(`/ws/v1/hosts/${host}/terminal`)}`,
     );
     this.deadline = setTimeout(
