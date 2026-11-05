@@ -1,6 +1,17 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  check: 'm5 12 4 4L19 6',
+  fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
+  minimize: 'M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5',
+  upload: 'M12 16V3m-5 5 5-5 5 5M4 17v4h16v-4',
+  back: 'm12 5-7 7 7 7M5 12h15',
+  external: 'M14 3h7v7m0-7L10 14M10 3H3v18h18v-7',
+  link: 'm10 13 4-4m-6 6-2 2a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m2 3 2-2a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0',
+  trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
+  pause: 'M8 5v14M16 5v14',
+  terminal: 'm4 5 6 6-6 6m9 1h7',
+
   plus: 'M12 5v14M5 12h14',
   copy: 'M9 9h12v12H9V9ZM5 15H3V3h12v2',
   download: 'M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4',

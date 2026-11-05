@@ -1,3 +1,5 @@
+import type { IconName } from '../happier/icon.tsx';
+import { IconButton } from '../happier/icon-button.tsx';
 import { useEffect, useRef, useState } from 'react';
 import type { Event } from '../../../../packages/protocol/src/index.ts';
 import { eventText, eventTitle, type ContentChunk } from '../conversation.tsx';
@@ -13,7 +15,7 @@ export function WorkbenchActions({
   scope: string;
   events: Event[];
   chunks: Record<number, ContentChunk>;
-  actions: { label: string; run: () => void }[];
+  actions: { label: string; icon?: IconName; run: () => void }[];
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -73,16 +75,19 @@ export function WorkbenchActions({
   }
   return (
     <>
-      <button
+      <IconButton
+        icon="more"
+        label={t('快捷操作')}
         ref={trigger}
         type="button"
         onClick={() => dialog.current?.showModal()}
-      >
-        {t('快捷操作')}
-      </button>
-      <button type="button" onClick={exportLoaded}>
-        {t('导出已加载对话')}
-      </button>
+      />
+      <IconButton
+        icon="download"
+        label={t('导出已加载对话')}
+        type="button"
+        onClick={exportLoaded}
+      />
       <label>
         <input
           type="checkbox"
@@ -98,20 +103,22 @@ export function WorkbenchActions({
       >
         <h2>{t('快捷操作')}</h2>
         {actions.map((action) => (
-          <button
+          <IconButton
             key={action.label}
-            type="button"
+            icon={action.icon || 'more'}
+            label={action.label}
             onClick={() => {
               dialog.current?.close();
               action.run();
             }}
-          >
-            {action.label}
-          </button>
+          />
         ))}
-        <button type="button" onClick={() => dialog.current?.close()}>
-          {t('关闭')}
-        </button>
+        <IconButton
+          icon="close"
+          label={t('关闭')}
+          type="button"
+          onClick={() => dialog.current?.close()}
+        />
       </dialog>
     </>
   );

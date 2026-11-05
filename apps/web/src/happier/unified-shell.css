@@ -470,3 +470,144 @@
 .unified-shell .unified-settings > nav button[aria-current='page'] {
   background: var(--hover);
 }
+/* Only one hierarchy body expands; titles remain available at every depth. */
+.unified-navigation .happier-sidebar-heading strong {
+  min-width: 0;
+  flex: 1;
+}
+.unified-navigation .happier-sidebar-heading .navigation-username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.unified-navigation .navigation-footer > .icon-button {
+  width: 40px;
+  justify-content: center;
+}
+.workspace-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.navigation-level {
+  min-width: 0;
+}
+.navigation-level > h2 {
+  margin: 0;
+}
+.navigation-level > h2 > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 12px 9px;
+  font-size: 13px;
+}
+.navigation-level > h2 > button[aria-expanded='true'] {
+  background: var(--bg);
+}
+.navigation-level > h2 > button > span {
+  flex: 1;
+  min-width: 0;
+}
+.navigation-level small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+.navigation-level-body {
+  padding: 8px 2px 12px;
+}
+.navigation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.navigation-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 9px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+.navigation-option > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.navigation-option[aria-pressed='true'] {
+  background: var(--bg);
+}
+.navigation-level-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.navigation-project-action {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.navigation-authorization .card {
+  margin: 8px 0;
+  padding: 12px 6px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.navigation-authorization .login-card {
+  max-width: 100%;
+}
+.navigation-authorization .login-card h2 {
+  font-size: 14px;
+}
+.navigation-authorization :is(input, textarea) {
+  width: 100%;
+}
+.navigation-authorization p {
+  font-size: 11px;
+  line-height: 1.7;
+}
+.navigation-project-action .project-management {
+  min-width: 0;
+}
+.navigation-project-action .project-management > p {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.navigation-project-action .project-management input:not([type='checkbox']) {
+  width: 100%;
+}
+.navigation-project-action .project-management code {
+  overflow-wrap: anywhere;
+}
+.navigation-project-action .project-management form {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.unified-shell > .authorization-welcome {
+  margin: 80px auto;
+}
+.settings-account {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}

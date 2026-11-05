@@ -1,5 +1,17 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  打开左侧导航: 'Open left navigation',
+  用户: 'User',
+  新建项目: 'New project',
+  申请授权: 'Request authorization',
+  尚无已授权主机: 'No authorized hosts',
+  项目列表: 'Projects',
+  主机列表: 'Hosts',
+  未选择: 'Not selected',
+  选择会话: 'Choose session',
+  选择项目: 'Choose project',
+  选择主机: 'Choose host',
+  '选择{0}': 'Choose {0}',
   设置: 'Settings',
   收起侧栏: 'Collapse sidebar',
   返回会话: 'Return to conversation',
@@ -390,8 +402,8 @@ export const english: Record<string, string> = {
   查询提交结果: 'Query commit result',
   文件传输进度: 'File transfer progress',
   取消传输: 'Cancel transfer',
-  '仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会取消正在传输的文件，已完成的上传会保留。':
-    'Only regular files in this project are accessible; symbolic links are not followed. Closing the panel cancels active transfers and keeps completed uploads.',
+  '仅访问当前项目内的普通文件；不跟随符号链接。收起面板不取消传输；暂停后保留原上传，重新打开后恢复。':
+    'Only regular files in this project are accessible; symbolic links are not followed. Hiding the panel keeps transfers running. Paused uploads are preserved and resume when reopened.',
   '使用 Agent 配置': 'Use Agent configuration',
   使用管理员配置: 'Use administrator configuration',
   管理员已禁用唤醒: 'Wake disabled by administrator',

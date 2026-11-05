@@ -39,12 +39,40 @@ export async function navigationUI(
       });
     return route.continue();
   });
+  let canManage = true;
+  fixtureRoutes.route(
+    '**/api/v1/hosts/sample/project-management',
+    async (route) =>
+      route.fulfill({
+        json: {
+          revision: 1,
+          canManage,
+          projects: [
+            { id: 'project', name: '示例项目', path: '/workspace/example' },
+          ],
+        },
+        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+      }),
+  );
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
+  await context.route('**/api/v1/auth/email', (route) =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        email: 'alice.smith@example.test',
+        accountId: 'navigation-account',
+        legacy: [],
+      },
+    }),
+  );
   const page = await context.newPage();
   const failures: string[] = [];
-  page.on('pageerror', (error) => failures.push(error.message));
+  page.on('pageerror', (error) => {
+    failures.push(error.message);
+    console.error('Web UI error:', error.message);
+  });
   const openSettings = async () => {
     const settings = page.getByRole('button', { name: '设置', exact: true });
     if (!(await settings.isVisible()))
@@ -64,8 +92,74 @@ export async function navigationUI(
       'no page horizontal overflow',
     );
   await page.goto(origin);
-  await page.getByLabel('主机', { exact: true }).selectOption('sample');
-  await page.getByRole('button', { name: /进行中的对话/ }).click();
+  await expect(page.locator('.navigation-username')).toHaveText('alice.smith');
+  await expect(page.locator('.navigation-footer a')).toHaveCount(0);
+  await expect(page.locator('.navigation-footer button')).toHaveCount(1);
+  const chooseHost = page.getByRole('button', {
+    name: '选择主机',
+    exact: true,
+  });
+  const chooseProject = page.getByRole('button', {
+    name: '选择项目',
+    exact: true,
+  });
+  const chooseSession = page.getByRole('button', {
+    name: '选择会话',
+    exact: true,
+  });
+  await expect(chooseProject).toBeDisabled();
+  await expect(chooseSession).toBeDisabled();
+  await page.getByRole('button', { name: '申请授权', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: '连接远程服务器', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('设备名称', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: join(artifacts, 'hierarchy-hosts-authorization.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: '申请授权', exact: true }).click();
+  await page.getByRole('button', { name: /示例服务器.*在线/ }).click();
+  await expect(chooseProject).toHaveAttribute('aria-expanded', 'true');
+  await expect(chooseSession).toBeDisabled();
+  await expect(
+    page.locator('#navigation-projects .navigation-option'),
+  ).not.toHaveCount(0);
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await expect(
+    page.getByLabel('远程目录绝对路径', { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel('远程目录绝对路径', { exact: true })
+    .fill('/workspace/new-project');
+  await page.getByLabel('项目显示名', { exact: true }).fill('New UI project');
+  await page.screenshot({
+    path: join(artifacts, 'hierarchy-projects-new.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  canManage = false;
+  await page.getByRole('button', { name: '刷新项目', exact: true }).click();
+  await expect(
+    page.getByText('仅 Agent 管理员邮箱或系统管理员可以更改项目登记。'),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel('远程目录绝对路径', { exact: true }),
+  ).not.toBeVisible();
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page
+    .locator('#navigation-projects .navigation-option')
+    .filter({ hasText: '示例项目' })
+    .click();
+  await expect(chooseSession).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    page.locator('.navigation-level > h2 > button[aria-expanded="true"]'),
+  ).toHaveCount(1);
+  await page
+    .locator('#navigation-sessions')
+    .getByRole('button', { name: /进行中的对话/ })
+    .click();
   await expect(page.getByLabel('任务内容')).toBeVisible();
   await expect(page.getByRole('log')).toContainText('示例任务');
   await page.getByLabel('任务内容').fill('统一导航保留草稿');
@@ -84,7 +178,7 @@ export async function navigationUI(
   );
   const conversationX = (await page.locator('.conversation').boundingBox())!.x;
   await page.getByRole('button', { name: '关闭会话导航', exact: true }).click();
-  await expect(page.getByLabel('主机', { exact: true })).not.toBeVisible();
+  await expect(chooseHost).not.toBeVisible();
   assert(
     (await page.locator('.conversation').boundingBox())!.x < conversationX,
     'collapse releases navigation width',
@@ -118,6 +212,33 @@ export async function navigationUI(
     fullPage: true,
     animations: 'disabled',
   });
+  const closePreview = preview.getByRole('button', {
+    name: '关闭预览',
+    exact: true,
+  });
+  await closePreview.hover();
+  await expect(
+    page.getByRole('tooltip', { name: '关闭预览', exact: true }),
+  ).toBeVisible();
+  assert.equal(
+    await closePreview.getAttribute('aria-describedby'),
+    await page
+      .getByRole('tooltip', { name: '关闭预览', exact: true })
+      .getAttribute('id'),
+  );
+  await page.mouse.move(0, 0);
+  await expect(
+    page.getByRole('tooltip', { name: '关闭预览', exact: true }),
+  ).not.toBeVisible();
+  await closePreview.focus();
+  await expect(
+    page.getByRole('tooltip', { name: '关闭预览', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(
+    page.getByRole('tooltip', { name: '关闭预览', exact: true }),
+  ).not.toBeVisible();
+  assert.equal(await closePreview.textContent(), '');
   await page.getByRole('button', { name: '上传 / 传输', exact: true }).click();
   await expect(
     page.getByRole('region', { name: '工作区文件', exact: true }),
@@ -182,11 +303,42 @@ export async function navigationUI(
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByLabel('项目', { exact: true }).selectOption('other-project');
-  await page.getByRole('button', { name: /第二项目对话/ }).click();
+  await chooseProject.click();
+  await page
+    .locator('#navigation-projects .navigation-option')
+    .filter({ hasText: '第二项目' })
+    .click();
+  await page
+    .locator('#navigation-sessions')
+    .getByRole('button', { name: /第二项目对话/ })
+    .click();
   await expect(page.getByLabel('任务内容')).toHaveValue('');
-  await page.getByLabel('项目', { exact: true }).selectOption('project');
-  await page.getByRole('button', { name: /进行中的对话/ }).click();
+  await chooseProject.click();
+  await page
+    .locator('#navigation-projects .navigation-option')
+    .filter({ hasText: '示例项目' })
+    .click();
+  await page
+    .locator('#navigation-sessions')
+    .getByRole('button', { name: /进行中的对话/ })
+    .click();
+  await expect(page.getByLabel('任务内容')).toHaveValue('统一导航保留草稿');
+  await chooseHost.click();
+  await page.getByRole('button', { name: /另一台服务器.*离线/ }).click();
+  await expect(chooseProject).toBeEnabled();
+  await expect(chooseSession).toBeDisabled();
+  await expect(page.getByLabel('任务内容')).not.toBeVisible();
+  await chooseHost.click();
+  await page.getByRole('button', { name: /示例服务器.*在线/ }).click();
+  await expect(chooseSession).toBeDisabled();
+  await page
+    .locator('#navigation-projects .navigation-option')
+    .filter({ hasText: '示例项目' })
+    .click();
+  await page
+    .locator('#navigation-sessions')
+    .getByRole('button', { name: /进行中的对话/ })
+    .click();
   await expect(page.getByLabel('任务内容')).toHaveValue('统一导航保留草稿');
   for (const viewport of [
     { width: 390, height: 844 },
@@ -256,6 +408,7 @@ export async function navigationUI(
   assert.deepEqual(failures, []);
   await context.close();
   fixtureRoutes.unroute('**/api/v1/hosts/sample/files');
+  fixtureRoutes.unroute('**/api/v1/hosts/sample/project-management');
   console.log(
     'PASS: unified navigation, project/session switching, mobile drawer, toolbar, merged file transfers, exclusive right panels, retained Terminal/draft, themes, density and administration; no browser errors',
   );

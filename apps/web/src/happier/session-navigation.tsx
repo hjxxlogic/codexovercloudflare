@@ -1,17 +1,20 @@
 // UI structure adapted from happier-dev/happier (MIT), pinned in SOURCE.md.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './icon.tsx';
+import { IconButton } from './icon-button.tsx';
 import { t, useLanguage } from '../i18n.ts';
 import './session-workspace.css';
 
 type Props = {
   children: ReactNode;
+  email?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSettings: () => void;
 };
 export function SessionNavigation({
   children,
+  email,
   open,
   onOpenChange,
   onSettings,
@@ -21,7 +24,6 @@ export function SessionNavigation({
     () => matchMedia('(max-width: 900px)').matches,
   );
   const drawer = useRef<HTMLDialogElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const media = matchMedia('(max-width: 900px)');
     const update = () => {
@@ -38,7 +40,11 @@ export function SessionNavigation({
   }, [open, mobile]);
   const close = () => {
     onOpenChange(false);
-    trigger.current?.focus();
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLButtonElement>('.happier-navigation-toggle')
+        ?.focus(),
+    );
   };
   const content = (
     <>
@@ -47,44 +53,28 @@ export function SessionNavigation({
           <span className="happier-app-mark">
             <Icon name="chat" size={21} />
           </span>
-          CoC <span>CW</span>
+          <span className="navigation-username">
+            {email?.split('@')[0] || t('用户')}
+          </span>
         </strong>
-        <button
-          onClick={close}
-          aria-label={t('关闭会话导航')}
-          title={t('收起侧栏')}
-        >
-          <Icon name="menu" />
-        </button>
+        <IconButton icon="menu" label={t('关闭会话导航')} onClick={close} />
       </div>
       <div className="navigation-content">{children}</div>
       <div className="navigation-footer">
-        <button onClick={onSettings} aria-label={t('设置')}>
-          <Icon name="settings" /> <span>{t('设置')}</span>
-        </button>
-        <a
-          className="happier-attribution"
-          href="./happier-LICENSE.txt"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Happier UI · MIT
-        </a>
+        <IconButton icon="settings" label={t('设置')} onClick={onSettings} />
       </div>
     </>
   );
   return (
     <>
       {(!open || mobile) && (
-        <button
+        <IconButton
+          icon="menu"
           className="happier-navigation-toggle"
-          ref={trigger}
           onClick={() => onOpenChange(true)}
-          aria-label={t('打开会话导航')}
+          label={t('打开会话导航')}
           aria-expanded={open}
-        >
-          <Icon name="menu" />
-        </button>
+        />
       )}
       {mobile ? (
         <dialog

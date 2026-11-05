@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import {
   Children,
   isValidElement,
@@ -22,7 +23,6 @@ import {
   remarkFileLinks,
 } from '../file-links.tsx';
 import { t } from '../i18n.ts';
-import { Icon } from '../happier/icon.tsx';
 import { saveFile } from '../download.ts';
 import { remarkStructure, remarkInlineMath } from './structure.ts';
 import { remarkOpenAiMath } from './openai-math.ts';
@@ -47,19 +47,17 @@ export function Copy({ value }: { value: string }) {
   const [status, setStatus] = useState('');
   return (
     <>
-      <button
+      <IconButton
+        icon="copy"
+        label={t('复制')}
         type="button"
-        aria-label={t('复制')}
-        title={t('复制')}
         onClick={() =>
           void navigator.clipboard
             .writeText(value)
             .then(() => setStatus(t('已复制')))
             .catch(() => setStatus(t('请手动选择文本复制')))
         }
-      >
-        <Icon name="copy" size={15} />
-      </button>
+      />
       <small role="status">{status}</small>
     </>
   );
@@ -163,14 +161,12 @@ function Table({ children }: { children: ReactNode }) {
     >
       <div className="element-toolbar">
         <span>{t('表格')}</span>
-        <button
+        <IconButton
+          icon="copy"
+          label={t('复制表格 TSV')}
           type="button"
-          aria-label={t('复制表格 TSV')}
-          title={t('复制表格 TSV')}
           onClick={() => void copy()}
-        >
-          <Icon name="copy" size={15} />
-        </button>
+        />
         <small role="status">{status}</small>
         {(fullscreen.active || overflow) && (
           <ElementFullscreenButton
@@ -224,37 +220,31 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
           {!special && (
             <>
               <Copy value={source} />
-              <button
+              <IconButton
+                icon="download"
+                label={t('下载源码')}
                 type="button"
-                aria-label={t('下载源码')}
-                title={t('下载源码')}
                 onClick={() =>
                   saveFile(
                     new Blob([source], { type: 'text/plain;charset=utf-8' }),
                     `code.${language === 'mermaid' ? 'mmd' : 'txt'}`,
                   )
                 }
-              >
-                <Icon name="download" size={15} />
-              </button>
-              <button
+              />
+              <IconButton
+                icon="wrap"
+                label={t('折行')}
                 type="button"
                 onClick={() => setWrap(!wrap)}
-                aria-label={t('折行')}
-                title={t('折行')}
                 aria-pressed={wrap}
-              >
-                <Icon name="wrap" size={15} />
-              </button>
+              />
               {language && (
-                <button
+                <IconButton
+                  icon="code"
+                  label={t('语法高亮')}
                   type="button"
-                  aria-label={t('语法高亮')}
-                  title={t('语法高亮')}
                   onClick={() => void colorize()}
-                >
-                  <Icon name="code" size={15} />
-                </button>
+                />
               )}
             </>
           )}

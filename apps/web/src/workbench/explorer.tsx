@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import { useEffect, useState, type ReactNode } from 'react';
 import { queryApi } from '../api.ts';
 import { t } from '../i18n.ts';
@@ -63,12 +64,12 @@ export function Explorer({
       <header className="pane-heading">
         <h2>{t('文件浏览器')}</h2>
         <FullscreenButton pane="files" />
-        <button onClick={close} aria-label={t('关闭文件浏览器')}>
-          {t('关闭')}
-        </button>
-        <button onClick={() => setGeneration(generation + 1)}>
-          {t('刷新')}
-        </button>
+        <IconButton icon="close" label={t('关闭文件浏览器')} onClick={close} />
+        <IconButton
+          icon="refresh"
+          label={t('刷新')}
+          onClick={() => setGeneration(generation + 1)}
+        />
       </header>
       <div className="file-browser-tabs">
         <button
@@ -247,15 +248,22 @@ function Directory({
       {error && (
         <li role="alert">
           {error}
-          <button onClick={() => setRetry(retry + 1)}>{t('重试')}</button>
+          <IconButton
+            icon="refresh"
+            label={t('重试')}
+            onClick={() => setRetry(retry + 1)}
+          />
         </li>
       )}
       {!loading && !error && !entries.length && <li>{t('空目录')}</li>}
       {next && (
         <li>
-          <button disabled={loading} onClick={() => setPage(next)}>
-            {t('加载更多文件')}
-          </button>
+          <IconButton
+            icon="plus"
+            label={t('加载更多文件')}
+            disabled={loading}
+            onClick={() => setPage(next)}
+          />
         </li>
       )}
     </ul>

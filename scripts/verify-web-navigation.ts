@@ -103,10 +103,31 @@ try {
   const page = await context.newPage();
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(base + '/');
-  await page.getByLabel('主机', { exact: true }).selectOption(values.host);
+  const target = (
+    await control('/hosts', undefined, { Cookie: cookie })
+  ).data.find((item: any) => item.id === values.host);
+  assert(target, 'Isolated test host must remain authorized');
+  await page
+    .locator('#navigation-hosts .navigation-option')
+    .filter({ hasText: target.name })
+    .click();
   await expect(
-    page.getByLabel('项目', { exact: true }).locator('option'),
+    page.getByRole('button', { name: '选择项目', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    page.getByRole('button', { name: '选择会话', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.locator('#navigation-projects .navigation-option'),
   ).not.toHaveCount(0);
+  await page.locator('#navigation-projects .navigation-option').first().click();
+  await expect(
+    page.getByRole('button', { name: '选择会话', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    page.locator('.navigation-level > h2 > button[aria-expanded="true"]'),
+  ).toHaveCount(1);
+  await expect(page.locator('.navigation-footer a')).toHaveCount(0);
   assert.deepEqual(
     await page
       .locator('.workspace-toolbar > button')

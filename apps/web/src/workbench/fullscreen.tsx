@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import {
   createContext,
   useContext,
@@ -18,13 +19,13 @@ export function FullscreenButton({ pane }: { pane: Pane }) {
   const fullscreen = useContext(FullscreenContext);
   const active = fullscreen.pane === pane;
   return (
-    <button
+    <IconButton
+      icon={active ? 'minimize' : 'fullscreen'}
+      label={active ? t('退出全屏') : t('全屏')}
       type="button"
       aria-pressed={active}
       onClick={() => fullscreen.toggle(pane)}
-    >
-      {active ? t('退出全屏') : t('全屏')}
-    </button>
+    />
   );
 }
 

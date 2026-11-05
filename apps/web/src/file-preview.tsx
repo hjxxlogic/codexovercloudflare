@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { useEffect, useState } from 'react';
 import { MarkdownRenderer } from './markdown/renderer.tsx';
 import { api, setEmailAccount } from './api.ts';
@@ -46,17 +47,21 @@ export function FilePreview() {
     <main className="file-preview-page">
       <header className="file-preview-toolbar">
         <h1>{path || t('文件预览')}</h1>
-        <button
+        <IconButton
+          icon="download"
+          label={t('下载')}
           disabled={!file}
           onClick={() => file && saveFile(file, path.split('/').pop()!)}
-        >
-          {t('下载')}
-        </button>
+        />
       </header>
       {error ? (
         <div role="alert">
           <p>{t(error)}</p>
-          <button onClick={() => setRetry((n) => n + 1)}>{t('重试')}</button>
+          <IconButton
+            icon="refresh"
+            label={t('重试')}
+            onClick={() => setRetry((n) => n + 1)}
+          />
         </div>
       ) : !file ? (
         <p role="status">{t('正在读取…')}</p>

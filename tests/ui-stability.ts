@@ -275,7 +275,13 @@ const server = createServer((req, res) => {
             message: 'Synthetic host list failure',
           },
         };
-      } else body = [{ id: 'sample', name: '示例服务器', online }];
+      } else
+        body = [
+          { id: 'sample', name: '示例服务器', online },
+          ...(process.argv.includes('--navigation')
+            ? [{ id: 'second', name: '另一台服务器', online: false }]
+            : []),
+        ];
     } else if (path === '/client/identity') {
       identityCalls++;
       if (identityFailures > 0) {
@@ -299,7 +305,11 @@ const server = createServer((req, res) => {
       body = { enabled: false, streaming: 2, deliveryInstance: 'ui-instance' };
     } else if (path === '/admin/hosts/sample/connections')
       body = { targets: ['client-runtime'] };
-    else if (path === '/hosts/sample/projects') body = availableProjects;
+    else if (
+      path === '/hosts/sample/projects' ||
+      path === '/hosts/second/projects'
+    )
+      body = availableProjects;
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
@@ -335,7 +345,10 @@ const server = createServer((req, res) => {
           snapshotSeq: maximum,
         },
       };
-    } else if (path === '/hosts/sample/threads')
+    } else if (
+      path === '/hosts/sample/threads' ||
+      path === '/hosts/second/threads'
+    )
       body = { data: [], nextCursor: null };
     else if (path.endsWith('/delivery') && req.method === 'POST') {
       let data = '';

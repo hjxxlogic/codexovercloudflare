@@ -1,5 +1,5 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import { createPortal } from 'react-dom';
-import { Icon } from '../happier/icon.tsx';
 import { ResizeHandle } from './resize-handle.tsx';
 import {
   lazy,
@@ -249,9 +249,9 @@ export function Workbench({
               {menuTarget &&
                 createPortal(
                   <>
-                    <button
-                      aria-label={t('文件浏览器')}
-                      title={t('文件浏览器')}
+                    <IconButton
+                      icon="folder"
+                      label={t('文件浏览器')}
                       aria-pressed={preferences.files && !information}
                       onClick={() => {
                         fullscreen.exit();
@@ -261,12 +261,10 @@ export function Workbench({
                           output: false,
                         });
                       }}
-                    >
-                      <Icon name="folder" />
-                    </button>
-                    <button
-                      aria-label="Terminal"
-                      title="Terminal"
+                    />
+                    <IconButton
+                      icon="terminal"
+                      label="Terminal"
                       aria-pressed={terminalShown}
                       onPointerEnter={prepareTerminal}
                       onFocus={prepareTerminal}
@@ -275,12 +273,10 @@ export function Workbench({
                         setTerminalLoaded(true);
                         setTerminalShown(!terminalShown);
                       }}
-                    >
-                      <Icon name="code" />
-                    </button>
-                    <button
-                      aria-label={t('命令输出')}
-                      title={t('命令输出')}
+                    />
+                    <IconButton
+                      icon="activity"
+                      label={t('命令输出')}
                       aria-pressed={preferences.output && !information}
                       onClick={() => {
                         fullscreen.exit();
@@ -290,28 +286,22 @@ export function Workbench({
                           files: false,
                         });
                       }}
-                    >
-                      <Icon name="activity" />
-                    </button>
-                    <button
-                      aria-label={t('刷新状态')}
-                      title={t('刷新')}
+                    />
+                    <IconButton
+                      icon="refresh"
+                      label={t('刷新状态')}
                       disabled={refreshing}
                       onClick={refresh}
-                    >
-                      <Icon name="refresh" />
-                    </button>
-                    <button
-                      aria-label={t('信息')}
-                      title={t('信息')}
+                    />
+                    <IconButton
+                      icon="info"
+                      label={t('信息')}
                       aria-pressed={!!information}
                       onClick={() => {
                         fullscreen.exit();
                         openInformation();
                       }}
-                    >
-                      <Icon name="info" />
-                    </button>
+                    />
                   </>,
                   menuTarget,
                 )}
@@ -331,18 +321,24 @@ export function Workbench({
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                       />
-                      <button type="submit">{t('查找下一个')}</button>
+                      <IconButton
+                        icon="search"
+                        label={t('查找下一个')}
+                        type="submit"
+                      />
                     </form>
 
-                    <button
+                    <IconButton
+                      icon="info"
+                      label={
+                        attention.enabled
+                          ? t('关闭页面通知')
+                          : t('启用页面通知')
+                      }
                       type="button"
                       aria-pressed={attention.enabled}
                       onClick={() => void attention.toggle()}
-                    >
-                      {attention.enabled
-                        ? t('关闭页面通知')
-                        : t('启用页面通知')}
-                    </button>
+                    />
                     <small role="status">{attention.notice}</small>
                     <WorkbenchActions
                       scope={previewScope}
@@ -351,6 +347,7 @@ export function Workbench({
                       actions={[
                         {
                           label: t('文件浏览器'),
+                          icon: 'folder',
                           run: () => {
                             closeMenu();
                             update({ files: true, output: false });
@@ -358,6 +355,7 @@ export function Workbench({
                         },
                         {
                           label: t('命令输出'),
+                          icon: 'activity',
                           run: () => {
                             closeMenu();
                             update({ output: true, files: false });
@@ -365,6 +363,7 @@ export function Workbench({
                         },
                         {
                           label: 'Terminal',
+                          icon: 'terminal',
                           run: () => {
                             prepareTerminal();
                             setTerminalLoaded(true);
@@ -373,6 +372,7 @@ export function Workbench({
                         },
                         {
                           label: t('搜索已加载对话'),
+                          icon: 'search',
                           run: () => {
                             requestAnimationFrame(() =>
                               root.current
@@ -385,6 +385,7 @@ export function Workbench({
                         },
                         {
                           label: t('上传 / 传输'),
+                          icon: 'upload',
                           run: () => {
                             closeMenu();
                             update({ files: true, output: false });
@@ -520,9 +521,11 @@ export function Workbench({
                   >
                     <header className="pane-heading">
                       <h2>{t('信息')}</h2>
-                      <button aria-label={t('关闭信息')} onClick={closeMenu}>
-                        {t('关闭')}
-                      </button>
+                      <IconButton
+                        icon="close"
+                        label={t('关闭信息')}
+                        onClick={closeMenu}
+                      />
                     </header>
                     {information}
                   </aside>

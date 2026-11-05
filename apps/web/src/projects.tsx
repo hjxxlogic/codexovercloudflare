@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { useEffect, useState } from 'react';
 import { api, readApi, queryApi } from './api.ts';
 import { observe } from './notifications.ts';
@@ -13,12 +14,14 @@ export function ProjectManager({
   admin = false,
   changed,
   operations,
+  creationOnly = false,
 }: {
   hostId: string;
   hostName: string;
   admin?: boolean;
   changed?: () => Promise<void>;
   operations?: OperationClient | null;
+  creationOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -175,86 +178,114 @@ export function ProjectManager({
   }
   return (
     <section className="project-management">
-      <button
-        onClick={() => {
-          setActivated(true);
-          setOpen(!open);
-          if (!open) void refresh();
-        }}
-      >
-        {t('项目管理')} · {hostName}
-      </button>
+      {creationOnly ? (
+        <IconButton
+          icon="plus"
+          label={t('新建项目')}
+          aria-expanded={open}
+          onClick={() => {
+            setActivated(true);
+            setOpen(!open);
+            if (!open) void refresh();
+          }}
+        />
+      ) : (
+        <button
+          onClick={() => {
+            setActivated(true);
+            setOpen(!open);
+            if (!open) void refresh();
+          }}
+        >
+          {creationOnly ? (
+            t('新建项目')
+          ) : (
+            <>
+              {t('项目管理')} · {hostName}
+            </>
+          )}
+        </button>
+      )}
       {open && (
         <>
           <p>
             {t('目标 Agent：')}
             {hostName} <code>{hostId}</code>
           </p>
-          <button disabled={busy} onClick={() => void refresh()}>
-            {t('刷新项目')}
-          </button>
+          <IconButton
+            icon="refresh"
+            label={t('刷新项目')}
+            disabled={busy}
+            onClick={() => void refresh()}
+          />
           {error && <p role="alert">{error}</p>}
           {pending && !busy && (
             <div role="status">
               <p>{t('操作结果未确认，请重试原请求或刷新核对后继续。')}</p>
-              <button onClick={() => void mutate(pending)}>
-                {t('重试原请求')}
-              </button>
-              <button
+              <IconButton
+                icon="refresh"
+                label={t('重试原请求')}
+                onClick={() => void mutate(pending)}
+              />
+              <IconButton
+                icon="refresh"
+                label={t('刷新并核对')}
                 onClick={() => {
                   void refresh();
                 }}
-              >
-                {t('刷新并核对')}
-              </button>
+              />
             </div>
           )}
           {catalog && (
             <>
-              {!catalog.projects.length && <p>{t('尚未登记项目')}</p>}
-              <ul>
-                {catalog.projects.map((p) => (
-                  <li key={p.id}>
-                    <strong>{p.name}</strong> <code>{p.path}</code>{' '}
-                    {p.available === false && t('目录不可用')}
-                    <small className="id">{p.id}</small>
-                    {catalog.canManage && (
-                      <>
-                        <button
-                          disabled={busy || !!pending}
-                          onClick={() => {
-                            const value = prompt(t('项目显示名'), p.name);
-                            if (value?.trim())
-                              void mutate({
-                                operation: 'rename',
-                                id: p.id,
-                                name: value.trim(),
-                              });
-                          }}
-                        >
-                          {t('改名')}
-                        </button>
-                        <button
-                          disabled={busy || !!pending}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t(
-                                  '取消注册项目 {0}？不会删除目录或历史；有活动会话时不能移除。',
-                                  p.name,
-                                ),
+              {!creationOnly && !catalog.projects.length && (
+                <p>{t('尚未登记项目')}</p>
+              )}
+              {!creationOnly && (
+                <ul>
+                  {catalog.projects.map((p) => (
+                    <li key={p.id}>
+                      <strong>{p.name}</strong> <code>{p.path}</code>{' '}
+                      {p.available === false && t('目录不可用')}
+                      <small className="id">{p.id}</small>
+                      {catalog.canManage && (
+                        <>
+                          <IconButton
+                            icon="code"
+                            label={t('改名')}
+                            disabled={busy || !!pending}
+                            onClick={() => {
+                              const value = prompt(t('项目显示名'), p.name);
+                              if (value?.trim())
+                                void mutate({
+                                  operation: 'rename',
+                                  id: p.id,
+                                  name: value.trim(),
+                                });
+                            }}
+                          />
+                          <IconButton
+                            icon="trash"
+                            label={t('取消注册')}
+                            disabled={busy || !!pending}
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  t(
+                                    '取消注册项目 {0}？不会删除目录或历史；有活动会话时不能移除。',
+                                    p.name,
+                                  ),
+                                )
                               )
-                            )
-                              void mutate({ operation: 'remove', id: p.id });
-                          }}
-                        >
-                          {t('取消注册')}
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                                void mutate({ operation: 'remove', id: p.id });
+                            }}
+                          />
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {catalog.canManage ? (
                 <form
                   onSubmit={(e) => {
@@ -282,24 +313,24 @@ export function ProjectManager({
                       disabled={busy || !!pending}
                     />
                   </label>
-                  <button
+                  <IconButton
+                    icon="folder"
+                    label={t('浏览目录')}
                     type="button"
                     disabled={!path || busy || !!pending}
                     onClick={() => void browse()}
-                  >
-                    {t('浏览目录')}
-                  </button>
+                  />
                   {directories && (
                     <div>
-                      <button
+                      <IconButton
+                        icon="back"
+                        label={t('上级目录')}
                         type="button"
                         onClick={() => {
                           setPath(directories.parent);
                           setDirectories(undefined);
                         }}
-                      >
-                        {t('上级目录')}
-                      </button>
+                      />
                       {directories.directories.map((d) => (
                         <button
                           type="button"
@@ -335,9 +366,12 @@ export function ProjectManager({
                     />
                     {t('目录不存在时创建')}
                   </label>
-                  <button disabled={busy || !!pending} type="submit">
-                    {t('添加项目')}
-                  </button>
+                  <IconButton
+                    icon="plus"
+                    label={t('添加项目')}
+                    disabled={busy || !!pending}
+                    type="submit"
+                  />
                 </form>
               ) : (
                 <p>{t('仅 Agent 管理员邮箱或系统管理员可以更改项目登记。')}</p>
