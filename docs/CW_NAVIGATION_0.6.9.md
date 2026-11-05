@@ -26,3 +26,7 @@
 ## 发布约束
 
 用户明确要求仅测试 Web UI，采用现有脚本的本地预览发布路径，`ciVerified=false`，不触发或等待完整 CI。源码以 `[skip ci]` 提交；原生下载保留已有验证版本，不编译、不替换、不重启原 Agent 或独立测试 Agent。旧站与 r2 DO namespace 保持隔离。准确提交、Worker Version ID、摘要与上线结果见 [r2 发布记录](R2_DEPLOYMENT.md)。
+
+## 上线结果
+
+源码 `4b458083aa80379cc9fa87ebe4c1ec101f291510` 已发布到 https://r2.xlogic.cc，Worker Version ID 为 `87d08b89-701c-4284-ac16-02e143a56be0`。线上 Web 验收、静态资源字节核对、临时网页凭证清理和发布隔离复核通过。两个现有 Agent 进程身份保持不变，原生下载仍为 `0.6.7`。本轮未运行完整 CI，属于用户授权的本地预览。[完整公开证据](assets/cw-navigation-0.6.9/verified-preview.json)。

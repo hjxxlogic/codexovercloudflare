@@ -1,5 +1,17 @@
 # r2 当前部署
 
+## 2026-11-05：0.6.9 统一左栏与工作区面板
+
+当前 r2 已部署源码 [`4b458083aa80379cc9fa87ebe4c1ec101f291510`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b458083aa80379cc9fa87ebe4c1ec101f291510)，Web / Worker `0.6.9`，Worker Version ID `87d08b89-701c-4284-ac16-02e143a56be0`。源码摘要 `b5d55ee872eaeb4b21be54f17fb4b91e8a4aa2ed4af21bdcf1832d3b075a7dfe`；本地构建预览，`ciVerified=false`。用户本轮明确要求只测 Web UI，因此提交使用 `[skip ci]`，未运行 / 等待完整 Actions，也未执行原生或完整集成测试。
+
+可收起左栏统一主机、项目和会话；左下设置收纳外观及授权 / 管理入口，原会话记录弹窗和右侧菜单取消。右上五按钮、统一文件浏览 / 预览 / 传输及右侧输出 / 信息面板已上线。实现过程、Web 验证和截图见 [0.6.9 实施记录](CW_NAVIGATION_0.6.9.md)。
+
+Web 构建、类型检查、受影响文件 ESLint / Prettier、导航浏览器专项和高级 Markdown 浏览器测试通过。部署经 `scripts/deploy-cloud.py --local-build --target r2` 完成，健康版本 `0.6.9`，主页 / 静态资源 / 下载清单与准备目录逐字节一致；原生下载保持 CI 已验证 `0.6.7`。Worker bundle SHA256 `483a7ed41a12c8a713db93ffc9868588cc4cf9fad008ff5e19e9bfcf3957b857`。
+
+上线另用 `scripts/verify-web-navigation.ts` 通过实际 r2 页面验证：桌面左栏、五按钮、文件 / 传输入口、面板互斥、设置主题、手机抽屉和管理左栏，无浏览器异常。仅为临时 Web 身份授权既有隔离测试主机，结束后已撤销该凭证；未创建 / attach 会话、发送任务或启动终端。线上截图和凭据留在忽略的 `.local/r2-release-0.6.9/`。
+
+发布前后复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站和 r2 的 DO namespace 仍独立，r2 存储 / Access audience / 路由保持。原 Agent PID `846124` 与独立测试 Agent `2527593` 的可执行文件、启动标识均未变，未重启。可公开的精确身份、摘要与验证结果见 [发布证据](assets/cw-navigation-0.6.9/verified-preview.json)。
+
 ## 2026-11-05：官方 Web 实测后的第二轮预览
 
 当前 r2 已更新为源码 `6cb27bc88fe6372cf1b2ee20bea303fb180479dd`、Web / Worker `0.6.8`，Worker Version ID 为 `99f6777d-3406-4087-b343-2cd60284213c`。这仍是用户授权的本地预览，`ciVerified=false`；[准确提交 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42036227735) 记录时仍在运行，不能视为完整通过。原生下载保留已验证 `0.6.7`，没有替换或重启已有 Agent。

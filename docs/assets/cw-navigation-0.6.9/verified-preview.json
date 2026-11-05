@@ -1,0 +1,75 @@
+{
+  "version": "0.6.9",
+  "commit": "4b458083aa80379cc9fa87ebe4c1ec101f291510",
+  "sourceDigest": "b5d55ee872eaeb4b21be54f17fb4b91e8a4aa2ed4af21bdcf1832d3b075a7dfe",
+  "dirty": false,
+  "target": "https://r2.xlogic.cc",
+  "workerVersion": "87d08b89-701c-4284-ac16-02e143a56be0",
+  "localBuild": true,
+  "ciVerified": false,
+  "actions": {
+    "status": "not-run",
+    "reason": "User requested Web UI tests only; source commit uses [skip ci]"
+  },
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.9",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "webUI": {
+    "passed": true,
+    "version": "0.6.9",
+    "origin": "https://r2.xlogic.cc",
+    "errors": [],
+    "cleanupVerified": true,
+    "scope": "Web UI only; no session attach/create, prompt, terminal process or Agent restart",
+    "checks": [
+      "desktop navigation and five toolbar actions",
+      "merged files and transfers",
+      "exclusive right panels",
+      "settings and theme",
+      "mobile drawer and overflow",
+      "admin login and left navigation"
+    ]
+  },
+  "isolation": {
+    "productionWorkerDeploymentUnchanged": true,
+    "productionWorkerVersion": "0b54f874-3b3a-43f3-8855-0465bcb646f5",
+    "productionAgentPidAndStartUnchanged": true,
+    "r2NamespacesPreserved": true,
+    "durableObjectNamespacesDisjoint": true,
+    "routesIsolated": true,
+    "r2AccessAudiencePreserved": true,
+    "r2WorkerVersion": "87d08b89-701c-4284-ac16-02e143a56be0"
+  },
+  "agents": {
+    "passed": true,
+    "originalAgentPid": 846124,
+    "testAgentPid": 2527593,
+    "identitiesUnchanged": true
+  },
+  "preservedNativeVersion": "0.6.7",
+  "checksums": {
+    "worker/index.js": "483a7ed41a12c8a713db93ffc9868588cc4cf9fad008ff5e19e9bfcf3957b857",
+    "site/index.html": "a5c869fb921066b28e7a55cd7abe42760bcbe183235d259cbd0461a9f6206f15",
+    "site/happier-theme.css": "c01759ef5664277079ab80bceb3374278350346047e7dfa889213b21513c67a8",
+    "site/happier-LICENSE.txt": "e251d0448ef3ce023c20ebac9b90a7d8642b1434825838247d6e457668eb3e00",
+    "site/downloads/SHA256SUMS": "d8e398917e8c62b86bb6307bb679d5e71bf1e98fae32e4493825e42d9f66bf6d"
+  },
+  "localChecks": [
+    "Web build",
+    "TypeScript",
+    "affected Web/test ESLint and Prettier",
+    "test:ui:navigation",
+    "test:markdown"
+  ],
+  "limits": [
+    "No full CI, native suite or repository-wide tests",
+    "Terminal checks cover retained UI only; no real Shell launched",
+    "No session creation, attachment or prompt in online verification"
+  ]
+}
