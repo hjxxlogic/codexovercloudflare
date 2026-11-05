@@ -1,5 +1,9 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  返回文件列表: 'Back to files',
+  '消息已更新，请重新复制': 'Message changed; copy it again',
+  '消息读取失败，请重试': 'Could not read the message; try again',
+  '正在读取完整消息…': 'Reading full message…',
   打开左侧导航: 'Open left navigation',
   用户: 'User',
   新建项目: 'New project',
@@ -313,6 +317,7 @@ export const english: Record<string, string> = {
   已复制: 'Copied',
   请手动选择文本复制: 'Select the text and copy it manually',
   复制: 'Copy',
+  复制消息: 'Copy message',
   '[图片：': '[Image: ',
   '正在读取…': 'Reading…',
   展开更多: 'Show more',

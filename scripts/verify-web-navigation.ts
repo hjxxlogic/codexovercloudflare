@@ -160,6 +160,13 @@ try {
     page.getByRole('button', { name: '功能菜单', exact: true }),
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^会话记录/ })).toHaveCount(0);
+  await expect(
+    page.locator('.happier-session-heading .happier-session-title'),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.happier-session-heading .workspace-context'),
+  ).toHaveCount(0);
+  await expect(page.locator('.connection-notice')).toHaveCount(0);
   await page.getByRole('button', { name: '文件浏览器', exact: true }).click();
   await expect(
     page.getByRole('region', { name: '文件浏览器', exact: true }),
@@ -299,6 +306,7 @@ writeFileSync(
         'Web UI only; no session attach/create, prompt, terminal process or Agent restart',
       checks: [
         'compact hierarchical navigation and five toolbar actions',
+        'header without project title or normal connection status',
         'persistent project refresh before new project',
         'modal information with visible close button',
         'merged files and transfers',

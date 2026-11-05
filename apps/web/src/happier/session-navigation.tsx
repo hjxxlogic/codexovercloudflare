@@ -114,33 +114,15 @@ export function SessionNavigation({
   );
 }
 export function SessionHeading({
-  title,
-  project,
-  status,
-  busy,
-  context,
   actions,
+  notice,
 }: {
-  title: string;
-  project: string;
-  status: string;
-  busy: boolean;
-  context?: ReactNode;
   actions: ReactNode;
+  notice?: ReactNode;
 }) {
   useLanguage();
   return (
     <header className="happier-session-heading">
-      <div className="happier-session-title">
-        <h1>{title}</h1>
-        {context || (
-          <small>
-            {project}
-            {project && ' · '}
-            {busy ? t('正在处理任务') : status}
-          </small>
-        )}
-      </div>
       <div
         className="happier-session-actions"
         role="group"
@@ -148,6 +130,7 @@ export function SessionHeading({
       >
         {actions}
       </div>
+      {notice}
     </header>
   );
 }

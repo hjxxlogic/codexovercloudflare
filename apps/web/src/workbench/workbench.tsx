@@ -128,15 +128,20 @@ export function Workbench({
   useLanguage();
   const [preferences, setPreferences] = useState(readPreferences);
   const theme = useThemePreference();
+  const [mobilePanel, setMobilePanel] = useState<
+    'files' | 'preview' | 'output'
+  >('files');
   const [preview, setPreview] = useState<{ path: string; scope: string }>();
   const previewScope = JSON.stringify([host, project, session]);
   const path = preview?.scope === previewScope ? preview.path : '';
   const setPath = (value: string) => {
     fullscreen.exit();
     setPreview({ path: value, scope: previewScope });
+    if (!value) setMobilePanel('files');
     if (value) {
       closeMenu();
-      update({ files: true, output: false });
+      setMobilePanel('preview');
+      update({ output: false });
     }
   };
   const attention = useWorkbenchAttention(
@@ -201,6 +206,7 @@ export function Workbench({
   useEffect(() => {
     setPath('');
     setSearch('');
+    setMobilePanel(preferences.output ? 'output' : 'files');
   }, [host, project, session]);
   function findNext() {
     if (!search.trim()) return;
@@ -236,6 +242,7 @@ export function Workbench({
             <div
               className={`cw-workbench density-${preferences.density}${terminalShown ? ' terminal-visible' : ''}`}
               data-theme={theme}
+              data-mobile-panel={mobilePanel}
               data-fullscreen={fullscreen.pane || undefined}
               ref={root}
               style={
@@ -257,8 +264,13 @@ export function Workbench({
                       onClick={() => {
                         fullscreen.exit();
                         closeMenu();
+                        setMobilePanel('files');
                         update({
-                          files: !preferences.files || !!information,
+                          files:
+                            !preferences.files ||
+                            !!information ||
+                            (mobilePanel !== 'files' &&
+                              window.matchMedia('(max-width: 900px)').matches),
                           output: false,
                         });
                       }}
@@ -282,6 +294,7 @@ export function Workbench({
                       onClick={() => {
                         fullscreen.exit();
                         closeMenu();
+                        setMobilePanel('output');
                         update({
                           output: !preferences.output || !!information,
                           files: false,
@@ -353,6 +366,7 @@ export function Workbench({
                           icon: 'folder',
                           run: () => {
                             closeMenu();
+                            setMobilePanel('files');
                             update({ files: true, output: false });
                           },
                         },
@@ -361,6 +375,7 @@ export function Workbench({
                           icon: 'activity',
                           run: () => {
                             closeMenu();
+                            setMobilePanel('output');
                             update({ output: true, files: false });
                           },
                         },
@@ -391,6 +406,7 @@ export function Workbench({
                           icon: 'upload',
                           run: () => {
                             closeMenu();
+                            setMobilePanel('files');
                             update({ files: true, output: false });
                           },
                         },
@@ -460,14 +476,14 @@ export function Workbench({
                     <ResizeHandle
                       axis="x"
                       reverse
-                      size={preferences.previewWidth}
-                      minimum={280}
+                      size={preferences.width}
+                      minimum={220}
                       maximum={() =>
                         Math.min(900, (root.current?.clientWidth || 1600) - 120)
                       }
-                      initial={420}
+                      initial={256}
                       label={t('调整文件浏览器宽度')}
-                      change={(previewWidth) => update({ previewWidth })}
+                      change={(width) => update({ width })}
                     />
                     <Explorer
                       key={`${host}:${project}`}
@@ -480,20 +496,43 @@ export function Workbench({
                         update({ files: false });
                       }}
                     />
-                    {path && (
-                      <Preview
-                        key={`${host}:${project}:${path}`}
-                        host={host}
-                        project={project}
-                        path={path}
-                        resize={null}
-                        close={() => setPath('')}
-                        reference={(value) => {
-                          reference(value);
-                          setPath('');
-                        }}
-                      />
-                    )}
+                  </aside>
+                )}
+                {path && !preferences.output && !information && (
+                  <aside className="unified-work-panel unified-preview">
+                    <Preview
+                      key={`${host}:${project}:${path}`}
+                      host={host}
+                      project={project}
+                      path={path}
+                      resize={
+                        <ResizeHandle
+                          axis="x"
+                          reverse
+                          size={preferences.previewWidth}
+                          minimum={280}
+                          maximum={() =>
+                            Math.min(
+                              900,
+                              (root.current?.clientWidth || 1600) - 120,
+                            )
+                          }
+                          initial={420}
+                          label={t('调整文件预览宽度')}
+                          change={(previewWidth) => update({ previewWidth })}
+                        />
+                      }
+                      close={() => setPath('')}
+                      back={() => {
+                        fullscreen.exit();
+                        setMobilePanel('files');
+                        update({ files: true, output: false });
+                      }}
+                      reference={(value) => {
+                        reference(value);
+                        setPath('');
+                      }}
+                    />
                   </aside>
                 )}
                 {preferences.output && !information && (

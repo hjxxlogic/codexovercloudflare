@@ -43,26 +43,79 @@ export function textOf(node: ReactNode): string {
     )
     .join('');
 }
-export function Copy({ value }: { value: string }) {
+export function Copy({
+  value,
+  read,
+  floating = false,
+  label = t('复制'),
+}: {
+  value: string;
+  read?: () => Promise<string>;
+  floating?: boolean;
+  label?: string;
+}) {
   const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!status || busy) return;
+    const timer = setTimeout(() => setStatus(''), 3000);
+    return () => clearTimeout(timer);
+  }, [status, busy]);
+  async function copy() {
+    if (busy) return;
+    setBusy(true);
+    setStatus(read ? t('正在读取完整消息…') : '');
+    try {
+      if (read) {
+        const text = read();
+        if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+          const blob = text.then(
+            (text) => new Blob([text], { type: 'text/plain' }),
+          );
+          void blob.catch(() => {});
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'text/plain': blob }),
+          ]);
+        } else await navigator.clipboard.writeText(await text);
+      } else await navigator.clipboard.writeText(value);
+      if (mounted.current) setStatus(t('已复制'));
+    } catch (error) {
+      if (mounted.current)
+        setStatus(
+          read && error instanceof Error
+            ? error.message
+            : t('请手动选择文本复制'),
+        );
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
   return (
-    <>
+    <span className={`copy-control${floating ? ' floating-copy' : ''}`}>
       <IconButton
         className="copy-action"
         icon="copy"
-        label={t('复制')}
+        label={label}
+        disabled={busy}
         type="button"
-        onClick={() =>
-          void navigator.clipboard
-            .writeText(value)
-            .then(() => setStatus(t('已复制')))
-            .catch(() => setStatus(t('请手动选择文本复制')))
-        }
+        onClick={() => void copy()}
       />
-      <small role="status">{status}</small>
-    </>
+      {status && (
+        <small className="copy-feedback" role="status">
+          {status}
+        </small>
+      )}
+    </span>
   );
 }
+
 function AutoRich({
   source,
   kind,
@@ -141,6 +194,11 @@ function Table({ children }: { children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null);
   const overflow = useContentOverflow(content, fullscreen.active);
   const [status, setStatus] = useState('');
+  useEffect(() => {
+    if (!status) return;
+    const timer = setTimeout(() => setStatus(''), 3000);
+    return () => clearTimeout(timer);
+  }, [status]);
   async function copy() {
     const value = Array.from(root.current?.rows || [], (row) =>
       Array.from(
@@ -169,7 +227,11 @@ function Table({ children }: { children: ReactNode }) {
           type="button"
           onClick={() => void copy()}
         />
-        <small role="status">{status}</small>
+        {status && (
+          <small className="copy-feedback" role="status">
+            {status}
+          </small>
+        )}
         {(fullscreen.active || overflow) && (
           <ElementFullscreenButton
             active={fullscreen.active}

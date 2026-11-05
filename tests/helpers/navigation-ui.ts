@@ -74,6 +74,24 @@ export async function navigationUI(
       },
     }),
   );
+  let hostOnline = true;
+  await context.route('**/api/v1/hosts', (route) =>
+    route.fulfill({
+      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+      json: [
+        { id: 'sample', name: '示例服务器', online: hostOnline },
+        { id: 'second', name: '另一台服务器', online: false },
+      ],
+    }),
+  );
+  await context.addInitScript({
+    content: `
+    Object.defineProperty(navigator, 'clipboard', {value: {
+      writeText: async (text) => { window.__copied = text; },
+      write: async (items) => { window.__copied = await (await items[0].getType('text/plain')).text(); },
+    }});
+  `,
+  });
   const page = await context.newPage();
   const insideViewport = async (
     locator: import('@playwright/test').Locator,
@@ -130,6 +148,9 @@ export async function navigationUI(
   });
   await expect(chooseProject).toBeDisabled();
   await expect(chooseSession).toBeDisabled();
+  await expect(
+    page.locator('#navigation-hosts .navigation-option').first(),
+  ).toBeVisible();
   await page.getByRole('button', { name: '申请授权', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '连接远程服务器', exact: true }),
@@ -204,6 +225,61 @@ export async function navigationUI(
     .getByRole('button', { name: /进行中的对话/ })
     .click();
   await expect(page.getByLabel('任务内容')).toBeVisible();
+  await expect(
+    page.locator('.happier-session-heading .happier-session-title'),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.happier-session-heading .workspace-context'),
+  ).toHaveCount(0);
+  await expect(page.locator('.connection-notice')).toHaveCount(0);
+  for (const [selector, expected] of [
+    ['.user-message', '示例任务'],
+    ['.assistant-message[data-event-seq="5"]', '[下载报告]('],
+  ]) {
+    const message = page.locator(selector).first();
+    const action = message.getByRole('button', {
+      name: '复制消息',
+      exact: true,
+    });
+    await page.getByLabel('任务内容').focus();
+    await page.mouse.move(0, 0);
+    await expect(action).toHaveCSS('opacity', '0');
+    const height = (await message.boundingBox())!.height;
+    await message.hover();
+    await expect(action).toHaveCSS('opacity', '1');
+    assert.equal(
+      (await message.boundingBox())!.height,
+      height,
+      'copy does not change message height',
+    );
+    await action.click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__copied))
+      .toContain(expected);
+    assert.equal(
+      (await message.boundingBox())!.height,
+      height,
+      'copy feedback does not change message height',
+    );
+  }
+  const longMessage = page.locator('.assistant-message[data-event-seq="6"]');
+  await longMessage
+    .getByRole('button', { name: '复制消息', exact: true })
+    .focus();
+  await longMessage
+    .getByRole('button', { name: '复制消息', exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => ((window as any).__copied || '').length), {
+      timeout: 20000,
+    })
+    .toBeGreaterThan(131000);
+  const copied = await page.evaluate(() => (window as any).__copied as string);
+  assert(copied.startsWith('第一段第二段') && copied.endsWith('完整正文'));
+  await longMessage.hover();
+  await insideViewport(
+    longMessage.getByRole('button', { name: '复制消息', exact: true }),
+  );
   for (const heading of [chooseHost, chooseProject]) {
     assert(
       (await heading.boundingBox())!.height <= 42,
@@ -289,6 +365,24 @@ export async function navigationUI(
   await expect(
     preview.getByRole('heading', { name: 'Unified files', exact: true }),
   ).toBeVisible();
+  await expect(page.locator('.unified-files .workbench-preview')).toHaveCount(
+    0,
+  );
+  await expect(
+    page.locator('.unified-preview .workbench-preview'),
+  ).toBeVisible();
+  await page.getByLabel('筛选已加载项', { exact: true }).fill('report');
+  await page
+    .getByRole('button', { name: '关闭文件浏览器', exact: true })
+    .click();
+  await expect(
+    page.getByRole('region', { name: '文件浏览器', exact: true }),
+  ).not.toBeVisible();
+  await expect(preview).toBeVisible();
+  await page.getByRole('button', { name: '文件浏览器', exact: true }).click();
+  await expect(page.getByLabel('筛选已加载项', { exact: true })).toHaveValue(
+    'report',
+  );
   await expect(preview.locator('table')).toContainText('ready');
   await expect(preview.locator('code')).toContainText('const value = 42');
   await noOverflow();
@@ -347,6 +441,13 @@ export async function navigationUI(
     page.getByRole('tooltip', { name: '关闭预览', exact: true }),
   ).not.toBeVisible();
   assert.equal(await closePreview.textContent(), '');
+  await closePreview.click();
+  await expect(
+    page.getByRole('region', { name: '文件浏览器', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('筛选已加载项', { exact: true })).toHaveValue(
+    'report',
+  );
   await page.getByRole('button', { name: '上传 / 传输', exact: true }).click();
   await expect(
     page.getByRole('region', { name: '工作区文件', exact: true }),
@@ -474,6 +575,29 @@ export async function navigationUI(
     .getByRole('button', { name: /进行中的对话/ })
     .click();
   await expect(page.getByLabel('任务内容')).toHaveValue('统一导航保留草稿');
+  const beforeHeight = (await page.locator('.conversation').boundingBox())!
+    .height;
+  hostOnline = false;
+  await page
+    .locator('.workspace-toolbar')
+    .getByRole('button', { name: '刷新状态', exact: true })
+    .click();
+  await expect(page.locator('.connection-notice')).toContainText('服务器离线');
+  assert.equal(
+    (await page.locator('.conversation').boundingBox())!.height,
+    beforeHeight,
+    'floating connection status does not resize conversation',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'connection-floating.png'),
+    animations: 'disabled',
+  });
+  hostOnline = true;
+  await page
+    .locator('.workspace-toolbar')
+    .getByRole('button', { name: '刷新状态', exact: true })
+    .click();
+  await expect(page.locator('.connection-notice')).toHaveCount(0);
   await chooseHost.click();
   await page.getByRole('button', { name: /另一台服务器.*离线/ }).click();
   await expect(chooseProject).toBeEnabled();
@@ -541,6 +665,36 @@ export async function navigationUI(
     await expect(
       page.getByRole('region', { name: '文件浏览器', exact: true }),
     ).toBeVisible();
+    await page.getByRole('button', { name: '浏览', exact: true }).click();
+    await page.getByRole('button', { name: /report.md/ }).click();
+    await expect(
+      page.getByRole('region', { name: '文件预览', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: '文件浏览器', exact: true }),
+    ).not.toBeVisible();
+    await insideViewport(
+      page.getByRole('button', { name: '返回文件列表', exact: true }),
+    );
+    await page
+      .getByRole('button', { name: '返回文件列表', exact: true })
+      .click();
+    await expect(
+      page.getByRole('region', { name: '文件浏览器', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: '文件预览', exact: true }),
+    ).not.toBeVisible();
+    await page.getByRole('button', { name: /report.md/ }).click();
+    await page.getByRole('button', { name: '文件浏览器', exact: true }).click();
+    await expect(
+      page.getByRole('region', { name: '文件浏览器', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: '文件预览', exact: true }),
+    ).not.toBeVisible();
+    await page.getByRole('button', { name: /report.md/ }).click();
+    await page.getByRole('button', { name: '关闭预览', exact: true }).click();
     await noOverflow();
     await page
       .getByRole('button', { name: '关闭文件浏览器', exact: true })

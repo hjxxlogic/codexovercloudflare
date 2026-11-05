@@ -3206,7 +3206,10 @@ function App() {
         </div>
       )}
       {error && (
-        <div role="alert" className="error">
+        <div
+          role="alert"
+          className={`error${mode === 'cw' ? ' floating-cw-error' : ''}`}
+        >
           {t(error)}
           {error.includes('ACCESS_') && (
             <button onClick={() => location.assign('/')}>
@@ -3938,19 +3941,32 @@ function App() {
                 <section className="conversation" aria-label={t('Codex 对话')}>
                   {mode === 'cw' && (
                     <SessionHeading
-                      title={
-                        threads.find(
-                          (thread) => thread.id === selected?.threadId,
-                        )?.name ||
-                        selected?.title ||
-                        t('Codex 对话')
+                      notice={
+                        !error &&
+                        host &&
+                        (!online || (selected?.state === 'ready' && !ready)) ? (
+                          <div className="connection-notice" role="status">
+                            <Icon name="activity" />
+                            <span>
+                              {!online ? t('服务器离线 · 只读缓存') : t(status)}
+                            </span>
+                            <IconButton
+                              icon="refresh"
+                              label={t('重新连接')}
+                              onClick={() => {
+                                if (selected && online)
+                                  setReconnect((value) => value + 1);
+                                else void refreshView();
+                              }}
+                            />
+                            <IconButton
+                              icon="info"
+                              label={t('信息')}
+                              onClick={() => setPanel('details')}
+                            />
+                          </div>
+                        ) : undefined
                       }
-                      project={
-                        projects.find((p) => p.id === project)?.name || project
-                      }
-                      status={selected ? t(status) : t('选择项目以开始对话')}
-                      busy={busy}
-                      context={workspaceHeader}
                       actions={
                         <div
                           className="workspace-toolbar"

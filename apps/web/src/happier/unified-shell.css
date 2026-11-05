@@ -709,3 +709,69 @@
   min-height: 0;
   overflow: auto;
 }
+
+/* The header contains only the workspace actions. Failures float below it. */
+.unified-shell .happier-session-heading {
+  position: relative;
+}
+.unified-shell .happier-session-actions {
+  margin-left: auto;
+}
+.connection-notice,
+.floating-cw-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--warning);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 28px #0002;
+  overflow-wrap: anywhere;
+}
+.connection-notice {
+  position: absolute;
+  right: 16px;
+  top: 100%;
+  z-index: 35;
+  font-size: 12px;
+}
+.connection-notice > span {
+  flex: 1;
+}
+.unified-shell > .floating-cw-error {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 60;
+  margin: 0;
+}
+/* Separate peer controls: closing the tree keeps the preview mounted. */
+.cw-workbench .unified-files {
+  width: min(var(--sidebar-width), 30%);
+  flex-basis: min(var(--sidebar-width), 30%);
+}
+.unified-work-panel.unified-preview .workbench-preview {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+}
+.preview-back {
+  display: none !important;
+}
+@media (max-width: 900px) {
+  .cw-workbench .unified-files {
+    width: 100%;
+  }
+  .cw-workbench:not([data-mobile-panel='files']) .unified-files,
+  .cw-workbench:not([data-mobile-panel='preview']) .unified-preview,
+  .cw-workbench:not([data-mobile-panel='output']) .unified-output {
+    display: none;
+  }
+  .happier-site .preview-back {
+    display: inline-flex !important;
+  }
+}

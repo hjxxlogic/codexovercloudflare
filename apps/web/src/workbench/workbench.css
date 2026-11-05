@@ -779,3 +779,28 @@
   min-height: 0;
   overflow: auto;
 }
+
+.copy-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+.copy-feedback {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 50;
+  max-width: min(280px, calc(100vw - 32px));
+  width: max-content;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--text);
+  color: var(--bg) !important;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 4px 18px #0003;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}

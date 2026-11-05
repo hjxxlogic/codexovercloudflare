@@ -12,8 +12,10 @@ export function Preview({
   close,
   reference,
   resize,
+  back,
 }: {
   resize: ReactNode;
+  back: () => void;
   host: string;
   project: string;
   path: string;
@@ -62,6 +64,12 @@ export function Preview({
       {resize}
       <div className="pane-controls">
         <header className="pane-heading">
+          <IconButton
+            className="preview-back"
+            icon="back"
+            label={t('返回文件列表')}
+            onClick={back}
+          />
           <h2 title={path}>{path}</h2>
           <FullscreenButton pane="preview" />
           <IconButton icon="close" label={t('关闭预览')} onClick={close} />

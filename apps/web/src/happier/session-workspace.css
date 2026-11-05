@@ -589,3 +589,48 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+/* Zero net height: copy actions float within their own message while scrolling. */
+.cw-workbench .conversation :is(.message, .tool-output) {
+  position: relative;
+}
+.cw-workbench .conversation .floating-copy {
+  position: sticky;
+  top: 8px;
+  z-index: 6;
+  display: block;
+  height: 36px;
+  margin-bottom: -36px;
+  width: 100%;
+  pointer-events: none;
+}
+.cw-workbench .conversation .floating-copy > button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--cw-surface);
+  box-shadow: 0 2px 8px #0001;
+}
+.cw-workbench .conversation .floating-copy > .copy-feedback {
+  top: 40px;
+}
+.cw-workbench .conversation :is(.code-toolbar, .element-toolbar) {
+  position: relative;
+  padding-right: 50px;
+}
+.cw-workbench .conversation .code-toolbar .copy-control,
+.cw-workbench .conversation .element-toolbar > .copy-action {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+.cw-workbench .conversation .copy-action:disabled {
+  opacity: 1;
+}
+.cw-workbench
+  .conversation
+  .element-fullscreen
+  > :is(.code-toolbar, .element-toolbar) {
+  position: sticky;
+  top: 0;
+}
