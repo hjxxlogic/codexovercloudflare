@@ -1,5 +1,7 @@
 # 当前版本与能力
 
+补齐 Client attach/connect 启动诊断，覆盖 Codex 校验、连接、缓存/桥接及 TUI 初始化失败；初始化完成后的运行故障不触发启动修复。
+
 新增 Agent/Client 本地启动失败时一次性调用 Codex 诊断修复，授权下载发布源码、备份配置及迁移数据库；支持 `COC_NO_STARTUP_REPAIR=1` 禁用。
 
 Agent / CLI 遇到废弃的 `autoUpdate.intervalHours` 提示后忽略，自动更新选项类型或平台错误时提示并禁用自动更新，继续运行及处理命令。

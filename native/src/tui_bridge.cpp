@@ -43,7 +43,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
   Json output_progress_ = {{"received", 0}, {"bytes", 0}};
   int64_t queued_output_ = 0, output_head_ = 0;
   size_t queued_ = 0;
-  bool open_ = false, ended_ = false;
+  bool open_ = false, ended_ = false, started_ = false;
   void accept() {
     local_ = std::make_unique<ws::stream<beast::tcp_stream>>(io_);
     request_ = std::make_unique<http::request_parser<http::empty_body>>();
@@ -328,6 +328,8 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
       try {
         const auto text = beast::buffers_to_string(self->buffer_.data());
         const auto message = Json::parse(text);
+        if (message.value("method", "") == "initialized" && !message.contains("id"))
+          self->started_ = true;
         if (rpc_delivery_lane(message).empty() && message.contains("id") &&
             (!self->remote_->ready() || !self->delivery_connected_)) {
           self->send(Json{{"id", message["id"]},
@@ -440,6 +442,7 @@ public:
     if (output_head_ > queued_output_)
       request_output(true);
   }
+  bool started() const { return started_; }
   void start() { accept(); }
   std::string url() const {
     return "ws://127.0.0.1:" + std::to_string(acceptor_.local_endpoint().port()) + "/";
@@ -473,5 +476,6 @@ TuiBridge::TuiBridge(asio::io_context &io, const Url &relay, const std::string &
 }
 TuiBridge::~TuiBridge() { impl_->close(); }
 std::string TuiBridge::url() const { return impl_->url(); }
+bool TuiBridge::started() const { return impl_->started(); }
 void TuiBridge::observe_output_head(int64_t head) { impl_->observe_output_head(head); }
 } // namespace coc

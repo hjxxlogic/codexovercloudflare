@@ -350,9 +350,10 @@ class Cli {
       throw Error("HOST_OFFLINE", "History unavailable; use --offline true for cached pages");
     std::cout << result.dump(2) << '\n';
   }
-  void attach(const std::string &id) {
+  void attach(const std::string &id, bool &starting) {
     if (id.empty())
       throw Error("USAGE", "attach <session-id>");
+    starting = true;
     auto c = load();
     verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
     auto u = relay_url(c.at("relay"));
@@ -412,6 +413,17 @@ class Cli {
       execvp(argv[0], argv.data());
       _exit(127);
     }
+    struct TuiChildGuard {
+      pid_t pid;
+      bool reaped = false;
+      ~TuiChildGuard() {
+        if (!reaped) {
+          kill(pid, SIGKILL);
+          while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {
+          }
+        }
+      }
+    } child_guard{pid};
 #else
     WindowsChild child(args, "", false, t.at("ticket").get<std::string>());
 #endif
@@ -663,13 +675,17 @@ class Cli {
         break;
 #else
       auto done = waitpid(pid, &status, WNOHANG);
-      if (done == pid)
+      if (done == pid) {
+        child_guard.reaped = true;
         break;
+      }
       if (done < 0 && errno != EINTR)
         throw Error("SPAWN_FAILED", "Cannot wait for Codex TUI");
 #endif
       history_io.restart();
       history_io.run_for(std::chrono::milliseconds(100));
+      if (bridge->started())
+        starting = false;
       if (history_io.stopped())
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -679,6 +695,8 @@ class Cli {
     if (history_subscription)
       history_subscription->stop();
     reader->close();
+    if (bridge->started())
+      starting = false;
     bridge.reset();
     history_io.restart();
     history_io.poll();
@@ -939,22 +957,24 @@ public:
       }
       throw Error("NOT_FOUND", "Original intention is absent from this credential's local journal");
     } else if (command == "connect") {
-      auto h = host();
       if (option("project").empty())
         throw Error("USAGE", "Select --project <project-id>");
       auto request_id = option("request-id", uuid());
       if (!valid_id(request_id))
         throw Error("USAGE", "Invalid --request-id");
+      starting = true;
+      verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
+      auto h = host();
       std::cerr << "Create request ID: " << request_id << "; query with coc-client request "
                 << request_id << " if unconfirmed\n";
       auto s = api("/sessions",
                    {{"hostId", h.at("id")}, {"projectId", option("project")}, {"mode", "cli"}},
                    request_id);
-      attach(s.at("id"));
+      attach(s.at("id"), starting);
     } else if (command == "history" || command == "cache-clear")
       history(id, command == "cache-clear");
     else if (command == "attach")
-      attach(id);
+      attach(id, starting);
     else if (command == "stop") {
       if (id.empty())
         throw Error("USAGE", "stop <session-id>");
@@ -1034,7 +1054,8 @@ int coc_main(int argc, char **argv) {
   } catch (const std::exception &e) {
     std::cerr << coc::error_data(e).dump() << '\n';
     const auto *typed = dynamic_cast<const coc::Error *>(&e);
-    if (starting && (!typed || typed->code != "USAGE")) {
+    if (starting && (!typed || (typed->code != "USAGE" && typed->code != "HOST_REQUIRED" &&
+                                typed->code != "WRONG_MODE"))) {
       try {
         coc::Options options(argc, argv);
         coc::repair_startup(

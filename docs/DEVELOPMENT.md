@@ -101,3 +101,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 本地可配置 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，用 `ccache --show-stats` 检查命中。正式部署必须使用准确源码提交的全部必要 CI 成功后的制品，见 [发布操作](RELEASE.md)。
 
 启动修复回归可运行 `ctest --test-dir build -R native-startup-repair --output-on-failure`（POSIX）。该测试用临时 PATH 中的假 Codex 验证 Client 配置故障、提示词不含配置内容、禁用开关、help 不触发，以及 Agent 跨 30 秒重试只诊断一次；不调用模型。其他故障注入测试若不应触发真实诊断，应设置 `COC_NO_STARTUP_REPAIR=1`。
+
+`native-client-startup-repair` 使用假 Codex 和回环 HTTP/WebSocket Relay，验证 attach/connect 的版本校验、连接拒绝、缓存初始化故障、TUI 初始化前失败及 initialized 后故障的诊断边界，不调用模型。该测试需允许本机 socket；`ctest --test-dir build -R startup-repair --output-on-failure` 可运行两项修复回归。
