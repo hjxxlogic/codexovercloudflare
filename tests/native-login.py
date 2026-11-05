@@ -1,5 +1,6 @@
 """Exercise real native login against a local fault-injecting relay; no model calls."""
 import json
+from contextlib import closing
 import os
 from pathlib import Path
 import socket
@@ -163,7 +164,7 @@ class LoginRecovery(unittest.TestCase):
             }))
             binary = os.environ.get('COC_AGENT_BINARY', 'build/coc-agent')
             for version in [0, 1]:
-                with sqlite3.connect(journal) as connection:
+                with closing(sqlite3.connect(journal)) as connection, connection:
                     connection.execute('CREATE TABLE IF NOT EXISTS original(value TEXT)')
                     connection.execute(f'PRAGMA user_version={version}')
                 before = journal.read_bytes()
