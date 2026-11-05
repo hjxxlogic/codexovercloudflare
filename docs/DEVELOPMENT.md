@@ -99,3 +99,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 `.github/workflows/checks.yml` 覆盖 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64。Linux 使用按目标隔离的 ccache，musl 另有工具链镜像缓存，Windows 使用 vcpkg ABI 缓存。缓存不跳过来源生成、链接、制品校验或测试。
 
 本地可配置 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，用 `ccache --show-stats` 检查命中。正式部署必须使用准确源码提交的全部必要 CI 成功后的制品，见 [发布操作](RELEASE.md)。
+
+启动修复回归可运行 `ctest --test-dir build -R native-startup-repair --output-on-failure`（POSIX）。该测试用临时 PATH 中的假 Codex 验证 Client 配置故障、提示词不含配置内容、禁用开关、help 不触发，以及 Agent 跨 30 秒重试只诊断一次；不调用模型。其他故障注入测试若不应触发真实诊断，应设置 `COC_NO_STARTUP_REPAIR=1`。

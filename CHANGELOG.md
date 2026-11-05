@@ -1,5 +1,7 @@
 # 当前版本与能力
 
+新增 Agent/Client 本地启动失败时一次性调用 Codex 诊断修复，授权下载发布源码、备份配置及迁移数据库；支持 `COC_NO_STARTUP_REPAIR=1` 禁用。
+
 Agent / CLI 遇到废弃的 `autoUpdate.intervalHours` 提示后忽略，自动更新选项类型或平台错误时提示并禁用自动更新，继续运行及处理命令。
 
 新增 x0–x9 用户配置清理脚本，可预览并备份后移除不支持的 `autoUpdate.intervalHours` 字段；配置错误打印提示并跳过，继续处理其余用户。

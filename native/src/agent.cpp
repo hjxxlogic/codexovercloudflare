@@ -12,6 +12,7 @@
 #include "coc/proxy.hpp"
 #include "coc/recovery.hpp"
 #include "coc/remote_config.hpp"
+#include "coc/startup_repair.hpp"
 #include "coc/store.hpp"
 #include "coc/terminal.hpp"
 #include "coc/update.hpp"
@@ -3126,6 +3127,7 @@ bool wait_agent_retry() {
 
 int run_agent(int argc, char **argv, const Options &options, const std::filesystem::path &file) {
   for (;;) {
+    bool started = false;
     try {
       // Each attempt owns a fresh executor and runtime. Failed storage must be
       // reopened and validated before any new work can be admitted.
@@ -3142,6 +3144,7 @@ int run_agent(int argc, char **argv, const Options &options, const std::filesyst
       {
         Agent agent(io, config, file, updater);
         agent.start();
+        started = true;
         io.run();
         restart = agent.update_restart();
         remote_restart = agent.remote_restart();
@@ -3155,6 +3158,8 @@ int run_agent(int argc, char **argv, const Options &options, const std::filesyst
         restart_updated(argc, argv);
     } catch (const std::exception &error) {
       std::cerr << error_data(error).dump() << '\n';
+      if (!started)
+        repair_startup(file, true, error);
     } catch (...) {
       std::cerr << "Unknown Agent runtime failure\n";
     }

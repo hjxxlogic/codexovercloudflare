@@ -7,6 +7,7 @@
 #include "coc/proxy.hpp"
 #include "coc/recovery.hpp"
 #include "coc/remote_config.hpp"
+#include "coc/startup_repair.hpp"
 #include "coc/store.hpp"
 #include "coc/tui_bridge.hpp"
 #include "coc/update.hpp"
@@ -698,7 +699,7 @@ public:
         takeover_(options_.takeover) {}
   std::string management_instance() const { return management_ ? management_->instance() : ""; }
   bool restarting() const { return management_ && management_->restarting(); }
-  void run() {
+  void run(bool &starting) {
     auto command = options_.args.empty() ? "help" : options_.args[0];
     if (options_.api_key && command != "login")
       throw Error("USAGE", "--api-key is only valid for login");
@@ -712,6 +713,7 @@ public:
     const auto access_file =
         configure_access(option("access-config", settings.value("cloudflareAccessFile", "")));
     update_settings(settings);
+    starting = false;
     auto release_relay = [&] {
       if (!option("relay").empty())
         return option("relay");
@@ -1000,6 +1002,7 @@ public:
 };
 } // namespace coc
 int coc_main(int argc, char **argv) {
+  bool starting = true;
   try {
 #ifdef _WIN32
     coc::windows_console();
@@ -1015,7 +1018,7 @@ int coc_main(int argc, char **argv) {
     {
       coc::Cli cli(argc, argv);
       try {
-        cli.run();
+        cli.run(starting);
       } catch (...) {
         if (!cli.restarting())
           throw;
@@ -1030,6 +1033,18 @@ int coc_main(int argc, char **argv) {
     return 0;
   } catch (const std::exception &e) {
     std::cerr << coc::error_data(e).dump() << '\n';
+    const auto *typed = dynamic_cast<const coc::Error *>(&e);
+    if (starting && (!typed || typed->code != "USAGE")) {
+      try {
+        coc::Options options(argc, argv);
+        coc::repair_startup(
+            std::filesystem::u8path(options.get(
+                "config",
+                coc::config_path("COC_CREDENTIALS", "coc-client/credentials.json").u8string())),
+            false, e);
+      } catch (...) {
+      }
+    }
     return 1;
   }
 }

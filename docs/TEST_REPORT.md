@@ -69,3 +69,5 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 确定性测试不能替代真实 Cloudflare Access 策略、跨网络长稳、平台账单、所有 Codex 版本兼容性或线上部署验证。逻辑预算不是 RSS、cgroup 或物理磁盘承诺。模型输出、真实文件变化和外部 Codex 来源需在对应环境单独验证。
 
 CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 全部必要作业。运行中、已触发或仅部分通过不构成发布验证。部署后的运行身份与下载包身份分别核对，见 [发布操作](RELEASE.md)。
+
+2026-11-05 启动失败 Codex 修复：`cmake --build build -j2` 通过；完整 CTest 在允许本机 socket 的环境中 12/12 通过（156.74 秒）。沙箱内项目/core 测试因 socket `Operation not permitted` 失败，已在沙箱外重跑通过。新增 `native-startup-repair` 使用假 Codex 验证 Client 配置失败、提示词不带配置内容、标准输入隔离、禁用开关、help 不触发，以及 Agent 跨重试周期仅启动一次。不执行真实模型修复；未在 Windows 实机验证，也未部署。
