@@ -27,3 +27,7 @@
 用户明确要求只测试 Web UI 并部署，使用 `scripts/deploy-cloud.py --local-build --target r2` 的预览路径，`ciVerified=false`；源码以 `[skip ci]` 提交，不触发完整 CI。只更新 r2 Web / Worker 包装制品，原生下载保持已验证 0.6.7，不编译、不替换、不重启任何 Agent。
 
 上线仅运行 `scripts/verify-web-navigation.ts`，为既有隔离测试主机申请临时 Web 凭证，验证页面和读取操作；不创建 / attach 会话、不发送任务、不启动终端，结束撤销自身临时凭证。发布前后比较旧站 Worker、DO、路由、Access audience 及两 Agent 的 PID / 启动标识。准确源码、摘要、Worker Version ID 与上线结果记录到 [r2 发布记录](R2_DEPLOYMENT.md)。
+
+## 上线结果
+
+源码 `26aeb63ed8821cdffb99d16fb13265f103d37306` 已发布到 https://r2.xlogic.cc，Worker Version ID `aa03ae33-cfc7-49b2-98a2-b97cf15b7284`。健康版本、静态资源字节核对和线上 Web 验收通过，临时网页凭证已确认撤销。发布前后旧站、存储隔离与两个现有 Agent 进程身份保持不变，原生下载仍为 `0.6.7`；完整 CI 未运行。[公开发布证据](assets/cw-navigation-0.6.10/verified-preview.json)。

@@ -2,7 +2,7 @@
 
 ## 2026-11-05：0.6.10 三级导航与图标操作
 
-Web 构建、类型检查、受影响代码静态检查、`npm run test:ui:navigation` 与 `npm run test:markdown` 通过。覆盖三级互斥展开、上级有效性、邮箱前缀、授权 / 新建项目表单与权限提示、主机切换清空下级、草稿 / Terminal 保留、桌面 / 手机、管理导航、工具提示关联及富文本。未执行完整仓库、原生、模型任务或完整 CI 测试；上线只做 Web UI 验证。详见 [0.6.10 实施记录](CW_NAVIGATION_0.6.10.md)。
+Web 构建、类型检查、受影响代码静态检查、`npm run test:ui:navigation` 与 `npm run test:markdown` 通过。覆盖三级互斥展开、上级有效性、邮箱前缀、授权 / 新建项目表单与权限提示、主机切换清空下级、草稿 / Terminal 保留、桌面 / 手机、管理导航、工具提示关联及富文本。未执行完整仓库、原生、模型任务或完整 CI 测试；上线只做 Web UI 验证。详见 [0.6.10 实施记录](CW_NAVIGATION_0.6.10.md)。 r2 线上 Web 验收、资源字节核对、临时凭证清理与旧站 / 两个 Agent 隔离复核均通过，见 [发布证据](assets/cw-navigation-0.6.10/verified-preview.json)。
 
 ## 2026-11-05：0.6.9 Web UI 专项
 

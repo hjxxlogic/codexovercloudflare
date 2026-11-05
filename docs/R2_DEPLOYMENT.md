@@ -1,5 +1,19 @@
 # r2 当前部署
 
+## 2026-11-05：0.6.10 三级折叠导航与图标操作
+
+当前 https://r2.xlogic.cc 已部署源码 [`26aeb63ed8821cdffb99d16fb13265f103d37306`](https://github.com/hjxxlogic/codexovercloudflare/commit/26aeb63ed8821cdffb99d16fb13265f103d37306)，Web / Worker `0.6.10`，Worker Version ID `aa03ae33-cfc7-49b2-98a2-b97cf15b7284`。源码摘要 `5b8b1d3cf9dfc64ce22628e1b026c43dc14df85f5a5619b397d39c8d321e0d5f`；本地预览，`ciVerified=false`。按用户要求仅验证 Web UI，提交含 `[skip ci]`，没有运行 / 等待完整 Actions 或原生测试。
+
+左栏采用主机 → 项目 → 会话互斥展开、上级有效后解锁下级；授权置于主机列表下、新建项目置于项目列表下、新建会话在会话列表上。顶部显示会话图标、邮箱用户名前缀与收起按钮，底部仅设置；各工作面板操作统一图标与悬停 / 键盘工具提示。实现、测试边界与模拟截图见 [0.6.10 实施记录](CW_NAVIGATION_0.6.10.md)。
+
+Web 构建、类型检查、受影响文件 ESLint / Prettier、导航浏览器专项和高级 Markdown 浏览器测试通过。既有部署脚本核对健康版本 `0.6.10`、主页 / 静态资源 / 下载清单字节一致，Worker bundle SHA256 `6aeef9d8c022c614c7d10c8f98d3aa78ac38c25c6abea96c869556ceb064bd1b`；原生下载仍为 CI 已验证 `0.6.7`。Worker / Agent 业务代码未改，未构建或替换 Agent。
+
+线上 `scripts/verify-web-navigation.ts` 通过：三级导航解锁、五按钮、文件 / 传输入口、面板互斥、设置主题、手机抽屉与管理左栏，无浏览器异常。使用既有隔离主机的临时 Web 身份，结束后已确认撤销；未创建 / attach 会话、发送任务、启动终端。访客入口不提供邮箱，线上用户名显示“用户”；邮箱前缀由本地 Web 模拟身份验证。
+
+发布前后只读复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变；旧站与 r2 DO namespace 独立，r2 namespace、路由、Access audience 保持；原 Agent PID `846124`、独立测试 Agent PID `2527593` 的可执行文件及启动标识不变，未重启。完整可公开身份 / 摘要 / 验证见 [发布证据](assets/cw-navigation-0.6.10/verified-preview.json)。凭据、原始日志与线上截图仅保存在忽略的 `.local/r2-release-0.6.10/`。
+
+本节及后续文档提交仅补充发布证据，线上功能源码保持上述准确提交。
+
 ## 2026-11-05：0.6.9 统一左栏与工作区面板
 
 当前 r2 已部署源码 [`4b458083aa80379cc9fa87ebe4c1ec101f291510`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b458083aa80379cc9fa87ebe4c1ec101f291510)，Web / Worker `0.6.9`，Worker Version ID `87d08b89-701c-4284-ac16-02e143a56be0`。源码摘要 `b5d55ee872eaeb4b21be54f17fb4b91e8a4aa2ed4af21bdcf1832d3b075a7dfe`；本地构建预览，`ciVerified=false`。用户本轮明确要求只测 Web UI，因此提交使用 `[skip ci]`，未运行 / 等待完整 Actions，也未执行原生或完整集成测试。
