@@ -511,3 +511,60 @@
     padding: 6px 10px;
   }
 }
+
+/* Rich content has one surface, with quiet controls in its own toolbar. */
+.cw-workbench .happier-cw .rich-code {
+  border: 1px solid var(--cw-border);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+.cw-workbench .happier-cw .rich-code pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 16px;
+  background: transparent;
+  font-size: 13px;
+}
+.cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) {
+  gap: 5px;
+  padding: 8px 10px;
+  min-height: 36px;
+  color: var(--cw-muted);
+  font-size: 10px;
+}
+.cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cw-muted);
+  font-size: 11px;
+}
+.cw-workbench .happier-cw .table-scroll {
+  border: 1px solid var(--cw-border);
+  border-radius: 10px;
+}
+.cw-workbench .happier-cw .table-scroll .element-toolbar {
+  border-bottom: 1px solid var(--cw-border);
+}
+.cw-workbench .happier-cw .table-scroll th {
+  font-weight: 500;
+  background: var(--cw-surface);
+}
+.cw-workbench .happier-cw .table-scroll :is(th, td) {
+  font-size: 13px;
+  padding: 10px 14px;
+}
+@media (pointer: coarse) {
+  .cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) button {
+    min-height: 44px;
+    min-width: 40px;
+  }
+}

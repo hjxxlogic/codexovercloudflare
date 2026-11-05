@@ -51,7 +51,7 @@
 
 ## CoC 改版对照
 
-[CoC 桌面](assets/happier-web-comparison-2026-11-05/coc-desktop.png) · [CoC 手机](assets/happier-web-comparison-2026-11-05/coc-phone.png) · [CoC 管理页](assets/happier-web-comparison-2026-11-05/coc-admin-light.png)。这些截图来自本地加密模拟端点；与上方官方真实模型会话的来源明确区分。[场景与截图摘要](assets/happier-web-comparison-2026-11-05/evidence.json) 记录视口、局部滚动结果及 PNG SHA-256。
+[CoC 桌面](assets/happier-web-comparison-2026-11-05/coc-desktop.png) · [CoC Markdown 与工具展开](assets/happier-web-comparison-2026-11-05/coc-desktop-markdown.png) · [CoC 手机](assets/happier-web-comparison-2026-11-05/coc-phone.png) · [CoC 管理页](assets/happier-web-comparison-2026-11-05/coc-admin-light.png)。这些截图来自本地加密模拟端点；与上方官方真实模型会话的来源明确区分。[场景与截图摘要](assets/happier-web-comparison-2026-11-05/evidence.json) 记录视口、局部滚动结果及 PNG SHA-256。
 
 ## 验收与限制
 

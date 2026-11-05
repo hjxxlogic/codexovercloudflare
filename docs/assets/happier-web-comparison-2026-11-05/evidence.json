@@ -34,6 +34,7 @@
   "cocFixture": "Encrypted synthetic endpoint; no production credentials or model calls",
   "screenshots": {
     "coc-admin-light.png": "a470cace60997236ad4556cd0feeaed72c9a699b2c18b7a6db8198d3e60a14c6",
+    "coc-desktop-markdown.png": "f4323b54e7d7cbb4aec38fc6aef622646b5596cfbe83397360c26a69c3128311",
     "coc-desktop.png": "2cb9d0c1b63609a4bafbd52a91d9ff9bf4def4090577e3d53228006914c9add4",
     "coc-phone.png": "ee38160719e698dfea3efd6b6e5215c358a95845ffcdad2b306f3ef479cfe53a",
     "official-desktop-formatted.png": "8dcc69ca4be55f76e7d47cbe6b00f76458d2157cc185d54448edc9e706010526",

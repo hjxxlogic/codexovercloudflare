@@ -22,6 +22,7 @@ import {
   remarkFileLinks,
 } from '../file-links.tsx';
 import { t } from '../i18n.ts';
+import { Icon } from '../happier/icon.tsx';
 import { saveFile } from '../download.ts';
 import { remarkStructure, remarkInlineMath } from './structure.ts';
 import { remarkOpenAiMath } from './openai-math.ts';
@@ -48,6 +49,8 @@ export function Copy({ value }: { value: string }) {
     <>
       <button
         type="button"
+        aria-label={t('复制')}
+        title={t('复制')}
         onClick={() =>
           void navigator.clipboard
             .writeText(value)
@@ -55,7 +58,7 @@ export function Copy({ value }: { value: string }) {
             .catch(() => setStatus(t('请手动选择文本复制')))
         }
       >
-        {t('复制')}
+        <Icon name="copy" size={15} />
       </button>
       <small role="status">{status}</small>
     </>
@@ -160,8 +163,13 @@ function Table({ children }: { children: ReactNode }) {
     >
       <div className="element-toolbar">
         <span>{t('表格')}</span>
-        <button type="button" onClick={() => void copy()}>
-          {t('复制表格 TSV')}
+        <button
+          type="button"
+          aria-label={t('复制表格 TSV')}
+          title={t('复制表格 TSV')}
+          onClick={() => void copy()}
+        >
+          <Icon name="copy" size={15} />
         </button>
         <small role="status">{status}</small>
         {(fullscreen.active || overflow) && (
@@ -218,6 +226,8 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
               <Copy value={source} />
               <button
                 type="button"
+                aria-label={t('下载源码')}
+                title={t('下载源码')}
                 onClick={() =>
                   saveFile(
                     new Blob([source], { type: 'text/plain;charset=utf-8' }),
@@ -225,18 +235,25 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
                   )
                 }
               >
-                {t('下载源码')}
+                <Icon name="download" size={15} />
               </button>
               <button
                 type="button"
                 onClick={() => setWrap(!wrap)}
+                aria-label={t('折行')}
+                title={t('折行')}
                 aria-pressed={wrap}
               >
-                {t('折行')}
+                <Icon name="wrap" size={15} />
               </button>
               {language && (
-                <button type="button" onClick={() => void colorize()}>
-                  {t('语法高亮')}
+                <button
+                  type="button"
+                  aria-label={t('语法高亮')}
+                  title={t('语法高亮')}
+                  onClick={() => void colorize()}
+                >
+                  <Icon name="code" size={15} />
                 </button>
               )}
             </>

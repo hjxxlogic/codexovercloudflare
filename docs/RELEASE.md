@@ -53,6 +53,8 @@ npm run test:opaque -- --online-r2 \
   --owner-secret-file /absolute/private/r2-owner
 ```
 
+r2 部署脚本的在线检查还需设置 `COC_ACCESS_CONFIG=/absolute/private/r2-access.json`，使私有配置明确允许 `https://r2.xlogic.cc`。它与浏览器测试的 `--access-config` 分别传递，默认生产配置只允许旧站 origin；不要改写生产配置或把入口凭据发送到其他域。
+
 Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与获准用于该入口的 Service Auth 凭据；原生 Agent 经主入口验证，测试浏览器的 HTTP / WebSocket 同样携带机器入口凭据且仅放行 r2 域请求；网页设备配对测试走现有 `/guest/` 入口，不将 Service Auth 冒充邮箱用户，邮箱登录须另行验证。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
 
 ## 部署 Linux systemd 用户服务 Agent
