@@ -777,6 +777,10 @@ try {
     .poll(() => historyConnections, { timeout: 25000 })
     .toBeGreaterThan(1);
   await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
+  const layoutError = page
+    .locator('.error')
+    .getByRole('button', { name: '关闭', exact: true });
+  if (await layoutError.isVisible()) await layoutError.click();
   // Happier's desktop sidebar / mobile drawer use the existing CoC session callbacks.
   const beforeNavigation = attachCalls;
   const navigation = page.getByRole('button', {
@@ -811,6 +815,21 @@ try {
   assert(
     sidebarBox.x + sidebarBox.width <= conversationBox.x + 1,
     'sidebar is beside the conversation',
+  );
+  const infoBox = (await page
+    .getByRole('button', { name: '打开会话详情', exact: true })
+    .boundingBox())!;
+  const refreshBox = (await page
+    .getByRole('button', { name: '刷新状态', exact: true })
+    .boundingBox())!;
+  assert(
+    infoBox.x + infoBox.width <= refreshBox.x,
+    JSON.stringify({ infoBox, refreshBox }),
+  );
+  assert.equal(sidebarBox.y, 0, 'sidebar spans from the top of the viewport');
+  assert(
+    (await page.locator('.happier-session-heading').boundingBox())!.height <=
+      64,
   );
   await page.screenshot({
     path: join(artifacts, 'happier-desktop.png'),

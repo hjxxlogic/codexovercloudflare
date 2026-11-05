@@ -8,7 +8,6 @@
   color: var(--text);
   background: var(--bg);
   font-size: 14px;
-  color-scheme: dark;
 }
 * {
   box-sizing: border-box;

@@ -1,3 +1,4 @@
+import { Icon } from './happier/icon.tsx';
 import { t, localeTag } from './i18n.ts';
 import type { Session } from '../../../packages/protocol/src/index.ts';
 
@@ -20,7 +21,9 @@ export function SessionHistory({
   creating,
   onSelect,
   onResume,
+  compact = false,
 }: {
+  compact?: boolean;
   sessions: Session[];
   threads: Thread[];
   project: string;
@@ -87,25 +90,40 @@ export function SessionHistory({
         return (
           <div className="history-row" key={key}>
             <button
-              className={`session ${current ? 'active' : ''}`}
+              className={`session ${compact ? 'session-compact' : ''} ${current ? 'active' : ''}`}
               disabled={!session && (creating || !online)}
               onClick={() => (session ? onSelect(session) : onResume(key))}
               title={thread?.preview || title}
             >
+              {compact && <Icon name="chat" size={15} />}
               <span>{title}</span>
-              <small>
-                {projectName} ·{' '}
-                {active
-                  ? t('进行中 · 查看对话')
-                  : session
-                    ? t('已结束 · 查看历史')
-                    : t('恢复并继续')}
-                {!online ? t(' · 本机目录') : ''}
-              </small>
-              <small>
-                {new Date(activity(row)).toLocaleString(localeTag())}
-                {current ? t(' · 当前对话') : ''}
-              </small>
+              {compact ? (
+                <time
+                  dateTime={new Date(activity(row)).toISOString()}
+                  title={new Date(activity(row)).toLocaleString(localeTag())}
+                >
+                  {new Date(activity(row)).toLocaleDateString(localeTag(), {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </time>
+              ) : (
+                <>
+                  <small>
+                    {projectName} ·{' '}
+                    {active
+                      ? t('进行中 · 查看对话')
+                      : session
+                        ? t('已结束 · 查看历史')
+                        : t('恢复并继续')}
+                    {!online ? t(' · 本机目录') : ''}
+                  </small>
+                  <small>
+                    {new Date(activity(row)).toLocaleString(localeTag())}
+                    {current ? t(' · 当前对话') : ''}
+                  </small>
+                </>
+              )}
             </button>
             {session && !active && thread && (
               <button

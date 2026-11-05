@@ -1,82 +1,168 @@
-/* Happier session presentation; shared tokens are in /happier-theme.css. */
+/* React DOM adaptation of the live Happier session layout; see SOURCE.md. */
+.happier-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.happier-chat-shell {
+  background: var(--surface);
+}
+.happier-site.happier-chat-shell > .topbar {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  height: 36px;
+  width: 70px;
+  padding: 0;
+  gap: 2px;
+  background: transparent;
+}
+.happier-chat-shell
+  > .topbar
+  :is(.brand, .header-actions, .status-refresh small, .menu-toggle-label) {
+  display: none;
+}
+.happier-site.happier-chat-shell > .topbar > button {
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.happier-site.happier-chat-shell > .topbar nav {
+  top: 42px;
+  right: 0;
+}
+.happier-chat-shell > :is(.notice, .error) {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(720px, calc(100% - 32px));
+  box-shadow: 0 4px 24px var(--shadow);
+}
 .cw-workbench .chat-layout.happier-cw {
   position: relative;
   flex-direction: row;
+  background: var(--cw-surface);
 }
-.happier-cw .conversation {
-  min-width: 0;
+.cw-workbench .happier-cw .conversation {
   flex: 1;
+  min-width: 0;
+  background: var(--cw-bg);
+  border-radius: 18px 0 0 18px;
+  overflow: hidden;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
 }
 .happier-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 272px;
-  flex: 0 0 272px;
-  padding: 18px 12px 10px;
+  gap: 14px;
+  width: 304px;
+  flex: 0 0 304px;
+  padding: 14px 16px 10px;
   min-height: 0;
-  border-right: 1px solid var(--cw-border);
   background: var(--cw-surface);
   color: var(--cw-text);
 }
-.happier-sidebar-heading {
+.happier-sidebar-heading,
+.happier-sidebar-heading strong {
   display: flex;
   align-items: center;
+  gap: 9px;
+}
+.happier-sidebar-heading {
   justify-content: space-between;
-  padding: 0 10px 6px;
+  height: 32px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .happier-sidebar-heading strong {
-  font-size: 20px;
-  letter-spacing: -0.6px;
+  font-size: 19px;
+  letter-spacing: -0.5px;
 }
-.happier-sidebar-heading strong span {
+.happier-sidebar-heading strong > span:last-child {
   font-size: 11px;
+  letter-spacing: 0;
+  font-weight: 500;
   color: var(--cw-muted);
-  letter-spacing: 1px;
-  margin-left: 8px;
 }
-.happier-sidebar > input {
-  width: 100%;
-  min-width: 0;
-  background: var(--cw-bg);
-  font-size: 13px;
+.happier-app-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: var(--cw-bg);
+  background: var(--cw-text);
 }
 .happier-sidebar .happier-new {
-  text-align: left;
+  order: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 0;
+  color: var(--cw-bg);
+  background: var(--cw-text);
+  box-shadow: 0 3px 10px var(--shadow);
   font-weight: 600;
+  flex-shrink: 0;
+}
+.happier-sidebar .happier-new:hover:enabled {
+  background: var(--cw-text);
+  filter: brightness(0.9);
+}
+.happier-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 0 10px;
+  color: var(--cw-muted);
   background: var(--cw-bg);
-  border-color: var(--cw-border);
 }
-.happier-new > span {
-  font-size: 19px;
-  margin-right: 8px;
+.happier-sidebar .happier-search input {
+  padding: 10px 0;
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  border: 0;
+  background: transparent;
 }
-.happier-project > button {
+.happier-sidebar .happier-project > button {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 10px;
   text-align: left;
   width: 100%;
   border: 0;
+  background: var(--cw-bg);
 }
-.happier-project > button > span:last-child {
+.happier-project > button > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
 }
 .happier-project small {
   display: block;
   font-size: 11px;
-  overflow-wrap: anywhere;
-  margin-top: 4px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.happier-dot {
-  flex: 0 0 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--cw-muted);
-}
-.happier-dot.online {
-  background: #41a477;
+.happier-project-icon {
+  color: var(--cw-muted);
 }
 .happier-session-list {
   overflow: auto;
@@ -85,138 +171,275 @@
 }
 .happier-section-label {
   color: var(--cw-muted);
-  text-transform: uppercase;
   font-size: 11px;
-  padding: 0 10px;
-  letter-spacing: 1px;
+  padding: 0 8px;
+  margin: 4px 0 10px;
+  letter-spacing: 0.8px;
 }
 .happier-session-list .history-row {
-  margin: 3px 0;
+  margin: 1px 0;
+  gap: 2px;
 }
-.happier-session-list .session {
-  display: block;
+.happier-session-list .session-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 12px 13px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px;
   text-align: left;
-  border: 1px solid transparent;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 9px;
   background: transparent;
 }
 .happier-session-list .session.active {
-  background: var(--cw-hover);
-  border-color: var(--cw-border);
+  background: var(--cw-bg);
 }
 .happier-session-list .session > span {
-  display: block;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
   font-weight: 500;
 }
-.happier-session-list .session > small {
-  display: block;
-  font-size: 11px;
-  margin-top: 5px;
+.happier-session-list .session time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--cw-muted);
+}
+.happier-session-list .history-row > button:not(.session) {
+  font-size: 10px;
+  padding: 4px;
 }
 .happier-session-list .empty-hint {
-  padding: 12px;
-  font-size: 13px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.8;
 }
 .happier-history {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   text-align: left;
+  background: var(--cw-bg) !important;
+  border: 0;
+  font-size: 13px;
 }
 .happier-attribution {
-  font-size: 10px;
+  order: 6;
+  font-size: 9px;
   text-align: center;
-  padding-top: 2px;
+  text-decoration: none;
+  color: var(--cw-muted) !important;
 }
 .happier-session-heading {
-  min-height: 68px;
+  height: 58px;
+  min-height: 58px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--cw-border);
+  gap: 12px;
+  padding: 8px 96px 8px 30px;
 }
-.happier-session-heading > div {
+.happier-session-title {
   min-width: 0;
+  flex: 1;
 }
 .happier-session-heading h1 {
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 600;
-  margin: 0 0 5px;
+  margin: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.happier-session-heading .workspace-context {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
+  height: 18px;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cw-muted);
+  font-size: 10px;
+  line-height: 18px;
+}
+.happier-session-heading .workspace-context span:first-child {
+  flex: 0 1 auto;
+}
+.happier-session-heading .workspace-context span:last-child {
+  flex: 0 1 auto;
+  max-width: 45%;
 }
 .happier-session-heading small {
   font-size: 11px;
 }
 .happier-session-actions {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   flex-shrink: 0;
 }
-.happier-session-heading button {
-  padding: 7px 10px;
-  font-size: 12px;
+.happier-session-actions button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
-.happier-cw .messages {
-  padding: 28px max(24px, calc((100% - 800px) / 2));
+.cw-workbench .happier-cw .messages {
+  padding: 24px max(28px, calc((100% - 818px) / 2));
 }
-.happier-cw .user-message {
-  border-radius: 16px;
+.cw-workbench .happier-cw .message {
+  font-size: 15px;
+  line-height: 1.75;
+  margin-bottom: 24px;
+}
+.cw-workbench .happier-cw .assistant-message > .message-role {
+  display: none;
+}
+.cw-workbench .happier-cw .user-message {
+  max-width: 100%;
+  width: auto;
+  margin-left: 0;
+  border-radius: 14px;
   padding: 12px 16px;
   background: var(--cw-surface);
 }
-.happier-cw .composer {
-  border-radius: 18px;
-  padding: 14px;
-  margin-bottom: 6px;
-  box-shadow: 0 4px 18px #00000008;
-  max-width: 800px;
+.cw-workbench .happier-cw .user-message > .message-role {
+  font-size: 10px;
+  color: var(--cw-muted);
+}
+.cw-workbench .happier-cw :is(.tool-group, .tool-output) {
+  border: 0;
+  border-radius: 12px;
+  padding: 6px 12px;
   background: var(--cw-surface);
+  margin: 10px 0 20px;
+}
+.cw-workbench .happier-cw .tool-group > .tool-output {
+  border-radius: 0;
+  border-left: 1px solid var(--cw-border);
+  margin: 0 0 0 5px;
+  padding: 0 0 0 12px;
+}
+.cw-workbench .happier-cw .tool-group > summary {
+  font-size: 12px;
+  padding: 8px 0;
+}
+.cw-workbench .happier-cw .tool-output > summary {
+  font-size: 12px;
+  padding: 6px 0;
+}
+.cw-workbench .happier-cw .tool-output pre {
+  max-height: 340px;
+  overflow: auto;
+  font-size: 12px;
+}
+.cw-workbench .happier-cw .composer {
+  width: min(calc(100% - 48px), 850px);
+  max-width: 850px;
+  border: 1px solid var(--cw-border);
+  border-radius: 18px;
+  padding: 12px 14px;
+  margin: 6px auto 0;
+  box-shadow: 0 5px 28px var(--shadow);
+  background: var(--cw-bg);
+  gap: 4px 8px;
   min-height: 0;
   flex-shrink: 1;
   overflow-y: auto;
 }
-.happier-cw .composer textarea {
+.composer-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.cw-workbench .happier-cw .composer textarea {
   background: transparent;
   border: 0;
-  min-height: 64px;
-  resize: vertical;
-  padding: 4px 2px 12px;
+  min-height: 44px;
+  padding: 4px 2px 8px;
+  font-size: 15px;
+  line-height: 1.6;
 }
-.happier-cw .composer button {
-  border-radius: 10px;
-  padding: 7px 11px;
-  font-size: 12px;
+.cw-workbench .happier-cw .composer .model-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--cw-muted);
+  border: 0;
+  max-width: 40%;
 }
-.happier-cw .composer button[type='submit'] {
+.cw-workbench .happier-cw .model-toggle span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cw-workbench .happier-cw .composer .composer-send {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   background: var(--cw-text);
   color: var(--cw-bg);
-  border-color: transparent;
+  border: 0;
 }
-.happier-cw .chat-welcome {
+.cw-workbench .happier-cw .composer .auto-approval {
+  font-size: 11px;
+  max-width: calc(60% - 64px);
+  gap: 4px;
+}
+.cw-workbench .happier-cw .composer .auto-approval label {
+  font-size: 11px;
+  white-space: nowrap;
+  gap: 4px;
+}
+.cw-workbench .happier-cw .auto-approval summary {
+  font-size: 10px;
+}
+.cw-workbench .happier-cw .composer-help {
+  display: none;
+}
+.cw-workbench .happier-cw .chat-welcome {
   max-width: 620px;
   margin: auto;
   padding: 32px;
 }
-.happier-cw .chat-welcome h2 {
+.cw-workbench .happier-cw .chat-welcome h2 {
   font-size: clamp(24px, 3vw, 34px);
   letter-spacing: -1px;
   font-weight: 550;
 }
 .happier-navigation-toggle {
   position: absolute;
-  top: 16px;
+  top: 12px;
   left: 10px;
   z-index: 2;
-  padding: 6px 9px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent !important;
+  border: 0;
 }
 .happier-drawer {
   position: fixed;
@@ -226,9 +449,8 @@
   max-height: 100dvh;
   max-width: 88vw;
   border: 0;
-  border-right: 1px solid var(--cw-border);
   border-radius: 0;
-  z-index: 20;
+  z-index: 30;
 }
 .happier-drawer:not([open]) {
   display: none;
@@ -237,23 +459,55 @@
   background: #0008;
 }
 @media (max-width: 900px) {
-  .happier-cw .happier-session-heading {
-    padding: 12px 12px 12px 94px;
-    min-height: 68px;
-    gap: 8px;
+  .cw-workbench .happier-cw .conversation {
+    border-radius: 0;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
-  .happier-cw .messages {
-    padding: 20px 16px;
+  .cw-workbench .happier-cw .happier-session-heading {
+    padding-left: 52px;
+    padding-right: 82px;
+    gap: 4px;
   }
-  .happier-cw .composer {
-    width: calc(100% - 20px);
-    padding: 12px;
-    margin-bottom: max(10px, env(safe-area-inset-bottom));
+  .happier-session-actions {
+    gap: 0;
   }
-  .happier-session-heading h1 {
-    max-width: 36vw;
+  .happier-session-actions button {
+    width: 28px;
   }
-  .happier-cw .chat-welcome {
-    padding: 64px 24px 24px;
+  .happier-site.happier-chat-shell > .topbar {
+    right: 8px;
+  }
+  .cw-workbench .happier-cw .messages {
+    padding: 16px;
+  }
+  .cw-workbench .happier-cw .composer {
+    width: calc(100% - 24px);
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+  .cw-workbench .happier-cw .composer textarea {
+    font-size: 16px;
+  }
+  .cw-workbench .happier-cw .composer .model-toggle {
+    max-width: 36%;
+    font-size: 10px;
+  }
+  .cw-workbench .happier-cw .composer .auto-approval {
+    max-width: calc(64% - 60px);
+  }
+  .cw-workbench .happier-cw .composer .auto-approval label {
+    font-size: 10px;
+    white-space: normal;
+  }
+  .happier-session-list .session-compact {
+    min-height: 42px;
+  }
+}
+@media (max-height: 520px) {
+  .cw-workbench .happier-cw .composer textarea {
+    min-height: 28px;
+  }
+  .cw-workbench .happier-cw .composer {
+    padding: 6px 10px;
   }
 }

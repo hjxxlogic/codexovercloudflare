@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-05",
+  "officialWeb": "https://cloud.happier.dev/",
+  "officialWebVersion": "0.2.19",
+  "officialCliVersion": "0.2.20",
+  "viewportDesktop": {
+    "width": 1440,
+    "height": 1000
+  },
+  "viewportMobile": {
+    "width": 390,
+    "height": 844
+  },
+  "realOfficialSessions": 2,
+  "switching": true,
+  "mobileCodeScroll": {
+    "passed": true,
+    "width": 390,
+    "scrollers": [
+      {
+        "clientWidth": 356,
+        "scrollWidth": 1568,
+        "before": 0,
+        "after": 100
+      },
+      {
+        "clientWidth": 290,
+        "scrollWidth": 514,
+        "before": 0,
+        "after": 100
+      }
+    ]
+  },
+  "cocFixture": "Encrypted synthetic endpoint; no production credentials or model calls",
+  "screenshots": {
+    "coc-admin-light.png": "a470cace60997236ad4556cd0feeaed72c9a699b2c18b7a6db8198d3e60a14c6",
+    "coc-desktop.png": "2cb9d0c1b63609a4bafbd52a91d9ff9bf4def4090577e3d53228006914c9add4",
+    "coc-phone.png": "ee38160719e698dfea3efd6b6e5215c358a95845ffcdad2b306f3ef479cfe53a",
+    "official-desktop-formatted.png": "8dcc69ca4be55f76e7d47cbe6b00f76458d2157cc185d54448edc9e706010526",
+    "official-desktop-tool-dark.png": "eb69214c35841937484bfc4937f4c2687b93f2d28070f8200865da1ecbedd453",
+    "official-file-approval.png": "de6d1a965c0c722c3a06511acabe82a4130fa5eea32325dea56d5455a6fa1d6d",
+    "official-phone-code-scrolled.png": "d147d146f8a08e964ce77d2ae441fe54e1625991b23043d4d901cefd131ae9f0",
+    "official-phone-formatted-dark.png": "dab3bb9a5ee99a8df169b193e90cc052f48fcdb055b4768e9b1f192f89105147",
+    "official-phone-long-code-light.png": "28366c38551af13dcdbdac8139f3c4c722d22068d8ede2bfb10ac206b9a60da8",
+    "official-phone-multi-list.png": "81c65a761e34aeeacc7fcb2cc9859cda4dd94cbc407b6aa07ffb41715edb17be",
+    "official-settings-light.png": "4fe111f69022bdf47fd37b78522812c828ca3dd4398161d48dcd42576f23df39"
+  }
+}

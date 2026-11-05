@@ -24,3 +24,10 @@ including authentication, administration, previews, diagrams and downloads.
 spacing and controls; those administration functions are CoC's existing UI.
 Theme changes share the existing appearance preference and do not reconnect
 sessions or recreate the terminal engine.
+
+The second layout pass was checked against the running official Web (0.2.19),
+with two real sessions and tool / approval events; see
+`docs/HAPPIER_WEB_COMPARISON_2026-11-05.md`. Inter is vendored from the same
+pinned upstream website asset; its SIL Open Font License is kept beside the font
+in `assets/Inter-LICENSE.txt`. The bundled font is used by the SPA without a CDN.
+Outline icons are local SVG paths and add no runtime dependency.

@@ -2,6 +2,7 @@ import {
   SessionNavigation,
   SessionHeading,
 } from './happier/session-navigation.tsx';
+import { Icon, type IconName } from './happier/icon.tsx';
 import { businessSocket } from './channel.ts';
 import { ActiveSessions } from './active-sessions.tsx';
 import { Workbench } from './workbench/workbench.tsx';
@@ -88,22 +89,6 @@ import { HostEmailSettings } from './host-emails.tsx';
 import { useBottomRefresh } from './bottom-refresh.ts';
 import { ModelPicker, modelPageSchema, type ModelPage } from './models.tsx';
 
-function MenuIcon() {
-  return (
-    <svg
-      className="ui-icon"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      aria-hidden="true"
-    >
-      <path d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
-  );
-}
 function CodexMark() {
   return (
     <svg
@@ -2857,9 +2842,37 @@ function App() {
       )}
     </section>
   );
+  const workspaceHeader = (
+    <WorkspaceHeader
+      host={hosts.find((h) => h.id === host)?.name || host}
+      project={projects.find((p) => p.id === project)?.name || project}
+      status={
+        !online
+          ? t('服务器离线 · 只读缓存')
+          : selected && projectReadOnly
+            ? t('只读会话 · 同项目已有写会话')
+            : selected?.external
+              ? t('外部会话 · 只读同步') +
+                (selected.approvalForwarding
+                  ? t(' · 可远程审批')
+                  : t(' · 审批在原客户端')) +
+                (busy ? t(' · 原客户端执行中') : '') +
+                (selected.historySyncPending
+                  ? t(' · 历史容量不足，等待同步')
+                  : '')
+              : approvals.length
+                ? t('等待你的确认')
+                : status
+      }
+      onDetails={() => {
+        if (selected) setPanel('details');
+        else openSessions();
+      }}
+    />
+  );
   return (
     <main
-      className={`happier-site${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
+      className={`happier-site${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'cw' && view === 'chat' && logged ? ' happier-chat-shell' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
     >
       <header className="topbar" ref={menu}>
         <a
@@ -2896,7 +2909,7 @@ function App() {
           disabled={refreshing}
           onClick={() => void refreshView()}
         >
-          <span aria-hidden="true">↻</span>
+          <Icon name="refresh" size={16} />
           <small aria-live="polite">
             {refreshing ? t('刷新中') : refreshed || t('未确认')}
           </small>
@@ -2914,11 +2927,13 @@ function App() {
         )}
         <button
           className="menu-toggle"
+          aria-label={t('功能菜单')}
           aria-expanded={menuOpen}
           aria-controls="feature-menu"
           onClick={() => setMenuOpen((v) => !v)}
         >
-          <MenuIcon /> {t('功能菜单')}
+          <Icon name="more" />{' '}
+          <span className="menu-toggle-label">{t('功能菜单')}</span>
         </button>
         {menuOpen && (
           <nav id="feature-menu" aria-label={t('功能菜单')}>
@@ -3091,34 +3106,7 @@ function App() {
           </nav>
         )}
       </header>
-      {logged && view === 'chat' && (
-        <WorkspaceHeader
-          host={hosts.find((h) => h.id === host)?.name || host}
-          project={projects.find((p) => p.id === project)?.name || project}
-          status={
-            !online
-              ? t('服务器离线 · 只读缓存')
-              : selected && projectReadOnly
-                ? t('只读会话 · 同项目已有写会话')
-                : selected?.external
-                  ? t('外部会话 · 只读同步') +
-                    (selected.approvalForwarding
-                      ? t(' · 可远程审批')
-                      : t(' · 审批在原客户端')) +
-                    (busy ? t(' · 原客户端执行中') : '') +
-                    (selected.historySyncPending
-                      ? t(' · 历史容量不足，等待同步')
-                      : '')
-                  : approvals.length
-                    ? t('等待你的确认')
-                    : status
-          }
-          onDetails={() => {
-            if (selected) setPanel('details');
-            else openSessions();
-          }}
-        />
-      )}
+      {logged && view === 'chat' && mode !== 'cw' && workspaceHeader}
       {createOperation && (
         <div className="notice" role="status">
           {t('正在确认')} {remoteTarget} {t('的会话创建结果。请求：')}
@@ -3227,7 +3215,24 @@ function App() {
                   tabs[next].click();
                 }}
               >
-                {label}
+                <Icon
+                  name={
+                    (
+                      {
+                        pending: 'shield',
+                        authorized: 'devices',
+                        versions: 'activity',
+                        wake: 'power',
+                        emails: 'mail',
+                        projects: 'folder',
+                        keys: 'key',
+                        sessions: 'chat',
+                        misc: 'settings',
+                      } as Record<string, IconName>
+                    )[id]
+                  }
+                />
+                <span>{label}</span>
               </button>
             );
           })}
@@ -4079,6 +4084,7 @@ function App() {
                       }
                       status={selected ? t(status) : t('选择项目以开始对话')}
                       busy={busy}
+                      context={workspaceHeader}
                       onFiles={() => setPanel('files')}
                       onDetails={() => setPanel('details')}
                     />
@@ -4301,7 +4307,9 @@ function App() {
                           }}
                         >
                           <label>
-                            {t('任务内容')}
+                            <span className="composer-label">
+                              {t('任务内容')}
+                            </span>
                             <textarea
                               aria-label={t('任务内容')}
                               value={text}
@@ -4341,19 +4349,30 @@ function App() {
                             className="model-toggle"
                             onClick={openModels}
                           >
-                            /model · {selectedModel || t('选择模型')}
+                            <Icon name="activity" size={15} />
+                            <span>{selectedModel || t('选择模型')}</span>
                           </button>
                           {busy && !selected.external ? (
                             <button
                               type="button"
+                              className="composer-send"
+                              aria-label={t('停止本轮')}
+                              title={t('停止本轮')}
                               disabled={!ready || !online}
                               onClick={() => send({ action: 'interrupt' })}
                             >
-                              {t('停止本轮')}
+                              <Icon name="stop" size={17} />
                             </button>
                           ) : (
                             <button
                               type="submit"
+                              className="composer-send"
+                              aria-label={
+                                selected.external ? t('加入队列') : t('发送')
+                              }
+                              title={
+                                selected.external ? t('加入队列') : t('发送')
+                              }
                               disabled={
                                 !ready ||
                                 !online ||
@@ -4364,7 +4383,7 @@ function App() {
                                 !text.trim()
                               }
                             >
-                              {selected.external ? t('加入队列') : t('发送')}
+                              <Icon name="send" size={18} />
                             </button>
                           )}
                           <AutoApproval

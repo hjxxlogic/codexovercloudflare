@@ -305,6 +305,10 @@ async function focusedChat(page: Page) {
       geometry.height * 0.65,
     JSON.stringify(geometry),
   );
+  assert(
+    geometry.sessionHeadingHeight <= 64,
+    'CW has one compact session header',
+  );
   assert(geometry.composerBottom <= geometry.height);
   assert(geometry.scrollWidth <= geometry.width);
   assert(geometry.scrollHeight <= geometry.height);

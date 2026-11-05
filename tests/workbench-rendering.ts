@@ -266,7 +266,7 @@ try {
       await frame
         .locator('body')
         .evaluate((node) => getComputedStyle(node).backgroundColor),
-      theme === 'dark' ? 'rgb(25, 31, 42)' : 'rgb(255, 255, 255)',
+      theme === 'dark' ? 'rgb(25, 23, 23)' : 'rgb(255, 255, 255)',
     );
     return frame.locator('svg .node rect').first().getAttribute('style');
   }

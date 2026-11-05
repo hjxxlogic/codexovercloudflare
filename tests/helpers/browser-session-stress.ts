@@ -84,7 +84,11 @@ export async function browserSessionStress(options: {
               entry.plaintextCommands++;
           });
           await page.goto(origin);
-          await button(page, '历史').click();
+          await button(page, '功能菜单').click();
+          await page
+            .getByRole('navigation', { name: '功能菜单', exact: true })
+            .getByRole('button', { name: /^会话记录/ })
+            .click();
           await page
             .getByRole('combobox', { name: '主机', exact: true })
             .selectOption(hostId);
