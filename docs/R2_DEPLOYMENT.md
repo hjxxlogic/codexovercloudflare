@@ -1,5 +1,15 @@
 # r2 当前部署
 
+## 2026-11-06：0.6.12 独立预览与消息复制
+
+当前 https://r2.xlogic.cc 已部署源码 [`425f450f0945b6ed1ef124d233ab5ea53000e388`](https://github.com/hjxxlogic/codexovercloudflare/commit/425f450f0945b6ed1ef124d233ab5ea53000e388)，Web / Worker `0.6.12`，Worker Version ID `7e38b51f-f775-45c0-85e4-7c05f84aa684`。源码摘要 `7dd8d58e1e8f3ebe98d7bf8d4aa2bdae0125af2ba87c2760937f3157090eefca`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行，不作为 CI 验证制品。
+
+正常顶栏仅保留导航与操作，连接异常浮动、恢复自动消失；文件树与内容预览拆分为独立控件，支持分别关闭 / 全屏与手机返回列表；用户和 AI 消息整条复制，AI 保留原始 Markdown，长消息按需读全，复制按钮与反馈浮动、不占正文空间。实施和模拟截图见 [0.6.12 记录](CW_UI_0.6.12.md)。Worker / Agent 业务代码未改。
+
+Web 构建、类型检查、受影响文件 ESLint / Prettier、导航专项与高级 Markdown 浏览器回归通过。通过 `scripts/deploy-cloud.py --local-build --target r2 --commit 425f450f0945b6ed1ef124d233ab5ea53000e388 --apply` 发布；显式指定 r2 Access audience，健康检查及全部公开资源字节核对通过。线上 `scripts/verify-web-navigation.ts` 验证桌面 / 手机导航、精简顶栏、文件 / 传输、信息对话框、设置 / 主题与管理页，无浏览器异常，临时 Web 凭据清理通过；不创建 / attach 会话，不发送任务，不启动 Shell。消息复制与独立预览的细节由本地模拟浏览器覆盖。
+
+发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5`、路由、独立 DO namespaces 和 r2 Access audience 均保持；原 Agent PID `846124` 与 r2 测试 Agent PID `2527593` 的可执行文件、启动身份未变，未重启服务或替换程序 / 配置 / 数据。原生下载保留 `0.6.7`。源码、制品摘要、线上检查与隔离证据见 [公开记录](assets/cw-ui-0.6.12/verified-preview.json)；凭据与机器本地证据仅保留于忽略目录。
+
 ## 2026-11-06：0.6.11 紧凑导航与可见工具栏
 
 当前 https://r2.xlogic.cc 已部署源码 [`0105572f65b1860a16345c5faee4afa1e4ad4637`](https://github.com/hjxxlogic/codexovercloudflare/commit/0105572f65b1860a16345c5faee4afa1e4ad4637)，Web / Worker `0.6.11`，Worker Version ID `6a6c08bd-2d1a-4f25-9e9a-8c2e5ad91c60`。源码摘要 `e4ee24a148e8ed24e6c81cae695acccad0ae877fc7c428503cd51e12054dd8f9`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，未运行完整 CI 或原生测试。

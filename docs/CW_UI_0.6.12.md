@@ -24,3 +24,7 @@
 ## 模拟截图
 
 [独立文件树与预览](assets/cw-ui-0.6.12/navigation-files.png)、[精简顶栏](assets/cw-ui-0.6.12/navigation-desktop-light.png)、[异常浮动提示](assets/cw-ui-0.6.12/connection-floating.png)、[手机导航](assets/cw-ui-0.6.12/navigation-mobile-390.png)。使用模拟数据，不含线上凭据。
+
+## 上线结果
+
+全部列出的 Web 检查通过。源码 `425f450f0945b6ed1ef124d233ab5ea53000e388` 已部署至 https://r2.xlogic.cc，Worker Version ID `7e38b51f-f775-45c0-85e4-7c05f84aa684`，健康检查、资源字节核对和线上 Web 验收通过，临时凭据已撤销。旧站、r2 隔离配置及两个现有 Agent 身份保持不变，原生下载仍为 `0.6.7`。[公开发布证据](assets/cw-ui-0.6.12/verified-preview.json)。
