@@ -75,6 +75,12 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 当前线上版本
 
+### 0.6.7 完整部署准备（2026-11-05）
+
+用户要求更新云端 Worker / 网页、四平台下载和本机 systemd Agent。部署源码包含 `dc5a2c5dd22ed32a8587c082f829d1423c79caac` 的 Agent 常驻重试修复。本次走完整 CI 门禁，不沿用此前直接构建例外；成功 CI 制品准备完成后先部署云端，再等待本机 Agent 空闲安装，不中断活动会话。
+
+原 master 提交带有 `[skip ci]`，没有匹配的成功运行；尝试手动 dispatch 被 GitHub 令牌权限拒绝（HTTP 403）。通过本次发布准备文档提交的正常 push 触发 Actions。其它架构分支的成功运行不作为本次部署制品。此段只记录准备状态，实际部署提交、Actions、摘要与验证结果在部署后补齐。
+
 2026-11-04 10:21（北京时间），`https://r.xlogic.cc` 的 Worker / 网页已直接发布授权刷新竞态修复，源码提交 `ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8`，版本仍为 `0.6.7`。用户明确授权“跳过 github action，直接部署”；使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply`，干净来源 `dirty=false`、`ciVerified=false`。没有 Actions 运行或 URL，不作为 CI 验证发行制品。源码已推送 origin 与 GitHub，提交含 `[skip ci]`。
 
 | 构建或制品           | 身份 / SHA256                                                      |
