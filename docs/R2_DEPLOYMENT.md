@@ -1,5 +1,17 @@
 # r2 当前部署
 
+## 2026-11-05：0.6.8 本地预览与独立测试 Agent
+
+用户授权在 CI 等待期间先将本地 Worker / 网页部署到 r2。当前产品源码为 `75b5673c7e61d5a8cc59e3281cb6d42f15edbeff`，Worker Version ID 为 `7c38dc19-6746-4782-a3b7-7800820cb707`，健康检查版本 `0.6.8`；此阶段明确标记 `ciVerified=false`，下载包仍为已验证的 `0.6.7`。完整 [Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42018456559) 尚在运行，不能视为通过。
+
+79 个网页及下载目录资源逐字节核对通过。真实 Cloudflare / 原生 Agent / Chromium 的线上隔离测试通过，包括加密会话、历史恢复、权限、九个管理面板和桌面 / 手机深浅色。下载目录核验使用规范地址 `/downloads/`，避免静态服务对 `index.html` 的 307 跳转。
+
+另按用户要求启动并保留独立主机 **`r2-Happier-0.6.8-test`**，项目 **`Happier UI 测试`**，使用本地 `0.6.8` 开发构建、独立配置 / 数据库 / 项目和真实本机 Codex。自动更新关闭，完整 CI 验证尚未完成。用户可在 r2 选择此主机和项目进行交互测试；本记录不包含凭据和本机私有配置。
+
+启动后复核：原 Agent PID 与启动时间不变；旧站 Worker 版本保持发布前的 `0b54f874-3b3a-43f3-8855-0465bcb646f5`；r2 namespace / Access audience 保留，路由与 DO 存储隔离。[本阶段公开证据](assets/r2-deployment-0.6.8-2026-11-05/local-preview-verification.json)；原始日志和测试 Agent 状态位于忽略的 `.local/r2-release-0.6.8/`。
+
+## 2026-11-04：0.6.7 已验证部署记录
+
 2026-11-04 将不透明中继架构部署到 **https://r2.xlogic.cc**。Worker 保留权限管理，Agent / Client 承担加密业务、控制权和可靠传输。旧站及既有本机 Agent 不属于本次升级范围。
 
 ## 来源与制品

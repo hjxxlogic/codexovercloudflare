@@ -1,0 +1,90 @@
+{
+  "commit": "75b5673c7e61d5a8cc59e3281cb6d42f15edbeff",
+  "localBuild": true,
+  "ciVerified": false,
+  "sourceIdentity": {
+    "version": "0.6.8",
+    "commit": "75b5673c7e61d5a8cc59e3281cb6d42f15edbeff",
+    "target": "linux-x86_64",
+    "sourceDigest": "1268e309d0f0ef624bf8bec95f15b4b0aba2003f9a7657a7bdda0d9463d041c9",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals",
+      "delivery-v2",
+      "configuration-v1"
+    ]
+  },
+  "sourceDigest": "1268e309d0f0ef624bf8bec95f15b4b0aba2003f9a7657a7bdda0d9463d041c9",
+  "worker": "codex-over-cloudflare-r2",
+  "target": "https://r2.xlogic.cc",
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.8",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true,
+    "assetCount": 79,
+    "canonicalDownloadDirectoryVerified": true
+  },
+  "preservedDownloads": {
+    "version": "0.6.7",
+    "commit": "a61423f4f1cbd82b018dbcf3f29c1ac2acb43859",
+    "sourceDigest": "a67d4f0fba0b48380f760e9ec7e70fadb8c3242818a7cfff0a38981e13338151",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.7-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.7-linux-x86_64-musl.tar.gz",
+      "coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.7-windows-x64.zip",
+      "codex-over-cloudflare-0.6.7-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "workerVersion": "7c38dc19-6746-4782-a3b7-7800820cb707",
+  "onlineTests": {
+    "target": "https://r2.xlogic.cc",
+    "passed": true,
+    "checks": [
+      "Browser project selection, prompt streaming and history after reload",
+      "Happier 0.6.8 administration: all nine panels, light/dark, desktop/mobile, no page errors or overflow",
+      "Service Auth native admission; browser CoC guest flow (email login not exercised)",
+      "encrypted projects, configuration and permission denial",
+      "session create original request deduplication",
+      "CONTROL_READY, models, prompt and streamed task completion",
+      "file byte transfer and history",
+      "control takeover and stable retry ticket",
+      "ciphertext excludes prompt and session ID",
+      "Worker directory excludes business metadata",
+      "Chromium desktop/mobile without page errors"
+    ]
+  },
+  "isolation": {
+    "productionWorkerDeploymentUnchanged": true,
+    "productionWorkerVersion": "0b54f874-3b3a-43f3-8855-0465bcb646f5",
+    "productionAgentPidAndStartUnchanged": true,
+    "r2NamespacesPreserved": true,
+    "durableObjectNamespacesDisjoint": true,
+    "routesIsolated": true,
+    "r2AccessAudiencePreserved": true,
+    "r2WorkerVersion": "7c38dc19-6746-4782-a3b7-7800820cb707"
+  },
+  "testAgent": {
+    "name": "r2-Happier-0.6.8-test",
+    "version": "0.6.8",
+    "build": "local development",
+    "ciVerified": false,
+    "isolatedConfigAndData": true,
+    "autoUpdate": false,
+    "realCodexForUserTesting": true
+  }
+}

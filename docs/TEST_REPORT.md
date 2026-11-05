@@ -99,4 +99,6 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 
 本地原生构建和 CTest 15/15、Vitest 35 文件 / 381 项、完整 E2E 46 项（包含 Terminal）通过；完整 UI 专项已通过九面板 × 深浅色 × 桌面 / 手机，以及跨标签同步和既有故障恢复。类型、lint、网页构建、部署工具与来源校验测试通过。合成数据截图和本地结果见 [验证记录](assets/happier-site-0.6.8/verification.json)；准确提交 CI、部署来源、下载摘要与线上结果写入 [r2 部署记录](R2_DEPLOYMENT.md)，此处本地结果不代替 CI 门禁。
 
+用户授权的本地 r2 预览已通过真实 Cloudflare / Agent / Chromium 线上测试，覆盖加密业务与九个管理面板的桌面 / 手机深浅色。79 个静态资源字节一致；下载页规范地址修正后部署工具 18 项回归通过。独立用户测试 Agent 已连接，原 Agent / 旧站隔离断言均通过。[预览证据](assets/r2-deployment-0.6.8-2026-11-05/local-preview-verification.json) 标记 `ciVerified=false`，不将仍在运行的 Actions 视为成功。
+
 CI 的真实计时账单 / 重试专项需要约 8 分 35 秒，主回归总预算提高至 45 分钟，所有用例与断言保留。CI 默认禁用会调用模型的自动启动修复；专门的假 Codex 修复夹具清除此标记后验证该功能。

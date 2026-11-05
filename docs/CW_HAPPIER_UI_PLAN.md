@@ -72,3 +72,11 @@
 - 本地原生 CTest 15/15、Vitest 35 文件 / 381 项、完整 UI（含新增全站矩阵）、包含 Terminal 的完整 E2E 46 项通过；类型、lint、网页构建、发布来源及下载页工具回归通过。准确提交 CI 与部署结果继续在本节及 r2 部署记录补录。
 - 配置管理专项在 CI 相同禁用模型修复的条件下通过，Client 原命令重启、错误退出及管理连接清理均验证成功。真实本地 Worker / 原生 Agent / Chromium 的 `test:opaque` 也通过管理员登录、九面板主题、版本显示和退出管理；同一检查将在 r2 执行。
 - [管理桌面浅色](assets/happier-site-0.6.8/admin-desktop-light.png)、[管理桌面深色](assets/happier-site-0.6.8/admin-desktop-dark.png)、[管理手机浅色](assets/happier-site-0.6.8/admin-mobile-light.png)、[管理手机深色](assets/happier-site-0.6.8/admin-mobile-dark.png)、[CW 桌面](assets/happier-site-0.6.8/cw-desktop.png)、[CW 手机](assets/happier-site-0.6.8/cw-mobile.png) 和 [本地验证记录](assets/happier-site-0.6.8/verification.json) 使用合成数据；凭据和原始日志保持在忽略目录。
+
+### r2 本地预览与常驻测试实例（2026-11-05）
+
+- 用户明确要求等待 CI 期间先部署本地 Worker；使用既有 `deploy-cloud.py --local-build --target r2`，产品源码 `75b5673c7e61d5a8cc59e3281cb6d42f15edbeff`，Worker Version ID `7c38dc19-6746-4782-a3b7-7800820cb707`。此阶段 `ciVerified=false`，原生下载保留已验证的 `0.6.7`。
+- 真实 r2 / 原生 Agent / Chromium 测试通过，包括九个管理面板、浅深色、桌面 / 手机、加密会话任务、刷新恢复和权限。自动验收使用模拟 Codex，没有调用真实模型。
+- 部署已应用后，新增下载页字节核验发现 `/downloads/index.html` 被静态资源服务规范化为 `/downloads/`（307）。部署脚本改为直接核验目录地址；继续禁止携带准入凭据自动跟随跳转。此修正仅涉及部署核验，不影响线上网页或业务实现。
+- 按用户要求启动独立测试主机 `r2-Happier-0.6.8-test`，项目 `Happier UI 测试`；使用隔离配置、数据库、项目目录及固定二进制副本，关闭自动更新。它运行 `0.6.8` 本地开发构建，尚非经过完整 CI 的发行版本；连接真实本机 Codex，供用户交互测试。配置、凭据、PID 和日志仅保存在忽略的 `.local/r2-release-0.6.8/user-agent/`，不替换已有 Agent。
+- 启动测试实例后再次确认旧站 Worker 版本、原 Agent PID / 启动时间不变，r2 DO namespace 与 Access audience 保留，路由和存储仍隔离。完整 CI 和最终发行制品部署结果待补录。

@@ -481,7 +481,9 @@ def main():
                  *[output / 'site/downloads' / name for name in ('index.html', 'happier-theme.css', 'happier-theme.js')],
                  output / 'site/downloads/USER_GUIDE.md', output / 'site/downloads/index.json',
                  output / 'site/downloads/SHA256SUMS']:
-        if path.is_file() and agent.curl(base + ('/' if path == output / 'site/index.html' else '/' + path.relative_to(output / 'site').as_posix())) != path.read_bytes():
+        relative = path.relative_to(output / 'site').as_posix()
+        asset_path = '/' + (relative[:-len('index.html')] if path.name == 'index.html' else relative)
+        if path.is_file() and agent.curl(base + asset_path) != path.read_bytes():
             raise RuntimeError('Online asset differs from staged artifact: ' + path.name)
     if published:
         hashes = {}

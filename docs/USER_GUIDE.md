@@ -752,6 +752,8 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 `r2.xlogic.cc` 使用独立 Worker、授权和数据；旧站 `r.xlogic.cc` 的账号设备授权不会自动搬入。Agent / CLI 连接时须显式设置 r2 的 relay URL，使用独立配置与 dataDir，不覆盖现有 Agent 服务。部署和隔离线上测试命令见 [发布操作](RELEASE.md#独立-r2-测试站)。
 
+2026-11-05 临时测试实例为主机 `r2-Happier-0.6.8-test`、项目 `Happier UI 测试`。在 CW 选择该主机与项目即可测试会话、文件和终端。它使用独立数据目录及本地开发构建，关闭自动更新，不替换原 Agent；当前来源和 CI 验证状态见 [r2 部署记录](R2_DEPLOYMENT.md)。
+
 当前 r2 已启用 Cloudflare Access。原生 Agent / CLI 须提供权限为 `0600`、`origins` 明确包含 `https://r2.xlogic.cc` 的 Access 配置文件，使用 `--access-config /private/r2-access.json` 或 Agent 配置的 `cloudflareAccessFile` 指定。内置旧站入口配置不会自动允许新域名；CoC 设备授权仍需在 r2 单独批准。不要复制旧 Agent 的活动数据库或覆盖其服务配置。
 
 当前部署、隔离核对及验证边界见 [r2 部署记录](R2_DEPLOYMENT.md)。线上验收使用临时 Agent，结束后已停止并撤销授权；站点部署成功不表示已有常驻主机接入。
