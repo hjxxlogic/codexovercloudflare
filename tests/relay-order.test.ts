@@ -2779,7 +2779,7 @@ describe('overlapping authorization refreshes', () => {
       await vi.waitFor(() => expect(checks).toHaveLength(2));
       expect(h.agent.deserializeAttachment().blocked).toBe(true);
       (h.relay as any).forward(h.agent, { type: 'blocked' }, 10);
-      await Promise.all(h.waiting);
+      await Promise.resolve();
       expect(h.agent.send).not.toHaveBeenCalled();
       if (latestFirst) {
         checks[1].resolve(valid);
@@ -2795,7 +2795,7 @@ describe('overlapping authorization refreshes', () => {
       expect(h.agent.deserializeAttachment().blocked).toBe(false);
       (h.relay as any).forward(h.agent, { type: 'available' }, 10);
       await Promise.all(h.waiting);
-      expect(h.agent.send).toHaveBeenCalledWith('{"type":"available"}');
+      expect(h.frames()).toEqual([{ type: 'blocked' }, { type: 'available' }]);
     },
   );
   it.each([false, true])(
@@ -2934,7 +2934,7 @@ it('binds Terminal once and forwards both directions without credential or lease
   expect(terminal.close).not.toHaveBeenCalled();
 });
 
-it('recovers suspended routes when an authorization control event must retry', async () => {
+it('closes suspended routes when an authorization control event fails', async () => {
   const h = harness();
   const relay = h.relay as any;
   const list = vi
@@ -2943,11 +2943,13 @@ it('recovers suspended routes when an authorization control event must retry', a
   await expect(relay.authorizationChanged()).rejects.toThrow(
     'Storage unavailable',
   );
-  expect(h.agent.deserializeAttachment().blocked).toBe(true);
+  expect(h.agent.close).toHaveBeenCalledWith(
+    1011,
+    'Authorization refresh incomplete; reconnect',
+  );
   list.mockRestore();
   await relay.authorizationChanged();
-  expect(h.agent.deserializeAttachment().blocked).toBe(false);
-  expect(h.agent.deserializeAttachment().retired).not.toBe(true);
+  expect(h.agent.deserializeAttachment().retired).toBe(true);
 });
 
 it('rejects an expired pending principal before activating a handshake', async () => {
@@ -2961,4 +2963,147 @@ it('rejects an expired pending principal before activating a handshake', async (
   await expect(
     (h.relay as any).operationAuthorized({ socketId: 'expired', auth }),
   ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+});
+
+describe('traffic during authorization revalidation', () => {
+  it('preserves continuous event order across an unrelated authorization change', async () => {
+    const h = harness();
+    const reader = socket({
+      id: 'reader',
+      role: 'web',
+      auth,
+      history: true,
+      authenticated: true,
+      sessionId: 'host~session',
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    h.sockets.push(reader);
+    const event = (seq: number) =>
+      h.relay.webSocketMessage(
+        h.agent as any,
+        JSON.stringify({
+          type: 'event',
+          sessionId: 'host~session',
+          epoch: 1,
+          payload: { event: { seq } },
+        }),
+      );
+    await event(1);
+    await Promise.all(h.waiting);
+    let resume!: (value: unknown) => void;
+    vi.mocked(registryCall)
+      .mockImplementationOnce(() => new Promise((r) => (resume = r)))
+      .mockResolvedValue({ expires: Number.MAX_SAFE_INTEGER });
+    const change = h.relay.fetch(
+      new Request('https://internal/authorization-change', { method: 'POST' }),
+    );
+    await vi.waitFor(() => expect(resume).toBeDefined());
+    const during = [event(2), event(3)];
+    await Promise.resolve();
+    expect(reader.send).toHaveBeenCalledTimes(1);
+    resume({ expires: Number.MAX_SAFE_INTEGER });
+    await change;
+    await Promise.all(during);
+    await event(4);
+    await Promise.all(h.waiting);
+    expect(
+      reader.send.mock.calls.map(([raw]) => JSON.parse(raw).event.seq),
+    ).toEqual([1, 2, 3, 4]);
+    expect(reader.close).not.toHaveBeenCalled();
+    expect(h.agent.close).not.toHaveBeenCalled();
+  });
+
+  async function pause(h: ReturnType<typeof harness>) {
+    let resume!: (value: unknown) => void;
+    let reject!: (error: unknown) => void;
+    vi.mocked(registryCall).mockImplementation(
+      () =>
+        new Promise((r, j) => {
+          resume = r;
+          reject = j;
+        }),
+    );
+    const changed = h.relay.fetch(
+      new Request('https://internal/authorization-change', { method: 'POST' }),
+    );
+    await vi.waitFor(() => expect(resume).toBeDefined());
+    return { changed, resume, reject };
+  }
+  it('retains an in-flight Agent result across an unrelated credential change', async () => {
+    const h = harness(),
+      started = await h.start(),
+      frame = h.frames().at(-1);
+    const p = await pause(h);
+    const reply = h.reply(frame, ['original-result']);
+    await Promise.resolve();
+    p.resume({ expires: Number.MAX_SAFE_INTEGER });
+    expect((await p.changed).status).toBe(200);
+    await reply;
+    vi.mocked(registryCall).mockResolvedValue({
+      expires: Number.MAX_SAFE_INTEGER,
+    });
+    expect((await h.read(started.data.operationId)).data).toMatchObject({
+      state: 'completed',
+      result: ['original-result'],
+    });
+    expect(h.agent.close).not.toHaveBeenCalled();
+  });
+  it('keeps buffered sends in order when another send arrives after revalidation', async () => {
+    const h = harness();
+    const p = await pause(h);
+    h.relay.send(h.agent as any, { type: 'event', seq: 1 });
+    h.relay.send(h.agent as any, { type: 'event', seq: 2 });
+    expect(h.agent.send).not.toHaveBeenCalled();
+    p.resume({ expires: Number.MAX_SAFE_INTEGER });
+    await p.changed;
+    h.relay.send(h.agent as any, { type: 'event', seq: 3 });
+    await Promise.all(h.waiting);
+    expect(h.frames().map((d) => d.seq)).toEqual([1, 2, 3]);
+    expect(h.agent.close).not.toHaveBeenCalled();
+    expect((h.relay as any).forwardingRecords).toBe(0);
+  });
+  it('discards buffered data if the credential is revoked', async () => {
+    const h = harness();
+    const p = await pause(h);
+    h.relay.send(h.agent as any, { type: 'private-data' });
+    p.reject(new AppError('UNAUTHORIZED', 'Revoked', 401));
+    await p.changed;
+    await Promise.all(h.waiting);
+    expect(h.agent.send).not.toHaveBeenCalled();
+    expect(h.agent.deserializeAttachment().retired).toBe(true);
+  });
+  it('closes an overflowing suspended sender and releases its forwarding budget', async () => {
+    const h = harness();
+    const p = await pause(h);
+    for (let i = 0; i < 1001; i++)
+      h.relay.send(h.agent as any, { type: 'event', seq: i });
+    expect(h.agent.close).toHaveBeenCalledWith(
+      4008,
+      'Forwarding budget exhausted',
+    );
+    p.resume({ expires: Number.MAX_SAFE_INTEGER });
+    await p.changed;
+    await Promise.all(h.waiting);
+    expect(h.agent.send).not.toHaveBeenCalled();
+    expect((h.relay as any).forwardingRecords).toBe(0);
+  });
+  it('closes overflowing input while revalidation is pending', async () => {
+    const h = harness();
+    const p = await pause(h);
+    const frames = Array.from({ length: 1025 }, () =>
+      h.relay.webSocketMessage(
+        h.agent as any,
+        JSON.stringify({ type: 'ping' }),
+      ),
+    );
+    expect(h.agent.close).toHaveBeenCalledWith(
+      4000,
+      'Incoming message queue full',
+    );
+    p.resume({ expires: Number.MAX_SAFE_INTEGER });
+    await p.changed;
+    await Promise.all(frames);
+    expect((h.relay as any).incomingRecords).toBe(0);
+    expect(h.agent.send).not.toHaveBeenCalled();
+  });
 });
