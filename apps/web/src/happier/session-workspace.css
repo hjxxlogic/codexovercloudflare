@@ -568,3 +568,24 @@
     min-width: 40px;
   }
 }
+
+/* A closed tool disclosure occupies at most one summary line. */
+.cw-workbench .happier-cw :is(.tool-group, .tool-output):not([open]) > summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 20px;
+}
+/* Preserve keyboard/touch access without permanent copy icons in the chat. */
+.cw-workbench .conversation .copy-action {
+  opacity: 0;
+  pointer-events: none;
+}
+.cw-workbench
+  .conversation
+  :is(.message, .tool-output):is(:hover, :focus-within)
+  .copy-action,
+.cw-workbench .conversation .copy-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}

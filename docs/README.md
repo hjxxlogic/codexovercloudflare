@@ -1,5 +1,7 @@
 # 项目文档
 
+- [CW 0.6.11 紧凑导航与浮动工具栏](CW_UI_POLISH_0.6.11.md)
+
 - [CW 0.6.10 三级导航与图标操作](CW_NAVIGATION_0.6.10.md)
 
 - [CW 0.6.9 统一导航实施与 Web 验收](CW_NAVIGATION_0.6.9.md)

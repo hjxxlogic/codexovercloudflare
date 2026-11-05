@@ -48,6 +48,7 @@ export function Copy({ value }: { value: string }) {
   return (
     <>
       <IconButton
+        className="copy-action"
         icon="copy"
         label={t('复制')}
         type="button"
@@ -162,6 +163,7 @@ function Table({ children }: { children: ReactNode }) {
       <div className="element-toolbar">
         <span>{t('表格')}</span>
         <IconButton
+          className="copy-action"
           icon="copy"
           label={t('复制表格 TSV')}
           type="button"

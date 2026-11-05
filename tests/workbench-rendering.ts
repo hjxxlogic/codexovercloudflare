@@ -154,6 +154,16 @@ try {
     await expect(
       element.getByRole('button', { name: '退出全屏', exact: true }),
     ).toBeFocused();
+    await element.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    const restore = (await element
+      .getByRole('button', { name: '退出全屏', exact: true })
+      .boundingBox())!;
+    assert(
+      restore.y >= 0 && restore.y + restore.height <= viewport.height,
+      'fullscreen restore remains visible after scrolling',
+    );
   }
   const smallTable = page.locator('.table-scroll').first();
   await expect(

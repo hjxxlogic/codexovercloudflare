@@ -80,10 +80,12 @@ export function IconButton({
   icon,
   label,
   ref: forwardedRef,
+  showLabel = false,
   ...props
 }: Omit<ComponentProps<'button'>, 'children' | 'aria-label'> & {
   icon: IconName;
   label: string;
+  showLabel?: boolean;
 }) {
   const tooltip = useTooltip(label);
   return (
@@ -117,13 +119,14 @@ export function IconButton({
           if (typeof forwardedRef === 'function') forwardedRef(element);
           else if (forwardedRef) forwardedRef.current = element;
         }}
-        className={`icon-button ${props.className || ''}`}
+        className={`icon-button${showLabel ? ' icon-button-labeled' : ''} ${props.className || ''}`}
         onClick={(event) => {
           tooltip.hide();
           props.onClick?.(event);
         }}
       >
         <Icon name={icon} />
+        {showLabel && <span>{label}</span>}
       </button>
       {tooltip.tooltip}
     </>

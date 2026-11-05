@@ -10,7 +10,8 @@ export async function navigationUI(
   calls: () => number,
 ) {
   const bytes = Buffer.from(
-    '# Unified files\n\n| Name | Result |\n| --- | --- |\n| preview | ready |\n\n```ts\nconst value = 42;\n```\n',
+    '# Unified files\n\n| Name | Result |\n| --- | --- |\n| preview | ready |\n\n```ts\nconst value = 42;\n```\n' +
+      '\n\nLong preview content for scrolling.'.repeat(160),
   );
   fixtureRoutes.route('**/api/v1/hosts/sample/files', async (route) => {
     const data = route.request().postDataJSON();
@@ -54,6 +55,12 @@ export async function navigationUI(
         headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
       }),
   );
+  fixtureRoutes.route('**/api/v1/hosts/second/projects', (route) =>
+    route.fulfill({ json: [] }),
+  );
+  fixtureRoutes.route('**/api/v1/hosts/second/project-management', (route) =>
+    route.fulfill({ json: { revision: 1, projects: [], canManage: true } }),
+  );
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
@@ -68,6 +75,20 @@ export async function navigationUI(
     }),
   );
   const page = await context.newPage();
+  const insideViewport = async (
+    locator: import('@playwright/test').Locator,
+  ) => {
+    await expect(locator).toBeVisible();
+    const box = (await locator.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    assert(
+      box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= viewport.width &&
+        box.y + box.height <= viewport.height,
+      'operation remains inside viewport',
+    );
+  };
   const failures: string[] = [];
   page.on('pageerror', (error) => {
     failures.push(error.message);
@@ -126,10 +147,27 @@ export async function navigationUI(
   await expect(
     page.locator('#navigation-projects .navigation-option'),
   ).not.toHaveCount(0);
+  const projectRefresh = page.getByRole('button', {
+    name: '刷新项目',
+    exact: true,
+  });
+  const newProject = page.getByRole('button', {
+    name: '新建项目',
+    exact: true,
+  });
+  await expect(projectRefresh).toBeVisible();
+  assert(
+    (await projectRefresh.boundingBox())!.x <
+      (await newProject.boundingBox())!.x,
+  );
+  await projectRefresh.click();
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
   await expect(
     page.getByLabel('远程目录绝对路径', { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByLabel('远程目录绝对路径', { exact: true }),
+  ).toHaveValue('/workspace/');
   await page
     .getByLabel('远程目录绝对路径', { exact: true })
     .fill('/workspace/new-project');
@@ -147,6 +185,11 @@ export async function navigationUI(
   await expect(
     page.getByLabel('远程目录绝对路径', { exact: true }),
   ).not.toBeVisible();
+  canManage = true;
+  await projectRefresh.click();
+  await expect(
+    page.getByLabel('远程目录绝对路径', { exact: true }),
+  ).toHaveValue('/workspace/new-project');
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
   await page
     .locator('#navigation-projects .navigation-option')
@@ -161,6 +204,48 @@ export async function navigationUI(
     .getByRole('button', { name: /进行中的对话/ })
     .click();
   await expect(page.getByLabel('任务内容')).toBeVisible();
+  for (const heading of [chooseHost, chooseProject]) {
+    assert(
+      (await heading.boundingBox())!.height <= 42,
+      'collapsed level is a compact single row',
+    );
+    assert(
+      await heading
+        .locator('span')
+        .evaluate((node) => getComputedStyle(node).display === 'flex'),
+    );
+  }
+  const tools = page.locator('.conversation .tool-group').first();
+  const summary = tools.locator(':scope > summary');
+  assert(
+    await summary.evaluate(
+      (node) => getComputedStyle(node).whiteSpace === 'nowrap',
+    ),
+  );
+  await summary.click();
+  const tool = tools.locator('.tool-output').first();
+  const toolSummary = tool.locator(':scope > summary');
+  assert(
+    await toolSummary.evaluate(
+      (node) =>
+        node.clientHeight <= 34 &&
+        getComputedStyle(node).whiteSpace === 'nowrap',
+    ),
+  );
+  await toolSummary.click();
+  const copy = tool.locator('.copy-action').first();
+  await page.getByLabel('任务内容').focus();
+  await page.mouse.move(0, 0);
+  await expect(copy).toHaveCSS('opacity', '0');
+  await tool.hover();
+  await expect(copy).toHaveCSS('opacity', '1');
+  await tool.locator('pre').click();
+  await page.mouse.move(0, 0);
+  await expect(copy).toHaveCSS('opacity', '1');
+  await copy.focus();
+  await expect(copy).toBeFocused();
+  await toolSummary.click();
+  await summary.click();
   await expect(page.getByRole('log')).toContainText('示例任务');
   await page.getByLabel('任务内容').fill('统一导航保留草稿');
   const before = calls();
@@ -212,6 +297,29 @@ export async function navigationUI(
     fullPage: true,
     animations: 'disabled',
   });
+  await preview.locator(':scope > .markdown').evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await insideViewport(
+    preview.getByRole('button', { name: '关闭预览', exact: true }),
+  );
+  await insideViewport(
+    preview.getByRole('button', { name: '源码', exact: true }),
+  );
+  await insideViewport(
+    preview.getByRole('button', { name: '下载', exact: true }),
+  );
+  await preview.getByRole('button', { name: '全屏', exact: true }).click();
+  await preview.locator(':scope > .markdown').evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await insideViewport(
+    preview.getByRole('button', { name: '退出全屏', exact: true }),
+  );
+  await insideViewport(
+    preview.getByRole('button', { name: '关闭预览', exact: true }),
+  );
+  await preview.getByRole('button', { name: '退出全屏', exact: true }).click();
   const closePreview = preview.getByRole('button', {
     name: '关闭预览',
     exact: true,
@@ -252,10 +360,40 @@ export async function navigationUI(
   await expect(page.locator('.unified-output')).toContainText('echo example-2');
   await page.getByRole('button', { name: '信息', exact: true }).click();
   await expect(
-    page.getByRole('complementary', { name: '会话详情', exact: true }),
+    page.getByRole('dialog', { name: '会话详情', exact: true }),
   ).toBeVisible();
   await expect(page.locator('.unified-output')).not.toBeVisible();
-  await page.getByRole('button', { name: '关闭信息', exact: true }).click();
+  const information = page.getByRole('dialog', {
+    name: '会话详情',
+    exact: true,
+  });
+  await information.getByText('会话标识', { exact: true }).click();
+  await information.getByText('本机存储', { exact: true }).click();
+  await page.screenshot({
+    path: join(artifacts, 'information-dialog.png'),
+    animations: 'disabled',
+  });
+  await information.locator('.session-details-content').evaluate((node) => {
+    const extra = document.createElement('p');
+    extra.textContent = '长信息内容 '.repeat(2000);
+    node.appendChild(extra);
+    node.scrollTop = node.scrollHeight;
+  });
+  await insideViewport(
+    information.getByRole('button', { name: '关闭信息', exact: true }),
+  );
+  await insideViewport(
+    information.getByRole('button', { name: '重新连接', exact: true }),
+  );
+  await page.screenshot({
+    path: join(artifacts, 'information-dialog-long.png'),
+    animations: 'disabled',
+  });
+  await page.keyboard.press('Escape');
+  await expect(information).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '信息', exact: true }),
+  ).toBeFocused();
   await page.getByRole('button', { name: '命令输出', exact: true }).click();
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.locator('.terminal-shell')).not.toBeVisible();
@@ -269,6 +407,19 @@ export async function navigationUI(
     page.getByRole('heading', { name: '外观', exact: true }),
   ).toBeVisible();
   await page.getByLabel('全站主题', { exact: true }).selectOption('dark');
+  for (const label of [
+    '查找下一个',
+    '启用页面通知',
+    '快捷操作',
+    '导出已加载对话',
+    '切换到管理员模式',
+  ]) {
+    const action = page
+      .getByRole('region', { name: '设置', exact: true })
+      .getByRole('button', { name: label, exact: true });
+    await expect(action.locator('svg')).toHaveCount(1);
+    await expect(action).toContainText(label);
+  }
   await page.getByLabel('密度', { exact: true }).selectOption('compact');
   await page.getByLabel('工作面板宽度', { exact: true }).fill('520');
   await page.getByLabel('Terminal 高度', { exact: true }).fill('300');
@@ -328,6 +479,10 @@ export async function navigationUI(
   await expect(chooseProject).toBeEnabled();
   await expect(chooseSession).toBeDisabled();
   await expect(page.getByLabel('任务内容')).not.toBeVisible();
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await expect(
+    page.getByLabel('远程目录绝对路径', { exact: true }),
+  ).toHaveValue('/');
   await chooseHost.click();
   await page.getByRole('button', { name: /示例服务器.*在线/ }).click();
   await expect(chooseSession).toBeDisabled();
@@ -366,6 +521,16 @@ export async function navigationUI(
     await expect(
       page.getByRole('dialog', { name: '会话导航', exact: true }),
     ).not.toBeVisible();
+    await page.getByRole('button', { name: '信息', exact: true }).click();
+    await insideViewport(
+      page.getByRole('button', { name: '关闭信息', exact: true }),
+    );
+    await insideViewport(
+      page
+        .getByRole('dialog', { name: '会话详情', exact: true })
+        .getByRole('button', { name: '重新连接', exact: true }),
+    );
+    await page.keyboard.press('Escape');
     await noOverflow();
     await page.screenshot({
       path: join(artifacts, `navigation-mobile-${viewport.width}.png`),

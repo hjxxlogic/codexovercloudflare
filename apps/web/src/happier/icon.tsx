@@ -1,6 +1,9 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  theme: 'M21 12.8A9 9 0 0 1 11.2 3 9 9 0 1 0 21 12.8Z',
+  language:
+    'M3 5h12M9 3v2m4 0c-1 6-5 10-10 12m2-9c1 4 4 7 8 9m1 4 4-11 4 11m-6.5-4h5',
   check: 'm5 12 4 4L19 6',
   fullscreen: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
   minimize: 'M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5',

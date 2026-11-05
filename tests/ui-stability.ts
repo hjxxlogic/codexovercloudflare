@@ -130,7 +130,9 @@ const events: Event[] = [
       item: {
         id: `tool-${seq}`,
         type: 'commandExecution',
-        command: `echo example-${seq}`,
+        command: process.argv.includes('--navigation')
+          ? `echo example-${seq}\n` + 'long tool command '.repeat(70)
+          : `echo example-${seq}`,
         exitCode: 0,
       },
     },

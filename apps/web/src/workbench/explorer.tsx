@@ -61,29 +61,35 @@ export function Explorer({
         next?.focus();
       }}
     >
-      <header className="pane-heading">
-        <h2>{t('文件浏览器')}</h2>
-        <FullscreenButton pane="files" />
-        <IconButton icon="close" label={t('关闭文件浏览器')} onClick={close} />
-        <IconButton
-          icon="refresh"
-          label={t('刷新')}
-          onClick={() => setGeneration(generation + 1)}
-        />
-      </header>
-      <div className="file-browser-tabs">
-        <button
-          aria-pressed={!transferring}
-          onClick={() => setTransferring(false)}
-        >
-          {t('浏览')}
-        </button>
-        <button
-          aria-pressed={transferring}
-          onClick={() => setTransferring(true)}
-        >
-          {t('上传 / 传输')}
-        </button>
+      <div className="pane-controls">
+        <header className="pane-heading">
+          <h2>{t('文件浏览器')}</h2>
+          <FullscreenButton pane="files" />
+          <IconButton
+            icon="close"
+            label={t('关闭文件浏览器')}
+            onClick={close}
+          />
+          <IconButton
+            icon="refresh"
+            label={t('刷新')}
+            onClick={() => setGeneration(generation + 1)}
+          />
+        </header>
+        <div className="file-browser-tabs">
+          <button
+            aria-pressed={!transferring}
+            onClick={() => setTransferring(false)}
+          >
+            {t('浏览')}
+          </button>
+          <button
+            aria-pressed={transferring}
+            onClick={() => setTransferring(true)}
+          >
+            {t('上传 / 传输')}
+          </button>
+        </div>
       </div>
       <div hidden={transferring}>
         <input

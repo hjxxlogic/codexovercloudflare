@@ -2881,6 +2881,10 @@ function App() {
                     hosts.find((item) => item.id === host)?.name || host
                   }
                   changed={refreshView}
+                  defaultProjectPath={
+                    projects.find((item) => item.id === project)?.path ||
+                    projects[0]?.path
+                  }
                   creationOnly
                 />
               )
@@ -3073,6 +3077,7 @@ function App() {
       >
         <header>
           <IconButton
+            showLabel
             icon="back"
             label={t('返回会话')}
             onClick={() => setMenuOpen(false)}
@@ -3083,7 +3088,10 @@ function App() {
           <h2>{t('外观')}</h2>{' '}
           <div className="menu-footer">
             <label className="language-picker">
-              <span>{t('主题')}</span>
+              <span className="setting-label">
+                <Icon name="theme" />
+                {t('主题')}
+              </span>
               <select
                 aria-label={t('全站主题')}
                 value={theme}
@@ -3097,7 +3105,10 @@ function App() {
               </select>
             </label>
             <label className="language-picker">
-              <span>语言 / Language</span>
+              <span className="setting-label">
+                <Icon name="language" />
+                语言 / Language
+              </span>
               <select
                 aria-label="语言 / Language"
                 value={language}
@@ -3110,6 +3121,7 @@ function App() {
               </select>
             </label>
             <IconButton
+              showLabel
               icon="devices"
               label={t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
               disabled={fileBusy}
@@ -3124,6 +3136,7 @@ function App() {
         <div className="settings-account">
           {mode === 'cw' && emailIdentity.email && (
             <IconButton
+              showLabel
               icon="power"
               label={`${t('登出')} ${emailIdentity.email}`}
               onClick={() => window.location.assign('/cdn-cgi/access/logout')}
@@ -3131,6 +3144,7 @@ function App() {
           )}
           {mode === 'admin' && admin && (
             <IconButton
+              showLabel
               icon="power"
               label={t('退出管理')}
               onClick={() =>
@@ -3704,60 +3718,63 @@ function App() {
               information={
                 panel === 'details' && selected ? (
                   <section className="session-details">
-                    <p className="status">
-                      {t(status)}
-                      {selected.external
-                        ? t(' · 外部会话 · 只读同步')
-                        : ''} · {busy ? t('执行中') : t('空闲')}{' '}
-                      {t('· 远程项目')} {selected.projectId}
-                    </p>
-                    {selected.state !== 'ready' && selected.threadId && (
-                      <IconButton
-                        icon="history"
-                        label={t('恢复并继续')}
-                        disabled={!online || creating}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t('在 {0} 恢复并继续此线程？', remoteTarget),
-                            )
-                          )
-                            void create(selected.threadId);
-                        }}
-                      />
-                    )}
-                    <p>{remoteTarget}</p>
-                    <p>{projects.find((p) => p.id === project)?.path}</p>
-                    <details>
-                      <summary>{t('会话标识')}</summary>
-                      <p className="id">{selected.id}</p>
-                    </details>
-                    <details>
-                      <summary>{t('本机存储')}</summary>
-                      <p>
-                        {t(
-                          '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
-                        )}
+                    <div className="session-details-content">
+                      <p className="status">
+                        {t(status)}
+                        {selected.external
+                          ? t(' · 外部会话 · 只读同步')
+                          : ''} · {busy ? t('执行中') : t('空闲')}{' '}
+                        {t('· 远程项目')} {selected.projectId}
                       </p>
-                      <IconButton
-                        icon="trash"
-                        label={t('清理本机会话缓存')}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                '清理此设备的会话缓存？离线时将无法读取这些副本。',
-                              ),
+                      <p>{remoteTarget}</p>
+                      <p>{projects.find((p) => p.id === project)?.path}</p>
+                      <details>
+                        <summary>{t('会话标识')}</summary>
+                        <p className="id">{selected.id}</p>
+                      </details>
+                      <details>
+                        <summary>{t('本机存储')}</summary>
+                        <p>
+                          {t(
+                            '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
+                          )}
+                        </p>
+                        <IconButton
+                          icon="trash"
+                          label={t('清理本机会话缓存')}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t(
+                                  '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                                ),
+                              )
                             )
-                          )
-                            void localHistory.current
-                              ?.clear()
-                              .then(() => setNotice('本机会话缓存已清理'))
-                              .catch(report);
-                        }}
-                      />
-                    </details>
-                    <div className="row">
+                              void localHistory.current
+                                ?.clear()
+                                .then(() => setNotice('本机会话缓存已清理'))
+                                .catch(report);
+                          }}
+                        />
+                      </details>
+                    </div>
+                    <footer className="session-detail-actions">
+                      {selected.state !== 'ready' && selected.threadId && (
+                        <IconButton
+                          icon="history"
+                          label={t('恢复并继续')}
+                          disabled={!online || creating}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t('在 {0} 恢复并继续此线程？', remoteTarget),
+                              )
+                            )
+                              void create(selected.threadId);
+                          }}
+                        />
+                      )}
+
                       <IconButton
                         icon="stop"
                         label={t('停止本轮')}
@@ -3823,7 +3840,7 @@ function App() {
                             setTakeover((v) => !v);
                         }}
                       />
-                    </div>
+                    </footer>
                   </section>
                 ) : panel === 'details' ? (
                   <section className="session-details">

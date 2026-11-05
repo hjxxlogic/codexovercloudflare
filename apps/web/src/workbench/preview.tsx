@@ -60,47 +60,49 @@ export function Preview({
       aria-label={t('文件预览')}
     >
       {resize}
-      <header className="pane-heading">
-        <h2 title={path}>{path}</h2>
-        <FullscreenButton pane="preview" />
-        <IconButton icon="close" label={t('关闭预览')} onClick={close} />
-      </header>
-      <div className="row">
-        <Copy value={path} />
-        <IconButton
-          icon="link"
-          label={t('引用到对话')}
-          onClick={() => reference(path)}
-        />
-        <IconLink
-          icon="external"
-          label={t('新窗口')}
-          href={filePreviewUrl(host, project, path)}
-          target="_blank"
-          rel="noopener noreferrer"
-        />
+      <div className="pane-controls">
+        <header className="pane-heading">
+          <h2 title={path}>{path}</h2>
+          <FullscreenButton pane="preview" />
+          <IconButton icon="close" label={t('关闭预览')} onClick={close} />
+        </header>
+        <div className="row">
+          <Copy value={path} />
+          <IconButton
+            icon="link"
+            label={t('引用到对话')}
+            onClick={() => reference(path)}
+          />
+          <IconLink
+            icon="external"
+            label={t('新窗口')}
+            href={filePreviewUrl(host, project, path)}
+            target="_blank"
+            rel="noopener noreferrer"
+          />
 
-        <IconButton
-          icon="download"
-          label={t('下载')}
-          onClick={() => {
-            download.current?.abort();
-            const controller = new AbortController();
-            download.current = controller;
-            void downloadFile(host, project, path, controller.signal).catch(
-              (e: unknown) => {
-                if (!controller.signal.aborted) setError(String(e));
-              },
-            );
-          }}
+          <IconButton
+            icon="download"
+            label={t('下载')}
+            onClick={() => {
+              download.current?.abort();
+              const controller = new AbortController();
+              download.current = controller;
+              void downloadFile(host, project, path, controller.signal).catch(
+                (e: unknown) => {
+                  if (!controller.signal.aborted) setError(String(e));
+                },
+              );
+            }}
+          />
+        </div>
+        <input
+          aria-label={t('本文件查找')}
+          placeholder={t('本文件查找')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <input
-        aria-label={t('本文件查找')}
-        placeholder={t('本文件查找')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
       {error ? (
         <p role="alert">
           {error}

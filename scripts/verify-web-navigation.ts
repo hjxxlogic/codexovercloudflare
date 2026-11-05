@@ -120,6 +120,20 @@ try {
   await expect(
     page.locator('#navigation-projects .navigation-option'),
   ).not.toHaveCount(0);
+  const refreshProject = page.getByRole('button', {
+    name: '刷新项目',
+    exact: true,
+  });
+  const newProject = page.getByRole('button', {
+    name: '新建项目',
+    exact: true,
+  });
+  await expect(refreshProject).toBeVisible();
+  assert(
+    (await refreshProject.boundingBox())!.x <
+      (await newProject.boundingBox())!.x,
+  );
+  await refreshProject.click();
   await page.locator('#navigation-projects .navigation-option').first().click();
   await expect(
     page.getByRole('button', { name: '选择会话', exact: true }),
@@ -128,6 +142,12 @@ try {
     page.locator('.navigation-level > h2 > button[aria-expanded="true"]'),
   ).toHaveCount(1);
   await expect(page.locator('.navigation-footer a')).toHaveCount(0);
+  for (const id of ['hosts', 'projects']) {
+    assert(
+      (await page.locator(`#navigation-${id}-heading`).boundingBox())!.height <=
+        42,
+    );
+  }
   assert.deepEqual(
     await page
       .locator('.workspace-toolbar > button')
@@ -155,10 +175,33 @@ try {
   await expect(page.locator('.unified-output')).toBeVisible();
   await page.getByRole('button', { name: '信息', exact: true }).click();
   await expect(
-    page.getByRole('complementary', { name: '会话详情', exact: true }),
+    page.getByRole('dialog', { name: '会话详情', exact: true }),
   ).toBeVisible();
   await expect(page.locator('.unified-output')).not.toBeVisible();
-  await page.getByRole('button', { name: '关闭信息', exact: true }).click();
+  const informationDialog = page.getByRole('dialog', {
+    name: '会话详情',
+    exact: true,
+  });
+  await informationDialog.locator('.session-details').evaluate((node) => {
+    const content = document.createElement('p');
+    content.textContent = 'Long information '.repeat(1000);
+    node.appendChild(content);
+    node.scrollTop = node.scrollHeight;
+  });
+  const closeInformation = page.getByRole('button', {
+    name: '关闭信息',
+    exact: true,
+  });
+  const closeBounds = (await closeInformation.boundingBox())!;
+  assert(
+    closeBounds.y >= 0 &&
+      closeBounds.y + closeBounds.height <= page.viewportSize()!.height,
+  );
+  await page.keyboard.press('Escape');
+  await expect(informationDialog).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '信息', exact: true }),
+  ).toBeFocused();
   await page.getByRole('button', { name: '命令输出', exact: true }).click();
   await page.screenshot({
     path: join(output, 'online-desktop.png'),
@@ -255,7 +298,9 @@ writeFileSync(
       scope:
         'Web UI only; no session attach/create, prompt, terminal process or Agent restart',
       checks: [
-        'desktop navigation and five toolbar actions',
+        'compact hierarchical navigation and five toolbar actions',
+        'persistent project refresh before new project',
+        'modal information with visible close button',
         'merged files and transfers',
         'exclusive right panels',
         'settings and theme',

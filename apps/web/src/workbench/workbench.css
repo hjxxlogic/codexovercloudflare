@@ -706,3 +706,76 @@
   /* Keep italic glyph overhang inside the scroll box. */
   padding: 4px;
 }
+
+/* One sticky group keeps restore, close and actions together in long panes. */
+.pane-controls {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  flex-shrink: 0;
+  background: var(--cw-surface, var(--surface));
+  padding-bottom: 8px;
+}
+.pane-controls > .row {
+  flex-wrap: wrap;
+}
+.pane-controls > input {
+  width: 100%;
+  margin-top: 8px;
+}
+.element-fullscreen > :is(.element-toolbar, .code-toolbar) {
+  top: 0;
+  z-index: 25;
+}
+.workbench-actions[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+.workbench-actions > .pane-heading {
+  flex-shrink: 0;
+}
+.dialog-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+.chat-panel[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chat-panel > .panel-heading {
+  flex-shrink: 0;
+}
+.chat-panel > .model-picker {
+  min-height: 0;
+  overflow: auto;
+}
+
+.document-tools {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--cw-surface, var(--surface));
+  opacity: 1;
+}
+.file-preview-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.file-preview-toolbar {
+  flex-shrink: 0;
+}
+.file-preview-page > :is(.file-preview-document, .file-preview-text) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

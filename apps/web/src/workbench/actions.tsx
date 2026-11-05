@@ -76,6 +76,7 @@ export function WorkbenchActions({
   return (
     <>
       <IconButton
+        showLabel
         icon="more"
         label={t('快捷操作')}
         ref={trigger}
@@ -83,6 +84,7 @@ export function WorkbenchActions({
         onClick={() => dialog.current?.showModal()}
       />
       <IconButton
+        showLabel
         icon="download"
         label={t('导出已加载对话')}
         type="button"
@@ -101,24 +103,28 @@ export function WorkbenchActions({
         ref={dialog}
         aria-label={t('快捷操作')}
       >
-        <h2>{t('快捷操作')}</h2>
-        {actions.map((action) => (
+        <header className="pane-heading">
+          <h2>{t('快捷操作')}</h2>
           <IconButton
-            key={action.label}
-            icon={action.icon || 'more'}
-            label={action.label}
-            onClick={() => {
-              dialog.current?.close();
-              action.run();
-            }}
+            icon="close"
+            label={t('关闭')}
+            onClick={() => dialog.current?.close()}
           />
-        ))}
-        <IconButton
-          icon="close"
-          label={t('关闭')}
-          type="button"
-          onClick={() => dialog.current?.close()}
-        />
+        </header>
+        <div className="dialog-action-list">
+          {actions.map((action) => (
+            <IconButton
+              showLabel
+              key={action.label}
+              icon={action.icon || 'more'}
+              label={action.label}
+              onClick={() => {
+                dialog.current?.close();
+                action.run();
+              }}
+            />
+          ))}
+        </div>
       </dialog>
     </>
   );

@@ -1,5 +1,5 @@
 import { IconButton } from './happier/icon-button.tsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, readApi, queryApi } from './api.ts';
 import { observe } from './notifications.ts';
 import { HistoryCache } from './history.ts';
@@ -8,6 +8,16 @@ import { t } from './i18n.ts';
 
 type Project = { id: string; name: string; path: string; available?: boolean };
 type Catalog = { revision: number; projects: Project[]; canManage: boolean };
+function siblingDirectory(path = '') {
+  const normalized = path.trim().replace(/[\\/]+$/, '');
+  const separator = normalized.includes('\\') ? '\\' : '/';
+  if (!normalized.startsWith(separator) && !/^[a-z]:/i.test(normalized))
+    return '/';
+  const index = normalized.lastIndexOf(separator);
+  if (/^[a-z]:/i.test(normalized) && index < 3)
+    return normalized.slice(0, 2) + separator;
+  return index >= 0 ? normalized.slice(0, index + 1) : '/';
+}
 export function ProjectManager({
   hostId,
   hostName,
@@ -15,6 +25,7 @@ export function ProjectManager({
   changed,
   operations,
   creationOnly = false,
+  defaultProjectPath,
 }: {
   hostId: string;
   hostName: string;
@@ -22,13 +33,18 @@ export function ProjectManager({
   changed?: () => Promise<void>;
   operations?: OperationClient | null;
   creationOnly?: boolean;
+  defaultProjectPath?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [activated, setActivated] = useState(false);
   const [ownOperations, setOwnOperations] = useState<OperationClient>();
   const client = operations || ownOperations;
   const [catalog, setCatalog] = useState<Catalog>();
-  const [path, setPath] = useState('');
+  const [path, setPath] = useState(() => siblingDirectory(defaultProjectPath));
+  const pathEdited = useRef(false);
+  useEffect(() => {
+    if (!pathEdited.current) setPath(siblingDirectory(defaultProjectPath));
+  }, [defaultProjectPath]);
   const [name, setName] = useState('');
   const [mkdir, setMkdir] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -105,11 +121,15 @@ export function ProjectManager({
       controller.abort();
     };
   }, [open, client, endpoint]);
-  async function refresh() {
+  async function refresh(refreshList = false) {
     setBusy(true);
     setError('');
     try {
-      setCatalog(await readApi(endpoint));
+      const next: Catalog = await readApi(endpoint);
+      setCatalog(next);
+      if (!pathEdited.current)
+        setPath(siblingDirectory(defaultProjectPath || next.projects[0]?.path));
+      if (refreshList) await changed?.();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -150,7 +170,8 @@ export function ProjectManager({
       );
       setPending(undefined);
       if (request.operation === 'add') {
-        setPath('');
+        pathEdited.current = false;
+        setPath(siblingDirectory(String(request.path)));
         setName('');
         setDirectories(undefined);
       }
@@ -178,46 +199,52 @@ export function ProjectManager({
   }
   return (
     <section className="project-management">
-      {creationOnly ? (
-        <IconButton
-          icon="plus"
-          label={t('新建项目')}
-          aria-expanded={open}
-          onClick={() => {
-            setActivated(true);
-            setOpen(!open);
-            if (!open) void refresh();
-          }}
-        />
-      ) : (
-        <button
-          onClick={() => {
-            setActivated(true);
-            setOpen(!open);
-            if (!open) void refresh();
-          }}
-        >
-          {creationOnly ? (
-            t('新建项目')
-          ) : (
-            <>
-              {t('项目管理')} · {hostName}
-            </>
-          )}
-        </button>
-      )}
+      <div className="project-management-actions">
+        {creationOnly && (
+          <IconButton
+            icon="refresh"
+            label={t('刷新项目')}
+            disabled={busy}
+            onClick={() => void refresh(true)}
+          />
+        )}
+        {creationOnly ? (
+          <IconButton
+            icon="plus"
+            label={t('新建项目')}
+            aria-expanded={open}
+            onClick={() => {
+              setActivated(true);
+              setOpen(!open);
+              if (!open) void refresh();
+            }}
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setActivated(true);
+              setOpen(!open);
+              if (!open) void refresh();
+            }}
+          >
+            {t('项目管理')} · {hostName}
+          </button>
+        )}
+      </div>
       {open && (
         <>
           <p>
             {t('目标 Agent：')}
             {hostName} <code>{hostId}</code>
           </p>
-          <IconButton
-            icon="refresh"
-            label={t('刷新项目')}
-            disabled={busy}
-            onClick={() => void refresh()}
-          />
+          {!creationOnly && (
+            <IconButton
+              icon="refresh"
+              label={t('刷新项目')}
+              disabled={busy}
+              onClick={() => void refresh()}
+            />
+          )}
           {error && <p role="alert">{error}</p>}
           {pending && !busy && (
             <div role="status">
@@ -309,7 +336,10 @@ export function ProjectManager({
                       required
                       value={path}
                       maxLength={4096}
-                      onChange={(e) => setPath(e.target.value)}
+                      onChange={(e) => {
+                        pathEdited.current = true;
+                        setPath(e.target.value);
+                      }}
                       disabled={busy || !!pending}
                     />
                   </label>
@@ -327,6 +357,7 @@ export function ProjectManager({
                         label={t('上级目录')}
                         type="button"
                         onClick={() => {
+                          pathEdited.current = true;
                           setPath(directories.parent);
                           setDirectories(undefined);
                         }}
@@ -336,6 +367,7 @@ export function ProjectManager({
                           type="button"
                           key={d.path}
                           onClick={() => {
+                            pathEdited.current = true;
                             setPath(d.path);
                             setDirectories(undefined);
                           }}

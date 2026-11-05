@@ -1,3 +1,4 @@
+import { Icon } from '../happier/icon.tsx';
 import { IconButton } from '../happier/icon-button.tsx';
 import { createPortal } from 'react-dom';
 import { ResizeHandle } from './resize-handle.tsx';
@@ -322,6 +323,7 @@ export function Workbench({
                         onChange={(e) => setSearch(e.target.value)}
                       />
                       <IconButton
+                        showLabel
                         icon="search"
                         label={t('查找下一个')}
                         type="submit"
@@ -329,6 +331,7 @@ export function Workbench({
                     </form>
 
                     <IconButton
+                      showLabel
                       icon="info"
                       label={
                         attention.enabled
@@ -394,7 +397,10 @@ export function Workbench({
                       ]}
                     />
                     <label>
-                      {t('密度')}
+                      <span className="setting-label">
+                        <Icon name="settings" />
+                        {t('密度')}
+                      </span>
                       <select
                         aria-label={t('密度')}
                         value={preferences.density}
@@ -409,7 +415,10 @@ export function Workbench({
                       </select>
                     </label>
                     <label>
-                      {t('工作面板宽度')}
+                      <span className="setting-label">
+                        <Icon name="fullscreen" />
+                        {t('工作面板宽度')}
+                      </span>
                       <input
                         type="range"
                         min="280"
@@ -422,7 +431,10 @@ export function Workbench({
                       />
                     </label>
                     <label>
-                      {t('Terminal 高度')}
+                      <span className="setting-label">
+                        <Icon name="terminal" />
+                        {t('Terminal 高度')}
+                      </span>
                       <input
                         type="range"
                         min="220"
@@ -515,20 +527,9 @@ export function Workbench({
                   </aside>
                 )}
                 {information && (
-                  <aside
-                    className="unified-work-panel unified-information"
-                    aria-label={t('会话详情')}
-                  >
-                    <header className="pane-heading">
-                      <h2>{t('信息')}</h2>
-                      <IconButton
-                        icon="close"
-                        label={t('关闭信息')}
-                        onClick={closeMenu}
-                      />
-                    </header>
+                  <InformationDialog close={closeMenu}>
                     {information}
-                  </aside>
+                  </InformationDialog>
                 )}
               </div>
               {terminalLoaded && (
@@ -583,5 +584,47 @@ export function Workbench({
         </FileContext.Provider>
       </FullscreenContext.Provider>
     </ThemeContext.Provider>
+  );
+}
+
+function InformationDialog({
+  children,
+  close,
+}: {
+  children: ReactNode;
+  close: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      element?.close();
+      requestAnimationFrame(() => {
+        const trigger = Array.from(
+          document.querySelectorAll<HTMLButtonElement>(
+            '.workspace-toolbar button',
+          ),
+        ).find((button) => button.getAttribute('aria-label') === t('信息'));
+        trigger?.focus();
+      });
+    };
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="workspace-information-dialog"
+      aria-label={t('会话详情')}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+    >
+      <header className="pane-heading">
+        <h2>{t('信息')}</h2>
+        <IconButton icon="close" label={t('关闭信息')} onClick={close} />
+      </header>
+      {children}
+    </dialog>
   );
 }

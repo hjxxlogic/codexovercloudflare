@@ -611,3 +611,101 @@
   gap: 12px;
   margin-top: 20px;
 }
+
+/* Collapsed hierarchy levels use one line; the selected name truncates. */
+.navigation-level > h2 > button[aria-expanded='false'] {
+  padding-block: 8px;
+  min-height: 40px;
+}
+.navigation-level > h2 > button[aria-expanded='false'] > span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.navigation-level > h2 > button[aria-expanded='false'] small {
+  display: inline;
+  margin: 0;
+  min-width: 0;
+}
+.project-management-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.unified-settings > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding-block: 12px;
+}
+.unified-shell .icon-button.icon-button-labeled {
+  width: auto;
+  height: auto;
+  padding: 8px 12px;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.workspace-information-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+  box-shadow: 0 20px 80px #0004;
+}
+.workspace-information-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-information-dialog::backdrop {
+  background: #0006;
+}
+.workspace-information-dialog > .pane-heading {
+  flex-shrink: 0;
+}
+.workspace-information-dialog .session-details {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+.workspace-information-dialog .session-details-content {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.session-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.setting-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Preview content scrolls below its persistent actions. */
+.unified-work-panel .workbench-preview {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench-preview > :is(.markdown, .file-lines) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

@@ -1,6 +1,6 @@
 import { t, useLanguage } from './i18n.ts';
 import { memo, useState, useEffect, useRef } from 'react';
-import { MarkdownRenderer } from './markdown/renderer.tsx';
+import { MarkdownRenderer, Copy } from './markdown/renderer.tsx';
 import { FileText } from './file-links.tsx';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
@@ -122,7 +122,7 @@ const EventView = memo(
           </div>
         ) : (
           <>
-            <CopyText text={content || ''} />
+            <Copy value={content || ''} />
             {event.type === 'turn/diff/updated' ? (
               <Diff text={content || ''} />
             ) : (
@@ -160,6 +160,7 @@ const EventView = memo(
       <article
         key={event.seq}
         data-event-seq={event.seq}
+        tabIndex={0}
         className={`message ${event.type === 'user' ? 'user-message' : 'assistant-message'}`}
       >
         <strong className="message-role">{eventTitle(event)}</strong>
@@ -167,12 +168,13 @@ const EventView = memo(
       </article>
     ) : (
       <details
+        tabIndex={0}
         className="tool-output"
         data-event-seq={event.seq}
         key={event.seq}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
       >
-        <summary>{eventTitle(event)}</summary>
+        <summary title={eventTitle(event)}>{eventTitle(event)}</summary>
         {expanded ? body : null}
       </details>
     );
