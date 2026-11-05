@@ -1,13 +1,8 @@
 body {
   margin: 12px;
   font: 14px system-ui;
-  color: #182230;
-  background: white;
-}
-html[data-theme='dark'] body {
-  color-scheme: dark;
-  color: #e8edf5;
-  background: #191f2a;
+  color: var(--text);
+  background: var(--bg);
 }
 svg {
   max-width: 100%;
@@ -32,7 +27,7 @@ html[data-expanded='true'] #diagram-tools {
   font: inherit;
   color: inherit;
   background: transparent;
-  border: 1px solid #8290a4;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
   cursor: pointer;

@@ -61,6 +61,7 @@ export const english: Record<string, string> = {
   查找下一个: 'Find next',
   主题: 'Theme',
   跟随系统: 'System',
+  全站主题: 'Site theme',
   深色: 'Dark',
   浅色: 'Light',
   密度: 'Density',

@@ -727,7 +727,10 @@ async function openMenu(page: Page) {
   await page.getByRole('button', { name: '功能菜单' }).click();
 }
 try {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const uiContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await uiContext.newPage();
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
@@ -3219,6 +3222,80 @@ try {
       }
     }
   }
+  const injectedAuthError = page
+    .locator('.happier-site > .error')
+    .filter({ hasText: 'UNAUTHORIZED' });
+  if (await injectedAuthError.isVisible())
+    await injectedAuthError
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
+  const themePeer = await page.context().newPage();
+  await themePeer.goto(origin);
+  for (const theme of ['light', 'dark']) {
+    await openMenu(page);
+    await page.getByLabel('全站主题', { exact: true }).selectOption(theme);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(themePeer.locator('html')).toHaveAttribute(
+      'data-theme',
+      theme,
+    );
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const name of [
+        '待授权请求',
+        '已授权设备',
+        'Agent 运行版本',
+        '服务器唤醒配置',
+        'Agent 邮箱关联',
+        '项目管理',
+        'API Key 管理',
+        '管理会话',
+        '杂项',
+      ]) {
+        await page.getByRole('tab', { name, exact: true }).click();
+        const panel = page.getByRole('tabpanel', { name, exact: true });
+        await expect(panel).toBeVisible();
+        await page.evaluate(() => scrollTo(0, 0));
+        const visual = await page.evaluate(() => {
+          const panel = document.querySelector(
+            '[role="tabpanel"]:not([hidden])',
+          )!;
+          const root = getComputedStyle(document.documentElement);
+          const nav = document
+            .querySelector('.admin-tabs')!
+            .getBoundingClientRect();
+          const card = panel.getBoundingClientRect();
+          return {
+            background: getComputedStyle(panel).backgroundColor,
+            expected: root.getPropertyValue('--bg').trim(),
+            navRight: nav.right,
+            cardLeft: card.left,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        });
+        assert.equal(
+          visual.background,
+          theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(25, 23, 23)',
+        );
+        assert(!visual.overflow, `${name} ${theme} ${width}: page overflow`);
+        if (width === 1280)
+          assert(visual.navRight < visual.cardLeft, JSON.stringify(visual));
+        if (['待授权请求', '项目管理'].includes(name))
+          await page.screenshot({
+            path: join(
+              artifacts,
+              `happier-admin-${name === '项目管理' ? 'projects' : 'pending'}-${theme}-${width}.png`,
+            ),
+            fullPage: true,
+          });
+      }
+    }
+  }
+  await themePeer.close();
+  console.log(
+    'PASS: Happier presentation across all nine admin panels, light/dark, desktop/mobile and cross-tab theme synchronization',
+  );
   // Exercise the built application, not only its cache module, with an explicit retention gap.
   logged = online = true;
   admin = false;

@@ -17,3 +17,10 @@ This is a React DOM adaptation of the above presentation. It uses CoC's existing
 SessionHistory and handlers. React Native, Expo, Happier synchronization, routes,
 agent protocol and branding are not imported. CoC approvals, reliable delivery,
 Markdown, file and Terminal components continue to render their existing state.
+
+The same palette now lives in `public/happier-theme.css` for the entire site,
+including authentication, administration, previews, diagrams and downloads.
+`site.css` adapts CoC-specific settings and tables to the same surfaces, sidebar,
+spacing and controls; those administration functions are CoC's existing UI.
+Theme changes share the existing appearance preference and do not reconnect
+sessions or recreate the terminal engine.

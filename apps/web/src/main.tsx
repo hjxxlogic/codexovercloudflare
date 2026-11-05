@@ -38,6 +38,13 @@ import {
   type Session,
 } from '../../../packages/protocol/src/index.ts';
 import './style.css';
+import './happier/site.css';
+import {
+  SiteTheme,
+  useThemePreference,
+  setThemePreference,
+  type ThemePreference,
+} from './theme.ts';
 import { eventWindow, mergeEvents } from './events.ts';
 import {
   api,
@@ -117,6 +124,7 @@ type View = 'chat' | 'connection' | 'devices' | 'keys';
 type Mode = 'cw' | 'admin';
 function App() {
   const language = useLanguage();
+  const theme = useThemePreference();
   const [view, setView] = useState<View>('chat');
   const [adminTab, setAdminTab] = useState<
     | 'pending'
@@ -2850,7 +2858,9 @@ function App() {
     </section>
   );
   return (
-    <main className={view === 'chat' && logged ? 'chat-workspace' : undefined}>
+    <main
+      className={`happier-site${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
+    >
       <header className="topbar" ref={menu}>
         <a
           className="brand"
@@ -3043,6 +3053,20 @@ function App() {
               )}
             </div>
             <div className="menu-footer">
+              <label className="language-picker">
+                <span>{t('主题')}</span>
+                <select
+                  aria-label={t('全站主题')}
+                  value={theme}
+                  onChange={(event) =>
+                    setThemePreference(event.target.value as ThemePreference)
+                  }
+                >
+                  <option value="system">{t('跟随系统')}</option>
+                  <option value="light">{t('浅色')}</option>
+                  <option value="dark">{t('深色')}</option>
+                </select>
+              </label>
               <label className="language-picker">
                 <span>语言 / Language</span>
                 <select
@@ -4440,9 +4464,11 @@ function App() {
   );
 }
 createRoot(document.getElementById('root')!).render(
-  new URLSearchParams(location.hash.slice(1)).get('preview') === 'file' ? (
-    <FilePreview />
-  ) : (
-    <App />
-  ),
+  <SiteTheme>
+    {new URLSearchParams(location.hash.slice(1)).get('preview') === 'file' ? (
+      <FilePreview />
+    ) : (
+      <App />
+    )}
+  </SiteTheme>,
 );

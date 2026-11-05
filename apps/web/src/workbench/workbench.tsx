@@ -19,7 +19,11 @@ import { t, useLanguage } from '../i18n.ts';
 import './workbench.css';
 import { PreviewContext } from './context.ts';
 import { FileContext } from '../file-links.tsx';
-import { ThemeContext } from '../theme.ts';
+import {
+  ThemeContext,
+  useThemePreference,
+  setThemePreference,
+} from '../theme.ts';
 import { FullscreenContext, usePaneFullscreen } from './fullscreen.tsx';
 import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import type { OperationClient } from '../operations.ts';
@@ -111,6 +115,7 @@ export function Workbench({
 }) {
   useLanguage();
   const [preferences, setPreferences] = useState(readPreferences);
+  const theme = useThemePreference();
   const [preview, setPreview] = useState<{ path: string; scope: string }>();
   const previewScope = JSON.stringify([host, project, session]);
   const path = preview?.scope === previewScope ? preview.path : '';
@@ -160,15 +165,20 @@ export function Workbench({
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const fullscreen = usePaneFullscreen(root, previewScope);
-  const update = (value: Partial<Preferences>) =>
+  const update = (value: Partial<Preferences>) => {
+    if (value.theme) setThemePreference(value.theme);
     setPreferences((old) => ({ ...old, ...value }));
+  };
   useEffect(() => {
     try {
-      localStorage.setItem('coc-workbench-v1', JSON.stringify(preferences));
+      localStorage.setItem(
+        'coc-workbench-v1',
+        JSON.stringify({ ...preferences, theme }),
+      );
     } catch {
       /* Private browsing remains functional. */
     }
-  }, [preferences]);
+  }, [preferences, theme]);
   useEffect(() => {
     setPath('');
     setSearch('');
@@ -200,13 +210,13 @@ export function Workbench({
     }
   }
   return (
-    <ThemeContext.Provider value={preferences.theme}>
+    <ThemeContext.Provider value={theme}>
       <FullscreenContext.Provider value={fullscreen}>
         <FileContext.Provider value={{ host, project, root: projectRoot }}>
           <PreviewContext.Provider value={setPath}>
             <div
               className={`cw-workbench density-${preferences.density}${terminalShown ? ' terminal-visible' : ''}`}
-              data-theme={preferences.theme}
+              data-theme={theme}
               data-fullscreen={fullscreen.pane || undefined}
               ref={root}
               style={
@@ -345,7 +355,7 @@ export function Workbench({
                     {t('主题')}
                     <select
                       aria-label={t('主题')}
-                      value={preferences.theme}
+                      value={theme}
                       onChange={(e) =>
                         update({
                           theme: e.target.value as Preferences['theme'],

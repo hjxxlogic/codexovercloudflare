@@ -8,6 +8,7 @@ import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import { t } from '../i18n.ts';
 import { TerminalStream } from './terminal-stream.ts';
 import { FullscreenButton } from './fullscreen.tsx';
+import { useResolvedTheme } from '../theme.ts';
 export type TerminalMetadata = {
   enabled: boolean;
   deliveryInstance: string;
@@ -35,6 +36,7 @@ export default function InteractiveTerminal({
   close,
   prepared,
 }: Props) {
+  const theme = useResolvedTheme();
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(null);
   const fit = useRef<FitAddon>(null);
@@ -80,7 +82,6 @@ export default function InteractiveTerminal({
       fontSize: 13,
       allowProposedApi: false,
       disableStdin: true,
-      theme: { background: '#11151c', foreground: '#e8edf5' },
     });
     const addon = new FitAddon();
     term.loadAddon(addon);
@@ -99,6 +100,23 @@ export default function InteractiveTerminal({
       term.dispose();
     };
   }, []);
+  useEffect(() => {
+    if (terminal.current)
+      terminal.current.options.theme =
+        theme === 'dark'
+          ? {
+              background: '#191717',
+              foreground: '#efefef',
+              cursor: '#efefef',
+              selectionBackground: '#453d3d',
+            }
+          : {
+              background: '#ffffff',
+              foreground: '#222222',
+              cursor: '#222222',
+              selectionBackground: '#dedede',
+            };
+  }, [theme]);
   useEffect(() => {
     if (visible) requestAnimationFrame(() => fit.current?.fit());
   }, [visible]);

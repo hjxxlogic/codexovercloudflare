@@ -13,7 +13,8 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { parseArgs } from 'node:util';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
+import { version as webVersion } from '../package.json';
 import { EndpointPeer, endpointFetch } from './helpers/endpoint-peer.ts';
 import { WindowPeer } from './helpers/window-peer.ts';
 const { values: options } = parseArgs({
@@ -399,6 +400,88 @@ try {
     });
   }
   await context.close();
+  {
+    const adminContext = await browser.newContext({
+      extraHTTPHeaders: admission,
+    });
+    await adminContext.route('**/*', (route) =>
+      new URL(route.request().url()).origin === new URL(origin).origin
+        ? route.continue()
+        : route.abort(),
+    );
+    const adminPage = await adminContext.newPage();
+    adminPage.on('pageerror', (error) => errors.push(error.message));
+    await adminPage.goto(origin);
+    await adminPage
+      .getByRole('button', { name: '功能菜单', exact: true })
+      .click();
+    await adminPage
+      .getByRole('button', { name: '切换到管理员模式', exact: true })
+      .click();
+    await adminPage.getByLabel('所有者密钥', { exact: true }).fill(secret);
+    await adminPage.getByRole('button', { name: '登录', exact: true }).click();
+    await expect(
+      adminPage.getByRole('tab', { name: '待授权请求', exact: true }),
+    ).toBeVisible();
+    for (const theme of ['light', 'dark']) {
+      await adminPage
+        .getByRole('button', { name: '功能菜单', exact: true })
+        .click();
+      await adminPage
+        .getByLabel('全站主题', { exact: true })
+        .selectOption(theme);
+      await expect(
+        adminPage.getByText(`网站版本 ${webVersion}`, { exact: true }),
+      ).toBeVisible();
+      await adminPage.keyboard.press('Escape');
+      await expect(adminPage.locator('html')).toHaveAttribute(
+        'data-theme',
+        theme,
+      );
+      for (const width of [1280, 390]) {
+        await adminPage.setViewportSize({ width, height: 844 });
+        for (const name of [
+          '待授权请求',
+          '已授权设备',
+          'Agent 运行版本',
+          '服务器唤醒配置',
+          'Agent 邮箱关联',
+          '项目管理',
+          'API Key 管理',
+          '管理会话',
+          '杂项',
+        ]) {
+          await adminPage.getByRole('tab', { name, exact: true }).click();
+          await expect(
+            adminPage.getByRole('tabpanel', { name, exact: true }),
+          ).toBeVisible();
+          assert(
+            await adminPage.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+            `${name}: ${theme} ${width}px overflow`,
+          );
+        }
+        if (online)
+          await adminPage.screenshot({
+            path: `.local/r2-deployment/online-admin-${theme}-${width}.png`,
+            fullPage: true,
+          });
+      }
+    }
+    assert.equal(errors.length, 0, errors.join('\n'));
+    await adminPage
+      .getByRole('button', { name: '功能菜单', exact: true })
+      .click();
+    await adminPage.getByRole('button', { name: /^退出管理/ }).click();
+    await expect(
+      adminPage.getByRole('heading', { name: '管理员登录', exact: true }),
+    ).toBeVisible();
+    await adminContext.close();
+    report.checks.push(
+      `Happier ${webVersion} administration: all nine panels, light/dark, desktop/mobile, no page errors or overflow`,
+    );
+  }
   if (accessConfig)
     report.checks.push(
       'Service Auth native admission; browser CoC guest flow (email login not exercised)',

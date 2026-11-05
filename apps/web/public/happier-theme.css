@@ -1,0 +1,116 @@
+/* Happier surface/text palette adapted under MIT; see happier-LICENSE.txt. */
+:root {
+  color-scheme: light;
+  --bg: #fff;
+  --surface: #f8f8f8;
+  --surface-raised: #fff;
+  --hover: #f0f0f0;
+  --text: #222;
+  --muted: #6c6c70;
+  --border: #e5e5e5;
+  --accent: #425d9e;
+  --link: #28657b;
+  --focus: #425d9e;
+  --warning: #806423;
+  --warning-bg: #fff6dd;
+  --danger: #922b36;
+  --danger-bg: #fff0f0;
+  --success: #256e49;
+  --success-bg: #eaf6ee;
+  --shadow: #0000000a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #191717;
+  --surface: #221c1c;
+  --surface-raised: #292121;
+  --hover: #342c2c;
+  --text: #efefef;
+  --muted: #b2aaa6;
+  --border: #453d3d;
+  --accent: #aec4ff;
+  --link: #aec4ff;
+  --focus: #aec4ff;
+  --warning: #e7cf97;
+  --warning-bg: #342d20;
+  --danger: #f1b4bc;
+  --danger-bg: #3c2529;
+  --success: #a5d9ba;
+  --success-bg: #20352a;
+  --shadow: #0003;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #191717;
+    --surface: #221c1c;
+    --surface-raised: #292121;
+    --hover: #342c2c;
+    --text: #efefef;
+    --muted: #b2aaa6;
+    --border: #453d3d;
+    --accent: #aec4ff;
+    --link: #aec4ff;
+    --focus: #aec4ff;
+    --warning: #e7cf97;
+    --warning-bg: #342d20;
+    --danger: #f1b4bc;
+    --danger-bg: #3c2529;
+    --success: #a5d9ba;
+    --success-bg: #20352a;
+    --shadow: #0003;
+  }
+}
+body {
+  margin: 0;
+}
+a {
+  color: var(--link);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 13px;
+}
+button {
+  cursor: pointer;
+}
+button:hover:enabled {
+  background: var(--hover);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.happier-document {
+  box-sizing: border-box;
+  max-width: 880px;
+  margin: 48px auto;
+  padding: 24px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.happier-document h1 {
+  font-size: 28px;
+  letter-spacing: -0.6px;
+}
+.happier-document ul {
+  list-style: none;
+  padding: 0;
+}
+.happier-document li {
+  margin: 8px 0;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}

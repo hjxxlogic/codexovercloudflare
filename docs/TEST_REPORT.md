@@ -92,3 +92,11 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 `COC_NO_STARTUP_REPAIR=1 COC_TEST_TERMINAL=1 npm run test:e2e` 最终退出码 0，46 项全部通过，覆盖原生 CLI、真实 PTY 的输入输出 / 拖动 / 全屏 / 手机、会话历史与可靠传输、控制权、审批、文件上传断线恢复、双主机隔离及权限撤销。阅读区保留原有 65% 比例约束，新增标题计入与现有工作台工具栏一致的高度预算；去除输入卡片叠加留白，保持输入区在视口内。强制断网后的测试等待给固定 30 秒重试留足时间，原请求编号和去重断言保留。
 
 `COC_NO_STARTUP_REPAIR=1 npm run test:opaque` 通过真实本地 Worker、原生 Agent 和 Chromium 的项目选择、提示词流式回复、刷新恢复及回复去重；该浏览器任务流程现也在本地模式执行。模拟 Codex 未调用模型。截图和结构化结果见 `docs/assets/cw-happier-ui/`；原始日志在 `/tmp/cw-happier-*.log`。未部署，未更改正在运行的 Agent 或旧站。
+
+## 0.6.8 全站 Happier 与 r2 升级
+
+本轮将共享主题覆盖登录 / 配对、管理九个面板、CW、文件预览、图表、Terminal 和下载页。管理桌面侧栏与手机 Tab 保留原有审批、撤销、排序和权限行为；同页 / 跨标签主题同步不重建会话或终端。实施过程见 [计划记录](CW_HAPPIER_UI_PLAN.md#全站实施记录)。
+
+本地原生构建和 CTest 15/15、Vitest 35 文件 / 381 项、完整 E2E 46 项（包含 Terminal）通过；完整 UI 专项已通过九面板 × 深浅色 × 桌面 / 手机，以及跨标签同步和既有故障恢复。类型、lint、网页构建、部署工具与来源校验测试通过。合成数据截图和本地结果见 [验证记录](assets/happier-site-0.6.8/verification.json)；准确提交 CI、部署来源、下载摘要与线上结果写入 [r2 部署记录](R2_DEPLOYMENT.md)，此处本地结果不代替 CI 门禁。
+
+CI 的真实计时账单 / 重试专项需要约 8 分 35 秒，主回归总预算提高至 45 分钟，所有用例与断言保留。CI 默认禁用会调用模型的自动启动修复；专门的假 Codex 修复夹具清除此标记后验证该功能。

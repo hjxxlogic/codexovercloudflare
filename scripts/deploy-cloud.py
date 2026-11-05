@@ -180,7 +180,7 @@ def publish_downloads(bundles, identity, site, skip_musl=False):
     (target / 'SHA256SUMS').write_text(''.join(hashlib.sha256(checked[name]).hexdigest() + '  ' + name + '\n' for name in sorted(checked)))
     notice = ('<p>musl ' + version + ' 暂缓发布；保留已验证的 ' + deferred['linux-musl']['version'] + ' 下载。</p>') if deferred else ''
     links = ''.join('<li><a href="' + name + '">' + name + '</a></li>' for name in sorted(checked))
-    (target / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex Downloads</title><h1>Codex over Cloudflare ' + version + '</h1><p>Linux x86_64 / Windows x64</p>' + notice + '<ul>' + links + '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></html>', encoding='utf-8')
+    (target / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Codex Downloads</title><link rel="stylesheet" href="./happier-theme.css"><script src="./happier-theme.js"></script><main class="happier-document"><h1>Codex over Cloudflare ' + version + '</h1><p>Linux x86_64 / Windows x64</p>' + notice + '<ul>' + links + '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></main></html>', encoding='utf-8')
     return manifest
 
 
@@ -427,6 +427,11 @@ def main():
             bundles[name] = (archive, artifact['digest'])
             selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
         published = publish_downloads(bundles, identities[0], output / 'site', bool(args.skip_native_platform))
+    # Downloads are public, while root assets can require Access admission.
+    for name in ('happier-theme.css', 'happier-theme.js'):
+        theme_asset = output / 'site' / name
+        if theme_asset.is_file():
+            shutil.copyfile(theme_asset, output / 'site/downloads' / name)
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
@@ -472,6 +477,8 @@ def main():
         evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     health = json.loads(agent.curl(base + '/api/v1/healthz'))
     for path in [output / 'site/index.html', *sorted((output / 'site/assets').glob('*')),
+                 *[output / 'site' / name for name in ('happier-theme.css', 'happier-theme.js', 'happier-LICENSE.txt')],
+                 *[output / 'site/downloads' / name for name in ('index.html', 'happier-theme.css', 'happier-theme.js')],
                  output / 'site/downloads/USER_GUIDE.md', output / 'site/downloads/index.json',
                  output / 'site/downloads/SHA256SUMS']:
         if path.is_file() and agent.curl(base + ('/' if path == output / 'site/index.html' else '/' + path.relative_to(output / 'site').as_posix())) != path.read_bytes():

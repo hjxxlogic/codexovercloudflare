@@ -1,33 +1,4 @@
-/* Adapted from happier-dev/happier, MIT. See SOURCE.md and /happier-LICENSE.txt. */
-.cw-workbench:has(.happier-cw) {
-  --cw-bg: #191717;
-  --cw-surface: #221c1c;
-  --cw-hover: #292121;
-  --cw-text: #efefef;
-  --cw-muted: #a39a95;
-  --cw-border: #3b3333;
-  --cw-accent: #9eb9ff;
-}
-.cw-workbench:has(.happier-cw)[data-theme='light'] {
-  --cw-bg: #fff;
-  --cw-surface: #f8f8f8;
-  --cw-hover: #f0f0f0;
-  --cw-text: #222;
-  --cw-muted: #6c6c70;
-  --cw-border: #e5e5e5;
-  --cw-accent: #26778b;
-}
-@media (prefers-color-scheme: light) {
-  .cw-workbench:has(.happier-cw)[data-theme='system'] {
-    --cw-bg: #fff;
-    --cw-surface: #f8f8f8;
-    --cw-hover: #f0f0f0;
-    --cw-text: #222;
-    --cw-muted: #6c6c70;
-    --cw-border: #e5e5e5;
-    --cw-accent: #26778b;
-  }
-}
+/* Happier session presentation; shared tokens are in /happier-theme.css. */
 .cw-workbench .chat-layout.happier-cw {
   position: relative;
   flex-direction: row;

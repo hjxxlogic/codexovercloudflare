@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
 env:
+  COC_NO_STARTUP_REPAIR: '1'
   CCACHE_DIR: ${{ github.workspace }}/.local/ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_COMPILERCHECK: content
@@ -14,7 +15,7 @@ env:
 jobs:
   regression:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
