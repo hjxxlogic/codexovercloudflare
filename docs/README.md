@@ -22,6 +22,8 @@
 
 [不透明中继架构](OPAQUE_RELAY_DESIGN.md) 说明本次职责迁移：Agent / Client 承担业务路由、控制权和可靠传输，Worker 保留权限管理、连接准入与密文转发。实施用例、运行入口与本机证据见 [设计测试与验收](OPAQUE_RELAY_TEST_PLAN.md)。
 
+[CW Happier 界面计划与实施记录](CW_HAPPIER_UI_PLAN.md) 记录会话视图的上游来源、移植范围、步骤及浏览器验证。
+
 ## 维护约定
 
 - 功能、配置和限制写入对应主题，直接修改原说明，避免追加版本补充和重复结论。

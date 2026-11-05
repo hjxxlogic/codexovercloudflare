@@ -1,5 +1,17 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  关闭会话导航: 'Close session navigation',
+  搜索会话导航: 'Search session navigation',
+  '搜索会话…': 'Search sessions…',
+  尚未连接主机: 'No host connected',
+  会话: 'Sessions',
+  全部历史记录: 'All session history',
+  打开会话导航: 'Open session navigation',
+  正在处理任务: 'Working on a task',
+  当前会话操作: 'Current session actions',
+  文件: 'Files',
+  打开会话详情: 'Open session details',
+  选择项目以开始对话: 'Select a project to start a conversation',
   进行中的会话: 'Active sessions',
   '当前邮箱没有进行中的会话。': 'There are no active sessions for this email.',
   '以下服务器的会话读取失败，请刷新重试：{0}':

@@ -342,14 +342,13 @@ try {
     .b;
   assert(!JSON.stringify(directory).includes('operationInstance'));
   assert(!JSON.stringify(directory).includes('build'));
-  if (online)
-    await api(
-      `/sessions/${session.id}/stop`,
-      {},
-      webHeaders(),
-      randomUUID(),
-      state.operationInstance,
-    );
+  await api(
+    `/sessions/${session.id}/stop`,
+    {},
+    webHeaders(),
+    randomUUID(),
+    state.operationInstance,
+  );
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     extraHTTPHeaders: online ? admission : {},
@@ -369,29 +368,23 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(origin);
   await page.locator('.chat-workspace').waitFor();
-  if (online) {
-    await page
-      .getByRole('button', { name: '连接远程项目', exact: true })
-      .click();
-    await page.getByLabel('主机', { exact: true }).selectOption(host);
-    await page.getByLabel('项目', { exact: true }).selectOption('project');
-    await page
-      .getByRole('button', { name: '创建网页会话', exact: true })
-      .click();
-    await page.getByLabel('任务内容').fill('r2 浏览器验证');
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
-    await page.reload();
-    await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
-    await page.getByText('已连接', { exact: true }).first().waitFor();
-    assert.equal(
-      await page.getByText('echo: r2 浏览器验证', { exact: true }).count(),
-      1,
-    );
-    report.checks.push(
-      'Browser project selection, prompt streaming and history after reload',
-    );
-  }
+  await page.getByRole('button', { name: '连接远程项目', exact: true }).click();
+  await page.getByLabel('主机', { exact: true }).selectOption(host);
+  await page.getByLabel('项目', { exact: true }).selectOption('project');
+  await page.getByRole('button', { name: '创建网页会话', exact: true }).click();
+  await page.getByLabel('任务内容').fill('r2 浏览器验证');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
+  await page.reload();
+  await page.getByText('echo: r2 浏览器验证', { exact: true }).waitFor();
+  await page.getByText('已连接', { exact: true }).first().waitFor();
+  assert.equal(
+    await page.getByText('echo: r2 浏览器验证', { exact: true }).count(),
+    1,
+  );
+  report.checks.push(
+    'Browser project selection, prompt streaming and history after reload',
+  );
   assert.equal(errors.length, 0, errors.join('\n'));
   if (online) {
     mkdirSync('.local/r2-deployment', { recursive: true });

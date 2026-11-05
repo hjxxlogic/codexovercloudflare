@@ -239,6 +239,7 @@ async function idle(page: Page) {
       (await page.locator('.composer [role="status"], .thinking').count()) ===
         0,
     'chat ready',
+    90000,
   );
 }
 async function sessionId(page: Page) {
@@ -282,6 +283,10 @@ async function focusedChat(page: Page) {
       toolbarHeight:
         document.querySelector('.workbench-toolbar')?.getBoundingClientRect()
           .height || 0,
+      sessionHeadingHeight:
+        document
+          .querySelector('.happier-session-heading')
+          ?.getBoundingClientRect().height || 0,
       messageHeight: messages.height,
       composerBottom: composer.bottom,
       scrollWidth: document.documentElement.scrollWidth,
@@ -294,7 +299,10 @@ async function focusedChat(page: Page) {
   );
   assert.equal(await page.locator('.workspace-context').isVisible(), true);
   assert(
-    geometry.messageHeight + geometry.toolbarHeight > geometry.height * 0.65,
+    geometry.messageHeight +
+      geometry.toolbarHeight +
+      geometry.sessionHeadingHeight >
+      geometry.height * 0.65,
     JSON.stringify(geometry),
   );
   assert(geometry.composerBottom <= geometry.height);
@@ -1775,15 +1783,40 @@ try {
   const recoveryGate = join(dir, 'tui-recovery-gate');
   const priorReplyInterrupts = agent.interruptedReplies;
   agent.interruptNextReply();
-  const recoveringCli = cliCommand(
-    ['connect', '--host', 'local-test', '--project', 'test-project'],
-    '',
-    {
-      PATH: binDir + ':' + process.env.PATH,
-      COC_TUI_CAPTURE: recoveryCapture,
-      COC_TUI_RELIABLE_GATE: recoveryGate,
-    },
-  );
+  const recoveryCreateId = randomUUID();
+  const recoverOriginalCreate = () =>
+    cliCommand(
+      [
+        'connect',
+        '--host',
+        'local-test',
+        '--project',
+        'test-project',
+        '--request-id',
+        recoveryCreateId,
+      ],
+      '',
+      {
+        PATH: binDir + ':' + process.env.PATH,
+        COC_TUI_CAPTURE: recoveryCapture,
+        COC_TUI_RELIABLE_GATE: recoveryGate,
+      },
+    );
+  const recoveringCli = (async () => {
+    try {
+      return await recoverOriginalCreate();
+    } catch (error) {
+      // The Agent now waits 30 seconds after a lost channel. An unconfigured
+      // wake endpoint leaves the original intent for explicit client recovery.
+      if (!String(error).includes('HOST_OFFLINE')) throw error;
+      await wait(
+        async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
+        'Agent recovers before the same CLI original request is retried',
+        45000,
+      );
+      return recoverOriginalCreate();
+    }
+  })();
   void recoveringCli.catch(() => {});
   await wait(
     () =>
@@ -2234,7 +2267,9 @@ try {
     'browser persisted its command before the encrypted link interruption',
   );
   agent.releaseInterruptedRequest();
-  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage
+    .getByText('echo: browser hello', { exact: true })
+    .waitFor({ timeout: 90000 });
   await idle(visitorPage);
   agent.interruptReplyWhen(() => true);
   await visitorPage.getByLabel('任务内容').fill('hello 你好，世界！');
@@ -2248,9 +2283,18 @@ try {
   agent.releaseInterruptedReply();
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
-    .waitFor();
+    .waitFor({ timeout: 90000 });
   await idle(visitorPage);
   if (process.env.COC_TEST_TERMINAL === '1') {
+    // The preceding forced disconnect can leave its dismissible error banner.
+    // Restore the normal viewport budget before asserting 48px of resize room.
+    const offlineNotice = visitorPage
+      .locator('.chat-workspace > .error')
+      .filter({ hasText: 'HOST_OFFLINE' });
+    if (await offlineNotice.isVisible())
+      await offlineNotice
+        .getByRole('button', { name: '关闭', exact: true })
+        .click();
     await visitorPage
       .getByRole('button', { name: '功能菜单', exact: true })
       .click();
@@ -2407,10 +2451,12 @@ try {
     .first()
     .click();
   assert.equal(await sessionId(visitorPage), browserSession);
-  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage
+    .getByText('echo: browser hello', { exact: true })
+    .waitFor({ timeout: 90000 });
   await visitorPage
     .getByText('echo: hello 你好，世界！', { exact: true })
-    .waitFor();
+    .waitFor({ timeout: 90000 });
   await idle(visitorPage);
   pass(
     'character-by-character English/Chinese streaming and ordered history after browser reload',
@@ -2473,7 +2519,9 @@ try {
     .getByRole('button', { name: /browser hello/ })
     .first()
     .click();
-  await visitorPage.getByText('echo: browser hello', { exact: true }).waitFor();
+  await visitorPage
+    .getByText('echo: browser hello', { exact: true })
+    .waitFor({ timeout: 90000 });
   await visitorPage.screenshot({
     path: join(artifacts, 'cw-history-cache.png'),
     fullPage: true,
@@ -2879,7 +2927,7 @@ try {
   await wait(
     async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
     'Agent reconnect after losing the persisted upload chunk response',
-    25000,
+    45000,
   );
   await feature(visitorPage, /^工作区文件/);
   await visitorPage.getByText(/已上传 resumed.bin/).waitFor();

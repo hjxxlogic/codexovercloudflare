@@ -774,6 +774,61 @@ try {
     .poll(() => historyConnections, { timeout: 25000 })
     .toBeGreaterThan(1);
   await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
+  // Happier's desktop sidebar / mobile drawer use the existing CoC session callbacks.
+  const beforeNavigation = attachCalls;
+  const navigation = page.getByRole('button', {
+    name: '打开会话导航',
+    exact: true,
+  });
+  await navigation.click();
+  const drawer = page.getByRole('dialog', { name: '会话导航', exact: true });
+  await expect(drawer).toBeVisible();
+  await drawer.getByLabel('搜索会话导航').fill('no-such-cw-session');
+  await expect(drawer.getByText('没有匹配的已加载会话。')).toBeVisible();
+  await drawer.getByLabel('搜索会话导航').fill('');
+  await page.keyboard.press('Escape');
+  await expect(navigation).toBeFocused();
+  await expect(drawer).not.toBeVisible();
+  await page.screenshot({
+    path: join(artifacts, 'happier-mobile.png'),
+    fullPage: true,
+  });
+  await navigation.click();
+  await drawer.locator('.session.active').click();
+  await expect(drawer).not.toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.locator('aside.happier-sidebar')).toBeVisible();
+  await expect(
+    page.locator('aside.happier-sidebar .session.active'),
+  ).toBeVisible();
+  const sidebarBox = (await page
+    .locator('aside.happier-sidebar')
+    .boundingBox())!;
+  const conversationBox = (await page.locator('.conversation').boundingBox())!;
+  assert(
+    sidebarBox.x + sidebarBox.width <= conversationBox.x + 1,
+    'sidebar is beside the conversation',
+  );
+  await page.screenshot({
+    path: join(artifacts, 'happier-desktop.png'),
+    fullPage: true,
+  });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  assert.equal(
+    attachCalls,
+    beforeNavigation,
+    'navigating the current session does not reconnect or submit',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  console.log(
+    'PASS: Happier desktop navigation, mobile drawer, search, selection, Escape/focus and no duplicate connection',
+  );
+
   const reconnectDraft = '断网后保留的草稿';
   await page.getByLabel('任务内容').fill(reconnectDraft);
   const beforeNetworkLoss = attachCalls;
@@ -1299,6 +1354,25 @@ try {
   await expect(missingPreview.getByRole('alert')).toContainText('NOT_FOUND');
   await missingPreview.close();
   for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const readingHeight = await page.evaluate(() =>
+      ['.messages', '.happier-session-heading', '.workbench-toolbar'].reduce(
+        (height, selector) =>
+          height +
+          (document.querySelector(selector)?.getBoundingClientRect().height ||
+            0),
+        0,
+      ),
+    );
+    assert(
+      readingHeight > viewport.height * 0.65,
+      JSON.stringify({ ...viewport, readingHeight }),
+    );
+  }
+  for (const viewport of [
     { width: 1280, height: 900 },
     { width: 390, height: 844 },
   ]) {
@@ -1550,6 +1624,22 @@ try {
     'mount reuses the parallel info read',
   );
   await page.unroute(terminalModule);
+  for (const height of [720, 650]) {
+    await page.setViewportSize({ width: 1280, height });
+    const split = await page.evaluate(() => ({
+      terminalTop: document
+        .querySelector('.terminal-shell')!
+        .getBoundingClientRect().top,
+      composerBottom: document
+        .querySelector('.composer')!
+        .getBoundingClientRect().bottom,
+    }));
+    assert(split.composerBottom <= split.terminalTop, JSON.stringify(split));
+    await page.getByLabel('任务内容').fill('terminal split draft');
+    await expect(page.getByLabel('任务内容')).toBeVisible();
+    await page.getByLabel('任务内容').fill('');
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await enterFullscreen('.terminal-shell');
   await page
     .locator('.interactive-terminal')

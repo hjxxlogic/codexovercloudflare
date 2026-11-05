@@ -1,3 +1,7 @@
+import {
+  SessionNavigation,
+  SessionHeading,
+} from './happier/session-navigation.tsx';
 import { businessSocket } from './channel.ts';
 import { ActiveSessions } from './active-sessions.tsx';
 import { Workbench } from './workbench/workbench.tsx';
@@ -3706,7 +3710,9 @@ function App() {
                 setText((current) => `${current}${current ? '\n' : ''}${path}`)
               }
             >
-              <div className="chat-layout">
+              <div
+                className={`chat-layout${mode === 'cw' ? ' happier-cw' : ''}`}
+              >
                 <dialog
                   className="chat-panel"
                   ref={panelDialog}
@@ -4007,7 +4013,53 @@ function App() {
                     </section>
                   )}
                 </dialog>
+                {mode === 'cw' && !panel && (
+                  <SessionNavigation
+                    sessions={sessions}
+                    threads={threads}
+                    project={project}
+                    projectName={
+                      projects.find((p) => p.id === project)?.name || project
+                    }
+                    hostName={hosts.find((h) => h.id === host)?.name || host}
+                    selected={selected}
+                    online={online}
+                    loading={loadingThreads}
+                    error={threadError}
+                    creating={creating}
+                    onSelect={(session) => {
+                      setTakeover(false);
+                      setSelected(session);
+                    }}
+                    onResume={(thread) => void create(thread)}
+                    onNew={() => {
+                      if (host && project) void create();
+                      else openSessions();
+                    }}
+                    onConnect={openSessions}
+                    onHistory={openSessions}
+                  />
+                )}
                 <section className="conversation" aria-label={t('Codex 对话')}>
+                  {mode === 'cw' && (
+                    <SessionHeading
+                      title={
+                        threads.find(
+                          (thread) => thread.id === selected?.threadId,
+                        )?.name ||
+                        selected?.title ||
+                        t('Codex 对话')
+                      }
+                      project={
+                        projects.find((p) => p.id === project)?.name || project
+                      }
+                      status={selected ? t(status) : t('选择项目以开始对话')}
+                      busy={busy}
+                      onFiles={() => setPanel('files')}
+                      onDetails={() => setPanel('details')}
+                    />
+                  )}
+
                   {selected ? (
                     <>
                       <div
