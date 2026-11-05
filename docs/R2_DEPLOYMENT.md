@@ -1,8 +1,18 @@
 # r2 当前部署
 
+## 2026-11-05：官方 Web 实测后的第二轮预览
+
+当前 r2 已更新为源码 `6cb27bc88fe6372cf1b2ee20bea303fb180479dd`、Web / Worker `0.6.8`，Worker Version ID 为 `99f6777d-3406-4087-b343-2cd60284213c`。这仍是用户授权的本地预览，`ciVerified=false`；[准确提交 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42036227735) 记录时仍在运行，不能视为完整通过。原生下载保留已验证 `0.6.7`，没有替换或重启已有 Agent。
+
+本轮实际注册官方 Happier 测试账户，完成两个真实会话、工具与文件审批、长输出和桌面 / 手机富文本对照，再改写页面结构与富文本工具栏；[实测文档](HAPPIER_WEB_COMPARISON_2026-11-05.md) 包含官方截图及同段 Markdown 的 CoC 对照。
+
+最终源码的 Web 构建、类型检查、Lint、完整 UI 与富文本回归通过；布局提交 `74a9135` 的完整 E2E 46 项含真实 PTY 通过，随后富文本补充由 UI / Markdown 回归覆盖，完整 CI 仍需等待最终提交。部署脚本核对健康状态及主页、资源、下载清单字节；字体许可证额外逐字节核对通过。最终 r2 线上隔离测试通过，覆盖加密任务、历史恢复、控制权、文件和九个管理面板的深浅色 / 桌面 / 手机。测试使用独立临时 Agent 与模拟 Codex，结束后清理；首次 Node 双栈拨号超时，最终仅对测试进程采用 IPv4 优先并关闭自动族选择，未修改系统或线上网络配置。
+
+复核确认旧站 Worker / DO、原 Agent PID / 启动时间、r2 存储和 Access 设置未变；用户独立测试 Agent `r2-Happier-0.6.8-test` 的 PID 保持且仍运行。官方 Happier 的隔离 daemon 和测试执行进程已停止，账户与安装保留私有目录；停止后官方 Web 仍能阅读已有会话。[公开验证与摘要](assets/r2-deployment-0.6.8-2026-11-05/happier-web-verified-preview.json)。
+
 ## 2026-11-05：0.6.8 本地预览与独立测试 Agent
 
-用户授权在 CI 等待期间先将本地 Worker / 网页部署到 r2。当前产品源码为 `75b5673c7e61d5a8cc59e3281cb6d42f15edbeff`，Worker Version ID 为 `7c38dc19-6746-4782-a3b7-7800820cb707`，健康检查版本 `0.6.8`；此阶段明确标记 `ciVerified=false`，下载包仍为已验证的 `0.6.7`。完整 [Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42018456559) 尚在运行，不能视为通过。
+用户授权在 CI 等待期间先将本地 Worker / 网页部署到 r2。首轮预览的产品源码为 `75b5673c7e61d5a8cc59e3281cb6d42f15edbeff`，Worker Version ID 为 `7c38dc19-6746-4782-a3b7-7800820cb707`，健康检查版本 `0.6.8`；此阶段明确标记 `ciVerified=false`，下载包仍为已验证的 `0.6.7`。该 [Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42018456559) 最终因手机阅读面积断言失败；第二轮已在保留原断言的前提下修复重复标题和空间占用。
 
 79 个网页及下载目录资源逐字节核对通过。真实 Cloudflare / 原生 Agent / Chromium 的线上隔离测试通过，包括加密会话、历史恢复、权限、九个管理面板和桌面 / 手机深浅色。下载目录核验使用规范地址 `/downloads/`，避免静态服务对 `index.html` 的 307 跳转。
 

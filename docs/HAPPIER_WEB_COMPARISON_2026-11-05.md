@@ -6,6 +6,8 @@
 
 登录、设置、空列表及已有会话可直接在 Web 中打开。要产生真实运行、工具事件和审批，需连接执行端。本次仅为生成对照数据安装官方 Happier CLI **0.2.20**，使用独立安装、状态、浏览器 profile 和示例项目；没有安装全局 daemon 服务、修改 PATH、替换 CoC Agent 或连接 CoC 项目。CLI 配对后，第二个任务直接从 **Web 输入框**发送，比较对象始终是官方 Web 的渲染和交互。
 
+补充验证：两个任务完成后停止隔离 Happier daemon 及其测试会话，再从 Web 打开第一个会话；页面显示执行机器离线，但完整 Markdown、表格和工具历史仍可阅读。这实际确认了“查看已有会话无需运行 CLI”，并将查看历史与运行新任务区分开。安装、账户和原始证据继续保留在隔离目录。
+
 官方公开二进制经 GH-Proxy 下载加速；保留安装器的 SHA-256 与 minisign 校验，均通过。账户密钥、浏览器状态、原始日志和完整测试会话 ID 仅存忽略的 `.local/happier-live/`，不随文档发布。
 
 ## 真实会话场景
@@ -51,7 +53,7 @@
 
 ## CoC 改版对照
 
-[CoC 桌面](assets/happier-web-comparison-2026-11-05/coc-desktop.png) · [CoC Markdown 与工具展开](assets/happier-web-comparison-2026-11-05/coc-desktop-markdown.png) · [CoC 手机](assets/happier-web-comparison-2026-11-05/coc-phone.png) · [CoC 管理页](assets/happier-web-comparison-2026-11-05/coc-admin-light.png)。这些截图来自本地加密模拟端点；与上方官方真实模型会话的来源明确区分。[场景与截图摘要](assets/happier-web-comparison-2026-11-05/evidence.json) 记录视口、局部滚动结果及 PNG SHA-256。
+[CoC 桌面](assets/happier-web-comparison-2026-11-05/coc-desktop.png) · [CoC 同段 Markdown](assets/happier-web-comparison-2026-11-05/coc-desktop-markdown.png) · [CoC 手机](assets/happier-web-comparison-2026-11-05/coc-phone.png) · [CoC 管理页](assets/happier-web-comparison-2026-11-05/coc-admin-light.png)。另有 [CoC 工具展开](assets/happier-web-comparison-2026-11-05/coc-desktop-tools.png) 与 [CoC 手机同段 Markdown](assets/happier-web-comparison-2026-11-05/coc-phone-markdown.png)。最终将官方同一段 Markdown 回复作为 CoC 加密模拟端点的数据，在相同视口截图，直接比较排版；没有修改官方页面截图。CoC 截图来自本地加密模拟端点；与上方官方真实模型会话的来源明确区分。[场景与截图摘要](assets/happier-web-comparison-2026-11-05/evidence.json) 记录视口、局部滚动结果及 PNG SHA-256。
 
 ## 验收与限制
 
