@@ -165,7 +165,9 @@ Linux 默认启用自动更新。Agent 在启动、明确重连或收到发布�
 { "autoUpdate": false }
 ```
 
-也可设置 `{"autoUpdate":{"enabled":true}}`。配置不接受 `intervalHours`，出现该字段返回 `CONFIG_ERROR`。更新不调度周期下载或失败重试。Agent 的本地维护读取配置并处理已准备更新，CLI 在下次命令读取；不会因此新增云端查询。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+也可设置 `{"autoUpdate":{"enabled":true}}`。Agent / CLI 遇到已废弃的 `autoUpdate.intervalHours` 时向标准错误输出 `config_warning` 提示并忽略该字段，继续运行；`autoUpdate` 类型、`enabled` 类型或 `platform` 值错误时提示并在本次运行禁用自动更新，其他命令继续。有效的 `enabled` / `platform` 不受废弃字段影响。同类提示每个进程只输出一次，不打印配置值、不自动改写文件。JSON 语法、凭据、权限、沙箱及其他配置校验仍保留，不能通过忽略错误绕过安全策略。更新不调度周期下载或失败重试。Agent 的本地维护读取配置并处理已准备更新，CLI 在下次命令读取；不会因此新增云端查询。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+
+Linux 上批量清理 x0–x9 用户的该字段，可在仓库根目录运行 `sudo python3 scripts/remove-update-interval.py` 预览，再追加 `--apply` 执行。脚本从系统账户读取主目录，默认检查 `.config/coc-agent/agent.json` 和 `.config/coc-client/credentials.json`，仅删除顶层 `autoUpdate` 对象中的 `intervalHours`，其余 JSON 值保留（缩进会统一）。每个修改文件旁生成唯一备份，保留文件所有者和权限，以原子替换写入；不重启服务。自定义路径使用可重复的 `--config-relative .coc-agent/agent.json`（替代默认路径）。缺失账户或文件跳过，解析、权限或符号链接错误会打印跳过原因，并继续处理其余配置及用户；最后汇总检查数和错误数，有错误时返回非零状态。执行期间请勿同时登录或修改配置。
 
 自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。musl 静态版默认始终选择 `musl` 更新包，不按宿主发行版切换到动态包。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
 
@@ -547,7 +549,7 @@ CW 按线程 ID 合并当前项目的 Codex 线程和 CoC 会话，优先显示 
 | 情况                    | 行为                                                                             |
 | ----------------------- | -------------------------------------------------------------------------------- |
 | 网页短暂断线            | 自动重连，先同步再允许发送                                                       |
-| A 网络断线              | 退避重连，Codex runtime 不立即退出                                               |
+| A 网络断线              | 每 30 秒重连，Codex runtime 不立即退出                                           |
 | 客户端持续离线          | 无邮箱 Web / CLI 保留 30 分钟，有邮箱 Web 保留 1 小时；自动批准会话豁免          |
 | 审批无人响应            | 默认等待 10 分钟，随后拒绝                                                       |
 | Agent 重启 / Codex 退出 | 原活动会话标记失败，可从 CW 本地历史恢复持久线程；原进程与未完成任务不会自动继续 |
@@ -607,7 +609,7 @@ CW 在“会话记录”顶部选择 A 后点击“移除本地授权”。这�
 真正停用设备时，在管理网页撤销对应凭证：
 
 - 撤销 CC / CW：拒绝后续请求，并关闭使用该凭证的连接；其他客户端授权继续有效。
-- 撤销 A：禁用主机，使其全部 CC / CW 授权失效，并关闭主机及相关客户端连接；Agent 收到撤销码后停止本地会话并退出。
+- 撤销 A：禁用主机，使其全部 CC / CW 授权失效，并关闭主机及相关客户端连接；Agent 保持运行，每 30 秒重试连接。原凭据已撤销时仍无法通过认证，不恢复远程访问；本地会话按断线保留策略处理。
 - 需要重新接入时重新申请并批准登录；A 重新登录会产生新主机标识，客户端需要针对新 A 重新授权。
 
 撤销不回滚已经发生的代码修改，也不保证所有外部进程已退出，需要时在服务器检查。有效 Agent 登记数无固定数量配额；同一物理机器可运行多个独立身份、配置和 dataDir 的实例。
@@ -720,13 +722,17 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 先运行 `coc-agent doctor` 或 `coc-client doctor`，核对实际版本、配置、Codex、TLS、目录权限和磁盘。Agent 不在线时检查其运行用户、HOME、PATH、项目目录及服务日志；Access 故障按 [接入说明](cloudflare-access-coc-auth.md) 检查入口策略和 CoC 凭据。
 
+`coc-agent run` 在连接、鉴权、协议协商失败或断线后保持进程，每次失败固定等待 30 秒再连接，不耗尽重试次数。HTTP 401 / 403 和 WebSocket 4001 也按此规则处理，认证仍由中继检查。初始化或运行故障时，先清理故障实例，停止受影响的工作，每 30 秒重新读取配置、检查 Codex 并打开存储；配置修复或状态锁释放后自动恢复，不跳过存储校验。Ctrl+C、SIGINT / SIGTERM 或显式停止服务会取消重试并退出；受控自动更新与远程配置重启仍按原流程执行。单次 `status / doctor / login` 等命令继续返回自己的结果，不进入常驻重试。
+
+并发修改授权时，中继暂停连接转发并按最新权限复核，过期校验不会被当作设备撤权。复核期间入站和转发数据保留在有容量上限的内存队列，通过后按序处理；仍有效的 Agent 保持连接，真实撤权仍关闭连接。队列超限或控制复核故障会显式关闭连接并要求恢复，不静默丢弃中间帧；缓冲不跨 DO 重建保存。旧版 Agent 若已记录“Device authorization revoked”后退出，需在安装新版后启动已退出的服务；仅部署 Worker 不会替换 Agent 二进制或启动进程。恢复后沿原请求编号核对任务，不重发未确认请求。
+
 `RESULT_UNKNOWN`、超时、过期或断线不能证明任务未执行。保留原编号，用 `coc-client request REQUEST_ID` 或网页原请求恢复核对结果，不自动换编号重复业务。Agent 实例变化、权限拒绝或本地存储失败会停止自动恢复。命令、结果和上传的详细规则见 [可靠传输协议](RELIABLE_TRANSPORT.md)。
 
 手动更新运行中的 Agent 后须自行重启服务。回退前先停止进程并备份状态；二进制回退不回退数据库或工作区，不应将新库直接交给不兼容程序。具体见 [发布操作](RELEASE.md)。
 
 ## 支持的格式与错误
 
-除本次明确的 SQLite 升级外，项目只接受当前格式。配置含 `codexUseProxy` 或 `autoUpdate.intervalHours` 时返回 `CONFIG_ERROR`；SQLite 新库使用 `user_version=2`，完整的版本 `0` / `1` 库保留原记录后单向标记为 `2`，用于拒绝旧二进制控制同一状态；版本 `2` 可直接重开。缺列、未知版本或项目目录缺少当前日志字段时返回 `UNSUPPORTED_STORAGE_VERSION`。浏览器缓存记账必须为 `commandAccounting:2`，不匹配时事务失败并保留数据。RegistryDO 若存在未完成的 `expiryMigration` 标记返回 `UPGRADE_REQUIRED`，不补齐索引或清除标记。
+除本次明确的 SQLite 升级外，项目只接受当前格式。配置含 `codexUseProxy` 时返回 `CONFIG_ERROR`；`autoUpdate.intervalHours` 提示后忽略，其他无效自动更新选项提示后禁用自动更新并继续；SQLite 新库使用 `user_version=2`，完整的版本 `0` / `1` 库保留原记录后单向标记为 `2`，用于拒绝旧二进制控制同一状态；版本 `2` 可直接重开。缺列、未知版本或项目目录缺少当前日志字段时返回 `UNSUPPORTED_STORAGE_VERSION`。浏览器缓存记账必须为 `commandAccounting:2`，不匹配时事务失败并保留数据。RegistryDO 若存在未完成的 `expiryMigration` 标记返回 `UPGRADE_REQUIRED`，不补齐索引或清除标记。
 
 外部历史只接受 `paginated`，历史退休协议只接受版本 2；Terminal 的 HTTP `read/input/resize` 返回 `UPGRADE_REQUIRED`，请使用 `streaming:2` WebSocket。CoC 邮箱授权通过申请批准、restore 或显式认领有效的无邮箱网页凭据建立；尚无邮箱授权时，可在登录页使用“关联旧授权”。无邮箱会话由用户连接后归属当前邮箱；未连接前不出现在该邮箱的欢迎页。
 
@@ -741,3 +747,7 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 当前 r2 已启用 Cloudflare Access。原生 Agent / CLI 须提供权限为 `0600`、`origins` 明确包含 `https://r2.xlogic.cc` 的 Access 配置文件，使用 `--access-config /private/r2-access.json` 或 Agent 配置的 `cloudflareAccessFile` 指定。内置旧站入口配置不会自动允许新域名；CoC 设备授权仍需在 r2 单独批准。不要复制旧 Agent 的活动数据库或覆盖其服务配置。
 
 当前部署、隔离核对及验证边界见 [r2 部署记录](R2_DEPLOYMENT.md)。线上验收使用临时 Agent，结束后已停止并撤销授权；站点部署成功不表示已有常驻主机接入。
+
+启动失败自动诊断：Agent 的配置读取、验证、数据库/运行时初始化失败（进入运行循环之前），以及 Client 的本地配置初始化或 `attach` / `connect` 启动失败，会在每个进程内最多启动一次本机 `codex exec` 修复。Agent 等待诊断结束后继续原有 30 秒重试；Client 保留失败退出码，修复后需重新执行原命令。Client 会话启动诊断覆盖凭据加载、Codex 版本校验、连接请求、本地缓存/桥接初始化、TUI 创建和初始化前异常退出；`connect` 在创建远端会话之前先校验 Codex。认证与传输握手完成且 TUI 发出 `initialized` 通知后，视为进入运行阶段。参数错误、未选择主机、错误会话模式、TUI 正常退出、运行中的网络故障、普通命令失败和 `doctor` 检查结果不触发修复。需已安装、登录 Codex；会调用模型并可能计费。
+
+诊断 Codex 使用 `danger-full-access` 与 `approval_policy="never"`，以当前系统用户权限执行，允许联网下载发布站 `/downloads/` 下匹配构建版本的源码、校验摘要，以及备份后修改本地 CoC 配置、升级 SQLite 数据库。该权限模式没有路径级强制隔离；提示词要求保留凭据、历史与任务，不放宽 TLS/认证/沙箱/审批，不删除数据库、不重启活跃会话、不部署云端。配置路径、构建身份和错误码进入提示词，配置内容和原始异常消息不直接注入；Codex 仍可在本机读取诊断所需文件。设置环境变量 `COC_NO_STARTUP_REPAIR=1` 可完全禁用；子进程自动继承此标记以避免递归诊断。Codex 缺失或修复失败时打印状态并保持原有失败处理，不视为已修复。进程不能执行（例如加载器/动态库缺失）、崩溃和初始化之后的故障不在此机制覆盖范围。

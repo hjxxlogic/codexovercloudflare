@@ -1473,6 +1473,7 @@ try {
       peer &&
       frames.filter((frame) => frame.type === 'capabilities').length >
         beforeMalformedCapabilities,
+    45000,
   );
   const external = await control('create', {
     key: 'create-external-reservations',

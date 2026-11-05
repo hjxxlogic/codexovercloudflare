@@ -49,6 +49,13 @@ type Pending = {
 // Only connection identities, authorization and opaque records enter this DO.
 export class HostRelayDO extends DurableObject<Env> {
   private pending = new Map<string, Pending>();
+  private authorizationPass?: Promise<void>;
+  private async authorizedFlow() {
+    for (let pass; (pass = this.authorizationPass);) {
+      await pass.catch(() => {});
+      if (this.authorizationPass === pass) return;
+    }
+  }
   private queued = 0;
   private records = 0;
   private tails = new WeakMap<WebSocket, Promise<void>>();
@@ -114,7 +121,8 @@ export class HostRelayDO extends DurableObject<Env> {
     const policy = await this.policy();
     for (const ws of this.sockets()) {
       const a = this.a(ws);
-      if (a.policy !== policy || a.deadline <= Date.now()) this.close(ws, 1012);
+      if (a.blocked || a.policy !== policy || a.deadline <= Date.now())
+        this.close(ws, 1012);
     }
   }
   private close(ws: WebSocket, code = 1000) {
@@ -188,6 +196,22 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   private async invalidate(event: string) {
+    const pass = (this.authorizationPass || Promise.resolve())
+      .catch(() => {})
+      .then(() => this.invalidateNow(event));
+    this.authorizationPass = pass;
+    try {
+      await pass;
+    } finally {
+      if (this.authorizationPass === pass) {
+        for (const ws of this.sockets())
+          if (this.a(ws).blocked && !this.a(ws).retired)
+            retire(ws, 1011, 'Authorization incomplete; reconnect');
+        this.authorizationPass = undefined;
+      }
+    }
+  }
+  private async invalidateNow(event: string) {
     // Persist generic connection fences before disconnecting clients. Missing
     // endpoint acknowledgements survive retries and DO reconstruction.
     const peers = this.sockets().filter(
@@ -228,7 +252,8 @@ export class HostRelayDO extends DurableObject<Env> {
           if (JSON.stringify(permissions) !== JSON.stringify(a.permissions))
             throw new Error();
         }
-        ws.serializeAttachment({ ...a, blocked: false });
+        if (!this.a(ws).retired)
+          ws.serializeAttachment({ ...this.a(ws), blocked: false });
       } catch {
         if (a.kind === 'client') {
           clients.add(ws);
@@ -481,12 +506,30 @@ export class HostRelayDO extends DurableObject<Env> {
       this.close(ws, 1009);
       return;
     }
+    // Endpoint retirement ACKs must bypass paused data, or revocation would
+    // deadlock behind a frame waiting for that same acknowledgement.
+    try {
+      const d = JSON.parse(
+        typeof raw === 'string' ? raw : new TextDecoder().decode(raw),
+      );
+      if (d.type === 'channel-retired') {
+        const p = this.pending.get(d.event);
+        if (p && p.target === this.a(ws).id)
+          await this.acknowledge(d.event, p.target);
+        return;
+      }
+    } catch {
+      /* Normal frame validation runs below. */
+    }
     this.queued += size;
     this.records++;
     const previous = this.tails.get(ws) || Promise.resolve();
     const task = previous
       .catch(() => {})
-      .then(async () => this.message(ws, raw));
+      .then(async () => {
+        await this.authorizedFlow();
+        await this.message(ws, raw);
+      });
     this.tails.set(ws, task);
     try {
       await task;
@@ -535,6 +578,7 @@ export class HostRelayDO extends DurableObject<Env> {
             projects: await managesProjects(this.env, a.auth, host),
             configuration: a.auth.role === 'owner',
           };
+          await this.authorizedFlow();
           if (!live(ws) || !live(peer) || this.a(ws).bound) return;
           const link = crypto.randomUUID();
           const binding =

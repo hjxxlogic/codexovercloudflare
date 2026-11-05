@@ -247,6 +247,53 @@ describe('opaque relay connection routing', () => {
       agent.close();
     }
   });
+  it('buffers both directions in order across overlapping permission refreshes', async () => {
+    const h = harness(),
+      link = await h.bind();
+    let release!: (value: any) => void;
+    vi.mocked(registryCall).mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = r;
+        }),
+    );
+    const first = h.fetch();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    const second = h.fetch();
+    const incoming = h.frame(h.client, { type: 'channel-data', data: 'one' });
+    const next = h.frame(h.client, { type: 'channel-data', data: 'two' });
+    const outgoing = h.frame(h.agent, {
+      type: 'channel-data',
+      link,
+      data: 'reply',
+    });
+    await Promise.resolve();
+    expect(h.frames().some((d) => d.data === 'one')).toBe(false);
+    release({ ...auth, role: 'agent', hash: 'agent' });
+    expect((await first).status).toBe(200);
+    expect((await second).status).toBe(200);
+    await Promise.all([incoming, next, outgoing]);
+    expect(
+      h
+        .frames()
+        .filter((d) => d.type === 'channel-data')
+        .map((d) => d.data),
+    ).toEqual(['one', 'two']);
+    expect(h.frames(h.client).at(-1).data).toBe('reply');
+    expect(h.agent.deserializeAttachment().retired).not.toBe(true);
+  });
+  it('closes a paused attachment after DO reconstruction instead of losing queued data', async () => {
+    const h = harness();
+    await h.bind();
+    h.client.serializeAttachment({
+      ...h.client.deserializeAttachment(),
+      blocked: true,
+    });
+    h.restore();
+    await h.frame(h.client, { type: 'channel-data', data: 'lost-state' });
+    expect(h.client.deserializeAttachment().retired).toBe(true);
+    expect(h.frames().some((d) => d.data === 'lost-state')).toBe(false);
+  });
   it('serializes handshake admission before subsequent frames despite authorization awaits', async () => {
     const h = harness();
     let release!: (value: any) => void;
@@ -404,11 +451,20 @@ describe('authorization retirement confirmation', () => {
       event: retirement.event,
     });
     expect(await h.storage.get('retirements')).toHaveLength(1);
+    const buffered = h.frame(h.agent, {
+      type: 'channel-data',
+      link: h.client.deserializeAttachment().link,
+      data: 'revoked-reply',
+    });
     await h.frame(h.agent, {
       type: 'channel-retired',
       event: retirement.event,
     });
     expect((await result).status).toBe(200);
+    await buffered;
+    expect(h.frames(h.client).some((d) => d.data === 'revoked-reply')).toBe(
+      false,
+    );
     expect(await h.storage.get('retirements')).toEqual([]);
   });
   it('keeps missing confirmations across timeout and DO reconstruction, then retries', async () => {

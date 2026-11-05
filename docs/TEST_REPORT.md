@@ -2,6 +2,8 @@
 
 本文列出当前测试入口和验证边界，不把历史通过结果当作当前提交的检查结果。运行依赖与构建步骤见 [开发说明](DEVELOPMENT.md)，正式发布需检查准确提交的完整 Actions 运行。
 
+2026-11-05 授权复核修复新增持续事件流、原 Agent 回复、缓冲顺序、真实撤权和输入/输出超限回归，并更新刷新交错及控制异常断言。本地 Vitest 505/505、类型检查及 Lint 通过；另运行原生 delivery 与 history retention 集成通过。opaque 分支两项问题及 master 的差异用隔离复现验证，具体边界见 [审查记录](AUTHORIZATION_REVIEW_2026-11-05.md)。包含修复的准确提交 `a1fc79f3a80e74ee8310739bd4d69934ab48e331` 已通过 [完整 Actions 门禁](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104)，六个必需作业全部成功。云端字节与包摘要验证、线上准入边界检查、本机 Agent 空闲安装及 120 秒运行观察均通过；已登录生产浏览器验证的限制和完整部署证据见 [发布操作](RELEASE.md)。
+
 ## 基础检查
 
 | 命令                                | 覆盖                                             |
@@ -37,8 +39,11 @@
 | `npm run test:release`                                    | 发行来源和部署工具拒绝路径                                    |
 | `npm run test:update`                                     | 当前自动更新、校验失败拒绝                                    |
 | `npm run test:billing` / `npm run test:billing:web`       | 按需通讯、刷新与通知行为                                      |
+| `npm run test:retry`                                      | Agent 固定 30 秒重试、初始化恢复与显式停止                    |
 
 Worker 授权专项：`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts`。覆盖握手后的双向零授权查询、DO 重建、退休连接、授权变更、到期及持久失效事件重试。稳定数据转发不能依赖短时缓存命中；控制面授权仍需完整检查。
+
+Agent 重试专项使用真实原生进程、Socket 与实际计时，不加速重试定时器。`test:retry` 覆盖连续 HTTP 401 / 403、协议不匹配、4001、非法配置、Codex 不可用、状态锁占用、配置修复和锁释放后的自动恢复，以及在重连 / 初始化等待中明确停止后不再尝试。`test:billing` 同时验证空闲零业务轮询、Pong 超时后固定延迟与连续连接失败后的恢复，并包含该重试专项。
 
 Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on-failure`。需要 Bash、bubblewrap、prlimit 和可用 namespace；工具存在但启动失败不能当作通过。原生测试入口与实际跳过项以 CTest 输出为准。
 
@@ -52,7 +57,7 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 
 邮箱授权测试验证无邮箱网页凭据的显式认领、原凭据失效及不同邮箱不能重复认领；无邮箱会话连接后才进入当前邮箱列表；结构完整的未标记 SQLite 库可重开读取，绑定归属持久保存且邮箱相互隔离。
 
-配置测试验证 `codexUseProxy`、`autoUpdate.intervalHours` 不被解析；历史 adapter 验证缺失或非 `paginated` 模式拒绝。存储测试覆盖 SQLite、项目目录、DO 到期标记及浏览器记账格式错误，验证不转换、不丢弃原状态。请求测试覆盖缺少 `operationInstance`、用稳定身份替代准入代次及 HTTP Terminal 字节操作的明确拒绝。
+配置测试验证 `codexUseProxy` 被拒绝；自动更新单元测试验证废弃 `autoUpdate.intervalHours` 提示后忽略且保留有效选项，类型或平台错误禁用自动更新并继续。真实 Agent / CLI 配置回归分别验证带废弃字段的 Agent 完成连接及重启、无效更新选项的 CLI 启动 TUI 和管理连接，并校验诊断输出；历史 adapter 验证缺失或非 `paginated` 模式拒绝。存储测试覆盖 SQLite、项目目录、DO 到期标记及浏览器记账格式错误，验证不转换、不丢弃原状态。请求测试覆盖缺少 `operationInstance`、用稳定身份替代准入代次及 HTTP Terminal 字节操作的明确拒绝。
 
 ## 验证边界
 
@@ -69,3 +74,11 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 本机结果：13/13 CTest、35 文件 / 379 Vitest、完整 E2E 46 项通过（含 Terminal）；加密互通、真实 Codex TUI 初始化和原生/浏览器专项通过。构建与静态检查证据见验收记录。
 
 该准确提交的 [完整 CI](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 六项必需作业全部成功，已使用 CI 制品部署到独立 r2。真实 Cloudflare、CI 原生 Agent 和 Chromium 的线上协议、浏览器任务及刷新恢复测试通过；模拟 Codex 未调用模型，邮箱登录和长稳未验证。来源摘要、截图及旧站 / Agent 隔离核对见 [r2 部署记录](R2_DEPLOYMENT.md)。
+
+## master 合并验证（2026-11-05）
+
+合入 master 至 `05a1f85` 的已提交改动。授权复核缓冲适配密文通道，控制事件串行处理，退休确认绕过暂停的数据；保留新架构的端点控制及 SQLite 版本 2。启动诊断、配置容错和固定重试采用 master 行为；Client 启动回归的模拟 Relay 复用原生密码互通夹具作为加密端点，Agent 重试回归使用 channel-register。
+
+验证在独立 worktree、临时配置和数据目录进行，使用 `COC_NO_STARTUP_REPAIR=1` 禁止故障测试调用真实模型；启动诊断专项单独使用假 Codex。此合并不代表更新已部署的 r2 或旧站。
+
+合并检查：原生构建、类型、lint / C++ 格式、Vitest 35 文件 / 381 项、原生 15 项（完整运行 14 项通过后单独修正并通过 Client 启动夹具）、配置管理、自动更新和实际计时重试通过。完整 E2E 发现故障注入恢复等待窗口短于新的 30 秒重试周期，已调整；完整流程在随后的 CW 界面实施中继续验证，不将超时运行记为通过。所有日志为本机 `/tmp/opaque-master-*.log`，未调用模型或部署。

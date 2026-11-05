@@ -13,6 +13,8 @@ public:
             const std::string &credential = "");
   ~TuiBridge();
   std::string url() const;
+  // Sticky: authenticated TUI sent initialized after transport handshakes.
+  bool started() const;
   void observe_output_head(int64_t head);
 };
 std::string remote_address(const Url &, const std::string &path);
