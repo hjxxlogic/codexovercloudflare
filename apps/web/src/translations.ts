@@ -1,5 +1,18 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  设置: 'Settings',
+  收起侧栏: 'Collapse sidebar',
+  返回会话: 'Return to conversation',
+  返回: 'Back',
+  设置分类: 'Settings sections',
+  连接与授权: 'Connection and authorization',
+  信息: 'Information',
+  工作面板宽度: 'Work panel width',
+  'Terminal 高度': 'Terminal height',
+  调整命令输出宽度: 'Resize command output',
+  关闭信息: 'Close information',
+  浏览: 'Browse',
+
   关闭会话导航: 'Close session navigation',
   搜索会话导航: 'Search session navigation',
   '搜索会话…': 'Search sessions…',

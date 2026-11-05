@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "private": true,
   "type": "module",
   "engines": {
@@ -30,6 +30,7 @@
     "test:wake": "tsx tests/native-wake.ts && tsx tests/ui-wake.ts",
     "client": "./build/coc-client",
     "test:ui": "tsx tests/ui-stability.ts",
+    "test:ui:navigation": "tsx tests/ui-stability.ts --navigation",
     "test:cache": "tsx tests/browser-cache.ts",
     "test:backup": "python3 tests/state-backup.py",
     "test:release": "python3 tests/release-provenance.py",

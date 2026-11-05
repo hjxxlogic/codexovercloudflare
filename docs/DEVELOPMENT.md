@@ -110,3 +110,7 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 启动修复回归可运行 `ctest --test-dir build -R native-startup-repair --output-on-failure`（POSIX）。该测试用临时 PATH 中的假 Codex 验证 Client 配置故障、提示词不含配置内容、禁用开关、help 不触发，以及 Agent 跨 30 秒重试只诊断一次；不调用模型。其他故障注入测试若不应触发真实诊断，应设置 `COC_NO_STARTUP_REPAIR=1`。
 
 `native-client-startup-repair` 使用假 Codex 和回环 HTTP/WebSocket Relay，验证 attach/connect 的版本校验、连接拒绝、缓存初始化故障、TUI 初始化前失败及 initialized 后故障的诊断边界，不调用模型。该测试需允许本机 socket；`ctest --test-dir build -R startup-repair --output-on-failure` 可运行两项修复回归。
+
+### 统一导航专项验证
+
+`npm run build:web && npm run test:ui:navigation` 使用本地模拟接收端检查新版左栏、设置、工作面板、文件预览和管理界面，无原生 Agent 或模型调用。`npm run test:markdown` 检查富文本。r2 上线可运行 `node node_modules/tsx/dist/cli.mjs scripts/verify-web-navigation.ts --access-config <0600 文件> --owner-secret-file <0600 文件> --host <现有隔离测试主机> --output .local/<目录>`；仅检查 Web，不创建会话或启动 Terminal，临时网页授权在结束时撤销。不要将它解释为完整发布门禁通过。

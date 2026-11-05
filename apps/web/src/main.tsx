@@ -107,6 +107,8 @@ function CodexMark() {
 }
 type View = 'chat' | 'connection' | 'devices' | 'keys';
 type Mode = 'cw' | 'admin';
+import './happier/unified-shell.css';
+
 function App() {
   const language = useLanguage();
   const theme = useThemePreference();
@@ -126,6 +128,14 @@ function App() {
   const currentMode = useRef(mode);
   currentMode.current = mode;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(
+    () => !matchMedia('(max-width: 900px)').matches,
+  );
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'connection'>(
+    'appearance',
+  );
+  const [appearanceTarget, setAppearanceTarget] =
+    useState<HTMLDivElement | null>(null);
   const [workbenchMenuTarget, setWorkbenchMenuTarget] =
     useState<HTMLDivElement | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -134,14 +144,12 @@ function App() {
   const [threadError, setThreadError] = useState('');
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
-  const [panel, setPanel] = useState<
-    'sessions' | 'details' | 'files' | 'models' | null
-  >(null);
+  const [panel, setPanel] = useState<'details' | 'models' | null>(null);
   const panelDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = panelDialog.current;
-    if (panel && dialog && !dialog.open) dialog.showModal();
-    else if (!panel && dialog?.open) dialog.close();
+    if (panel === 'models' && dialog && !dialog.open) dialog.showModal();
+    else if (panel !== 'models' && dialog?.open) dialog.close();
   }, [panel]);
   const historyRequest = useRef(0);
   const historySocket = useRef<WebSocket | null>(null);
@@ -181,18 +189,11 @@ function App() {
   const menu = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
-    const outside = (event: PointerEvent) => {
-      if (!menu.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', outside);
-    const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
     };
     document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('keydown', escape);
-    };
+    return () => document.removeEventListener('keydown', escape);
   }, [menuOpen]);
   const [emailIdentity, setEmailIdentity] = useState<{
     enabled: boolean;
@@ -259,19 +260,7 @@ function App() {
     'sending' | 'waiting' | 'replying'
   >();
   const [fileBusy, setFileBusy] = useState(false);
-  const closePanel = () => {
-    if (
-      fileBusy &&
-      !confirm(
-        t(
-          '关闭面板会取消传输；正在提交的文件可能已经发布，请重新打开核对结果。继续？',
-        ),
-      )
-    )
-      return;
-    setFileBusy(false);
-    setPanel(null);
-  };
+  const closePanel = () => setPanel(null);
   const [notice, setNotice] = useState('');
   const [closingSession, setClosingSession] = useState<string>();
   const [projectReadOnly, setProjectReadOnly] = useState(false);
@@ -352,7 +341,7 @@ function App() {
   );
   const recoverCatalog = useRef<(() => Promise<void>) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshed, setRefreshed] = useState('');
+  const [_refreshed, setRefreshed] = useState('');
   const bottomRefresh = useBottomRefresh(
     mode === 'cw' && view === 'chat' && !!selected && online,
     async () => {
@@ -2587,12 +2576,14 @@ function App() {
   }, [closingSession]);
   const openSessions = () => {
     setView('chat');
-    setPanel('sessions');
+    setPanel(null);
+    setNavigationOpen(true);
     setMenuOpen(false);
   };
   const switchMode = () => {
     const next = mode === 'cw' ? 'admin' : 'cw';
     setMode(next);
+    setMenuOpen(false);
     setView(next === 'admin' ? 'devices' : 'chat');
     setPanel(null);
     setSecret('');
@@ -2752,6 +2743,7 @@ function App() {
           <select
             aria-label={t('主机')}
             value={host}
+            disabled={fileBusy}
             onChange={(e) => {
               setSelected(undefined);
               rememberHost(e.target.value);
@@ -2771,6 +2763,7 @@ function App() {
           <select
             aria-label={t('项目')}
             value={project}
+            disabled={fileBusy}
             onChange={(e) => {
               setSelected(undefined);
               setProject(e.target.value);
@@ -2797,49 +2790,7 @@ function App() {
             {t('重试唤醒')}
           </button>
         )}
-        <button
-          disabled={!host}
-          onClick={() => {
-            if (
-              confirm(
-                t(
-                  '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
-                ),
-              )
-            )
-              void api('/auth/forget', { hostId: host })
-                .then(() => {
-                  rememberHost('');
-                  forgetEmailHost(host);
-                  setHost('');
-                  socket.current?.close();
-                  setSelected(undefined);
-                  return refresh();
-                })
-                .catch(report);
-          }}
-        >
-          {t(emailIdentity.enabled ? '断开当前浏览器连接' : '移除本地授权')}
-        </button>
-        <button
-          disabled={!online || !host || !project || creating}
-          onClick={() => {
-            setView('chat');
-            void create();
-          }}
-        >
-          {t('创建网页会话')}
-        </button>
       </div>
-      {host && (
-        <ProjectManager
-          key={host}
-          operations={operations.current}
-          hostId={host}
-          hostName={hosts.find((h) => h.id === host)?.name || host}
-          changed={refreshView}
-        />
-      )}
     </section>
   );
   const workspaceHeader = (
@@ -2872,240 +2823,360 @@ function App() {
   );
   return (
     <main
-      className={`happier-site${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'cw' && view === 'chat' && logged ? ' happier-chat-shell' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
+      className={`happier-site unified-shell${navigationOpen ? ' navigation-open' : ''}${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'cw' && view === 'chat' && logged ? ' happier-chat-shell' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
     >
-      <header className="topbar" ref={menu}>
-        <a
-          className="brand"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            setView(mode === 'admin' ? 'devices' : 'chat');
-            setMenuOpen(false);
-          }}
-        >
-          {view === 'chat' && logged ? (
-            <span>
-              {threads.find((t) => t.id === selected?.threadId)?.name ||
-                t('Codex 对话')}
-            </span>
-          ) : (
-            <>
-              <CodexMark /> <span>{t('远程 Codex')}</span>
-              <small>
-                {mode === 'admin' ? t('管理员模式') : t('CW 工作台')}
-              </small>
-            </>
-          )}
-        </a>
-        <button
-          className="status-refresh"
-          aria-label={t('刷新状态')}
-          title={
-            refreshed
-              ? `${t('最近确认')} ${refreshed}`
-              : t('连接状态未确认，点击刷新核对')
-          }
-          disabled={refreshing}
-          onClick={() => void refreshView()}
-        >
-          <Icon name="refresh" size={16} />
-          <small aria-live="polite">
-            {refreshing ? t('刷新中') : refreshed || t('未确认')}
-          </small>
-        </button>
-        {logged && view === 'chat' && (
-          <div className="header-actions">
-            <button onClick={() => setPanel('sessions')}>{t('历史')}</button>
+      <SessionNavigation
+        open={navigationOpen}
+        onOpenChange={setNavigationOpen}
+        onSettings={() => {
+          setSettingsTab('appearance');
+          setMenuOpen(true);
+          if (matchMedia('(max-width: 900px)').matches)
+            setNavigationOpen(false);
+        }}
+      >
+        {mode === 'cw' && logged && (
+          <aside className="session-sidebar unified-session-list">
+            {projectPicker}
+            <h3>{t('会话列表')}</h3>
             <button
-              disabled={!online || !project || creating}
-              onClick={() => void create()}
+              className="new-chat"
+              disabled={!online || !host || !project || creating}
+              onClick={() => {
+                setMenuOpen(false);
+                if (matchMedia('(max-width: 900px)').matches)
+                  setNavigationOpen(false);
+                void create();
+              }}
             >
-              {t('新建')}
+              {t('＋ 新建对话')}
             </button>
-          </div>
+            <input
+              className="session-search"
+              aria-label={t('搜索会话')}
+              placeholder={t('搜索已加载的会话…')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <button
+              disabled={!host || loadingThreads}
+              onClick={() => {
+                void loadThreads();
+                void api('/sessions?paged=true&hostId=' + host)
+                  .then((page) => {
+                    setSessions(page.data);
+                    setSessionCursor(page.nextCursor);
+                  })
+                  .catch(report);
+              }}
+            >
+              {loadingThreads ? t('正在加载…') : t('刷新会话')}
+            </button>
+            <p className="sidebar-caption">
+              {t('与远程 Codex 共用历史 · 当前项目')}
+            </p>
+            <SessionHistory
+              compact
+              sessions={sessions}
+              threads={threads}
+              project={project}
+              projectName={
+                projects.find((p) => p.id === project)?.name || project
+              }
+              selected={selected}
+              search={search}
+              online={online}
+              loading={loadingThreads}
+              error={threadError}
+              creating={creating}
+              onSelect={(session) => {
+                setTakeover(false);
+                setSelected(session);
+                setPanel(null);
+                setView('chat');
+                setMenuOpen(false);
+                if (matchMedia('(max-width: 900px)').matches)
+                  setNavigationOpen(false);
+              }}
+              onResume={(threadId) => {
+                setMenuOpen(false);
+                if (matchMedia('(max-width: 900px)').matches)
+                  setNavigationOpen(false);
+                void create(threadId);
+              }}
+            />
+            {sessionCursor && (
+              <button
+                disabled={!online}
+                onClick={() =>
+                  void api(
+                    `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
+                  )
+                    .then((page) => {
+                      setSessions((old) => [
+                        ...old,
+                        ...page.data.filter(
+                          (s: Session) => !old.some((o) => o.id === s.id),
+                        ),
+                      ]);
+                      setSessionCursor(page.nextCursor);
+                    })
+                    .catch(report)
+                }
+              >
+                {t('加载更多会话记录')}
+              </button>
+            )}
+            {cursor && (
+              <button
+                disabled={loadingThreads}
+                onClick={() => void loadThreads(true)}
+              >
+                {t('加载更多')}
+              </button>
+            )}
+          </aside>
         )}
-        <button
-          className="menu-toggle"
-          aria-label={t('功能菜单')}
-          aria-expanded={menuOpen}
-          aria-controls="feature-menu"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <Icon name="more" />{' '}
-          <span className="menu-toggle-label">{t('功能菜单')}</span>
-        </button>
-        {menuOpen && (
-          <nav id="feature-menu" aria-label={t('功能菜单')}>
-            <div className="menu-heading">
-              <strong>{mode === 'cw' ? t('CW 模式') : t('管理员模式')}</strong>
-              <small>
-                {mode === 'cw'
-                  ? t('对话与远程工作区')
-                  : admin
-                    ? t('已登录管理')
-                    : t('需要管理员登录')}
-              </small>
-            </div>
-            <div className="menu-items">
-              {mode === 'cw' && logged && view === 'chat' && (
-                <div
-                  className="workbench-menu-items"
-                  ref={setWorkbenchMenuTarget}
-                />
-              )}
-              {mode === 'cw' && logged && (
-                <>
-                  <button
-                    onClick={() => {
-                      setView('chat');
-                      setPanel('sessions');
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <strong>{t('会话记录')}</strong>
-                    <small>{t('恢复与搜索历史对话')}</small>
-                  </button>
-                  <button
-                    disabled={creating || !online}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setPanel(null);
-                      if (host && project) {
-                        setView('chat');
-                        void create();
-                      } else openSessions();
-                    }}
-                  >
-                    <strong>{t('新建对话')}</strong>
-                    <small>{t('在当前项目开始新对话')}</small>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      if (host && project) {
-                        setView('chat');
-                        setPanel('files');
-                      } else {
-                        setPanel(null);
-                        openSessions();
-                      }
-                    }}
-                  >
-                    <strong>{t('工作区文件')}</strong>
-                    <small>{t('上传、下载远程项目文件')}</small>
-                  </button>
-                  <button
-                    disabled={!selected}
-                    onClick={() => {
-                      setView('chat');
-                      setPanel('details');
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <strong>{t('会话详情')}</strong>
-                    <small>{t('连接状态、远程项目与会话操作')}</small>
-                  </button>
-                </>
-              )}
-              {(mode === 'cw'
-                ? ([
-                    ['chat', t('CW 对话'), t('会话与远程任务')],
-                    ...(!logged
-                      ? ([
-                          ['connection', t('登录与授权'), t('连接远程服务器')],
-                        ] as const)
-                      : []),
-                  ] as const)
-                : ([
-                    ['devices', t('设备授权'), t('审批与管理设备')],
-                    ['keys', 'API Key', t('管理访问凭证')],
-                  ] as const)
-              ).map(([id, label, description]) => (
+        {mode === 'admin' && admin && (
+          <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
+            {(
+              [
+                ['pending', t('待授权请求')],
+                ['authorized', t('已授权设备')],
+                ['versions', t('Agent 运行版本')],
+                ['wake', t('服务器唤醒配置')],
+                ['emails', t('Agent 邮箱关联')],
+                ['projects', t('项目管理')],
+                ['keys', t('API Key 管理')],
+                ['sessions', t('管理会话')],
+                ['misc', t('杂项')],
+              ] as const
+            ).map(([id, label]) => {
+              const selected =
+                view === 'keys' ? id === 'keys' : id === adminTab;
+              return (
                 <button
                   key={id}
-                  aria-current={view === id ? 'page' : undefined}
+                  id={`admin-tab-${id}`}
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`admin-panel-${id}`}
+                  tabIndex={selected ? 0 : -1}
                   onClick={() => {
-                    setView(id);
-                    setPanel(null);
-                    setMenuOpen(false);
+                    if (id === 'keys') setView('keys');
+                    else {
+                      setAdminTab(id);
+                      setView('devices');
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    const tabs = Array.from(
+                      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                        '[role="tab"]',
+                      ),
+                    );
+                    const index = tabs.indexOf(event.currentTarget);
+                    const next =
+                      event.key === 'ArrowRight'
+                        ? (index + 1) % tabs.length
+                        : event.key === 'ArrowLeft'
+                          ? (index + tabs.length - 1) % tabs.length
+                          : event.key === 'Home'
+                            ? 0
+                            : event.key === 'End'
+                              ? tabs.length - 1
+                              : -1;
+                    if (next < 0) return;
+                    event.preventDefault();
+                    tabs[next].focus();
+                    tabs[next].click();
                   }}
                 >
-                  <strong>{label}</strong>
-                  <small>{description}</small>
+                  <Icon
+                    name={
+                      (
+                        {
+                          pending: 'shield',
+                          authorized: 'devices',
+                          versions: 'activity',
+                          wake: 'power',
+                          emails: 'mail',
+                          projects: 'folder',
+                          keys: 'key',
+                          sessions: 'chat',
+                          misc: 'settings',
+                        } as Record<string, IconName>
+                      )[id]
+                    }
+                  />
+                  <span>{label}</span>
                 </button>
-              ))}
-              {mode === 'cw' && emailIdentity.email && (
-                <button
-                  onClick={() =>
-                    window.location.assign(
-                      'https://r.xlogic.cc/cdn-cgi/access/logout',
-                    )
-                  }
-                >
-                  <strong>
-                    {t('登出')} {emailIdentity.email}
-                  </strong>
-                  <small>{t('退出当前邮箱登录')}</small>
-                </button>
-              )}
-              {mode === 'admin' && admin && (
-                <button
-                  onClick={() =>
-                    void api('/auth/logout', {})
-                      .then(() => {
-                        setAdmin(false);
-                        setNewKey('');
-                        setSecret('');
-                        setMenuOpen(false);
-                      })
-                      .catch(report)
-                  }
-                >
-                  <strong>{t('退出管理')}</strong>
-                  <small>{t('结束当前管理员登录')}</small>
-                </button>
-              )}
-            </div>
-            <div className="menu-footer">
-              <label className="language-picker">
-                <span>{t('主题')}</span>
-                <select
-                  aria-label={t('全站主题')}
-                  value={theme}
-                  onChange={(event) =>
-                    setThemePreference(event.target.value as ThemePreference)
-                  }
-                >
-                  <option value="system">{t('跟随系统')}</option>
-                  <option value="light">{t('浅色')}</option>
-                  <option value="dark">{t('深色')}</option>
-                </select>
-              </label>
-              <label className="language-picker">
-                <span>语言 / Language</span>
-                <select
-                  aria-label="语言 / Language"
-                  value={language}
-                  onChange={(event) =>
-                    setLanguage(event.target.value as Language)
-                  }
-                >
-                  <option value="zh-CN">中文</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-              <button className="mode-switch" onClick={switchMode}>
-                <span aria-hidden="true">⇄</span>
-                {t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
-              </button>
-              <small className="site-version">
-                {t('网站版本')} {webVersion}
-              </small>
-            </div>
+              );
+            })}
           </nav>
         )}
-      </header>
+
+        {mode === 'cw' && !logged && (
+          <button
+            onClick={() => {
+              setView('connection');
+              setNavigationOpen(false);
+            }}
+          >
+            {t('登录与授权')}
+          </button>
+        )}
+      </SessionNavigation>
+      <section
+        className="unified-settings"
+        hidden={!menuOpen}
+        aria-label={t('设置')}
+        ref={menu}
+      >
+        <header>
+          <button aria-label={t('返回会话')} onClick={() => setMenuOpen(false)}>
+            <Icon name="chevron" /> {t('返回')}
+          </button>
+          <h1>{t('设置')}</h1>
+        </header>
+        <nav aria-label={t('设置分类')}>
+          <button
+            aria-current={settingsTab === 'appearance' ? 'page' : undefined}
+            onClick={() => setSettingsTab('appearance')}
+          >
+            {t('外观')}
+          </button>
+          <button
+            aria-current={settingsTab === 'connection' ? 'page' : undefined}
+            onClick={() => setSettingsTab('connection')}
+          >
+            {t('连接与授权')}
+          </button>
+        </nav>
+        <div className="settings-card" hidden={settingsTab !== 'appearance'}>
+          <h2>{t('外观')}</h2>{' '}
+          <div className="menu-footer">
+            <label className="language-picker">
+              <span>{t('主题')}</span>
+              <select
+                aria-label={t('全站主题')}
+                value={theme}
+                onChange={(event) =>
+                  setThemePreference(event.target.value as ThemePreference)
+                }
+              >
+                <option value="system">{t('跟随系统')}</option>
+                <option value="light">{t('浅色')}</option>
+                <option value="dark">{t('深色')}</option>
+              </select>
+            </label>
+            <label className="language-picker">
+              <span>语言 / Language</span>
+              <select
+                aria-label="语言 / Language"
+                value={language}
+                onChange={(event) =>
+                  setLanguage(event.target.value as Language)
+                }
+              >
+                <option value="zh-CN">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <button
+              className="mode-switch"
+              disabled={fileBusy}
+              onClick={switchMode}
+            >
+              <span aria-hidden="true">⇄</span>
+              {t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
+            </button>
+            <small className="site-version">
+              {t('网站版本')} {webVersion}
+            </small>
+          </div>
+          <div ref={setAppearanceTarget} />
+        </div>
+        <div className="settings-card" hidden={settingsTab !== 'connection'}>
+          <h2>{t('连接与授权')}</h2>{' '}
+          <button
+            disabled={!host || fileBusy}
+            onClick={() => {
+              if (
+                confirm(
+                  t(
+                    '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                  ),
+                )
+              )
+                void api('/auth/forget', { hostId: host })
+                  .then(() => {
+                    rememberHost('');
+                    forgetEmailHost(host);
+                    setHost('');
+                    socket.current?.close();
+                    setSelected(undefined);
+                    return refresh();
+                  })
+                  .catch(report);
+            }}
+          >
+            {t(emailIdentity.enabled ? '断开当前浏览器连接' : '移除本地授权')}
+          </button>
+          <button
+            disabled={!online || !host || !project || creating}
+            onClick={() => {
+              setView('chat');
+              void create();
+            }}
+          >
+            {t('创建网页会话')}
+          </button>
+          {emailControls}
+          {connectionControls}
+          {mode === 'cw' && logged && host && (
+            <ProjectManager
+              key={host}
+              operations={operations.current}
+              hostId={host}
+              hostName={hosts.find((h) => h.id === host)?.name || host}
+              changed={refreshView}
+            />
+          )}
+          {logged && adding && loginForm}{' '}
+          {mode === 'cw' && emailIdentity.email && (
+            <button
+              onClick={() =>
+                window.location.assign(
+                  'https://r.xlogic.cc/cdn-cgi/access/logout',
+                )
+              }
+            >
+              <strong>
+                {t('登出')} {emailIdentity.email}
+              </strong>
+              <small>{t('退出当前邮箱登录')}</small>
+            </button>
+          )}
+          {mode === 'admin' && admin && (
+            <button
+              onClick={() =>
+                void api('/auth/logout', {})
+                  .then(() => {
+                    setAdmin(false);
+                    setNewKey('');
+                    setSecret('');
+                    setMenuOpen(false);
+                  })
+                  .catch(report)
+              }
+            >
+              <strong>{t('退出管理')}</strong>
+              <small>{t('结束当前管理员登录')}</small>
+            </button>
+          )}
+        </div>
+      </section>
       {logged && view === 'chat' && mode !== 'cw' && workspaceHeader}
       {createOperation && (
         <div className="notice" role="status">
@@ -3161,83 +3232,6 @@ function App() {
       {!checking && mode === 'cw' && !logged && emailControls}
       {(view !== 'chat' || !logged) && loginForm}
       <ManagerPairing />
-      {mode === 'admin' && admin && (
-        <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
-          {(
-            [
-              ['pending', t('待授权请求')],
-              ['authorized', t('已授权设备')],
-              ['versions', t('Agent 运行版本')],
-              ['wake', t('服务器唤醒配置')],
-              ['emails', t('Agent 邮箱关联')],
-              ['projects', t('项目管理')],
-              ['keys', t('API Key 管理')],
-              ['sessions', t('管理会话')],
-              ['misc', t('杂项')],
-            ] as const
-          ).map(([id, label]) => {
-            const selected = view === 'keys' ? id === 'keys' : id === adminTab;
-            return (
-              <button
-                key={id}
-                id={`admin-tab-${id}`}
-                role="tab"
-                aria-selected={selected}
-                aria-controls={`admin-panel-${id}`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => {
-                  if (id === 'keys') setView('keys');
-                  else {
-                    setAdminTab(id);
-                    setView('devices');
-                  }
-                }}
-                onKeyDown={(event) => {
-                  const tabs = Array.from(
-                    event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
-                      '[role="tab"]',
-                    ),
-                  );
-                  const index = tabs.indexOf(event.currentTarget);
-                  const next =
-                    event.key === 'ArrowRight'
-                      ? (index + 1) % tabs.length
-                      : event.key === 'ArrowLeft'
-                        ? (index + tabs.length - 1) % tabs.length
-                        : event.key === 'Home'
-                          ? 0
-                          : event.key === 'End'
-                            ? tabs.length - 1
-                            : -1;
-                  if (next < 0) return;
-                  event.preventDefault();
-                  tabs[next].focus();
-                  tabs[next].click();
-                }}
-              >
-                <Icon
-                  name={
-                    (
-                      {
-                        pending: 'shield',
-                        authorized: 'devices',
-                        versions: 'activity',
-                        wake: 'power',
-                        emails: 'mail',
-                        projects: 'folder',
-                        keys: 'key',
-                        sessions: 'chat',
-                        misc: 'settings',
-                      } as Record<string, IconName>
-                    )[id]
-                  }
-                />
-                <span>{label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      )}
       {admin && view === 'devices' && adminTab !== 'misc' && (
         <section
           className="card"
@@ -3709,7 +3703,144 @@ function App() {
           {view === 'chat' && (
             <Workbench
               menuTarget={workbenchMenuTarget}
-              closeMenu={() => setMenuOpen(false)}
+              closeMenu={() => setPanel(null)}
+              appearanceTarget={appearanceTarget}
+              refresh={() => void refreshView()}
+              refreshing={refreshing}
+              information={
+                panel === 'details' && selected ? (
+                  <section className="session-details">
+                    <p className="status">
+                      {t(status)}
+                      {selected.external
+                        ? t(' · 外部会话 · 只读同步')
+                        : ''} · {busy ? t('执行中') : t('空闲')}{' '}
+                      {t('· 远程项目')} {selected.projectId}
+                    </p>
+                    {selected.state !== 'ready' && selected.threadId && (
+                      <button
+                        disabled={!online || creating}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              t('在 {0} 恢复并继续此线程？', remoteTarget),
+                            )
+                          )
+                            void create(selected.threadId);
+                        }}
+                      >
+                        {t('恢复并继续')}
+                      </button>
+                    )}
+                    <p>{remoteTarget}</p>
+                    <p>{projects.find((p) => p.id === project)?.path}</p>
+                    <details>
+                      <summary>{t('会话标识')}</summary>
+                      <p className="id">{selected.id}</p>
+                    </details>
+                    <details>
+                      <summary>{t('本机存储')}</summary>
+                      <p>
+                        {t(
+                          '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
+                        )}
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              t(
+                                '清理此设备的会话缓存？离线时将无法读取这些副本。',
+                              ),
+                            )
+                          )
+                            void localHistory.current
+                              ?.clear()
+                              .then(() => setNotice('本机会话缓存已清理'))
+                              .catch(report);
+                        }}
+                      >
+                        {t('清理本机会话缓存')}
+                      </button>
+                    </details>
+                    <div className="row">
+                      <button
+                        disabled={
+                          !ready || !online || !busy || selected.external
+                        }
+                        onClick={() => send({ action: 'interrupt' })}
+                      >
+                        {t('停止本轮')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              selected.external
+                                ? t('断开此只读连接？原客户端继续运行。')
+                                : t('结束会话？已修改文件不会回滚。'),
+                            )
+                          )
+                            void endSession(selected)
+                              .then((closed: Session) => {
+                                setSessions((v) =>
+                                  v.map((s) =>
+                                    s.id === closed.id ? closed : s,
+                                  ),
+                                );
+                                setClosingSession(
+                                  closed.state === 'closed'
+                                    ? undefined
+                                    : closed.id,
+                                );
+                                setSelected(undefined);
+                                setPanel(null);
+                                setStatus(
+                                  closed.state === 'closed'
+                                    ? '会话已结束'
+                                    : '正在结束会话',
+                                );
+                              })
+                              .catch(report);
+                        }}
+                      >
+                        {t('结束会话')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setTakeover(false);
+                          setReconnect((n) => n + 1);
+                        }}
+                      >
+                        {t('重新连接')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (
+                            confirm(
+                              t(
+                                '接管 {0} 的当前会话会断开其他控制端，继续？',
+                                remoteTarget,
+                              ),
+                            )
+                          )
+                            setTakeover((v) => !v);
+                        }}
+                      >
+                        {t('接管控制权')}
+                      </button>
+                    </div>
+                  </section>
+                ) : panel === 'details' ? (
+                  <section className="session-details">
+                    {workspaceHeader}
+                    <p>{projects.find((p) => p.id === project)?.path}</p>
+                  </section>
+                ) : undefined
+              }
+              openInformation={() =>
+                setPanel(panel === 'details' ? null : 'details')
+              }
               host={host}
               project={project}
               root={projects.find((item) => item.id === project)?.path || ''}
@@ -3734,7 +3865,16 @@ function App() {
               chunks={contentChunks}
               reading={readingContent}
               read={readContent}
-              upload={() => setPanel('files')}
+              transfer={
+                <WorkspaceFiles
+                  operations={operations.current}
+                  host={host}
+                  project={project}
+                  target={remoteTarget}
+                  onBusy={setFileBusy}
+                  cache={catalog.current}
+                />
+              }
               reference={(path) =>
                 setText((current) => `${current}${current ? '\n' : ''}${path}`)
               }
@@ -3746,38 +3886,14 @@ function App() {
                   className="chat-panel"
                   ref={panelDialog}
                   aria-labelledby="chat-panel-title"
-                  onClose={() => {
-                    setPanel(null);
-                    menu.current
-                      ?.querySelector<HTMLButtonElement>('.menu-toggle')
-                      ?.focus();
-                  }}
+                  onClose={() => setPanel(null)}
                   onCancel={(event) => {
                     event.preventDefault();
                     closePanel();
                   }}
-                  onClick={(e) => {
-                    const bounds = e.currentTarget.getBoundingClientRect();
-                    if (
-                      e.target === e.currentTarget &&
-                      (e.clientX < bounds.left ||
-                        e.clientX > bounds.right ||
-                        e.clientY < bounds.top ||
-                        e.clientY > bounds.bottom)
-                    )
-                      closePanel();
-                  }}
                 >
                   <div className="panel-heading">
-                    <h2 id="chat-panel-title">
-                      {panel === 'details'
-                        ? t('会话详情')
-                        : panel === 'files'
-                          ? t('工作区文件')
-                          : panel === 'models'
-                            ? t('选择模型')
-                            : t('会话记录')}
-                    </h2>
+                    <h2 id="chat-panel-title">{t('选择模型')}</h2>
                     <button aria-label={t('关闭面板')} onClick={closePanel}>
                       {t('关闭')}
                     </button>
@@ -3804,271 +3920,7 @@ function App() {
                       }}
                     />
                   )}
-                  {panel === 'files' && (
-                    <WorkspaceFiles
-                      operations={operations.current}
-                      host={host}
-                      project={project}
-                      target={remoteTarget}
-                      onBusy={setFileBusy}
-                      cache={catalog.current}
-                    />
-                  )}
-                  {panel === 'sessions' && (
-                    <aside className="session-sidebar">
-                      <section
-                        className="connection-settings"
-                        aria-label={t('连接设置')}
-                      >
-                        <h3>{t('连接设置')}</h3>
-                        {error && (
-                          <p className="error" role="alert">
-                            {t(error)}
-                          </p>
-                        )}
-                        {projectPicker}
-                        {emailControls}
-                        {connectionControls}
-                        {loginForm}
-                      </section>
-                      <h3>{t('会话列表')}</h3>
-                      <button
-                        className="new-chat"
-                        disabled={!online || !host || !project || creating}
-                        onClick={() => void create()}
-                      >
-                        {t('＋ 新建对话')}
-                      </button>
-                      <input
-                        className="session-search"
-                        aria-label={t('搜索会话')}
-                        placeholder={t('搜索已加载的会话…')}
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                      <button
-                        disabled={!host || loadingThreads}
-                        onClick={() => {
-                          void loadThreads();
-                          void api('/sessions?paged=true&hostId=' + host)
-                            .then((page) => {
-                              setSessions(page.data);
-                              setSessionCursor(page.nextCursor);
-                            })
-                            .catch(report);
-                        }}
-                      >
-                        {loadingThreads ? t('正在加载…') : t('刷新会话')}
-                      </button>
-                      <p className="sidebar-caption">
-                        {t('与远程 Codex 共用历史 · 当前项目')}
-                      </p>
-                      <SessionHistory
-                        sessions={sessions}
-                        threads={threads}
-                        project={project}
-                        projectName={
-                          projects.find((p) => p.id === project)?.name ||
-                          project
-                        }
-                        selected={selected}
-                        search={search}
-                        online={online}
-                        loading={loadingThreads}
-                        error={threadError}
-                        creating={creating}
-                        onSelect={(session) => {
-                          setTakeover(false);
-                          setSelected(session);
-                          setPanel(null);
-                        }}
-                        onResume={(threadId) => void create(threadId)}
-                      />
-                      {sessionCursor && (
-                        <button
-                          disabled={!online}
-                          onClick={() =>
-                            void api(
-                              `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
-                            )
-                              .then((page) => {
-                                setSessions((old) => [
-                                  ...old,
-                                  ...page.data.filter(
-                                    (s: Session) =>
-                                      !old.some((o) => o.id === s.id),
-                                  ),
-                                ]);
-                                setSessionCursor(page.nextCursor);
-                              })
-                              .catch(report)
-                          }
-                        >
-                          {t('加载更多会话记录')}
-                        </button>
-                      )}
-                      {cursor && (
-                        <button
-                          disabled={loadingThreads}
-                          onClick={() => void loadThreads(true)}
-                        >
-                          {t('加载更多')}
-                        </button>
-                      )}
-                    </aside>
-                  )}
-                  {panel === 'details' && selected && (
-                    <section className="session-details">
-                      <p className="status">
-                        {t(status)}
-                        {selected.external
-                          ? t(' · 外部会话 · 只读同步')
-                          : ''} · {busy ? t('执行中') : t('空闲')}{' '}
-                        {t('· 远程项目')} {selected.projectId}
-                      </p>
-                      {selected.state !== 'ready' && selected.threadId && (
-                        <button
-                          disabled={!online || creating}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t('在 {0} 恢复并继续此线程？', remoteTarget),
-                              )
-                            )
-                              void create(selected.threadId);
-                          }}
-                        >
-                          {t('恢复并继续')}
-                        </button>
-                      )}
-                      <p>{remoteTarget}</p>
-                      <p>{projects.find((p) => p.id === project)?.path}</p>
-                      <details>
-                        <summary>{t('会话标识')}</summary>
-                        <p className="id">{selected.id}</p>
-                      </details>
-                      <details>
-                        <summary>{t('本机存储')}</summary>
-                        <p>
-                          {t(
-                            '清理仅删除本设备历史副本，保留草稿与待确认请求；远程历史保留。未重新缓存前无法离线读取。',
-                          )}
-                        </p>
-                        <button
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t(
-                                  '清理此设备的会话缓存？离线时将无法读取这些副本。',
-                                ),
-                              )
-                            )
-                              void localHistory.current
-                                ?.clear()
-                                .then(() => setNotice('本机会话缓存已清理'))
-                                .catch(report);
-                          }}
-                        >
-                          {t('清理本机会话缓存')}
-                        </button>
-                      </details>
-                      <div className="row">
-                        <button
-                          disabled={
-                            !ready || !online || !busy || selected.external
-                          }
-                          onClick={() => send({ action: 'interrupt' })}
-                        >
-                          {t('停止本轮')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (
-                              confirm(
-                                selected.external
-                                  ? t('断开此只读连接？原客户端继续运行。')
-                                  : t('结束会话？已修改文件不会回滚。'),
-                              )
-                            )
-                              void endSession(selected)
-                                .then((closed: Session) => {
-                                  setSessions((v) =>
-                                    v.map((s) =>
-                                      s.id === closed.id ? closed : s,
-                                    ),
-                                  );
-                                  setClosingSession(
-                                    closed.state === 'closed'
-                                      ? undefined
-                                      : closed.id,
-                                  );
-                                  setSelected(undefined);
-                                  setPanel(null);
-                                  setStatus(
-                                    closed.state === 'closed'
-                                      ? '会话已结束'
-                                      : '正在结束会话',
-                                  );
-                                })
-                                .catch(report);
-                          }}
-                        >
-                          {t('结束会话')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setTakeover(false);
-                            setReconnect((n) => n + 1);
-                          }}
-                        >
-                          {t('重新连接')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t(
-                                  '接管 {0} 的当前会话会断开其他控制端，继续？',
-                                  remoteTarget,
-                                ),
-                              )
-                            )
-                              setTakeover((v) => !v);
-                          }}
-                        >
-                          {t('接管控制权')}
-                        </button>
-                      </div>
-                    </section>
-                  )}
                 </dialog>
-                {mode === 'cw' && !panel && (
-                  <SessionNavigation
-                    sessions={sessions}
-                    threads={threads}
-                    project={project}
-                    projectName={
-                      projects.find((p) => p.id === project)?.name || project
-                    }
-                    hostName={hosts.find((h) => h.id === host)?.name || host}
-                    selected={selected}
-                    online={online}
-                    loading={loadingThreads}
-                    error={threadError}
-                    creating={creating}
-                    onSelect={(session) => {
-                      setTakeover(false);
-                      setSelected(session);
-                    }}
-                    onResume={(thread) => void create(thread)}
-                    onNew={() => {
-                      if (host && project) void create();
-                      else openSessions();
-                    }}
-                    onConnect={openSessions}
-                    onHistory={openSessions}
-                  />
-                )}
                 <section className="conversation" aria-label={t('Codex 对话')}>
                   {mode === 'cw' && (
                     <SessionHeading
@@ -4085,8 +3937,12 @@ function App() {
                       status={selected ? t(status) : t('选择项目以开始对话')}
                       busy={busy}
                       context={workspaceHeader}
-                      onFiles={() => setPanel('files')}
-                      onDetails={() => setPanel('details')}
+                      actions={
+                        <div
+                          className="workspace-toolbar"
+                          ref={setWorkbenchMenuTarget}
+                        />
+                      }
                     />
                   )}
 

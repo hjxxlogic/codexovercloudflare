@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { queryApi } from '../api.ts';
 import { t } from '../i18n.ts';
 import { FullscreenButton } from './fullscreen.tsx';
@@ -7,16 +7,17 @@ export function Explorer({
   host,
   project,
   open,
-  upload,
+  transfer,
   close,
 }: {
   host: string;
   project: string;
   open: (path: string) => void;
-  upload: () => void;
+  transfer: ReactNode;
   close: () => void;
 }) {
   const [filter, setFilter] = useState('');
+  const [transferring, setTransferring] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [sort, setSort] = useState('name');
   return (
@@ -69,35 +70,53 @@ export function Explorer({
           {t('刷新')}
         </button>
       </header>
-      <input
-        aria-label={t('筛选已加载项')}
-        placeholder={t('筛选已加载项')}
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
-      <select
-        aria-label={t('排序已加载项')}
-        value={sort}
-        onChange={(event) => setSort(event.target.value)}
-      >
-        <option value="name">{t('按名称')}</option>
-        <option value="size">{t('按大小')}</option>
-      </select>
-      <button onClick={upload}>{t('上传 / 传输')}</button>
-      {host && project ? (
-        <Directory
-          key={`${host}:${project}:${generation}`}
-          host={host}
-          project={project}
-          path=""
-          filter={filter}
-          sort={sort}
-          open={open}
-          depth={0}
+      <div className="file-browser-tabs">
+        <button
+          aria-pressed={!transferring}
+          onClick={() => setTransferring(false)}
+        >
+          {t('浏览')}
+        </button>
+        <button
+          aria-pressed={transferring}
+          onClick={() => setTransferring(true)}
+        >
+          {t('上传 / 传输')}
+        </button>
+      </div>
+      <div hidden={transferring}>
+        <input
+          aria-label={t('筛选已加载项')}
+          placeholder={t('筛选已加载项')}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
         />
-      ) : (
-        <p>{t('请先选择项目')}</p>
-      )}
+        <select
+          aria-label={t('排序已加载项')}
+          value={sort}
+          onChange={(event) => setSort(event.target.value)}
+        >
+          <option value="name">{t('按名称')}</option>
+          <option value="size">{t('按大小')}</option>
+        </select>
+        {host && project ? (
+          <Directory
+            key={`${host}:${project}:${generation}`}
+            host={host}
+            project={project}
+            path=""
+            filter={filter}
+            sort={sort}
+            open={open}
+            depth={0}
+          />
+        ) : (
+          <p>{t('请先选择项目')}</p>
+        )}
+      </div>
+      <div className="file-transfers" hidden={!transferring}>
+        {transfer}
+      </div>
     </section>
   );
 }

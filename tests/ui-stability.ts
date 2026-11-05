@@ -14,6 +14,7 @@ import { chromium, expect, type Page } from '@playwright/test';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Event } from '../packages/protocol/src/index.ts';
 import { version as webVersion } from '../package.json';
+import { navigationUI } from './helpers/navigation-ui.ts';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
@@ -726,7 +727,7 @@ async function openMenu(page: Page) {
     await page.getByRole('button', { name: '关闭面板' }).click();
   await page.getByRole('button', { name: '功能菜单' }).click();
 }
-try {
+async function legacyUI() {
   const uiContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -3457,6 +3458,11 @@ try {
   console.log(
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
+}
+try {
+  if (process.argv.includes('--navigation'))
+    await navigationUI(browser, origin, artifacts, () => attachCalls);
+  else await legacyUI();
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();
