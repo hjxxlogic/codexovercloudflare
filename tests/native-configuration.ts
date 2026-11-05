@@ -17,6 +17,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 const root = mkdtempSync(join(tmpdir(), 'coc-configuration-'));
 const children: ChildProcess[] = [];
+const diagnostics = new Map<ChildProcess, string>();
 const sockets = new WebSocketServer({ noServer: true });
 const peers = new Map<string, WebSocket>();
 const connections = { agent: 0, client: 0 };
@@ -138,6 +139,7 @@ function start(
   });
   child.stderr!.on('data', (data) => {
     output += data;
+    diagnostics.set(child, (diagnostics.get(child) || '') + data);
   });
   child.on('exit', (code) => {
     if (code) console.error(output);
@@ -154,7 +156,7 @@ try {
     token: 'test-agent-token-123456789',
     dataDir: join(root, 'state'),
     projects: [],
-    autoUpdate: false,
+    autoUpdate: { enabled: false, intervalHours: 24 },
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
   };
@@ -165,6 +167,7 @@ try {
     agentPath,
   ]);
   await waitFor(() => peers.has('agent'), 'Agent did not register');
+  assert.match(diagnostics.get(agent) || '', /config_warning.*intervalHours/);
   const original = (await command('agent', { action: 'read' })).result;
   const replacement = { ...agentConfig, codexProxyMode: 'agent' };
   const replace = {
@@ -220,7 +223,7 @@ try {
       { relay, hostId: 'host', name: 'Host', token: 'test-client-token' },
     ],
     selected: relay + '~host',
-    autoUpdate: false,
+    autoUpdate: { enabled: 'invalid' },
   };
   writeFileSync(clientPath, JSON.stringify(credentials), { mode: 0o600 });
   const client = start(
@@ -238,6 +241,10 @@ try {
   await waitFor(
     () => peers.has('client') && existsSync(tuiLog),
     'Client/TUI did not register',
+  );
+  assert.match(
+    diagnostics.get(client) || '',
+    /config_warning.*automatic updates disabled/,
   );
   await waitFor(
     () => clientPings > 0,

@@ -58,7 +58,9 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 
 邮箱授权测试验证无邮箱网页凭据的显式认领、原凭据失效及不同邮箱不能重复认领；无邮箱会话连接后才进入当前邮箱列表；结构完整的未标记 SQLite 库可重开读取，绑定归属持久保存且邮箱相互隔离。
 
-配置测试验证 `codexUseProxy`、`autoUpdate.intervalHours` 不被解析；历史 adapter 验证缺失或非 `paginated` 模式拒绝。存储测试覆盖 SQLite、项目目录、DO 到期标记及浏览器记账格式错误，验证不转换、不丢弃原状态。请求测试覆盖缺少 `operationInstance`、用稳定身份替代准入代次及 HTTP Terminal 字节操作的明确拒绝。
+配置测试验证 `codexUseProxy` 被拒绝；自动更新单元测试验证废弃 `autoUpdate.intervalHours` 提示后忽略且保留有效选项，类型或平台错误禁用自动更新并继续。真实 Agent / CLI 配置回归分别验证带废弃字段的 Agent 完成连接及重启、无效更新选项的 CLI 启动 TUI 和管理连接，并校验诊断输出；历史 adapter 验证缺失或非 `paginated` 模式拒绝。存储测试覆盖 SQLite、项目目录、DO 到期标记及浏览器记账格式错误，验证不转换、不丢弃原状态。请求测试覆盖缺少 `operationInstance`、用稳定身份替代准入代次及 HTTP Terminal 字节操作的明确拒绝。
+
+2026-11-05 自动更新配置容错本地验证：`npm test`（11 项 CTest、35 个 Vitest 文件 / 505 项断言）、`npm run test:configuration`、`npm run test:update`、`npm run lint`、`npm run lint:cpp`、`npm run typecheck` 通过。配套 CLI 安装辅助验证通过源码身份检查、原文件备份、权限保留及符号链接拒绝。CI 与实际部署结果另记部署文档。
 
 ## 验证边界
 

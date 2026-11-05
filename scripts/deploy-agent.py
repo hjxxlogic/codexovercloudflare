@@ -157,7 +157,9 @@ def checked_member(name):
         raise RuntimeError('Unsafe path in build artifact')
 
 
-def unpack_artifact(archive, digest, commit, output):
+def unpack_artifact(archive, digest, commit, output, program='coc-agent'):
+    if program not in ('coc-agent', 'coc-client'):
+        raise ValueError('Unsupported deployment program')
     if digest != 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest():
         raise RuntimeError('Artifact SHA256 does not match GitHub metadata')
     with zipfile.ZipFile(archive) as bundle:
@@ -186,13 +188,48 @@ def unpack_artifact(archive, digest, commit, output):
             checked_member(member.name)
             if not (member.isfile() or member.isdir()):
                 raise RuntimeError('Links and special files are not allowed in Agent packages')
-        agents = [m for m in members if pathlib.PurePosixPath(m.name).name == 'coc-agent']
+        agents = [m for m in members if pathlib.PurePosixPath(m.name).name == program]
         if len(agents) != 1 or not agents[0].isfile() or agents[0].size > 256 * 1024 * 1024:
             raise RuntimeError('Expected exactly one bounded Agent executable')
-        binary = output / 'coc-agent'
+        binary = output / program
         binary.write_bytes(bundle.extractfile(agents[0]).read())
         binary.chmod(0o700)
     return manifest, binary
+
+
+def install_client(source, destination, manifest):
+    """Replace a local CLI from the same verified CI archive; running CLIs keep their inode."""
+    destination = pathlib.Path(destination)
+    if destination.is_symlink() or not destination.is_file():
+        raise RuntimeError('Client destination must be an existing regular file')
+    def verify(path):
+        build = json.loads(subprocess.check_output([str(path), '--version'], timeout=20))
+        if any(build.get(key) != manifest[key] for key in
+               ('commit', 'sourceDigest', 'version', 'protocol')) or build.get('dirty') is not False:
+            raise RuntimeError('Client identity does not match verified artifact')
+    verify(source)
+    metadata = destination.stat()
+    if metadata.st_uid != os.geteuid():
+        raise RuntimeError('Client must be owned by the deploying user')
+    suffix = uuid.uuid4().hex
+    backup = destination.with_name(destination.name + '.backup-' + suffix)
+    candidate = destination.with_name(destination.name + '.candidate-' + suffix)
+    shutil.copy2(destination, backup)
+    try:
+        shutil.copyfile(source, candidate)
+        candidate.chmod(metadata.st_mode & 0o777)
+        verify(candidate)
+        candidate.replace(destination)
+        try:
+            verify(destination)
+        except Exception:
+            shutil.copy2(backup, candidate)
+            candidate.replace(destination)
+            raise
+    finally:
+        candidate.unlink(missing_ok=True)
+    return {'binary': str(destination), 'backup': str(backup),
+            'sha256': hashlib.sha256(destination.read_bytes()).hexdigest()}
 
 
 def remote(host, operation, args, candidate='', sha256='', source_digest=''):
@@ -265,6 +302,8 @@ def main():
     target.add_argument('--ssh', help='SSH alias or user@host')
     target.add_argument('--local', action='store_true', help='Deploy the current user service on this machine without SSH')
     parser.add_argument('--binary', required=True, help='Absolute path of the existing remote Agent')
+    parser.add_argument('--client-binary', type=pathlib.Path,
+                        help='Also install the paired CLI at this existing local path (CI/local only)')
     parser.add_argument('--service', default='coc-agent.service', help='Existing systemd user service')
     parser.add_argument('--timeout', type=int, default=2400, help='Seconds to wait for CI')
     parser.add_argument('--idle-timeout', type=int, default=1800)
@@ -274,6 +313,8 @@ def main():
     parser.add_argument('--apply', action='store_true', help='Install; otherwise only prepare and inspect')
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / '.local/deploy-agent')
     args = parser.parse_args()
+    if args.client_binary and (not args.local or args.local_build or not args.client_binary.is_absolute()):
+        parser.error('--client-binary requires --local, an absolute path and CI artifacts')
     if args.allow_uncommitted and not args.local_build:
         parser.error('--allow-uncommitted requires --local-build')
     if args.local_build and (not args.local or args.push or args.run_id):
@@ -350,6 +391,9 @@ def main():
     try:
         evidence['installation'] = remote(args.ssh, 'install', args, candidate, binary_hash, manifest['sourceDigest'])
         evidence['applied'] = True
+        if args.client_binary:
+            _, client = unpack_artifact(archive, artifact['digest'], args.commit, output, 'coc-client')
+            evidence['client'] = install_client(client, args.client_binary, manifest)
     except Exception as error:
         evidence['error'] = str(error)
         raise

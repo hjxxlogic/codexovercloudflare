@@ -165,3 +165,5 @@ Linux Agent 候选程序已构建并验证准确提交与摘要。既有 systemd
 配置、项目目录及 SQLite 已备份，未转换存储。原有下载包保留：Linux 和源码 `0.6.6`、Windows `0.6.5`；未发布 GitHub Release 或发送自动更新通知。其它 Agent 不在本次升级范围。
 
 机器证据与私有备份位于忽略的 `.local/deployment-589c26b/`；部署脚本证据位于 `.local/deploy-cloud/local-589c26b45ed62c74c8610b26fbc48f9b1c42f4e5-38fe9b59d0e6/` 和同名 `.local/deploy-agent/` 子目录。
+
+本机 Agent 与 CLI 同步部署可在 `scripts/deploy-agent.py --push --push-remote github --local --binary /absolute/path/coc-agent --apply` 增加 `--client-binary /absolute/path/coc-client`。该选项仅接受 CI 产物及已有本机 CLI：先完成 Agent 空闲等待、安装和连接验证，再从同一份已校验摘要的 CI 归档提取 CLI，核对源码身份，备份并原子替换；现有 CLI 进程继续使用原 inode，新命令使用新版。CLI 验证失败尝试恢复备份；若 Agent 已成功而 CLI 失败，命令返回错误，需按部署证据分别核实，不将两者视为原子事务。

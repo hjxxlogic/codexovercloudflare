@@ -1,6 +1,8 @@
 #include "coc/update.hpp"
 #include "coc/build.hpp"
 #include "coc/network.hpp"
+#include <mutex>
+#include <set>
 #ifndef _WIN32
 #include <fcntl.h>
 #include <fstream>
@@ -164,22 +166,37 @@ void log_error(const std::exception &error) {
 }
 } // namespace
 UpdateSettings update_settings(const Json &config) {
+  // Maintenance polls read this repeatedly. Report each diagnostic once per
+  // process, without logging configuration values (which may contain secrets).
+  const auto warn = [](const std::string &message) {
+    static std::mutex mutex;
+    static std::set<std::string> reported;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (reported.insert(message).second)
+      std::cerr << Json{{"event", "config_warning"}, {"message", message}}.dump() << '\n';
+  };
   UpdateSettings settings;
   auto value = config.value("autoUpdate", Json(settings.enabled));
   if (value.is_boolean()) {
     settings.enabled = value.get<bool>();
     return settings;
   }
-  if (!value.is_object())
-    throw Error("CONFIG_ERROR", "autoUpdate must be a boolean or object");
+  if (!value.is_object()) {
+    warn("autoUpdate must be a boolean or object; automatic updates disabled; continuing");
+    settings.enabled = false;
+    return settings;
+  }
   auto enabled = value.value("enabled", Json(true));
   if (value.contains("intervalHours"))
-    throw Error("CONFIG_ERROR", "autoUpdate.intervalHours is unsupported");
+    warn("autoUpdate.intervalHours is unsupported; ignored; continuing");
   auto platform = value.value("platform", Json(""));
   if (!enabled.is_boolean() || !platform.is_string() ||
       (platform != "" && platform != "ubuntu20.04" && platform != "debian12" &&
-       platform != "windows-x64"))
-    throw Error("CONFIG_ERROR", "Invalid autoUpdate enabled or platform");
+       platform != "windows-x64")) {
+    warn("Invalid autoUpdate enabled or platform; automatic updates disabled; continuing");
+    settings.enabled = false;
+    return settings;
+  }
   settings.enabled = enabled.get<bool>();
   settings.platform = platform.get<std::string>();
   return settings;

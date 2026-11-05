@@ -1314,9 +1314,17 @@ void core() {
   check(!update_settings({{"autoUpdate", false}}).enabled, "Boolean disables automatic update");
   check(!update_settings({{"autoUpdate", {{"enabled", false}}}}).enabled,
         "Object disables automatic update");
-  for (auto value : {Json("false"), Json(nullptr), Json{{"intervalHours", 24}},
-                     Json{{"enabled", "false"}}, Json{{"platform", "../other"}}})
-    rejects([&] { update_settings({{"autoUpdate", value}}); }, "CONFIG_ERROR");
+  for (auto value :
+       {Json("false"), Json(nullptr), Json{{"enabled", "false"}}, Json{{"platform", "../other"}}})
+    check(!update_settings({{"autoUpdate", value}}).enabled,
+          "Invalid update options disable automatic updates without blocking commands");
+  const auto ignored_update = update_settings(
+      {{"autoUpdate",
+        {{"intervalHours", "invalid"}, {"enabled", false}, {"platform", "debian12"}}}});
+  check(!ignored_update.enabled && ignored_update.platform == "debian12",
+        "Unsupported interval is ignored while valid settings are preserved");
+  check(update_settings({{"autoUpdate", {{"intervalHours", 24}, {"enabled", true}}}}).enabled,
+        "Unsupported interval does not prevent enabled updates");
   check(newer_release("0.6.0", "0.5.99") && newer_release("0.5.10", "0.5.9") &&
             !newer_release("0.5.1", "0.5.2") && !newer_release("0.5.2", "0.5.2"),
         "Only numerically newer stable releases install");

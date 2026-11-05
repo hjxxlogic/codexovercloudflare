@@ -155,7 +155,9 @@ Linux 默认启用自动更新。Agent 在启动、明确重连或收到发布�
 { "autoUpdate": false }
 ```
 
-也可设置 `{"autoUpdate":{"enabled":true}}`。配置不接受 `intervalHours`，出现该字段返回 `CONFIG_ERROR`。更新不调度周期下载或失败重试。Agent 的本地维护读取配置并处理已准备更新，CLI 在下次命令读取；不会因此新增云端查询。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+也可设置 `{"autoUpdate":{"enabled":true}}`。Agent / CLI 遇到已废弃的 `autoUpdate.intervalHours` 时向标准错误输出 `config_warning` 提示并忽略该字段，继续运行；`autoUpdate` 类型、`enabled` 类型或 `platform` 值错误时提示并在本次运行禁用自动更新，其他命令继续。有效的 `enabled` / `platform` 不受废弃字段影响。同类提示每个进程只输出一次，不打印配置值、不自动改写文件。JSON 语法、凭据、权限、沙箱及其他配置校验仍保留，不能通过忽略错误绕过安全策略。更新不调度周期下载或失败重试。Agent 的本地维护读取配置并处理已准备更新，CLI 在下次命令读取；不会因此新增云端查询。关闭后不发起新检查并丢弃待安装结果，已经发起的下载可能完成。CLI 首次登录前若要禁用，可预建 `{"version":2,"entries":[],"selected":"","autoUpdate":false}`；没有现有 Agent 配置时，首次登录后、运行前设置。
+
+Linux 上批量清理 x0–x9 用户的该字段，可在仓库根目录运行 `sudo python3 scripts/remove-update-interval.py` 预览，再追加 `--apply` 执行。脚本从系统账户读取主目录，默认检查 `.config/coc-agent/agent.json` 和 `.config/coc-client/credentials.json`，仅删除顶层 `autoUpdate` 对象中的 `intervalHours`，其余 JSON 值保留（缩进会统一）。每个修改文件旁生成唯一备份，保留文件所有者和权限，以原子替换写入；不重启服务。自定义路径使用可重复的 `--config-relative .coc-agent/agent.json`（替代默认路径）。缺失账户或文件跳过，解析、权限或符号链接错误会打印跳过原因，并继续处理其余配置及用户；最后汇总检查数和错误数，有错误时返回非零状态。执行期间请勿同时登录或修改配置。
 
 自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。musl 静态版默认始终选择 `musl` 更新包，不按宿主发行版切换到动态包。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
 
@@ -720,7 +722,7 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 ## 支持的格式与错误
 
-项目只接受当前格式，不自动迁移既有状态。配置含 `codexUseProxy` 或 `autoUpdate.intervalHours` 时返回 `CONFIG_ERROR`；SQLite 接受完整当前结构及 `user_version` 为 `0` 或 `1`，不因缺少版本标记拒绝无邮箱会话；已有库不改版本。缺列、未知版本或项目目录缺少当前日志字段时返回 `UNSUPPORTED_STORAGE_VERSION`。浏览器缓存记账必须为 `commandAccounting:2`，不匹配时事务失败并保留数据。DO 若存在未完成的 `expiryMigration` 标记返回 `UPGRADE_REQUIRED`，不补齐索引或清除标记。
+项目只接受当前格式，不自动迁移既有状态。配置含 `codexUseProxy` 时返回 `CONFIG_ERROR`；`autoUpdate.intervalHours` 提示后忽略，其他无效自动更新选项提示后禁用自动更新并继续；SQLite 接受完整当前结构及 `user_version` 为 `0` 或 `1`，不因缺少版本标记拒绝无邮箱会话；已有库不改版本。缺列、未知版本或项目目录缺少当前日志字段时返回 `UNSUPPORTED_STORAGE_VERSION`。浏览器缓存记账必须为 `commandAccounting:2`，不匹配时事务失败并保留数据。DO 若存在未完成的 `expiryMigration` 标记返回 `UPGRADE_REQUIRED`，不补齐索引或清除标记。
 
 外部历史只接受 `paginated`，历史退休协议只接受版本 2；Terminal 的 HTTP `read/input/resize` 返回 `UPGRADE_REQUIRED`，请使用 `streaming:2` WebSocket。CoC 邮箱授权通过申请批准、restore 或显式认领有效的无邮箱网页凭据建立；尚无邮箱授权时，可在登录页使用“关联旧授权”。无邮箱会话由用户连接后归属当前邮箱；未连接前不出现在该邮箱的欢迎页。
 
