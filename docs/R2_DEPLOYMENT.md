@@ -1,5 +1,19 @@
 # r2 当前部署
 
+## 2026-11-06：0.6.11 紧凑导航与可见工具栏
+
+当前 https://r2.xlogic.cc 已部署源码 [`0105572f65b1860a16345c5faee4afa1e4ad4637`](https://github.com/hjxxlogic/codexovercloudflare/commit/0105572f65b1860a16345c5faee4afa1e4ad4637)，Web / Worker `0.6.11`，Worker Version ID `6a6c08bd-2d1a-4f25-9e9a-8c2e5ad91c60`。源码摘要 `e4ee24a148e8ed24e6c81cae695acccad0ae877fc7c428503cd51e12054dd8f9`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，未运行完整 CI 或原生测试。
+
+折叠层级改为单行，项目刷新常显于新建左侧，新建路径推断父目录或根目录；设置操作图标附文字，信息改模态对话框，长预览 / 全屏 / 对话框保留工具栏，复制按需显示，折叠工具调用最多一行。实现及模拟截图见 [0.6.11 记录](CW_UI_POLISH_0.6.11.md)。Worker / Agent 业务代码未改。
+
+Web 构建、类型检查、受影响代码 ESLint / Prettier、导航专项和高级 Markdown 浏览器回归通过。部署脚本确认健康版本 `0.6.11` 和主页 / 静态资源 / 下载清单字节一致，Worker bundle SHA256 `38fdfd0da58994b66d2d53c7f14ac2b0bb78851cede4944df3aa41b953108dbc`。原生下载保留已验证 `0.6.7`。
+
+线上 Web 验收通过，覆盖单行层级、项目刷新顺序与常显、信息模态 / 长内容关闭按钮 / Escape 焦点恢复、五按钮、文件 / 传输、设置主题、手机抽屉和管理左栏；无浏览器异常。仅访问既有隔离测试主机，临时 Web 凭证已确认撤销；未创建 / attach 会话、发送任务或启动终端。
+
+发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站 / r2 DO namespace 独立，r2 namespace、路由、Access audience 保持。原 Agent PID `846124` 和测试 Agent PID `2527593` 的可执行文件、启动标识不变，未重启。准确来源与摘要见 [公开发布证据](assets/cw-ui-polish-0.6.11/verified-preview.json)，私有日志 / 截图保存在忽略的 `.local/r2-release-0.6.11/`。
+
+本节及后续文档提交仅补充证据，线上功能源码为上述准确提交。
+
 ## 2026-11-05：0.6.10 三级折叠导航与图标操作
 
 当前 https://r2.xlogic.cc 已部署源码 [`26aeb63ed8821cdffb99d16fb13265f103d37306`](https://github.com/hjxxlogic/codexovercloudflare/commit/26aeb63ed8821cdffb99d16fb13265f103d37306)，Web / Worker `0.6.10`，Worker Version ID `aa03ae33-cfc7-49b2-98a2-b97cf15b7284`。源码摘要 `5b8b1d3cf9dfc64ce22628e1b026c43dc14df85f5a5619b397d39c8d321e0d5f`；本地预览，`ciVerified=false`。按用户要求仅验证 Web UI，提交含 `[skip ci]`，没有运行 / 等待完整 Actions 或原生测试。

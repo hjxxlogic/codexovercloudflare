@@ -24,3 +24,7 @@
 ## 截图
 
 [紧凑左栏](assets/cw-ui-polish-0.6.11/navigation-desktop-light.png)、[项目操作](assets/cw-ui-polish-0.6.11/hierarchy-projects-new.png)、[设置图标文字](assets/cw-ui-polish-0.6.11/navigation-settings.png)、[文件工具栏](assets/cw-ui-polish-0.6.11/navigation-files.png)、[信息对话框](assets/cw-ui-polish-0.6.11/information-dialog.png)、[长信息滚动](assets/cw-ui-polish-0.6.11/information-dialog-long.png)、[手机](assets/cw-ui-polish-0.6.11/navigation-mobile-390.png)。均使用模拟数据，不包含线上凭据。
+
+## 上线结果
+
+源码 `0105572f65b1860a16345c5faee4afa1e4ad4637` 已部署到 https://r2.xlogic.cc，Worker Version ID `6a6c08bd-2d1a-4f25-9e9a-8c2e5ad91c60`。线上 Web 验收、资源字节核对与临时凭证撤销通过，旧站和两个现有 Agent 保持不变。原生下载仍为 `0.6.7`，完整 CI 未运行。[公开发布证据](assets/cw-ui-polish-0.6.11/verified-preview.json)。
