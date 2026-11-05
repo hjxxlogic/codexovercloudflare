@@ -1,0 +1,204 @@
+{
+  "deployedAt": "2026-11-05T12:26:09.551325+08:00",
+  "version": "0.6.7",
+  "commit": "a1fc79f3a80e74ee8310739bd4d69934ab48e331",
+  "deploymentToolCommit": "a1fc79f3a80e74ee8310739bd4d69934ab48e331",
+  "sourceDigest": "f344baebae28f4e5b19b70ed005344fb7fa39ed14401d7b4c51ab2dbcd41327d",
+  "dirty": false,
+  "ciVerified": true,
+  "actions": {
+    "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "regression",
+        "conclusion": "success"
+      },
+      {
+        "name": "linux-release (debian12, debian:12)",
+        "conclusion": "success"
+      },
+      {
+        "name": "sanitizers",
+        "conclusion": "success"
+      },
+      {
+        "name": "windows-x64",
+        "conclusion": "success"
+      },
+      {
+        "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+        "conclusion": "success"
+      },
+      {
+        "name": "linux-musl",
+        "conclusion": "success"
+      },
+      {
+        "name": "publish-release",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13386855884,
+      "digest": "sha256:84528c21e20552b43f58df20e1f0d6b2862b68643b1552cc6276d38fca5ad91d"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13386950648,
+      "digest": "sha256:f50dc54596b675f2d2b18001625898fb2dd680dcb22685f5a9a5725be33cd045"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 13385840899,
+      "digest": "sha256:ec84d0659758e263c2428d4c36b9b5343e4dad8f9c46eb763be677f08b854c1a"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 13385142902,
+      "digest": "sha256:19b0d6af3e1af770f07410b42c67c029b8f985861ea25b617eed8f80218354f8"
+    },
+    {
+      "name": "linux-musl",
+      "id": 13385691907,
+      "digest": "sha256:890d3d8b62c070f87b1d638e1687a9f1ddf7b0cec630bd8e20a747e3db3bc894"
+    },
+    {
+      "name": "windows-x64",
+      "id": 13385198828,
+      "digest": "sha256:267b58ed502175b74d7248adf5c07c596b8a61bbf23a126ccf5d36a8ba4dc8c8"
+    }
+  ],
+  "cloud": {
+    "target": "https://r.xlogic.cc",
+    "workerVersionId": "0b54f874-3b3a-43f3-8855-0465bcb646f5",
+    "workerBundleSha256": "646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee",
+    "webEntrySha256": "e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961",
+    "assetCount": 69,
+    "verification": {
+      "health": {
+        "ok": true,
+        "version": "0.6.7",
+        "demand": 1,
+        "protocol": 1
+      },
+      "publicAssetBytesMatch": true
+    },
+    "nativeChecksums": {
+      "coc-0.6.7-linux-x86_64-debian12.tar.gz": "b1ccb683ba25c4bced558359c01964543da93e66b8cafa614b756b03d1445c01",
+      "coc-0.6.7-linux-x86_64-musl.tar.gz": "d7c7f776162b3229e6b0d942730c4958dbafa3d64679fa45096fdc98c11778f9",
+      "coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz": "dd84b7f6816237e074a5e11fa38a01ea2e58a3d76502bd1d16551768d8fdace3",
+      "coc-0.6.7-windows-x64.zip": "be63cb6d16c87950e61c09dcedfa305b780ebaddd97c0b40454e143719b94e8c",
+      "codex-over-cloudflare-0.6.7-source.tar.gz": "814e94f3764af434029573c01f92d0bf59c90135a4806d37b3aee86788e1f7bc"
+    },
+    "admissionChecks": {
+      "time": "2026-11-05T04:19:45.204Z",
+      "target": "https://r.xlogic.cc",
+      "scope": "Health, admission boundaries and optional authenticated read-only browser/Agent checks; no model, PTY, takeover, task mutation or credential revocation",
+      "checks": [
+        {
+          "name": "/hosts",
+          "status": 403
+        },
+        {
+          "name": "/sessions?hostId=verification",
+          "status": 401
+        },
+        {
+          "name": "/admin/hosts",
+          "status": 401
+        },
+        {
+          "name": "/auth/me",
+          "status": 401
+        },
+        {
+          "name": "/ws/v1/admin",
+          "status": 401
+        },
+        {
+          "name": "/ws/v1/hosts/verification",
+          "status": 401
+        },
+        {
+          "name": "/ws/v1/hosts/verification/terminal",
+          "status": 401
+        }
+      ],
+      "health": {
+        "ok": true,
+        "version": "0.6.7",
+        "demand": 1,
+        "protocol": 1
+      },
+      "passed": true
+    }
+  },
+  "agent": {
+    "target": "local coc-agent.service",
+    "ciVerified": true,
+    "binarySha256": "c49ddae199737793655bccdb16d7a52ff19c51b9d3ce99e45f133e0c88d66e91",
+    "beforeBuild": {
+      "version": "0.6.7",
+      "commit": "dc5a2c5dd22ed32a8587c082f829d1423c79caac",
+      "target": "linux-x86_64",
+      "sourceDigest": "81471829661d48d657b17f00227b8cf4fe2a9c0139aaf36f2ce55d2c0bd0ea9c",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals",
+        "delivery-v2",
+        "configuration-v1"
+      ]
+    },
+    "afterBuild": {
+      "version": "0.6.7",
+      "commit": "a1fc79f3a80e74ee8310739bd4d69934ab48e331",
+      "target": "linux-x86_64",
+      "sourceDigest": "f344baebae28f4e5b19b70ed005344fb7fa39ed14401d7b4c51ab2dbcd41327d",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals",
+        "delivery-v2",
+        "configuration-v1"
+      ]
+    },
+    "idleBeforeInstall": true,
+    "connected": true,
+    "verifiedSeconds": 120,
+    "backupPreserved": true,
+    "allowRestartActive": false,
+    "preservation": {
+      "configurationBytesPreserved": true,
+      "projectIdsPreserved": true,
+      "projectCount": 3
+    },
+    "schema": {
+      "databaseColumnsCurrent": true,
+      "projectJournalCurrent": true,
+      "automaticMigration": false
+    }
+  },
+  "limitations": [
+    "Authenticated production browser smoke was not completed: saved browser state returned a non-JSON Access response at /auth/email; CI browser tests passed.",
+    "Opaque relay branch issues remain unmodified; this deployment uses master.",
+    "Conservative all-Host authorization broadcasts and retries remain unchanged.",
+    "No GitHub Release or automatic update notification was sent; only the local running Agent was installed."
+  ]
+}

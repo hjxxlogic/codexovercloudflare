@@ -75,7 +75,49 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 当前线上版本
 
-### 0.6.7 完整部署准备（2026-11-05）
+### 0.6.7 完整 CI 部署（2026-11-05）
+
+已将 `https://r.xlogic.cc` 的 Worker / 网页、四平台下载及源码包、本机 `coc-agent.service` 完整更新到源码 `a1fc79f3a80e74ee8310739bd4d69934ab48e331`，包含授权复核有界缓冲修复。来源干净 `dirty=false`、`ciVerified=true`；[Actions 41961015104](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104) 已完成并成功，regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功。非标签发布的 publish-release 作业按配置跳过，本次下载站发布由部署脚本完成。
+
+| 身份 | 值 / SHA256 |
+| --- | --- |
+| 源码摘要 | `f344baebae28f4e5b19b70ed005344fb7fa39ed14401d7b4c51ab2dbcd41327d` |
+| Worker Version ID | `0b54f874-3b3a-43f3-8855-0465bcb646f5` |
+| Worker bundle | `646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee` |
+| 网页入口 | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
+| 本机 Agent | `c49ddae199737793655bccdb16d7a52ff19c51b9d3ce99e45f133e0c88d66e91` |
+
+CI artifacts 的 GitHub SHA256 均已独立校验：
+
+| Artifact | GitHub SHA256 |
+| --- | --- |
+| verified-web | `sha256:84528c21e20552b43f58df20e1f0d6b2862b68643b1552cc6276d38fca5ad91d` |
+| verified-worker | `sha256:f50dc54596b675f2d2b18001625898fb2dd680dcb22685f5a9a5725be33cd045` |
+| linux-ubuntu20.04 | `sha256:ec84d0659758e263c2428d4c36b9b5343e4dad8f9c46eb763be677f08b854c1a` |
+| linux-debian12 | `sha256:19b0d6af3e1af770f07410b42c67c029b8f985861ea25b617eed8f80218354f8` |
+| linux-musl | `sha256:890d3d8b62c070f87b1d638e1687a9f1ddf7b0cec630bd8e20a747e3db3bc894` |
+| windows-x64 | `sha256:267b58ed502175b74d7248adf5c07c596b8a61bbf23a126ccf5d36a8ba4dc8c8` |
+
+线上回读的全部下载包 SHA256 与 CI 制品一致：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `coc-0.6.7-linux-x86_64-debian12.tar.gz` | `b1ccb683ba25c4bced558359c01964543da93e66b8cafa614b756b03d1445c01` |
+| `coc-0.6.7-linux-x86_64-musl.tar.gz` | `d7c7f776162b3229e6b0d942730c4958dbafa3d64679fa45096fdc98c11778f9` |
+| `coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz` | `dd84b7f6816237e074a5e11fa38a01ea2e58a3d76502bd1d16551768d8fdace3` |
+| `coc-0.6.7-windows-x64.zip` | `be63cb6d16c87950e61c09dcedfa305b780ebaddd97c0b40454e143719b94e8c` |
+| `codex-over-cloudflare-0.6.7-source.tar.gz` | `814e94f3764af434029573c01f92d0bf59c90135a4806d37b3aee86788e1f7bc` |
+
+部署脚本逐字节核对网页入口、69 个静态资源、在线手册、下载清单和 SHA256SUMS，再下载核验四平台及源码的全部 5 个归档；健康接口报告 `ok=true`、`version=0.6.7`。部署后仓库线上验证脚本的 HTTP / WebSocket 准入边界检查通过。
+
+本机 Agent 安装前再次确认空闲，备份实际运行二进制并安装同一运行的 musl 制品；120 秒观察内 PID 稳定、Relay 握手完成、没有脚本检查的连接错误，运行 version / commit / sourceDigest / protocol / clean 身份匹配。配置字节和 3 个项目身份保留；私有配置、项目日志和 SQLite 已备份，完整性及当前格式检查通过，不执行迁移，不使用 --allow-restart-active。
+
+本次生产已登录浏览器检查未完成：保存的登录态访问 /auth/email 返回非 JSON 的 Access 响应；CI 浏览器测试已通过，不将其当作已登录生产验证。opaque 分支的两项问题已复现但未修改，该分支不在本次部署中；master 的全 Host 广播及失败重试机制保留，详见 [审查记录](AUTHORIZATION_REVIEW_2026-11-05.md)。未发布 GitHub Release 或发送自动更新通知，其他运行 Agent 未由本次脚本安装。
+
+公开来源、各 artifact ID、摘要、在线验证和本机安装结果见 [部署证据](assets/release-0.6.7-2026-11-05/deployment.json)。私有备份与日志在 `.local/release-0.6.7-20261105/`，脚本原始证据在 `.local/deploy-cloud/41961015104/` 与 `.local/deploy-agent/41961015104/`。
+
+
+### 发布准备与门禁修复过程（2026-11-05）
 
 用户要求更新云端 Worker / 网页、四平台下载和本机 systemd Agent。部署源码包含 `dc5a2c5dd22ed32a8587c082f829d1423c79caac` 的 Agent 常驻重试修复。本次走完整 CI 门禁，不沿用此前直接构建例外；成功 CI 制品准备完成后先部署云端，再等待本机 Agent 空闲安装，不中断活动会话。
 
@@ -86,6 +128,8 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 用户进一步要求在发布前修复 master 授权复核期间丢帧的问题；待部署提交还将包含有界排队及相关回归，之前成功或正在运行的提交均不能代替最终提交门禁。核查 opaque 分支的两个问题及 master 的差异见 [授权复核审查](AUTHORIZATION_REVIEW_2026-11-05.md)。
 
 同次回归的原生 delivery 测试仍按 15 秒等待畸形中断消息后的重连，小于新版固定 30 秒重试间隔。该重连断言改为等待最多 45 秒，仍要求新的 capabilities 握手，且保留拒绝畸形请求、不消耗序号、不写命令和取消标记的验证；其它操作超时不变。
+
+### 此前云端直接部署（2026-11-04）
 
 2026-11-04 10:21（北京时间），`https://r.xlogic.cc` 的 Worker / 网页已直接发布授权刷新竞态修复，源码提交 `ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8`，版本仍为 `0.6.7`。用户明确授权“跳过 github action，直接部署”；使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply`，干净来源 `dirty=false`、`ciVerified=false`。没有 Actions 运行或 URL，不作为 CI 验证发行制品。源码已推送 origin 与 GitHub，提交含 `[skip ci]`。
 
