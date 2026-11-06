@@ -99,6 +99,6 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 
 DO fixture 覆盖多页事务备份、批次提交后中断与重启、同实例重试、重复迁移、wakeUntil 持久化、活动旧 lease / 待决控制预留 / 未完成权限操作 / 未知未来版本失败关闭。Registry 身份授权保留原结构。发布时仍需确认线上未决状态、导出快照及验证实际对象；本次没有生产副本或在线迁移证据。
 
-中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。`15a705d` 与 `0d71c41` 的 regression 暴露升级演练依赖 CI 未安装的 Codex，现已改为隔离版本探测并在本机重跑通过。中间提交和运行中作业均不作为最终门禁。
+中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。`15a705d` 与 `0d71c41` 的 regression 暴露升级演练依赖 CI 未安装的 Codex，现已改为隔离版本探测并在本机重跑通过。`adfd2ed` 的 sanitizer 日志显示 CTest 零失败（14 项通过，native-terminal 因该作业未提供隔离工具而跳过；真实 PTY 在 regression 和本机独立验证），但依赖安装耗时约 11 分钟导致作业超过 20 分钟总时限而被取消；将作业时限调为 45 分钟，保留全部检查及断言，取消仍不计为通过。中间提交和运行中作业均不作为最终门禁。
 
 本机矩阵与重跑日志保存在忽略的 `.local/opaque-merge/`，截图原件位于 `.local/ui-stability/`、`.local/screenshots/`；不提交配置、数据库或凭据。最终准确提交的 CI、制品摘要与合入结果完成后补录。未执行生产变更、真实线上迁移、外网长稳或真实用户业务模型任务。一次本机补充更新演练因旧 fixture 主机身份不匹配而意外触发启动修复模型；该子进程只检查临时状态和公开下载索引后随演练结束，未部署，已修正身份并在测试内部固定禁用启动修复，后续重跑通过。

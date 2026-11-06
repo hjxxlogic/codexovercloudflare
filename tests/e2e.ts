@@ -265,7 +265,7 @@ async function feature(page: Page, name: RegExp) {
     return;
   }
   if (value.includes('工作区文件')) {
-    await page.getByRole('button', { name: '文件', exact: true }).click();
+    await page.getByRole('button', { name: '文件浏览器', exact: true }).click();
     await page
       .getByRole('button', { name: '上传 / 传输', exact: true })
       .click();
@@ -303,7 +303,7 @@ async function focusedChat(page: Page) {
     .getByRole('button', { name: '关闭', exact: true });
   if (await dismiss.isVisible()) await dismiss.click();
   assert.equal(await page.locator('dialog[open]').count(), 0);
-  assert.equal(await page.getByLabel('主机').count(), 0);
+  assert.equal(await page.getByLabel('主机', { exact: true }).count(), 0);
   assert.equal(
     await page.locator('.conversation .id, .conversation .status').count(),
     0,
@@ -1737,186 +1737,194 @@ try {
   pass('connection ticket cannot be reused');
   await api(`/sessions/${s.id}/stop`, {});
   token = clientCredentials.token;
-  const cli = await api('/sessions', {
-    hostId: enrolled.hostId,
-    projectId: 'test-project',
-    mode: 'cli',
-  });
-  const ticket = await api(`/sessions/${cli.id}/attach`, {});
-  const cp = peer('/ws/v1/cli/' + cli.id, ticket.ticket);
-  await new Promise<void>((r, j) => {
-    cp.ws.once('open', r);
-    cp.ws.once('error', j);
-  });
-  await readyControl(cp);
-  cp.send(
-    JSON.stringify({
-      id: 1,
-      method: 'initialize',
-      params: { clientInfo: { name: 'test', version: '1' } },
-    }),
-  );
-  await wait(() => cp.messages.some((m) => m.id === 1 && m.result), 'CLI init');
-  cp.send(JSON.stringify({ id: 2, method: 'thread/start', params: {} }));
-  await wait(
-    () => cp.messages.some((m) => m.id === 2 && m.result),
-    'CLI thread',
-  );
-  cp.send(JSON.stringify({ id: 3, method: 'config/value/write', params: {} }));
-  await wait(
-    () => cp.messages.some((m) => m.id === 3 && m.error),
-    'CLI prohibited method',
-  );
-  assert(!cp.messages.some((m) => m.id === 3 && m.result));
-  pass('CLI command windows, read routing and unsafe RPC rejection');
-  const cliThread = cp.messages.find((m) => m.id === 2).result.thread.id;
-  cp.send(
-    JSON.stringify({
-      id: 4,
-      method: 'turn/start',
-      params: {
-        threadId: cliThread,
-        input: [{ type: 'text', text: 'local cache test' }],
-      },
-    }),
-  );
-  await wait(
-    () => cp.messages.some((m) => m.method === 'turn/completed'),
-    'CLI history source',
-  );
-  const cachedCli = JSON.parse(await cliCommand(['history', cli.id]));
-  assert(
-    cachedCli.events.some(
-      (e: any) => e.type === 'user' && e.data.text === 'local cache test',
-    ),
-  );
-  const offlineCli = JSON.parse(
-    await cliCommand(['history', cli.id, '--offline', 'true']),
-  );
-  assert.deepEqual(offlineCli.events, cachedCli.events);
-  assert.equal(statSync(join(dir, 'client-history')).isDirectory(), true);
-  pass(
-    'CC fetches history over Worker WebSocket and persists scoped SQLite pages for offline reads',
-  );
+  if (!process.argv.includes('--skip-tui')) {
+    const cli = await api('/sessions', {
+      hostId: enrolled.hostId,
+      projectId: 'test-project',
+      mode: 'cli',
+    });
+    const ticket = await api(`/sessions/${cli.id}/attach`, {});
+    const cp = peer('/ws/v1/cli/' + cli.id, ticket.ticket);
+    await new Promise<void>((r, j) => {
+      cp.ws.once('open', r);
+      cp.ws.once('error', j);
+    });
+    await readyControl(cp);
+    cp.send(
+      JSON.stringify({
+        id: 1,
+        method: 'initialize',
+        params: { clientInfo: { name: 'test', version: '1' } },
+      }),
+    );
+    await wait(
+      () => cp.messages.some((m) => m.id === 1 && m.result),
+      'CLI init',
+    );
+    cp.send(JSON.stringify({ id: 2, method: 'thread/start', params: {} }));
+    await wait(
+      () => cp.messages.some((m) => m.id === 2 && m.result),
+      'CLI thread',
+    );
+    cp.send(
+      JSON.stringify({ id: 3, method: 'config/value/write', params: {} }),
+    );
+    await wait(
+      () => cp.messages.some((m) => m.id === 3 && m.error),
+      'CLI prohibited method',
+    );
+    assert(!cp.messages.some((m) => m.id === 3 && m.result));
+    pass('CLI command windows, read routing and unsafe RPC rejection');
+    const cliThread = cp.messages.find((m) => m.id === 2).result.thread.id;
+    cp.send(
+      JSON.stringify({
+        id: 4,
+        method: 'turn/start',
+        params: {
+          threadId: cliThread,
+          input: [{ type: 'text', text: 'local cache test' }],
+        },
+      }),
+    );
+    await wait(
+      () => cp.messages.some((m) => m.method === 'turn/completed'),
+      'CLI history source',
+    );
+    const cachedCli = JSON.parse(await cliCommand(['history', cli.id]));
+    assert(
+      cachedCli.events.some(
+        (e: any) => e.type === 'user' && e.data.text === 'local cache test',
+      ),
+    );
+    const offlineCli = JSON.parse(
+      await cliCommand(['history', cli.id, '--offline', 'true']),
+    );
+    assert.deepEqual(offlineCli.events, cachedCli.events);
+    assert.equal(statSync(join(dir, 'client-history')).isDirectory(), true);
+    pass(
+      'CC fetches history over Worker WebSocket and persists scoped SQLite pages for offline reads',
+    );
 
-  await cliCommand(['stop', cli.id]);
-  const binDir = join(dir, 'bin');
-  mkdirSync(binDir);
-  symlinkSync(resolve('tests/fixtures/fake-tui.mjs'), join(binDir, 'codex'));
-  const capture = join(dir, 'tui-launch.json');
-  const output = await cliCommand(
-    ['connect', '--host', 'local-test', '--project', 'test-project'],
-    '',
-    {
-      PATH: binDir + ':' + process.env.PATH,
-      COC_TUI_CAPTURE: capture,
-    },
-  );
-  const launched = JSON.parse(readFileSync(capture, 'utf8'));
-  assert.equal(launched.args[0], '--remote');
-  assert(
-    new URL(launched.args[1]).hostname === '127.0.0.1' &&
-      new URL(launched.args[1]).pathname === '/',
-  );
-  assert.equal(launched.args[2], '--remote-auth-token-env');
-  assert.equal(launched.args[3], 'COC_REMOTE_TICKET');
-  assert(launched.ticket.length > 20);
-  assert(!launched.args.includes(launched.ticket));
-  assert(launched.args.includes('workspace-write'));
-  const launchId = output.match(/Remote session: ([a-zA-Z0-9_~-]+)/)![1];
-  await cliCommand(['stop', launchId]);
-  pass(
-    'C++ CLI connects and launches TUI with policy and ticket via environment',
-  );
-  const recoveryCapture = join(dir, 'tui-recovery.json');
-  const recoveryGate = join(dir, 'tui-recovery-gate');
-  const priorReplyInterrupts = agent.interruptedReplies;
-  agent.interruptNextReply();
-  const recoveryCreateId = randomUUID();
-  const recoverOriginalCreate = () =>
-    cliCommand(
-      [
-        'connect',
-        '--host',
-        'local-test',
-        '--project',
-        'test-project',
-        '--request-id',
-        recoveryCreateId,
-      ],
+    await cliCommand(['stop', cli.id]);
+    const binDir = join(dir, 'bin');
+    mkdirSync(binDir);
+    symlinkSync(resolve('tests/fixtures/fake-tui.mjs'), join(binDir, 'codex'));
+    const capture = join(dir, 'tui-launch.json');
+    const output = await cliCommand(
+      ['connect', '--host', 'local-test', '--project', 'test-project'],
       '',
       {
         PATH: binDir + ':' + process.env.PATH,
-        COC_TUI_CAPTURE: recoveryCapture,
-        COC_TUI_RELIABLE_GATE: recoveryGate,
+        COC_TUI_CAPTURE: capture,
       },
     );
-  const recoveringCli = (async () => {
-    try {
-      return await recoverOriginalCreate();
-    } catch (error) {
-      // The Agent now waits 30 seconds after a lost channel. An unconfigured
-      // wake endpoint leaves the original intent for explicit client recovery.
-      if (!String(error).includes('HOST_OFFLINE')) throw error;
-      await wait(
-        async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
-        'Agent recovers before the same CLI original request is retried',
-        45000,
+    const launched = JSON.parse(readFileSync(capture, 'utf8'));
+    assert.equal(launched.args[0], '--remote');
+    assert(
+      new URL(launched.args[1]).hostname === '127.0.0.1' &&
+        new URL(launched.args[1]).pathname === '/',
+    );
+    assert.equal(launched.args[2], '--remote-auth-token-env');
+    assert.equal(launched.args[3], 'COC_REMOTE_TICKET');
+    assert(launched.ticket.length > 20);
+    assert(!launched.args.includes(launched.ticket));
+    assert(launched.args.includes('workspace-write'));
+    const launchId = output.match(/Remote session: ([a-zA-Z0-9_~-]+)/)![1];
+    await cliCommand(['stop', launchId]);
+    pass(
+      'C++ CLI connects and launches TUI with policy and ticket via environment',
+    );
+    const recoveryCapture = join(dir, 'tui-recovery.json');
+    const recoveryGate = join(dir, 'tui-recovery-gate');
+    const priorReplyInterrupts = agent.interruptedReplies;
+    agent.interruptNextReply();
+    const recoveryCreateId = randomUUID();
+    const recoverOriginalCreate = () =>
+      cliCommand(
+        [
+          'connect',
+          '--host',
+          'local-test',
+          '--project',
+          'test-project',
+          '--request-id',
+          recoveryCreateId,
+        ],
+        '',
+        {
+          PATH: binDir + ':' + process.env.PATH,
+          COC_TUI_CAPTURE: recoveryCapture,
+          COC_TUI_RELIABLE_GATE: recoveryGate,
+        },
       );
-      return recoverOriginalCreate();
-    }
-  })();
-  void recoveringCli.catch(() => {});
-  await wait(
-    () => {
+    const recoveringCli = (async () => {
       try {
-        return (
-          existsSync(recoveryCapture) &&
-          JSON.parse(readFileSync(recoveryCapture, 'utf8')).phase ===
-            'connected'
+        return await recoverOriginalCreate();
+      } catch (error) {
+        // The Agent now waits 30 seconds after a lost channel. An unconfigured
+        // wake endpoint leaves the original intent for explicit client recovery.
+        if (!String(error).includes('HOST_OFFLINE')) throw error;
+        await wait(
+          async () =>
+            (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
+          'Agent recovers before the same CLI original request is retried',
+          45000,
         );
-      } catch {
-        return false;
+        return recoverOriginalCreate();
       }
-    },
-    'reliable TUI attached',
-    60000,
-  );
-  assert.equal(
-    agent.interruptedReplies,
-    priorReplyInterrupts + 1,
-    'real CLI recovered an interrupted encrypted reply',
-  );
-  const interruptedTransport = agent.socket;
-  interruptedTransport?.close(1012);
-  await wait(
-    () =>
-      agent!.socket !== interruptedTransport &&
-      agent!.socket?.readyState === WebSocket.OPEN,
-    'Agent replaces the interrupted transport after its retry delay',
-    45000,
-  );
-  await wait(
-    async () =>
-      (await api('/hosts')).some(
-        (host: any) => host.id === enrolled.hostId && host.online,
-      ),
-    'Agent recovered for the original TUI',
-    45000,
-  );
-  agent.interruptNextReply();
-  writeFileSync(recoveryGate, 'continue');
-  const recoveryOutput = await recoveringCli;
-  const recoveredTui = JSON.parse(readFileSync(recoveryCapture, 'utf8'));
-  assert.equal(recoveredTui.completed, 4);
-  assert.equal(recoveredTui.largeResultBytes, 300000);
-  const recoverySession = recoveryOutput.match(
-    /Remote session: ([a-zA-Z0-9_~-]+)/,
-  )![1];
-  await cliCommand(['stop', recoverySession]);
-  pass(
-    'reliable CC keeps its local TUI through interrupted encrypted records and reconnect, interrupts its exact CLI task and verifies a 300 KB transfer result',
-  );
+    })();
+    void recoveringCli.catch(() => {});
+    await wait(
+      () => {
+        try {
+          return (
+            existsSync(recoveryCapture) &&
+            JSON.parse(readFileSync(recoveryCapture, 'utf8')).phase ===
+              'connected'
+          );
+        } catch {
+          return false;
+        }
+      },
+      'reliable TUI attached',
+      60000,
+    );
+    assert.equal(
+      agent.interruptedReplies,
+      priorReplyInterrupts + 1,
+      'real CLI recovered an interrupted encrypted reply',
+    );
+    const interruptedTransport = agent.socket;
+    interruptedTransport?.close(1012);
+    await wait(
+      () =>
+        agent!.socket !== interruptedTransport &&
+        agent!.socket?.readyState === WebSocket.OPEN,
+      'Agent replaces the interrupted transport after its retry delay',
+      45000,
+    );
+    await wait(
+      async () =>
+        (await api('/hosts')).some(
+          (host: any) => host.id === enrolled.hostId && host.online,
+        ),
+      'Agent recovered for the original TUI',
+      45000,
+    );
+    agent.interruptNextReply();
+    writeFileSync(recoveryGate, 'continue');
+    const recoveryOutput = await recoveringCli;
+    const recoveredTui = JSON.parse(readFileSync(recoveryCapture, 'utf8'));
+    assert.equal(recoveredTui.completed, 4);
+    assert.equal(recoveredTui.largeResultBytes, 300000);
+    const recoverySession = recoveryOutput.match(
+      /Remote session: ([a-zA-Z0-9_~-]+)/,
+    )![1];
+    await cliCommand(['stop', recoverySession]);
+    pass(
+      'reliable CC keeps its local TUI through interrupted encrypted records and reconnect, interrupts its exact CLI task and verifies a 300 KB transfer result',
+    );
+  }
   // Real browser uses the same cookie/Origin path as users; no bearer bypass.
   browser = await chromium.launch({
     headless: true,

@@ -223,7 +223,7 @@ jobs:
           key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   sanitizers:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       CCACHE_MAXSIZE: 512M
     steps:
