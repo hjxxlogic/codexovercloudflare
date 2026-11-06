@@ -97,11 +97,12 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
     thread.start()
     relay = f'http://127.0.0.1:{server.server_port}'
 
-    def installation(name, agent=False, disabled=False):
+    def installation(name, agent=False, disabled=False, component=False):
         folder = workspace / name
         folder.mkdir(mode=0o700)
         binary = folder / ('coc-agent' if agent else 'coc-client')
-        shutil.copy2(AGENT if agent else CLI, binary)
+        source = ROOT / 'build/coc-agent-component' if component else AGENT if agent else CLI
+        shutil.copy2(source, binary)
         # Model an installed executable, independent of the developer build umask.
         binary.chmod(0o755)
         config = folder / 'config.json'
@@ -185,6 +186,12 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                     'projects': [{'id': 'project', 'name': 'project', 'path': str(project)}],
                     'autoUpdate': {} if MUSL else {'platform': PLATFORM}}
             config.write_text(json.dumps(data))
+            legacy_fixture = os.environ.get('COC_LEGACY_FIXTURE')
+            preserved_config = config.read_bytes()
+            preserved_projects = None
+            if legacy_fixture:
+                subprocess.run([legacy_fixture, 'seed', data['dataDir']], check=True)
+                preserved_projects = (pathlib.Path(data['dataDir']) / 'projects.json').read_bytes()
             log = (workspace / 'agent.log').open('w+')
             agent = subprocess.Popen([str(binary), 'run', '--config', str(config)],
                                      stdout=subprocess.DEVNULL, stderr=log)
@@ -203,6 +210,12 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                     agent.terminate()
                     agent.wait(timeout=10)
                 log.close()
+            assert config.read_bytes() == preserved_config, 'Automatic update changed credentials/configuration'
+            if preserved_projects is not None:
+                state = pathlib.Path(data['dataDir'])
+                assert (state / 'projects.json').read_bytes() == preserved_projects
+                assert (state / 'agent.db.pre-opaque-v2').exists()
+                subprocess.run([str(ROOT / 'build/coc-legacy-upgrade'), 'verify', str(state)], check=True)
             print('PASS: idle Agent prepares update in background, closes stores and reexecutes new release')
 
             if '--busy' in sys.argv:
@@ -211,7 +224,9 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                 active_agent = None
                 try:
                     active_relay = f"http://127.0.0.1:{json.loads(helper.stdout.readline())['port']}"
-                    binary, config = installation('busy-agent', agent=True)
+                    # The peer injects internal runtime controls; only this
+                    # component build accepts them without an encrypted endpoint.
+                    binary, config = installation('busy-agent', agent=True, component=True)
                     data['relayUrl'] = active_relay
                     data['dataDir'] = str(workspace / 'busy-agent-state')
                     config.write_text(json.dumps(data))

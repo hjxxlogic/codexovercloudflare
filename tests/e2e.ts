@@ -258,7 +258,10 @@ async function feature(page: Page, name: RegExp) {
     return;
   }
   if (value.includes('会话详情')) {
-    await page.getByRole('button', { name: '信息', exact: true }).click();
+    await page
+      .getByRole('group', { name: '当前会话操作', exact: true })
+      .getByRole('button', { name: '信息', exact: true })
+      .click();
     return;
   }
   if (value.includes('工作区文件')) {

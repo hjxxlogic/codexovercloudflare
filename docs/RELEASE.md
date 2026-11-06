@@ -77,6 +77,8 @@ python3 scripts/deploy-agent.py --push --commit HEAD \
 
 空闲检查是近期指标快照，不能与新任务形成原子互斥；部署窗口应停止提交新任务。重启活动会话必须明确授权 `--allow-restart-active`。Agent 更新不包含 Worker 发布或 GitHub Release 授权。
 
+本机 Agent 与 CLI 同步部署可在 `scripts/deploy-agent.py --push --push-remote github --local --binary /absolute/path/coc-agent --apply` 增加 `--client-binary /absolute/path/coc-client`。该选项仅接受 CI 产物及已有本机 CLI：先完成 Agent 空闲等待、安装和连接验证，再从同一份已校验摘要的 CI 归档提取 CLI，核对源码身份，备份并原子替换；现有 CLI 进程继续使用原 inode，新命令使用新版。CLI 验证失败尝试恢复备份；若 Agent 已成功而 CLI 失败，命令返回错误，需按部署证据分别核实，不将两者视为原子事务。
+
 ## 配套升级与回退
 
 Relay / 网页先部署，再让新版原生程序连接；业务只接受 `delivery:2`，Terminal 要求 Agent 上报 `streaming:2`。配置、凭据、项目目录与历史独立备份，保留未知请求身份，不导入不兼容缓存任务。稳定 Agent 身份和请求准入代次分别处理，不能因更新或过期自动重放副作用。
@@ -99,12 +101,6 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0`、`1` 或 `2`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本次支持结构完整的 SQLite 0/1 单向迁移到 2，不提供配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。新版写入端将结构完整的 0/1 库升级到 2；缺列的库不自动升级，旧版程序不能读取升级后的库。具体错误见用户手册。
 
-## 当前线上版本
-
-独立测试站 `https://r2.xlogic.cc` 的 Worker / 网页及下载包为 `0.6.7`，源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。该准确提交的六项必需 CI 作业全部成功，使用经过来源与摘要校验的 CI 制品部署，`ciVerified=true`。线上健康、静态资源、下载包及隔离端到端验证通过，详见 [r2 部署记录](R2_DEPLOYMENT.md)。
-
-本次仅部署 r2。旧站 `r.xlogic.cc` 和既有本机 Agent 保持独立，未由此升级；两者运行身份不能从 r2 版本推断。测试 Agent 为临时进程，测试后停止并撤销授权。
-
 ### r2 仅更新网页
 
 已有明确的本地预览授权时，可用已验证的 r2 `deployment.json` 保留线上 Worker 执行制品，只重建网页：
@@ -116,83 +112,20 @@ COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
   --web-only-from .local/deploy-cloud/PREVIOUS-r2/deployment.json --apply
 ```
 
-线上回读的全部下载包 SHA256 与 CI 制品一致：
+Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式复用原 Worker 制品和配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后回读可执行模块并核对 SHA256；规范化的 source map 不计入执行代码校验。仅允许 r2 `--local-build`，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；分别记录 Web 与 Worker 来源，`ciVerified=false`。前后端接口必须兼容。
 
-| 文件                                        | SHA256                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------ |
-| `coc-0.6.7-linux-x86_64-debian12.tar.gz`    | `b1ccb683ba25c4bced558359c01964543da93e66b8cafa614b756b03d1445c01` |
-| `coc-0.6.7-linux-x86_64-musl.tar.gz`        | `d7c7f776162b3229e6b0d942730c4958dbafa3d64679fa45096fdc98c11778f9` |
-| `coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz` | `dd84b7f6816237e074a5e11fa38a01ea2e58a3d76502bd1d16551768d8fdace3` |
-| `coc-0.6.7-windows-x64.zip`                 | `be63cb6d16c87950e61c09dcedfa305b780ebaddd97c0b40454e143719b94e8c` |
-| `codex-over-cloudflare-0.6.7-source.tar.gz` | `814e94f3764af434029573c01f92d0bf59c90135a4806d37b3aee86788e1f7bc` |
+## 历史发布证据与当前边界
 
-部署脚本逐字节核对网页入口、69 个静态资源、在线手册、下载清单和 SHA256SUMS，再下载核验四平台及源码的全部 5 个归档；健康接口报告 `ok=true`、`version=0.6.7`。部署后仓库线上验证脚本的 HTTP / WebSocket 准入边界检查通过。
+本轮 0.6.14 只合并、验证与准备制品，没有查询或修改生产部署；下列记录均属于各自日期与提交，不能据此声明当前线上身份。最新实际线上身份须在另行授权的发布窗口读取。
 
-本机 Agent 安装前再次确认空闲，备份实际运行二进制并安装同一运行的 musl 制品；120 秒观察内 PID 稳定、Relay 握手完成、没有脚本检查的连接错误，运行 version / commit / sourceDigest / protocol / clean 身份匹配。配置字节和 3 个项目身份保留；私有配置、项目日志和 SQLite 已备份，完整性及当前格式检查通过，不执行迁移，不使用 --allow-restart-active。
+| 历史范围                         | 源码、验证与证据                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| r2 初始不透明中继及后续 Web 预览 | 初始 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`、[Actions 41764690561](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 六项成功；后续预览有 `ciVerified=false`。逐次版本、SHA、包摘要和限制保留于 [r2 历史记录](R2_DEPLOYMENT.md)。                                                                                                                                                                      |
+| 2026-11-05 原 master 0.6.7       | `a1fc79f3a80e74ee8310739bd4d69934ab48e331`、[Actions 41961015104](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104) 六项成功；云端、四平台下载与本机 Agent 的摘要和核验见 [部署证据](assets/release-0.6.7-2026-11-05/deployment.json)。原始过程和完整 SHA256 表见 [固定 master 发布记录](https://github.com/hjxxlogic/codexovercloudflare/blob/7c344413607becd70444341882951844a6e72dbd/docs/RELEASE.md)。 |
+| 2026-11-04 本地构建发布          | `589c26b45ed62c74c8610b26fbc48f9b1c42f4e5` 与 `ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8` 均按当时明确例外发布，`ciVerified=false`；Agent 安装及离线实例限制见上述固定记录与 [事故记录](INCIDENT-2026-11-04.md)。                                                                                                                                                                                                                    |
+| 2026-11-06 只读历史恢复          | `a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5` 含 `9580dcb`，仅本地构建 Worker / Web，`ciVerified=false`，未更新 Agent。Cloudflare ID `a103c4dd-f5b8-4a82-a19d-3329129339b5`；来源、文件摘要与检查范围保留于上述固定 master 记录。                                                                                                                                                                                                      |
 
-本次生产已登录浏览器检查未完成：保存的登录态访问 /auth/email 返回非 JSON 的 Access 响应；CI 浏览器测试已通过，不将其当作已登录生产验证。opaque 分支的两项问题已复现但未修改，该分支不在本次部署中；master 的全 Host 广播及失败重试机制保留，详见 [审查记录](AUTHORIZATION_REVIEW_2026-11-05.md)。未发布 GitHub Release 或发送自动更新通知，其他运行 Agent 未由本次脚本安装。
-
-公开来源、各 artifact ID、摘要、在线验证和本机安装结果见 [部署证据](assets/release-0.6.7-2026-11-05/deployment.json)。私有备份与日志在 `.local/release-0.6.7-20261105/`，脚本原始证据在 `.local/deploy-cloud/41961015104/` 与 `.local/deploy-agent/41961015104/`。
-
-### 发布准备与门禁修复过程（2026-11-05）
-
-用户要求更新云端 Worker / 网页、四平台下载和本机 systemd Agent。部署源码包含 `dc5a2c5dd22ed32a8587c082f829d1423c79caac` 的 Agent 常驻重试修复。本次走完整 CI 门禁，不沿用此前直接构建例外；成功 CI 制品准备完成后先部署云端，再等待本机 Agent 空闲安装，不中断活动会话。
-
-原 master 提交带有 `[skip ci]`，没有匹配的成功运行；尝试手动 dispatch 被 GitHub 令牌权限拒绝（HTTP 403）。通过本次发布准备文档提交的正常 push 触发 Actions。其它架构分支的成功运行不作为本次部署制品。此段只记录准备状态，实际部署提交、Actions、摘要与验证结果在部署后补齐。
-
-首次运行 `41956523532` 的 Windows 原生登录测试在清理临时数据库时失败：Python SQLite 事务上下文不会关闭连接，Windows 拒绝删除仍打开的文件。测试改用显式关闭连接的上下文，保留事务提交及不修改不支持数据库的断言；修复后重新推送并运行完整门禁，不使用失败运行的制品部署。
-
-用户进一步要求在发布前修复 master 授权复核期间丢帧的问题；待部署提交还将包含有界排队及相关回归，之前成功或正在运行的提交均不能代替最终提交门禁。核查 opaque 分支的两个问题及 master 的差异见 [授权复核审查](AUTHORIZATION_REVIEW_2026-11-05.md)。
-
-同次回归的原生 delivery 测试仍按 15 秒等待畸形中断消息后的重连，小于新版固定 30 秒重试间隔。该重连断言改为等待最多 45 秒，仍要求新的 capabilities 握手，且保留拒绝畸形请求、不消耗序号、不写命令和取消标记的验证；其它操作超时不变。
-
-### 此前云端直接部署（2026-11-04）
-
-2026-11-04 10:21（北京时间），`https://r.xlogic.cc` 的 Worker / 网页已直接发布授权刷新竞态修复，源码提交 `ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8`，版本仍为 `0.6.7`。用户明确授权“跳过 github action，直接部署”；使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply`，干净来源 `dirty=false`、`ciVerified=false`。没有 Actions 运行或 URL，不作为 CI 验证发行制品。源码已推送 origin 与 GitHub，提交含 `[skip ci]`。
-
-| 构建或制品           | 身份 / SHA256                                                      |
-| -------------------- | ------------------------------------------------------------------ |
-| 源码摘要             | `8aaaadc904423d7d594ff9dcac88bd777ae980ec0f5f24683af94c785bde4f90` |
-| Worker Version ID    | `0c4458c6-4b89-466e-ba86-fc84c58966c1`                             |
-| Worker bundle SHA256 | `3d50bd742f92e9e287f49505a6619a7e9b72fcdc5b6da38fe5c21578ef0dc364` |
-| 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
-
-部署脚本验证健康接口、69 个静态资源、网页入口、在线手册、下载清单及校验和与准备制品字节一致。既有下载包与 DO 存储配置保留，未发布原生下载、GitHub Release 或更新通知。首次经本机代理尝试在下载保全阶段因 TLS 连接失败退出，尚未上传；改用直连后部署及校验成功。
-
-10:22 启动此前已退出的本机 `coc-agent.service`，沿用原程序、凭据和数据，未安装 Agent 二进制或重启活动实例。10:23 真实 Access 状态验证健康接口、管理主机目录、邮箱授权恢复、3 个项目及首批 100 条会话记录查询通过，未调用模型。截至该快照，14 台有效主机中 7 台有中继连接，7 台仍离线；仅本机完成启动，其余离线实例尚未恢复，不将部署成功当作全部主机恢复。
-
-本地 Vitest 499/499、类型检查、Lint 与 Worker dry-run 通过。机器证据在 `.local/incident-2026-11-04/`，部署来源及文件摘要在 `.local/deploy-cloud/local-ddb83cb6637b8a8ef56a40e0e7793d96e2b189b8-8aaaadc90442/deployment.json`；具体故障链和限制见 [事故记录](INCIDENT-2026-11-04.md)。
-
-### 上一次部署
-
-本次发布前，Worker / 网页已部署审核提交 `589c26b45ed62c74c8610b26fbc48f9b1c42f4e5`，版本为 `0.6.7`。按用户明确授权使用干净 HEAD 本地构建，`dirty=false`、`ciVerified=false`。GitHub Actions dispatch 被当前令牌拒绝（HTTP 403），没有对应成功运行或 Actions URL；本次构建不能作为 CI 验证发行制品。
-
-| 构建或制品           | 身份 / SHA256                                                      |
-| -------------------- | ------------------------------------------------------------------ |
-| 源码摘要             | `38fe9b59d0e6561dec3ccbddbd6de5028a21364d384f880bd30bdca33cf315f9` |
-| Worker Version ID    | `b2c999e6-12de-47f5-959d-70232ff6b7d3`                             |
-| Worker bundle SHA256 | `7defb0533db96f974ffabdb0565d5eb878c849cdb5dee671015c5cb7a3f273aa` |
-| 网页入口 SHA256      | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
-| 待安装 Agent SHA256  | `ce5a2d8655a75084ced7e55555d5c42b2bff1961f8b10859bfed799d524d30ff` |
-
-部署脚本核对健康接口及 69 个静态资源、在线手册、下载清单与校验和的字节一致性。真实 Access 登录状态验证共 13 项 API / 页面步骤通过，包括邮箱授权恢复、主机在线、项目、邮箱专属会话目录、旧会话历史、线程目录、Terminal streaming:2 及旧 HTTP 字节操作拒绝；桌面和手机截图已保存，浏览器无页面错误。本次没有调用模型或提交测试任务。重新构建后的 CTest 11/11、Vitest 492/492 和 Worker dry-run 通过；审核时类型、Lint、协议一致性及 35 项部署工具检查通过。
-
-Linux Agent 候选程序已构建并验证准确提交与摘要。既有 systemd 用户服务仍有 2 个活动 runtime；部署脚本等待空闲 180 秒后退出，未安装、未重启。运行 Agent 保持此前 `0.6.7` 本地构建：基准提交 `c3ffef94afd3bd09c0598df2d19aa0697b463d0c`、源码摘要 `1057fdcd349956a6c3dc51d9d1940e2bb10a416ae212bb33bb9058e69cbaee9c`、`dirty=true`。候选程序不代表已安装；继续部署须等空闲，或取得中断活动会话的明确授权。
-
-配置、项目目录及 SQLite 已备份，未转换存储。原有下载包保留：Linux 和源码 `0.6.6`、Windows `0.6.5`；未发布 GitHub Release 或发送自动更新通知。其它 Agent 不在本次升级范围。
-
-机器证据与私有备份位于忽略的 `.local/deployment-589c26b/`；部署脚本证据位于 `.local/deploy-cloud/local-589c26b45ed62c74c8610b26fbc48f9b1c42f4e5-38fe9b59d0e6/` 和同名 `.local/deploy-agent/` 子目录。
-
-本机 Agent 与 CLI 同步部署可在 `scripts/deploy-agent.py --push --push-remote github --local --binary /absolute/path/coc-agent --apply` 增加 `--client-binary /absolute/path/coc-client`。该选项仅接受 CI 产物及已有本机 CLI：先完成 Agent 空闲等待、安装和连接验证，再从同一份已校验摘要的 CI 归档提取 CLI，核对源码身份，备份并原子替换；现有 CLI 进程继续使用原 inode，新命令使用新版。CLI 验证失败尝试恢复备份；若 Agent 已成功而 CLI 失败，命令返回错误，需按部署证据分别核实，不将两者视为原子事务。
-
-## 2026-11-06 CW 只读历史恢复本地部署
-
-用户明确授权跳过 GitHub Actions，使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply` 从干净提交 `a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5` 构建并部署 Worker / 网页到 `https://r.xlogic.cc`，包含 `9580dcb` 的跨设备接管后只读历史恢复修复。未触发 Actions，无 Actions URL，`ciVerified=false`，不作为 CI 验证发行制品。既有原生下载保留，未更新 Agent 或发布更新通知。
-
-Cloudflare 版本 ID：`a103c4dd-f5b8-4a82-a19d-3329129339b5`。源码摘要：`a232fb336e093df79a27e7e51ce86e678c8e67ab05f8412101b88ca8d923b9bb`；网页入口 SHA256：`bec7a9c07bf9f37868e6b3f2b0ec1b2bac0ba1c6ff08ea3660310f816b4d35bf`；Worker 构建文件 SHA256：`646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee`。
-
-本地网页构建、类型检查及 Worker dry-run 通过。部署脚本核对线上网页、静态资源、在线手册、下载清单与校验和字节一致；健康接口 `ok=true`、版本 `0.6.7`、协议 `1`。跨设备恢复的模拟浏览器回归已通过，未进行线上真实手机/电脑长稳测试。机器证据位于 `.local/deploy-cloud/local-a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5-a232fb336e09/deployment.json`，日志位于 `.local/cw-observer-deploy.log`。
-Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式不编译 Worker，复用原 Worker 制品和原配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后从 Cloudflare 读取线上可执行模块并与原制品核对 SHA256；Wrangler 会规范化调试 source map，因此 source map 不计入执行代码不变校验。只允许 r2 `--local-build`，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；Web 来源和保留的 Worker 来源分别记录，`ciVerified=false`。仅适用于前后端接口兼容的网页变更。
+历史生产浏览器验证、离线主机或当时尚未安装的候选包均保留原限制；不将它们记为本轮验收。准确提交 CI 与本轮制品来源见 [测试报告](TEST_REPORT.md)。
 
 ## 不透明中继的状态迁移准备
 

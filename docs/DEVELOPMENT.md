@@ -118,3 +118,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 ### 统一导航专项验证
 
 `npm run build:web && npm run test:ui:navigation` 使用本地模拟接收端检查新版左栏、设置、工作面板、文件预览和管理界面，无原生 Agent 或模型调用。`npm run test:markdown` 检查富文本。r2 上线可运行 `node node_modules/tsx/dist/cli.mjs scripts/verify-web-navigation.ts --access-config <0600 文件> --owner-secret-file <0600 文件> --host <现有隔离测试主机> --output .local/<目录>`；仅检查 Web，不创建会话或启动 Terminal，临时网页授权在结束时撤销。不要将它解释为完整发布门禁通过。
+
+自动更新完整演练：干净构建后运行 `python3 tests/native-update.py --automatic --busy`，覆盖空闲安装、关闭状态库后重启及活动会话结束前不替换程序。可设置 `COC_LEGACY_FIXTURE=<旧源码>/build/coc-legacy-upgrade`，以准确旧版创建的数据库和项目登记验证自动更新保留原配置与账本；CI 固定运行此组合。测试下载服务与全部安装目录均位于临时环境。
