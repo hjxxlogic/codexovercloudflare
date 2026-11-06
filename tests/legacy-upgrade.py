@@ -46,6 +46,23 @@ for version in (0, 1):
         with sqlite3.connect(str(pathlib.Path(directory) / 'agent.db')) as db:
             assert db.execute('PRAGMA user_version').fetchone()[0] == version
         subprocess.run([str(old), 'verify', directory], check=True)
+        # Retry past the backup stage, then interrupt actual migration writes.
+        # A completed pre-upgrade backup must remain reusable, and SQLite must
+        # roll back the schema/version transaction when its WAL cannot grow.
+        original = sqlite3.connect(str(pathlib.Path(directory) / 'agent.db'))
+        backup_path = pathlib.Path(directory) / 'agent.db.pre-opaque-v2'
+        backup = sqlite3.connect(str(backup_path))
+        try:
+            original.backup(backup)
+        finally:
+            backup.close()
+            original.close()
+        backup_path.chmod(0o600)
+        failed = subprocess.run([str(new), 'verify', directory], preexec_fn=no_disk_space, capture_output=True)
+        assert failed.returncode != 0, 'Migration transaction must reject failed WAL writes'
+        with sqlite3.connect(str(pathlib.Path(directory) / 'agent.db')) as db:
+            assert db.execute('PRAGMA user_version').fetchone()[0] == version
+        subprocess.run([str(old), 'verify', directory], check=True)
         if args.agent:
             project = pathlib.Path(directory) / 'project'
             project.mkdir()

@@ -2625,7 +2625,9 @@ try {
   await visitorPage
     .getByRole('button', { name: '刷新会话', exact: true })
     .click();
-  await visitorPage.getByRole('button', { name: /外部运行会话/ }).click();
+  await visitorPage
+    .getByRole('button', { name: '继续对话：外部运行会话', exact: true })
+    .click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage
     .getByText(/外部会话 · 只读同步/)
@@ -2786,7 +2788,10 @@ try {
   await api(`/sessions/${browserExternal.id}/stop`, {});
   token = beforeExternalToken;
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByRole('button', { name: /本地历史对话/ }).click();
+  await visitorPage
+    .locator('button.session')
+    .filter({ hasText: '本地历史对话' })
+    .click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage.getByRole('heading', { name: 'Restored reply' }).waitFor();
   assert.equal(
@@ -2826,12 +2831,18 @@ try {
     'history pagination',
   );
   assert.equal(
-    await visitorPage.getByRole('button', { name: /本地历史对话/ }).count(),
+    await visitorPage
+      .locator('button.session')
+      .filter({ hasText: '本地历史对话' })
+      .count(),
     1,
   );
   await visitorPage.getByLabel('搜索会话').fill('no matching history');
   assert.equal(
-    await visitorPage.getByRole('button', { name: /本地历史对话/ }).count(),
+    await visitorPage
+      .locator('button.session')
+      .filter({ hasText: '本地历史对话' })
+      .count(),
     0,
   );
   await visitorPage.getByLabel('搜索会话').fill('');

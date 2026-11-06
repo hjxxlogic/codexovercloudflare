@@ -14,6 +14,8 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Tests must fail on invalid fixtures instead of launching real startup repair.
+os.environ['COC_NO_STARTUP_REPAIR'] = '1'
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CLI = pathlib.Path(os.environ.get('COC_CLI_BINARY', ROOT / 'build/coc-client')).resolve()
 AGENT = pathlib.Path(os.environ.get('COC_AGENT_BINARY', ROOT / 'build/coc-agent')).resolve()
@@ -185,8 +187,10 @@ with tempfile.TemporaryDirectory(prefix='coc-update-test-') as temporary:
                     'codexArgs': [str(ROOT / 'tests/fixtures/fake-codex.mjs')],
                     'projects': [{'id': 'project', 'name': 'project', 'path': str(project)}],
                     'autoUpdate': {} if MUSL else {'platform': PLATFORM}}
-            config.write_text(json.dumps(data))
             legacy_fixture = os.environ.get('COC_LEGACY_FIXTURE')
+            if legacy_fixture:
+                data['hostId'] = 'legacy-host'
+            config.write_text(json.dumps(data))
             preserved_config = config.read_bytes()
             preserved_projects = None
             if legacy_fixture:

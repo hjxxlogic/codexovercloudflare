@@ -44,7 +44,7 @@ sockets.on('connection', (socket) => {
   peer = socket;
   socket.send(
     JSON.stringify({
-      type: 'channel-welcome',
+      type: 'hello',
       delivery: 2,
       demand: 1,
       minProtocol: 1,
