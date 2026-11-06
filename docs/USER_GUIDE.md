@@ -766,6 +766,8 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 当前 r2 已启用 Cloudflare Access。原生 Agent / CLI 须提供权限为 `0600`、`origins` 明确包含 `https://r2.xlogic.cc` 的 Access 配置文件，使用 `--access-config /private/r2-access.json` 或 Agent 配置的 `cloudflareAccessFile` 指定。内置旧站入口配置不会自动允许新域名；CoC 设备授权仍需在 r2 单独批准。不要复制旧 Agent 的活动数据库或覆盖其服务配置。
 
+仅更新 r2 网页时，可复用当前 Worker 执行制品，独立记录网页来源；Cloudflare 部署版本会变化，原生下载和现有 Agent 保持。具体命令见 [发布操作](RELEASE.md#r2-仅更新网页)。
+
 当前部署、隔离核对及验证边界见 [r2 部署记录](R2_DEPLOYMENT.md)。线上验收使用临时 Agent，结束后已停止并撤销授权；站点部署成功不表示已有常驻主机接入。
 
 启动失败自动诊断：Agent 的配置读取、验证、数据库/运行时初始化失败（进入运行循环之前），以及 Client 的本地配置初始化或 `attach` / `connect` 启动失败，会在每个进程内最多启动一次本机 `codex exec` 修复。Agent 等待诊断结束后继续原有 30 秒重试；Client 保留失败退出码，修复后需重新执行原命令。Client 会话启动诊断覆盖凭据加载、Codex 版本校验、连接请求、本地缓存/桥接初始化、TUI 创建和初始化前异常退出；`connect` 在创建远端会话之前先校验 Codex。认证与传输握手完成且 TUI 发出 `initialized` 通知后，视为进入运行阶段。参数错误、未选择主机、错误会话模式、TUI 正常退出、运行中的网络故障、普通命令失败和 `doctor` 检查结果不触发修复。需已安装、登录 Codex；会调用模型并可能计费。

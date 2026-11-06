@@ -104,3 +104,16 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 独立测试站 `https://r2.xlogic.cc` 的 Worker / 网页及下载包为 `0.6.7`，源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。该准确提交的六项必需 CI 作业全部成功，使用经过来源与摘要校验的 CI 制品部署，`ciVerified=true`。线上健康、静态资源、下载包及隔离端到端验证通过，详见 [r2 部署记录](R2_DEPLOYMENT.md)。
 
 本次仅部署 r2。旧站 `r.xlogic.cc` 和既有本机 Agent 保持独立，未由此升级；两者运行身份不能从 r2 版本推断。测试 Agent 为临时进程，测试后停止并撤销授权。
+
+### r2 仅更新网页
+
+已有明确的本地预览授权时，可用已验证的 r2 `deployment.json` 保留线上 Worker 执行制品，只重建网页：
+
+```bash
+COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
+  --local-build --target r2 --commit HEAD \
+  --r2-access-aud R2_ACCESS_AUD \
+  --web-only-from .local/deploy-cloud/PREVIOUS-r2/deployment.json --apply
+```
+
+Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式不编译 Worker，复用原 Worker 制品和原配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后从 Cloudflare 读取线上可执行模块并与原制品核对 SHA256；Wrangler 会规范化调试 source map，因此 source map 不计入执行代码不变校验。只允许 r2 `--local-build`，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；Web 来源和保留的 Worker 来源分别记录，`ciVerified=false`。仅适用于前后端接口兼容的网页变更。

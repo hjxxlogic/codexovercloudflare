@@ -11,6 +11,8 @@ import subprocess
 import zipfile
 import os
 import sys
+import email
+import email.policy
 import urllib.error
 import urllib.request
 
@@ -274,6 +276,42 @@ def deployment_target(config, target, access_aud=None, without_access=False):
     return config
 
 
+def verify_existing_worker(config, worker):
+    """Compare live modules with a previously verified artifact; never log credentials."""
+    token = os.environ.get('CLOUDFLARE_API_TOKEN')
+    if not token:
+        import tomllib
+        credentials = pathlib.Path.home() / '.config/.wrangler/config/default.toml'
+        token = tomllib.loads(credentials.read_text())['oauth_token']
+    url = ('https://api.cloudflare.com/client/v4/accounts/' + config['account_id'] +
+           '/workers/scripts/' + config['name'] + '/content/v2')
+    request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token,
+                                                  'Accept': 'multipart/form-data'})
+    with urllib.request.urlopen(request, timeout=40) as response:
+        content_type, content = response.headers['Content-Type'], response.read()
+    message = email.message_from_bytes(('Content-Type: ' + content_type +
+                                       '\r\nMIME-Version: 1.0\r\n\r\n').encode() + content,
+                                      policy=email.policy.default)
+    if not message.is_multipart():
+        raise RuntimeError('Expected multipart live Worker modules')
+    hashes = {}
+    for part in message.iter_parts():
+        name = part.get_param('name', header='content-disposition')
+        # Wrangler normalizes debug source maps on upload; compare executable modules.
+        if name == 'metadata' or (name and name.endswith('.map')):
+            continue
+        agent.checked_member(name)
+        if name in hashes or not (worker / name).is_file():
+            raise RuntimeError('Live Worker module differs from preserved artifact')
+        digest = hashlib.sha256(part.get_payload(decode=True)).hexdigest()
+        if hashlib.sha256((worker / name).read_bytes()).hexdigest() != digest:
+            raise RuntimeError('Live Worker code differs from preserved artifact: ' + name)
+        hashes[name] = digest
+    if 'index.js' not in hashes:
+        raise RuntimeError('Live Worker entry point is missing')
+    return hashes
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
@@ -286,6 +324,8 @@ def main():
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true',
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
+    parser.add_argument('--web-only-from', type=pathlib.Path,
+                        help='Reuse the exact live Worker from a previously verified local deployment.json; r2 local builds only')
     parser.add_argument('--allow-uncommitted', action='store_true',
                         help='Explicitly deploy uncommitted local source, retaining its dirty identity; requires --local-build')
     parser.add_argument('--local-native-build-dir', type=pathlib.Path, help='Explicit local static Linux release; requires --local-build; preserves previous Windows')
@@ -304,6 +344,26 @@ def main():
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
     args = parser.parse_args()
+    previous_web_worker = None
+    if args.web_only_from:
+        if (not args.local_build or args.target != 'r2' or args.replace_vars or
+                args.delete_secret or args.initialize_owner_secret_file or args.initialize_downloads or
+                args.local_native_build_dir or args.publish_downloads or args.notify_release):
+            parser.error('--web-only-from requires r2 --local-build and forbids Worker/config/native changes')
+        args.web_only_from = args.web_only_from.resolve()
+        previous_web_worker = json.loads(args.web_only_from.read_text())
+        if (not previous_web_worker.get('applied') or
+                previous_web_worker.get('verification', {}).get('publicAssetBytesMatch') is not True or
+                previous_web_worker.get('target') != 'https://r2.xlogic.cc' or
+                previous_web_worker.get('worker') != 'codex-over-cloudflare-r2'):
+            raise RuntimeError('Expected a verified r2 deployment for Worker preservation')
+        old_worker = args.web_only_from.parent / 'worker'
+        for artifact in previous_web_worker['artifacts']:
+            if artifact['name'].startswith('worker/'):
+                path = args.web_only_from.parent / artifact['name']
+                agent.checked_member(artifact['name'])
+                if 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest() != artifact['digest']:
+                    raise RuntimeError('Preserved Worker artifact checksum mismatch')
     if args.initialize_owner_secret_file:
         path = args.initialize_owner_secret_file
         if args.target != 'r2' or not args.initialize_downloads:
@@ -345,15 +405,18 @@ def main():
             raise RuntimeError('Local deployment requires --commit HEAD')
         before = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
         run, jobs, artifacts = {'id': 'local-' + commit + '-' + before['sourceDigest'][:12], 'html_url': None}, [], []
-        output = ROOT / '.local/deploy-cloud' / (str(run['id']) + ('-r2' if args.target == 'r2' else ''))
+        output = ROOT / '.local/deploy-cloud' / (str(run['id']) + ('-web-only' if args.web_only_from else '') + ('-r2' if args.target == 'r2' else ''))
         output.mkdir(parents=True, exist_ok=True)
         subprocess.run(['npm', 'run', 'build:web'], cwd=ROOT, check=True)
         subprocess.run(['npm', 'run', 'typecheck'], cwd=ROOT, check=True)
         worker = output / 'worker'
         if worker.exists():
             shutil.rmtree(worker)
-        subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
-                        'deploy', '--dry-run', '--outdir', str(worker)], cwd=ROOT, check=True)
+        if args.web_only_from:
+            shutil.copytree(old_worker, worker)
+        else:
+            subprocess.run(['node', str(ROOT / 'node_modules/wrangler/bin/wrangler.js'),
+                            'deploy', '--dry-run', '--outdir', str(worker)], cwd=ROOT, check=True)
         site = output / 'site'
         if site.exists():
             shutil.rmtree(site)
@@ -361,7 +424,8 @@ def main():
         identity = json.loads(subprocess.check_output(['python3', 'scripts/build-metadata.py'], cwd=ROOT))
         if identity != before or identity['commit'] != commit or (identity['dirty'] and not args.allow_uncommitted):
             raise RuntimeError('Local build source changed during compilation')
-        shutil.copyfile(ROOT / 'wrangler.jsonc', worker / 'deploy-config.jsonc')
+        if not args.web_only_from:
+            shutil.copyfile(ROOT / 'wrangler.jsonc', worker / 'deploy-config.jsonc')
         identities = [identity, identity]
         selected = [{'name': folder + '/' + path.relative_to(output / folder).as_posix(),
                      'digest': 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -395,7 +459,14 @@ def main():
     config = json.loads(re.sub(r',(\s*[}\]])', r'\1',
                                (output / 'worker/deploy-config.jsonc').read_text()))
     # The deployment configuration is archived by CI along with the Worker.
+    if args.web_only_from:
+        config = json.loads((args.web_only_from.parent / 'deploy.json').read_text())
+        if (config['vars'].get('ACCESS_AUD', previous_web_worker.get('preservedAccessAudience')) != args.r2_access_aud or args.r2_without_access):
+            raise RuntimeError('Web-only deployment must preserve the existing Access audience')
     config = deployment_target(config, args.target, args.r2_access_aud, args.r2_without_access)
+    preserved_code = verify_existing_worker(config, output / 'worker') if args.web_only_from else None
+    if args.web_only_from:
+        config['vars'] = {}  # --keep-vars retains the live variables without overwriting them.
     config['main'] = str(output / 'worker/index.js')
     config['assets']['directory'] = str(output / 'site')
     validate_storage_config(config)
@@ -407,7 +478,10 @@ def main():
     cache = ROOT / '.local/deploy-cloud' / ('download-cache-r2' if args.target == 'r2' else 'download-cache')
     cache.mkdir(parents=True, exist_ok=True)
     manifest = None if args.initialize_downloads else preserve_downloads(base, output / 'site', cache, args.preserved_downloads)
-    if args.local_build:
+    if args.web_only_from:
+        for name in ('USER_GUIDE.md', 'happier-theme.css', 'happier-theme.js'):
+            (output / 'site/downloads' / name).write_bytes(agent.curl(base + '/downloads/' + name))
+    elif args.local_build:
         shutil.copyfile(ROOT / 'docs/USER_GUIDE.md', output / 'site/downloads/USER_GUIDE.md')
     published = None
     if args.local_native_build_dir:
@@ -430,7 +504,7 @@ def main():
     # Downloads are public, while root assets can require Access admission.
     for name in ('happier-theme.css', 'happier-theme.js'):
         theme_asset = output / 'site' / name
-        if theme_asset.is_file():
+        if theme_asset.is_file() and not args.web_only_from:
             shutil.copyfile(theme_asset, output / 'site/downloads' / name)
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
@@ -443,6 +517,13 @@ def main():
                 'artifacts': selected, 'sourceDigest': identities[0]['sourceDigest'],
                 'worker': config['name'], 'initializeDownloads': args.initialize_downloads,
                 'target': base, 'preservedDownloads': manifest, 'publishedDownloads': published, 'applied': False}
+    if args.web_only_from:
+        evidence['webOnly'] = True
+        evidence['preservedAccessAudience'] = args.r2_access_aud
+        evidence['preservedWorker'] = {
+            'sourceIdentity': previous_web_worker.get('preservedWorker', {}).get('sourceIdentity', previous_web_worker['sourceIdentity']),
+            'moduleHashes': preserved_code,
+        }
     if args.preserved_downloads:
         evidence['preservationSource'] = 'previously verified local download snapshot; package SHA256 rechecked'
     evidence_path = output / 'deployment.json'
@@ -475,6 +556,10 @@ def main():
                        cwd=ROOT, input='y\n', text=True, check=True)
         evidence.setdefault('deletedSecrets', []).append(name)
         evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
+    if args.web_only_from:
+        if verify_existing_worker(config, output / 'worker') != preserved_code:
+            raise RuntimeError('Worker module set changed during Web-only deployment')
+        evidence['preservedWorker']['verifiedAfterDeploy'] = True
     health = json.loads(agent.curl(base + '/api/v1/healthz'))
     for path in [output / 'site/index.html', *sorted((output / 'site/assets').glob('*')),
                  *[output / 'site' / name for name in ('happier-theme.css', 'happier-theme.js', 'happier-LICENSE.txt')],
