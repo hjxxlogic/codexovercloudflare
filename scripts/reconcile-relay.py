@@ -41,7 +41,7 @@ def main():
     snapshot = request()
     args.output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # Exclusive creation prevents a repeated invocation from replacing the original snapshot.
-    with args.output.open('x', opener=lambda p, f: __import__('os').open(p, f, 0o600)) as output:
+    with open(args.output, 'x', opener=lambda p, f: __import__('os').open(p, f, 0o600)) as output:
         json.dump(snapshot, output)
     entries = snapshot['entries']
     if any(k.startswith('permission-operation:') and v.get('state') != 'completed' for k, v in entries):
