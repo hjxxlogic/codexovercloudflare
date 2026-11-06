@@ -1,8 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { migrateHost } from '../apps/relay/src/migration.ts';
+import {
+  migrateHost,
+  retireLegacyLeases,
+} from '../apps/relay/src/migration.ts';
 import { MemoryStorage } from './helpers/do-state.ts';
 const migrate = (storage: MemoryStorage) =>
   migrateHost(storage as unknown as DurableObjectStorage);
+it('reconciles only exact host-scoped reviewed leases and preserves their original state', async () => {
+  const storage = new MemoryStorage();
+  const key = 'lease:host~session';
+  const original = { active: true, epoch: 7, pending: { epoch: 8 } };
+  storage.values.set(key, original);
+  const retire = (entries: unknown) =>
+    retireLegacyLeases(
+      storage as unknown as DurableObjectStorage,
+      'host',
+      entries,
+    );
+  await expect(retire([[key, { active: true }]])).rejects.toMatchObject({
+    code: 'CONFLICT',
+  });
+  await expect(
+    retire([['lease:other~session', original]]),
+  ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  await expect(
+    retire([['permission-operation:one', original]]),
+  ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  expect(storage.values.get(key)).toEqual(original);
+  await retire([[key, original]]);
+  expect(storage.values.get('~opaque-v1:reconciled:' + key)).toEqual(original);
+  expect(storage.values.get(key)).toEqual({ active: false, epoch: 7 });
+  await migrate(storage);
+  expect(storage.values.get('channelVersion')).toBe(1);
+  expect(storage.values.get('~opaque-v1:reconciled:' + key)).toEqual(original);
+  await expect(retire([[key, original]])).rejects.toMatchObject({
+    code: 'CONFLICT',
+  });
+});
 describe('one-way opaque Host migration', () => {
   it('resumes after a committed page and preserves wake and every legacy record', async () => {
     class Interrupted extends MemoryStorage {

@@ -802,10 +802,19 @@ export default {
           );
         return json({ ok: true });
       }
-      if (p === '/api/v1/agent/relay-migration' && req.method === 'GET') {
+      if (
+        p === '/api/v1/agent/relay-migration' &&
+        ['GET', 'POST'].includes(req.method)
+      ) {
         const auth = await authenticateAgent(req, env);
         return hostStub(env, auth.hostId!).fetch(
-          internal(req, '/relay-migration', auth, auth.hostId!),
+          internal(
+            req,
+            '/relay-migration',
+            auth,
+            auth.hostId!,
+            req.method === 'POST' ? await body(req) : undefined,
+          ),
         );
       }
       if (p === '/api/v1/agent/requests' && req.method === 'GET') {

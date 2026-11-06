@@ -3,6 +3,47 @@ import { AppError } from '../../../packages/protocol/src/admission.ts';
 // Retained in the same object until an operator exports and reconciles it.
 // Backups and progress are outside the legacy key range scanned by this pass.
 const prefix = '~opaque-v1:';
+// Operator reconciliation is compare-and-swap and preserves the original lease.
+// Permission operations are deliberately excluded: their effects need separate review.
+export async function retireLegacyLeases(
+  storage: DurableObjectStorage,
+  hostId: string,
+  entries: unknown,
+) {
+  if (!Array.isArray(entries) || !entries.length || entries.length > 64)
+    throw new AppError('INVALID_INPUT', 'Expected 1–64 reviewed leases', 400);
+  await storage.transaction(async (tx) => {
+    if ((await tx.get('channelVersion')) !== undefined)
+      throw new AppError('CONFLICT', 'Migration already completed', 409);
+    for (const entry of entries) {
+      if (
+        !Array.isArray(entry) ||
+        entry.length !== 2 ||
+        typeof entry[0] !== 'string' ||
+        !entry[0].startsWith('lease:' + hostId + '~')
+      )
+        throw new AppError(
+          'INVALID_INPUT',
+          'Only this host’s legacy leases may be retired',
+          400,
+        );
+      const current = await tx.get(entry[0]);
+      if (!current || JSON.stringify(current) !== JSON.stringify(entry[1]))
+        throw new AppError(
+          'CONFLICT',
+          'Legacy lease changed; review it again',
+          409,
+        );
+    }
+    for (const [key, value] of entries) {
+      const backup = prefix + 'reconciled:' + key;
+      if ((await tx.get(backup)) === undefined) await tx.put(backup, value);
+      const retired = { ...value, active: false };
+      delete retired.pending;
+      await tx.put(key, retired);
+    }
+  });
+}
 export async function migrateHost(storage: DurableObjectStorage) {
   const version = await storage.get('channelVersion');
   if (version === 1) return;

@@ -814,3 +814,9 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 云端首次访问迁移会退休旧连接并分页备份旧记录；存在尚未退休的旧控制权、待决控制预留或未完成权限操作时，返回 MIGRATION_PENDING，须在旧系统核对完成后再切换。Registry 身份与授权继续使用原存储；未访问的离线主机不计为已迁移。此版本尚未执行生产切换，具体检查与限制见合并计划及测试报告。
 
 管理界面保留手动“刷新状态”，可在通知中断后重新读取管理快照。手机选择管理分类后自动收起导航，避免抽屉阻挡面板操作；真实数据表在统一布局内限制宽度并保持内部滚动。
+
+主站旧 DO 的控制租约若在断线后残留为活动或 pending，先保留空闲检查证据并停止 Agent，再运行 `python3 scripts/reconcile-relay.py --config /absolute/agent.json --idle-evidence /absolute/deployment.json --output .local/relay-before.json` 检查。确认本地数据库会话全部 closed/failed 后加 `--apply`：工具通过仅限本主机 Agent 凭据的迁移接口备份全量旧记录、逐项核对原值并退役租约，不处理未决权限操作，也不绕过活动连接检查。DO 中另存原始租约，迁移备份仍保留。
+
+若失败部署已停止服务，可对本地部署使用 `--recover-stopped-evidence /absolute/failed-deployment.json --database /absolute/agent.db`；要求原部署空闲证据、服务无进程、数据库完整且所有会话已关闭/失败。数据库格式升级后禁止单独回退旧二进制；失败时保留新版并停止服务等待修复。
+
+显式本地构建部署也支持 `--client-binary /absolute/coc-client`：在 Agent 验证通过后核对同一源码构建的 CLI 身份并备份替换。

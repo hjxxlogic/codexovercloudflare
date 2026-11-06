@@ -238,6 +238,9 @@ def remote(host, operation, args, candidate='', sha256='', source_digest=''):
                '--source-digest', source_digest, '--verify-seconds', str(args.verify_seconds)]
     if args.allow_restart_active:
         command += ['--allow-restart-active']
+    if args.recover_stopped_evidence:
+        command += ['--recover-stopped-evidence', str(args.recover_stopped_evidence.resolve()),
+                    '--database', str(args.database.resolve())]
     if getattr(args, 'allow_uncommitted', False) and getattr(args, 'local_build', False):
         command += ['--allow-uncommitted']
     local = getattr(args, 'local', False)
@@ -294,6 +297,9 @@ def main():
     parser.add_argument('--commit', help='Git revision; defaults to HEAD')
     parser.add_argument('--run-id', type=int)
     parser.add_argument('--local-build', action='store_true', help='Explicit local compilation without GitHub Actions; requires --local')
+    parser.add_argument('--recover-stopped-evidence', type=pathlib.Path,
+                        help='Local maintenance recovery using the failed deployment’s saved idle preflight')
+    parser.add_argument('--database', type=pathlib.Path)
     parser.add_argument('--allow-uncommitted', action='store_true',
                         help='Explicitly deploy uncommitted source with its dirty identity; requires --local-build')
     parser.add_argument('--push', action='store_true', help='Push clean HEAD to origin before waiting for CI')
@@ -313,12 +319,14 @@ def main():
     parser.add_argument('--apply', action='store_true', help='Install; otherwise only prepare and inspect')
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / '.local/deploy-agent')
     args = parser.parse_args()
-    if args.client_binary and (not args.local or args.local_build or not args.client_binary.is_absolute()):
-        parser.error('--client-binary requires --local, an absolute path and CI artifacts')
+    if args.client_binary and (not args.local or not args.client_binary.is_absolute()):
+        parser.error('--client-binary requires --local and an absolute path')
     if args.allow_uncommitted and not args.local_build:
         parser.error('--allow-uncommitted requires --local-build')
     if args.local_build and (not args.local or args.push or args.run_id):
         parser.error('--local-build requires --local and forbids --push / --run-id')
+    if args.recover_stopped_evidence and (not args.local or not args.database):
+        parser.error('Stopped recovery requires --local and --database')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
         parser.error('Invalid repository')
     if args.ssh and not re.fullmatch(r'[\w][\w.@-]*', args.ssh):
@@ -392,7 +400,10 @@ def main():
         evidence['installation'] = remote(args.ssh, 'install', args, candidate, binary_hash, manifest['sourceDigest'])
         evidence['applied'] = True
         if args.client_binary:
-            _, client = unpack_artifact(archive, artifact['digest'], args.commit, output, 'coc-client')
+            if args.local_build:
+                client = ROOT / 'build/coc-client'
+            else:
+                _, client = unpack_artifact(archive, artifact['digest'], args.commit, output, 'coc-client')
             evidence['client'] = install_client(client, args.client_binary, manifest)
     except Exception as error:
         evidence['error'] = str(error)

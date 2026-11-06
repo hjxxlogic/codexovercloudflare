@@ -1,4 +1,4 @@
-import { migrateHost } from './migration.ts';
+import { migrateHost, retireLegacyLeases } from './migration.ts';
 import { DurableObject } from 'cloudflare:workers';
 import { live, retire } from './connections.ts';
 import { managesProjects } from './project-auth.ts';
@@ -387,6 +387,23 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   async fetch(req: Request) {
     try {
+      if (
+        new URL(req.url).pathname === '/relay-migration' &&
+        req.method === 'POST'
+      ) {
+        if (this.sockets().some(live))
+          throw new AppError(
+            'CONFLICT',
+            'Disconnect legacy endpoints before reconciliation',
+            409,
+          );
+        await retireLegacyLeases(
+          this.ctx.storage,
+          req.headers.get('x-host') || '',
+          (await body(req)).entries,
+        );
+        return json({ ok: true });
+      }
       if (
         new URL(req.url).pathname === '/relay-migration' &&
         req.method === 'GET'

@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import shutil
+import sqlite3
 import subprocess
 import time
 
@@ -47,6 +48,33 @@ def status(binary, name):
     return {'pid': pid, 'build': build, 'idle': idle, 'metrics': metrics}
 
 
+def target_status(binary, args):
+    if not args.recover_stopped_evidence:
+        return status(binary, args.service)
+    if int(execute(['systemctl', '--user', 'show', args.service, '--property=MainPID', '--value'])):
+        raise RuntimeError('Stopped recovery requires a service with no process')
+    evidence = json.loads(pathlib.Path(args.recover_stopped_evidence).read_text())
+    if evidence.get('binary') != str(binary) or evidence.get('before', {}).get('idle') is not True:
+        raise RuntimeError('Recovery requires the original successful idle preflight')
+    if not args.database:
+        raise RuntimeError('Stopped recovery requires --database')
+    with sqlite3.connect('file:' + args.database + '?mode=ro', uri=True) as db:
+        if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            raise RuntimeError('Recovery database integrity check failed')
+        if any(json.loads(row[0]).get('state') not in ('closed', 'failed')
+               for row in db.execute('SELECT value FROM sessions')):
+            raise RuntimeError('Recovery database has potentially active sessions')
+    return {'pid': 0, 'idle': True, 'stoppedRecovery': True,
+            'build': json.loads(execute([str(binary), '--version']))}
+
+
+def schema_version(database):
+    if not database:
+        return None
+    with sqlite3.connect('file:' + database + '?mode=ro', uri=True) as db:
+        return db.execute('PRAGMA user_version').fetchone()[0]
+
+
 def identity(build, args):
     if (build.get('commit') != args.commit or build.get('sourceDigest') != args.source_digest
             or (build.get('dirty') is not False and not getattr(args, 'allow_uncommitted', False))
@@ -69,14 +97,21 @@ def install(args):
     descriptor = os.open(str(binary) + '.deploy.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, 'w'):
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        before = status(binary, args.service)
+        before = target_status(binary, args)
         if not before['idle'] and not args.allow_restart_active:
             raise RuntimeError('Agent became busy; candidate staged but service was not stopped')
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         backup = pathlib.Path(str(binary) + '.backup-' + stamp)
         # Preserve the executable actually running, even if an auto-update replaced its disk path.
-        shutil.copy2('/proc/' + str(before['pid']) + '/exe', backup)
+        shutil.copy2('/proc/' + str(before['pid']) + '/exe' if before['pid'] else binary, backup)
         backup.chmod(0o700)
+        database = args.database
+        if not database and before['pid']:
+            command = pathlib.Path('/proc/' + str(before['pid']) + '/cmdline').read_bytes().decode().split('\0')
+            if '--config' in command:
+                config = json.loads(pathlib.Path(command[command.index('--config') + 1]).read_text())
+                database = str(pathlib.Path(config['dataDir']) / 'agent.db')
+        old_schema = schema_version(database)
         stopped = False
         try:
             stopped = True
@@ -111,6 +146,8 @@ def install(args):
             if stopped:
                 try:
                     service('stop', args.service)
+                    if args.recover_stopped_evidence or schema_version(database) != old_schema:
+                        raise RuntimeError('Database migration/recovery forbids binary-only rollback; new binary retained with service stopped')
                     rollback = pathlib.Path(str(binary) + '.rollback-' + stamp)
                     shutil.copy2(backup, rollback)
                     rollback.replace(binary)
@@ -129,9 +166,11 @@ def main():
     parser.add_argument('--verify-seconds', type=int, required=True)
     parser.add_argument('--allow-restart-active', action='store_true')
     parser.add_argument('--allow-uncommitted', action='store_true')
+    parser.add_argument('--recover-stopped-evidence')
+    parser.add_argument('--database')
     args = parser.parse_args()
     if args.operation == 'status':
-        result = status(pathlib.Path(args.binary), args.service)
+        result = target_status(pathlib.Path(args.binary), args)
     else:
         result = install(args)
     print(json.dumps(result), flush=True)
