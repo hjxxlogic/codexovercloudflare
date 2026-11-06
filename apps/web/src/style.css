@@ -1402,3 +1402,28 @@ progress {
   text-align: left;
   overflow-wrap: anywhere;
 }
+
+.prompt-queue {
+  width: min(calc(100% - 24px), 860px);
+  margin: 6px auto 0;
+  box-sizing: border-box;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+.prompt-queue ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+.prompt-queue li + li {
+  margin-top: 0.75rem;
+}
+.prompt-queue .queue-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 5rem;
+  overflow: auto;
+  margin: 0.25rem 0;
+}

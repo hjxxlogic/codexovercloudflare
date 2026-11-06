@@ -103,3 +103,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 启动修复回归可运行 `ctest --test-dir build -R native-startup-repair --output-on-failure`（POSIX）。该测试用临时 PATH 中的假 Codex 验证 Client 配置故障、提示词不含配置内容、禁用开关、help 不触发，以及 Agent 跨 30 秒重试只诊断一次；不调用模型。其他故障注入测试若不应触发真实诊断，应设置 `COC_NO_STARTUP_REPAIR=1`。
 
 `native-client-startup-repair` 使用假 Codex 和回环 HTTP/WebSocket Relay，验证 attach/connect 的版本校验、连接拒绝、缓存初始化故障、TUI 初始化前失败及 initialized 后故障的诊断边界，不调用模型。该测试需允许本机 socket；`ctest --test-dir build -R startup-repair --output-on-failure` 可运行两项修复回归。
+
+普通 CW 排队回归：构建原生程序后运行 `npm run test:queue`。测试使用隔离 Agent、模拟 Codex 与回环 HTTP/WebSocket，无模型调用，覆盖可靠入队去重、取消、优先执行、等待真实轮次结束、停止失败、跨控制端管理，以及 Agent 重启后保留排队与未知执行状态。`npm run test:ui` 覆盖忙碌输入区和手机队列截图（忽略目录 `.local/ui-stability/cw-prompt-queue-mobile.png`）。CI regression 包含该原生队列检查；需要本机 socket 与浏览器执行权限。

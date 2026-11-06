@@ -877,6 +877,120 @@
         "properties": {
           "action": {
             "type": "string",
+            "const": "enqueue"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64000
+          },
+          "model": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}(?![\\s\\S])"
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "queueCancel"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "queueId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "queueId"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "queueRun"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "queueId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "controlEpoch": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "instance": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "stream": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "turnId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "controlEpoch",
+              "instance",
+              "owner",
+              "requestId",
+              "stream"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "requestId",
+          "queueId"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
             "const": "models"
           },
           "requestId": {
@@ -1521,6 +1635,89 @@
       },
       "queueEnabled": {
         "type": "boolean"
+      },
+      "promptQueue": {
+        "maxItems": 16,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64000
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}(?![\\s\\S])"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "stopping",
+                "starting",
+                "failed",
+                "unknown"
+              ]
+            },
+            "task": {
+              "type": "object",
+              "properties": {
+                "controlEpoch": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "instance": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "owner": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "stream": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "turnId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "controlEpoch",
+                "instance",
+                "owner",
+                "requestId",
+                "stream"
+              ],
+              "additionalProperties": false
+            },
+            "error": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "state",
+            "task"
+          ],
+          "additionalProperties": false
+        }
       },
       "approvalConfigured": {
         "type": "boolean"

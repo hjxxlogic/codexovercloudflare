@@ -48,7 +48,8 @@
     "test:runtime": "tsx tests/native-runtime-scopes.ts",
     "test:markdown": "tsx tests/workbench-rendering.ts",
     "test:terminal": "tsx tests/native-terminal.ts",
-    "test:terminal:e2e": "COC_TEST_TERMINAL=1 tsx tests/e2e.ts"
+    "test:terminal:e2e": "COC_TEST_TERMINAL=1 tsx tests/e2e.ts",
+    "test:queue": "tsx tests/native-prompt-queue.ts"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

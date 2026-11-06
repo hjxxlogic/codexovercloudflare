@@ -45,7 +45,7 @@ struct Runtime {
   std::string observer_error;
   int64_t epoch = 0, detached = now(), pending_epoch = 0, pending_expires = 0;
   int64_t published_revision = 0;
-  bool submitted = false, busy = false;
+  bool submitted = false, busy = false, queue_dispatching = false;
   std::shared_ptr<RuntimeResources> resources = std::make_shared<RuntimeResources>();
   std::map<std::string, Approval> approvals;
   std::map<std::string, std::string> requests;
@@ -432,6 +432,8 @@ public:
     route["attempts"] = std::min(attempt + 1, 3);
   }
   void publish(const std::string &id, const Json &event) {
+    if (event.is_null())
+      return;
     auto r = runtimes_.find(id);
     if (r != runtimes_.end()) {
       const auto previous = r->second->published_revision;
@@ -803,7 +805,8 @@ public:
       const auto lane = type == "rpc" ? rpc_delivery_lane(payload)
                                       : (action == "sync" || action == "models" ? ""
                                          : action == "approval" || action == "interrupt" ||
-                                                 action == "autoApproval"
+                                                 action == "autoApproval" ||
+                                                 action == "queueCancel" || action == "queueRun"
                                              ? "priority"
                                              : "normal");
       if (!lane.empty() && !d.contains("delivery")) {
@@ -898,7 +901,8 @@ public:
     } else if (type == "web") {
       const auto payload = d.at("payload");
       const auto action = payload.value("action", "");
-      if (action == "interrupt" || action == "approval" || action == "autoApproval") {
+      if (action == "interrupt" || action == "approval" || action == "autoApproval" ||
+          action == "queueCancel" || action == "queueRun") {
         std::shared_ptr<void> reservation;
         try {
           reservation =
@@ -2406,12 +2410,22 @@ public:
         auto active = s.value("activeTask", Json::object());
         active.erase("turnId");
         if (target == active)
-          rt->process->request("turn/interrupt",
-                               {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
-                               [](Json, Json) {});
+          rt->process->request(
+              "turn/interrupt", {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
+              [this, id](Json, Json error) {
+                if (error.is_null())
+                  return;
+                const auto queue = store_.get(id).value("promptQueue", Json::array());
+                if (!queue.empty() && queue.front().at("state") == "stopping")
+                  publish(id, store_.prompt_queue_state(id, queue.front().at("id"), "failed",
+                                                        error.value("code", "ERROR")));
+              });
       }
     }
     if (completed_active_turn) {
+      // Requests from the finished turn cannot authorize work in the next queued turn.
+      if (s.at("mode") == "web")
+        rt->approvals.clear();
       s["running"] = false;
       s.erase("turnId");
       store_.save(s);
@@ -2480,8 +2494,74 @@ public:
     }
     // All final history and CC output above are durable before unused capacity
     // can be retired. An unrelated/late terminal event cannot refund a new turn.
-    if (completed_active_turn)
+    if (completed_active_turn) {
       store_.history_release(id);
+      schedule_prompt_queue(id);
+    }
+  }
+  void schedule_prompt_queue(const std::string &id) {
+    asio::post(io_, [this, id] {
+      const auto found = runtimes_.find(id);
+      if (found == runtimes_.end())
+        return;
+      auto rt = found->second;
+      auto s = store_.get(id);
+      auto queue = s.value("promptQueue", Json::array());
+      if (s["state"] != "ready" || s.value("external", false) || s["running"] == true ||
+          rt->queue_dispatching || rt->busy || queue.empty())
+        return;
+      auto entry = queue.front();
+      if (entry["state"] == "stopping") {
+        publish(id, store_.prompt_queue_state(id, entry.at("id"), "queued"));
+        entry["state"] = "queued";
+      }
+      if (entry["state"] != "queued")
+        return;
+      const auto queue_id = entry.at("id").get<std::string>();
+      try {
+        check_busy(s);
+        publish(id, store_.prompt_queue_state(id, queue_id, "starting"));
+      } catch (const std::exception &error) {
+        publish(id, store_.prompt_queue_state(id, queue_id, "failed",
+                                              error_data(error).value("code", "ERROR")));
+        return;
+      }
+      rt->queue_dispatching = true;
+      Json params = {{"threadId", s.at("threadId")},
+                     {"input", Json::array({{{"type", "text"},
+                                             {"text", entry.at("text")},
+                                             {"text_elements", Json::array()}}})}};
+      if (entry.contains("model"))
+        params["model"] = entry.at("model");
+      rt->process->request(
+          "turn/start", params,
+          [this, id, rt, queue_id](Json result, Json error) {
+            rt->queue_dispatching = false;
+            auto current = store_.get(id);
+            if (error.is_null()) {
+              if (current.value("running", false))
+                current["turnId"] = result.at("turn").at("id");
+              store_.save(current);
+              publish(id, store_.prompt_queue_state(id, queue_id, ""));
+              schedule_prompt_queue(id);
+            } else {
+              const auto code = error.value("code", "ERROR");
+              if (code != "RESULT_UNKNOWN") {
+                current["running"] = false;
+                store_.save(current);
+              }
+              publish(id, store_.prompt_queue_state(
+                              id, queue_id, code == "RESULT_UNKNOWN" ? "unknown" : "failed", code));
+            }
+          },
+          [this, id, entry] {
+            flush_events();
+            const auto event = store_.history_turn_admit(
+                id, entry, redact(Json{{"text", entry.at("text")}, {"queueId", entry.at("id")}}),
+                entry.at("task"), true);
+            publish(id, event);
+          });
+    });
   }
   void drain(const std::string &id, std::shared_ptr<Runtime> rt) {
     if (rt->busy || rt->commands.empty() || !runtimes_.count(id))
@@ -2513,6 +2593,7 @@ public:
                     {"error", error}});
       rt->busy = false;
       drain(id, rt);
+      schedule_prompt_queue(id);
     };
     try {
       web(id, raw, finish);
@@ -2569,6 +2650,40 @@ public:
       }
       return;
     }
+    if (action == "enqueue" || action == "queueCancel" || action == "queueRun") {
+      const auto context = rt->deliveries.at(cmd.at("requestId").get<std::string>());
+      const auto event = store_.prompt_queue_command(id, cmd, context);
+      if (!event.is_null())
+        publish(id, event);
+      const auto record = store_.delivery_record(context.at("stream"), context.at("seq"));
+      notice(id, record.at("result"));
+      done(nullptr, nullptr);
+      if (action == "queueRun" && s.value("running", false)) {
+        const auto queue_id = cmd.at("queueId").get<std::string>();
+        const auto stopped = [this, id, queue_id](Json, Json error) {
+          if (error.is_null())
+            return; // Wait for the actual terminal turn event.
+          const auto current = store_.get(id).value("promptQueue", Json::array());
+          for (const auto &entry : current)
+            if (entry.at("id") == queue_id && entry.at("state") == "stopping") {
+              publish(id, store_.prompt_queue_state(id, queue_id, "failed",
+                                                    error.value("code", "ERROR")));
+              break;
+            }
+        };
+        if (s.contains("turnId"))
+          rt->process->request("turn/interrupt",
+                               {{"threadId", s.at("threadId")}, {"turnId", s.at("turnId")}},
+                               stopped);
+        else {
+          auto target = s.at("activeTask");
+          target.erase("turnId");
+          rt->interrupt_target = target;
+        }
+      } else
+        schedule_prompt_queue(id);
+      return;
+    }
     if (s.value("external", false)) {
       if (action == "approval") {
         external_answer(id, cmd, [this, id, cmd, done](Json result, Json error) {
@@ -2616,8 +2731,8 @@ public:
     };
     if (action == "prompt") {
       try {
-        if (s["running"] == true)
-          throw Error("TURN_BUSY", "A turn is already running");
+        if (s["running"] == true || !s.value("promptQueue", Json::array()).empty())
+          throw Error("TURN_BUSY", "A turn or queued message is already pending");
         check_busy(s);
       } catch (const std::exception &error) {
         complete(nullptr, error_data(error));
@@ -2790,7 +2905,15 @@ public:
     s["autoApproval"] = false;
     if (s.value("external", false))
       s["approvalForwarding"] = false;
+    if (s.contains("promptQueue"))
+      for (auto &entry : s["promptQueue"])
+        if (entry["state"] == "starting" || entry["state"] == "stopping") {
+          entry["state"] = "unknown";
+          entry["error"] = "SESSION_CLOSED";
+        }
     store_.save(s);
+    if (s.contains("promptQueue"))
+      emit(id, "promptQueueChanged", {{"queue", s.at("promptQueue")}});
     auto runtime = runtimes_.find(id);
     if (runtime != runtimes_.end()) {
       const auto pending = runtime->second->deliveries;

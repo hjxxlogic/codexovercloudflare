@@ -1,5 +1,16 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  排队消息: 'Queue message',
+  已排队: 'Queued',
+  '正在停止，随后执行': 'Stopping, then starting',
+  正在开始: 'Starting',
+  '执行失败 · 队列暂停': 'Execution failed · queue paused',
+  '执行结果未知 · 队列暂停': 'Execution unknown · queue paused',
+  立即执行: 'Run now',
+  取消排队: 'Cancel queued message',
+  '输入消息，当前轮结束后自动执行…':
+    'Queue a message to run after the current turn…',
+
   进行中的会话: 'Active sessions',
   '当前邮箱没有进行中的会话。': 'There are no active sessions for this email.',
   '以下服务器的会话读取失败，请刷新重试：{0}':

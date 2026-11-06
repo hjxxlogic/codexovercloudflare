@@ -402,5 +402,59 @@
       "requestId": "policy-4"
     },
     "error": true
+  },
+  {
+    "input": {
+      "action": "enqueue",
+      "requestId": "q1",
+      "text": " next ",
+      "model": "gpt-test"
+    },
+    "output": {
+      "action": "enqueue",
+      "requestId": "q1",
+      "text": "next",
+      "model": "gpt-test"
+    }
+  },
+  {
+    "input": {
+      "action": "queueCancel",
+      "requestId": "cancel1",
+      "queueId": "q1"
+    },
+    "output": {
+      "action": "queueCancel",
+      "requestId": "cancel1",
+      "queueId": "q1"
+    }
+  },
+  {
+    "input": {
+      "action": "queueRun",
+      "requestId": "run1",
+      "queueId": "q1"
+    },
+    "output": {
+      "action": "queueRun",
+      "requestId": "run1",
+      "queueId": "q1"
+    }
+  },
+  {
+    "input": {
+      "action": "queueRun",
+      "requestId": "run1",
+      "queueId": ""
+    },
+    "error": true
+  },
+  {
+    "input": {
+      "action": "enqueue",
+      "requestId": "q1",
+      "text": "   "
+    },
+    "error": true
   }
 ]

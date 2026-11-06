@@ -298,6 +298,14 @@ export const commandTargetSchema = z.object({
   turnId: z.string().min(1).max(200).optional(),
 });
 export type CommandTarget = z.infer<typeof commandTargetSchema>;
+export const promptQueueEntrySchema = z.object({
+  id: idSchema,
+  text: z.string().min(1).max(64000),
+  model: modelIdSchema.optional(),
+  state: z.enum(['queued', 'stopping', 'starting', 'failed', 'unknown']),
+  task: commandTargetSchema,
+  error: z.string().max(200).optional(),
+});
 export const sessionSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$/),
   projectId: idSchema,
@@ -306,6 +314,7 @@ export const sessionSchema = z.object({
   threadId: idSchema.optional(),
   external: z.boolean().optional(),
   queueEnabled: z.boolean().optional(),
+  promptQueue: z.array(promptQueueEntrySchema).max(16).optional(),
   approvalConfigured: z.boolean().optional(),
   approvalForwarding: z.boolean().optional(),
   autoApproval: z.boolean().optional(),
@@ -347,6 +356,23 @@ export const webCommandSchema = z.discriminatedUnion('action', [
     requestId: idSchema,
     text: z.string().trim().min(1).max(64000),
     model: modelIdSchema.optional(),
+  }),
+  z.object({
+    action: z.literal('enqueue'),
+    requestId: idSchema,
+    text: z.string().trim().min(1).max(64000),
+    model: modelIdSchema.optional(),
+  }),
+  z.object({
+    action: z.literal('queueCancel'),
+    requestId: idSchema,
+    queueId: idSchema,
+  }),
+  z.object({
+    action: z.literal('queueRun'),
+    requestId: idSchema,
+    queueId: idSchema,
+    target: commandTargetSchema.optional(),
   }),
   z.object({
     action: z.literal('models'),

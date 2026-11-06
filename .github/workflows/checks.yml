@@ -56,6 +56,7 @@ jobs:
       - run: python3 scripts/ci-command.py npm run test:billing
       - run: python3 scripts/ci-command.py npm run test:projects
       - run: python3 scripts/ci-command.py npm run test:delivery
+      - run: python3 scripts/ci-command.py npm run test:queue
       - run: python3 scripts/ci-command.py npm run test:terminal
       - run: python3 scripts/ci-command.py npm run test:configuration
       - run: python3 tests/native-login.py

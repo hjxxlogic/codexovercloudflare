@@ -100,7 +100,13 @@ export function webDeliveryLane(command: {
   action: string;
 }): DeliveryLane | undefined {
   if (['sync', 'models'].includes(command.action)) return;
-  return ['approval', 'interrupt', 'autoApproval'].includes(command.action)
+  return [
+    'approval',
+    'interrupt',
+    'autoApproval',
+    'queueCancel',
+    'queueRun',
+  ].includes(command.action)
     ? 'priority'
     : 'normal';
 }

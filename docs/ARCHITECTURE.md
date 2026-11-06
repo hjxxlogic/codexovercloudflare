@@ -63,3 +63,11 @@ Web 控制连接断开后，无邮箱会话保留 30 分钟、有邮箱会话保
 启动修复入口位于 native `startup_repair.hpp`，由 Agent 初始化失败路径和 Client 本地配置初始化及 attach/connect 会话启动失败路径调用。同步启动独立 Codex exec（参数数组，无 shell），每进程最多一次，继承禁用标记防止诊断验证再次触发修复。修复不是数据库兼容层：配置校验、存储版本校验及启动重试仍由原组件负责，模型退出码仅作为诊断状态，不作为健康证明。诊断子进程以当前用户完整权限运行，权限边界与禁用方式见 USER_GUIDE。
 
 Client 将启动标记保持到认证的 TUI 在传输握手完成后发出 `initialized` 通知，之后该标记不再因断线复位。Codex 版本校验提前到 connect 的会话创建之前，避免本地 Codex 不可用时创建远端任务；启动失败离开 attach 时先清理 TUI 子进程及桥接资源，再进入诊断，管理通道主动重启仍沿原路径处理。
+
+## CW 普通会话排队与调度
+
+普通网页会话使用 `enqueue`、`queueCancel`、`queueRun` 命令。入队走 normal delivery lane，取消与立即执行走 priority lane，沿用服务端控制证明与可靠请求去重。Agent 将有界 `promptQueue` 保存在 sessions JSON，队列修改、`promptQueueChanged` 历史事件及请求最终回执在同一 SQLite 事务提交。快照包含当前队列，浏览器也从队列事件更新状态；历史补读不触发执行。
+
+队列使用独立历史预算 reservation，最多 16 条 / 96 KiB 编码内容，不依赖浏览器存活。调度只在会话 ready、当前轮空闲且命令处理空闲时启动队首；开始前持久化 starting，再通过既有 history_turn_admit 保存原任务身份和用户消息后调用 turn/start。成功移除队列条目，明确失败保留 failed，未知结果保留 unknown 并阻塞后续条目。
+
+立即执行验证点击时的原 activeTask 身份，将指定条目提升至队首并保存 stopping，提交 turn/interrupt 后等待匹配的 turn/completed；中断 ACK 不释放执行条件。陈旧任务身份不能中断新轮次。已有队列在控制权转移后继续属于原会话，新控制端可管理它。运行时关闭及 Agent 重启沿用现有会话失败语义，不重建 Codex runtime、不搬运旧队列、不重放未知任务；原队列保留供用户核对。

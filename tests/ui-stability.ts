@@ -19,12 +19,19 @@ const session = {
   state: 'ready',
   running: false,
   autoApproval: false,
+  promptQueue: [] as {
+    id: string;
+    text: string;
+    state: string;
+    task: unknown;
+  }[],
   createdAt: Date.now(),
   updatedAt: Date.now(),
   threadId: 'thread',
 };
 const otherSession = {
   ...session,
+  promptQueue: [] as typeof session.promptQueue,
   id: 'sample~other',
   projectId: 'other-project',
   title: '第二项目对话',
@@ -682,6 +689,40 @@ wss.on('connection', (ws, request) => {
               },
         ),
       );
+    } else if (['enqueue', 'queueCancel', 'queueRun'].includes(data.action)) {
+      const selected = controlSessions.get(ws)!;
+      if (data.action === 'enqueue')
+        selected.promptQueue.push({
+          id: data.requestId,
+          text: data.text,
+          state: 'queued',
+          task: {
+            stream: 'ui-queue',
+            instance: 'ui-agent',
+            owner: 'a'.repeat(64),
+            controlEpoch: 1,
+            requestId: 'web:' + data.requestId,
+          },
+        });
+      else if (data.action === 'queueCancel')
+        selected.promptQueue = selected.promptQueue.filter(
+          (entry) => entry.id !== data.queueId,
+        );
+      else
+        selected.promptQueue = selected.promptQueue.map((entry) => ({
+          ...entry,
+          state: entry.id === data.queueId ? 'stopping' : entry.state,
+        }));
+      ws.send(
+        JSON.stringify({
+          type: 'ack',
+          requestId: data.requestId,
+          result: {
+            state: data.action === 'enqueue' ? 'queued-local' : 'queue-updated',
+          },
+        }),
+      );
+      sync(ws);
     } else if (data.action === 'prompt') {
       submitted.add(data.requestId);
       promptCommands.push(data);
@@ -946,6 +987,57 @@ try {
     await expect(returnLatest).toHaveCount(0);
   }
   let languageAttachCalls = attachCalls;
+  // Busy composers enqueue without stopping or submitting another prompt.
+  approvals = [
+    {
+      approvalId: 'queue-busy',
+      method: 'item/commandExecution/requestApproval',
+      params: { command: 'echo queue test' },
+    },
+  ];
+  for (const ws of controls) sync(ws);
+  const queuePanel = page.getByRole('region', {
+    name: '排队消息',
+    exact: true,
+  });
+  const queuePromptCount = promptCommands.length;
+  await page.getByLabel('任务内容').fill('忙时排队测试消息');
+  await page.getByRole('button', { name: '排队消息', exact: true }).click();
+  await expect(
+    queuePanel.getByText('忙时排队测试消息', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('任务内容')).toHaveValue('');
+  await page.screenshot({
+    path: join(artifacts, 'cw-prompt-queue-mobile.png'),
+  });
+  await page.reload();
+  await expect(
+    queuePanel.getByText('忙时排队测试消息', { exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: join(artifacts, 'cw-prompt-queue-desktop.png'),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await queuePanel
+    .getByRole('button', { name: '立即执行', exact: true })
+    .click();
+  await expect(
+    queuePanel.getByText('正在停止，随后执行', { exact: true }),
+  ).toBeVisible();
+  await queuePanel
+    .getByRole('button', { name: '取消排队', exact: true })
+    .click();
+  await expect(queuePanel).toHaveCount(0);
+  assert.equal(
+    promptCommands.length,
+    queuePromptCount,
+    'busy input uses queue admission instead of prompt',
+  );
+  approvals = [];
+  for (const ws of controls) sync(ws);
+  await page.getByLabel('任务内容').fill(languageDraft);
+  languageAttachCalls = attachCalls;
   const beforeControlSync = controlSyncCalls;
   const beforeProbe = probeCalls;
   const beforeNotifications = hostNotificationConnections;

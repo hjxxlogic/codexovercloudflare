@@ -346,6 +346,12 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
       if (s["state"] == "ready" || s["state"] == "starting" || s["state"] == "closing") {
         s["state"] = s["state"] == "closing" ? "closed" : "failed";
         s["running"] = false;
+        if (s.contains("promptQueue"))
+          for (auto &entry : s["promptQueue"])
+            if (entry["state"] == "starting" || entry["state"] == "stopping") {
+              entry["state"] = "unknown";
+              entry["error"] = "AGENT_RESTARTED";
+            }
         save(s);
       }
     if (authoritative)

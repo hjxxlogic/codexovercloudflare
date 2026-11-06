@@ -1,3 +1,4 @@
+import { PromptQueue } from './prompt-queue.tsx';
 import { ActiveSessions } from './active-sessions.tsx';
 import { Workbench } from './workbench/workbench.tsx';
 import { promptAcknowledged } from './prompt-state.ts';
@@ -1096,6 +1097,8 @@ function App() {
             throw new Error('尚未取得任务身份，请刷新状态后再停止。');
           command = { ...command, target };
         }
+        if (command.action === 'queueRun' && activeTask)
+          command = { ...command, target: activeTask };
         await commandDelivery.submit(command);
       }
     };
@@ -1108,6 +1111,7 @@ function App() {
     setBusy(running);
     const seen = new Map<number, number>();
     let stateSeq = 0;
+    let queueSeq = 0;
     const displayEvents = new Map<number, Event>();
     let displayTimer: ReturnType<typeof setTimeout> | undefined;
     const flushDisplay = () => {
@@ -1145,8 +1149,16 @@ function App() {
           flushDisplay();
         else if (!displayTimer) displayTimer = setTimeout(flushDisplay, 16);
       }
-      if (!live) return;
       const d = e.data as any;
+      if (e.type === 'promptQueueChanged' && e.seq > queueSeq) {
+        queueSeq = e.seq;
+        setSelected((current) =>
+          current?.id === selected.id
+            ? { ...current, promptQueue: d.queue }
+            : current,
+        );
+      }
+      if (!live) return;
       if (
         running &&
         e.seq > stateSeq &&
@@ -1223,6 +1235,7 @@ function App() {
       ) {
         stateSeq = e.seq;
         running = e.type === 'turn/started';
+        if (e.type === 'turn/completed') setApprovals([]);
         if (e.type === 'turn/started') activeTask = d.activeTask;
         setBusy(running);
         setPromptProgress(e.type === 'turn/started' ? 'waiting' : undefined);
@@ -1440,15 +1453,16 @@ function App() {
                   '已加入原客户端队列，等待原客户端执行；审批仍在原客户端处理。',
                 );
               if (pendingCommand.current?.requestId === d.requestId) {
-                setPromptProgress((progress) =>
-                  promptAcknowledged(
-                    progress,
-                    d.result?.state === 'queued',
-                    running,
-                    stateSeq,
-                    d.result?.history?.seq,
-                  ),
-                );
+                if (pendingCommand.current?.action !== 'enqueue')
+                  setPromptProgress((progress) =>
+                    promptAcknowledged(
+                      progress,
+                      d.result?.state === 'queued',
+                      running,
+                      stateSeq,
+                      d.result?.history?.seq,
+                    ),
+                  );
                 pendingCommand.current = undefined;
                 setUnconfirmed(undefined);
                 void cache?.record('pending', null);
@@ -1466,7 +1480,10 @@ function App() {
                 return;
               }
               setPending(false);
-              if (d.requestId === pendingCommand.current?.requestId)
+              if (
+                d.requestId === pendingCommand.current?.requestId &&
+                pendingCommand.current?.action !== 'enqueue'
+              )
                 setPromptProgress(undefined);
               if (
                 d.requestId === pendingCommand.current?.requestId &&
@@ -2312,15 +2329,16 @@ function App() {
   }) => {
     if (socket.current?.readyState !== WebSocket.OPEN || !ready || !online)
       return false;
-    if (data.action === 'prompt' && pendingCommand.current) return;
+    const isInput = data.action === 'prompt' || data.action === 'enqueue';
+    if (isInput && pendingCommand.current) return;
     const command = { ...data, requestId: crypto.randomUUID() };
     const targetSocket = socket.current;
     const targetCache = localHistory.current;
-    if (data.action === 'prompt') {
+    if (isInput) {
       pendingCommand.current = command;
       setUnconfirmed(command);
       setPending(true);
-      setPromptProgress('sending');
+      if (data.action === 'prompt') setPromptProgress('sending');
       // Persist the identity before the send. Cache failure leaves the draft intact.
       void (async () => {
         let submitted = false;
@@ -2348,7 +2366,7 @@ function App() {
             }
           }
           if (socket.current === targetSocket) {
-            setPromptProgress(undefined);
+            if (data.action === 'prompt') setPromptProgress(undefined);
             report(e);
             setPending(false);
           }
@@ -4164,6 +4182,24 @@ function App() {
                           </small>
                         </div>
                       )}
+                      {!selected.external && (
+                        <PromptQueue
+                          queue={selected.promptQueue ?? []}
+                          enabled={
+                            ready &&
+                            online &&
+                            !pending &&
+                            selected.state === 'ready' &&
+                            !projectReadOnly
+                          }
+                          onRun={(queueId) =>
+                            send({ action: 'queueRun', queueId })
+                          }
+                          onCancel={(queueId) =>
+                            send({ action: 'queueCancel', queueId })
+                          }
+                        />
+                      )}
                       {projectReadOnly ? (
                         <div className="readonly-hint" role="status">
                           <p>{t('只读会话 · 同项目已有写会话')}</p>
@@ -4206,13 +4242,16 @@ function App() {
                               text.trim() &&
                               ready &&
                               !pending &&
-                              (selected.external || !promptProgress) &&
-                              (!busy || selected.external) &&
+                              (selected.external || busy || !promptProgress) &&
                               (!selected.external || selected.queueEnabled) &&
                               !pendingCommand.current
                             ) {
                               send({
-                                action: 'prompt',
+                                action:
+                                  !selected.external &&
+                                  (busy || selected.promptQueue?.length)
+                                    ? 'enqueue'
+                                    : 'prompt',
                                 text,
                                 ...(!selected.external && selectedModel
                                   ? { model: selectedModel }
@@ -4252,7 +4291,7 @@ function App() {
                                 selected.external
                                   ? t('加入原客户端队列…')
                                   : busy
-                                    ? t('可编辑下一条草稿，任务结束后发送…')
+                                    ? t('输入消息，当前轮结束后自动执行…')
                                     : t('发送消息给 Codex…')
                               }
                             />
@@ -4264,15 +4303,16 @@ function App() {
                           >
                             /model · {selectedModel || t('选择模型')}
                           </button>
-                          {busy && !selected.external ? (
+                          {busy && !selected.external && (
                             <button
                               type="button"
-                              disabled={!ready || !online}
+                              disabled={!ready || !online || pending}
                               onClick={() => send({ action: 'interrupt' })}
                             >
                               {t('停止本轮')}
                             </button>
-                          ) : (
+                          )}
+                          {
                             <button
                               type="submit"
                               disabled={
@@ -4280,14 +4320,20 @@ function App() {
                                 !online ||
                                 pending ||
                                 !!unconfirmed ||
-                                (!selected.external && !!promptProgress) ||
+                                (!selected.external &&
+                                  !busy &&
+                                  !!promptProgress) ||
                                 (selected.external && !selected.queueEnabled) ||
                                 !text.trim()
                               }
                             >
-                              {selected.external ? t('加入队列') : t('发送')}
+                              {selected.external
+                                ? t('加入队列')
+                                : busy || selected.promptQueue?.length
+                                  ? t('排队消息')
+                                  : t('发送')}
                             </button>
-                          )}
+                          }
                           <AutoApproval
                             key={`${host}:${selected.id}`}
                             enabled={selected.autoApproval}

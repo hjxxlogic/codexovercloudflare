@@ -1,4 +1,5 @@
 // Deterministic protocol peer: never executes commands or contacts a model.
+import { setTimeout } from 'node:timers';
 import { createInterface } from 'node:readline';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 const stateFile = '.fake-external.json';
@@ -98,6 +99,7 @@ function scopeApproval(bytes = 0) {
   return request;
 }
 const budgetHeld = [];
+let queueTestText = '';
 let nextApproval = 100,
   turn = 0,
   approval;
@@ -303,14 +305,15 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     };
   }
   if (m.method === 'turn/start') {
+    const text = m.params.input[0].text;
     turn++;
     result = { turn: { id: 'turn-' + turn, status: 'inProgress' } };
-    send({ id: m.id, result });
+    if (!text.includes('queue-test-unknown')) send({ id: m.id, result });
     send({
       method: 'turn/started',
       params: { turn: result.turn, model: m.params.model },
     });
-    const text = m.params.input[0].text;
+    queueTestText = text;
     if (text.includes('stale-completion')) {
       send({
         method: 'turn/completed',
@@ -345,6 +348,34 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         params: { turn: { id: 'turn-' + turn, status: 'completed' } },
       });
     }
+    return;
+  }
+  if (
+    m.method === 'turn/interrupt' &&
+    queueTestText.includes('queue-test-delay')
+  ) {
+    send({ id: m.id, result: {} });
+    const interruptedTurn = 'turn-' + turn;
+    setTimeout(
+      () =>
+        send({
+          method: 'turn/completed',
+          params: {
+            turn: { id: interruptedTurn, status: 'interrupted' },
+          },
+        }),
+      600,
+    );
+    return;
+  }
+  if (
+    m.method === 'turn/interrupt' &&
+    queueTestText.includes('queue-test-reject')
+  ) {
+    send({
+      id: m.id,
+      error: { code: -32000, message: 'Synthetic interruption refused' },
+    });
     return;
   }
   if (m.method === 'turn/interrupt')

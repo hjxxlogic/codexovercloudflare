@@ -78,6 +78,9 @@ public:
   Json event_batch(const Json &entries);
   Json history_turn_admit(const std::string &session, const Json &input, const Json &user,
                           const Json &task, bool start);
+  Json prompt_queue_command(const std::string &session, const Json &command, const Json &context);
+  Json prompt_queue_state(const std::string &session, const std::string &id,
+                          const std::string &state, const std::string &error = "");
   Json replay(const std::string &id, int64_t after);
   Json history(const std::string &id, int64_t before = 0, int64_t after = -1, int version = 2,
                int64_t generation = -1, const std::string &owner = "");

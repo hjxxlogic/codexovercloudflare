@@ -619,7 +619,7 @@ Json web_command(Json v) {
   if (!v.contains("requestId") || !v["requestId"].is_string() || !valid_id(v["requestId"]))
     throw Error("INVALID_REQUEST", "Invalid requestId");
   Json out = {{"action", a}, {"requestId", v["requestId"]}};
-  if (a == "prompt") {
+  if (a == "prompt" || a == "enqueue") {
     auto s = v.at("text").get<std::string>();
     s = trim_text(s);
     if (s.empty())
@@ -634,6 +634,12 @@ Json web_command(Json v) {
         throw Error("INVALID_REQUEST", "Invalid model");
       out["model"] = v["model"];
     }
+  } else if (a == "queueCancel" || a == "queueRun") {
+    if (!v.contains("queueId") || !v["queueId"].is_string() || !valid_id(v["queueId"]))
+      throw Error("INVALID_REQUEST", "Invalid queue identity");
+    out["queueId"] = v["queueId"];
+    if (a == "queueRun" && v.contains("target"))
+      out["target"] = command_target(v["target"]);
   } else if (a == "models") {
     if (v.contains("cursor")) {
       if (!v["cursor"].is_string() || utf16_length(v["cursor"].get<std::string>()) > 4096)
