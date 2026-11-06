@@ -3946,9 +3946,10 @@ function App() {
               chunks={contentChunks}
               reading={readingContent}
               read={readContent}
-              transfer={
+              transfer={(visible) => (
                 <WorkspaceFiles
                   key={JSON.stringify([host, project])}
+                  visible={visible}
                   operations={operations.current}
                   host={host}
                   project={project}
@@ -3956,7 +3957,7 @@ function App() {
                   onBusy={setFileBusy}
                   cache={catalog.current}
                 />
-              }
+              )}
               reference={(path) =>
                 setText((current) => `${current}${current ? '\n' : ''}${path}`)
               }

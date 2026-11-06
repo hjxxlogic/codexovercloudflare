@@ -111,7 +111,7 @@ export function Workbench({
   chunks: Record<number, ContentChunk>;
   reading: Record<number, boolean>;
   read: (seq: number, offset: number, revision: number) => void;
-  transfer: ReactNode;
+  transfer: (visible: boolean) => ReactNode;
   appearanceTarget: HTMLElement | null;
   refresh: () => void;
   refreshing: boolean;
@@ -490,7 +490,7 @@ export function Workbench({
                       host={host}
                       project={project}
                       open={setPath}
-                      transfer={transfer}
+                      transfer={transfer(preferences.files && !information)}
                       close={() => {
                         fullscreen.exit();
                         update({ files: false });

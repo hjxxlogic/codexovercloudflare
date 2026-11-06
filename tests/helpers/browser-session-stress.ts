@@ -91,16 +91,24 @@ export async function browserSessionStress(options: {
           });
           // Drafts can be edited before CONTROL_READY; only the enabled send
           // action proves the actual write handshake has completed.
-          await page
-            .getByLabel('任务内容')
-            .fill('CW_STRESS_BARRIER', { timeout: 1000 })
-            .catch(() => {});
           await expect
             .poll(
-              async () =>
-                ((await button(page, '发送').count()) > 0 &&
-                  (await button(page, '发送').isEnabled())) ||
-                (await readonly.isVisible()),
+              async () => {
+                const composer = page.getByRole('textbox', {
+                  name: '任务内容',
+                  exact: true,
+                });
+                if (
+                  (await composer.isVisible()) &&
+                  (await composer.inputValue()) !== 'CW_STRESS_BARRIER'
+                )
+                  await composer.fill('CW_STRESS_BARRIER', { timeout: 1000 });
+                return (
+                  ((await button(page, '发送').count()) > 0 &&
+                    (await button(page, '发送').isEnabled())) ||
+                  (await readonly.isVisible())
+                );
+              },
               { timeout: 30000 },
             )
             .toBe(true);

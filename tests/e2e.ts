@@ -3114,7 +3114,13 @@ try {
   await visitorPage
     .getByRole('button', { name: '选择主机', exact: true })
     .waitFor();
-  assert.equal(await visitorPage.locator('[data-host-id]').count(), 2);
+  await expect(visitorPage.locator('[data-host-id]')).toHaveCount(1);
+  await expect(
+    visitorPage.locator(`[data-host-id="${enrolled.hostId}"]`),
+  ).toHaveCount(0);
+  await expect(
+    visitorPage.locator(`[data-host-id="${other.hostId}"]`),
+  ).toHaveCount(1);
   assert.equal(
     (await api('/admin/devices', undefined, { admin: true })).credentials.some(
       (c: any) => c.id === visitorGrant.id,
@@ -3245,7 +3251,9 @@ try {
   );
   await cliCommand(['logout']);
   console.log(
-    'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
+    process.argv.includes('--skip-tui')
+      ? 'Browser-focused checks passed; native TUI checks omitted (full E2E still required).'
+      : 'All local end-to-end checks passed (deterministic Codex peer + real Wrangler + Chromium).',
   );
 } catch (e) {
   if (browser) {

@@ -23,6 +23,7 @@ export function WorkspaceFiles({
   onBusy,
   cache,
   operations,
+  visible = true,
 }: {
   host: string;
   project: string;
@@ -30,6 +31,7 @@ export function WorkspaceFiles({
   onBusy?: (busy: boolean) => void;
   cache?: HistoryCache | null;
   operations?: OperationClient | null;
+  visible?: boolean;
 }) {
   const [path, setPath] = useState('');
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -108,7 +110,7 @@ export function WorkspaceFiles({
     };
   }, [host, project, path]);
   useEffect(() => {
-    if (!cache || !operations) return;
+    if (!visible || !cache || !operations) return;
     let disposed = false;
     void uploadRecords(cache)
       .then((records) => {
@@ -130,7 +132,7 @@ export function WorkspaceFiles({
     return () => {
       disposed = true;
     };
-  }, [host, project, cache, operations]);
+  }, [host, project, cache, operations, visible]);
   useEffect(() => {
     mounted.current = true;
     return () => {
