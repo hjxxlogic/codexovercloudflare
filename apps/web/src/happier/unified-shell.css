@@ -735,7 +735,8 @@
   position: absolute;
   right: 16px;
   top: 100%;
-  z-index: 35;
+  /* Mobile work panels (15) retain their close and fullscreen controls. */
+  z-index: 10;
   font-size: 12px;
 }
 .connection-notice > span {
