@@ -820,3 +820,5 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 若失败部署已停止服务，可对本地部署使用 `--recover-stopped-evidence /absolute/failed-deployment.json --database /absolute/agent.db`；要求原部署空闲证据、服务无进程、数据库完整且所有会话已关闭/失败。数据库格式升级后禁止单独回退旧二进制；失败时保留新版并停止服务等待修复。
 
 显式本地构建部署也支持 `--client-binary /absolute/coc-client`：在 Agent 验证通过后核对同一源码构建的 CLI 身份并备份替换。
+
+已完成的 Actions 原生制品可单独发布到主站下载：`python3 scripts/deploy-downloads.py --deployment /absolute/current-cloud/deployment.json --run-id 42178474355 --apply`。要求全部必需作业成功、四个平台制品与 GitHub 摘要和包内摘要一致，且该提交的原生源码、构建配置与当前 Worker 对应源码一致；不等待运行中的工作流。发布前后核对 Worker 模块，保留当前网页、变量、Secret 和 DO；记录云端与下载各自真实提交，不能把云端本地修复标为 CI 已验证。
