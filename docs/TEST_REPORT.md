@@ -89,7 +89,7 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 | 认证及资源           | TLS / Access、browser-access / guest-access、真实计时 billing、billing:web、wake 通过                                                                                           |
 | Web 与真实协议       | 默认 test:ui 和 navigation、新增恢复行为、markdown/cache、projects:e2e、operations:web、uploads:web、native Terminal、native-login、真实 Codex 无模型初始化与 native smoke 通过 |
 | 工具                 | release / update / backup、agent-deploy 19 项、cloud-deploy、deploy-web、Access 工具 4 项、CI 输出工具通过；均为隔离测试，没有执行生产 apply                                    |
-| 完整 PTY E2E         | 默认完整入口通过原生协议 / CLI、TUI 恢复、3 / 5 浏览器交接、真实隔离 PTY、历史 / 审批、文件断点与手机关闭、双主机及撤权；未使用 --skip-tui                                     |
+| 完整 PTY E2E         | 默认完整入口通过原生协议 / CLI、TUI 恢复、3 / 5 浏览器交接、真实隔离 PTY、历史 / 审批、文件断点与手机关闭、双主机及撤权；未使用 --skip-tui                                      |
 
 `test:ui` 默认联合当前导航和行为回归：快照超时恢复、400/500 不清登录或草稿、语言持久化、模型选择、未知提交结果、0/1/3/10 审批和丢回包后不重复发送。`--navigation` 只运行导航，`--behavior` 可单独复现行为；`--legacy-layout` 保留旧布局供历史复现。队列 UI 由真实加密 `test:opaque` 验证。当前桌面与手机截图见 [界面说明](CW_HAPPIER_UI_PLAN.md)。
 
