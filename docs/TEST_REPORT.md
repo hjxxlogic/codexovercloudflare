@@ -73,3 +73,5 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 2026-11-05 启动失败 Codex 修复：`cmake --build build -j2` 通过；完整 CTest 在允许本机 socket 的环境中 12/12 通过（156.74 秒）。沙箱内项目/core 测试因 socket `Operation not permitted` 失败，已在沙箱外重跑通过。新增 `native-startup-repair` 使用假 Codex 验证 Client 配置失败、提示词不带配置内容、标准输入隔离、禁用开关、help 不触发，以及 Agent 跨重试周期仅启动一次。不执行真实模型修复；未在 Windows 实机验证，也未部署。
 
 2026-11-05 Client 会话启动诊断补齐：`cmake --build build -j2` 通过；`ctest --test-dir build -R 'startup-repair|native-core' --output-on-failure` 3/3 通过（69.06 秒）。新增回环 HTTP/WebSocket + 假 Codex 回归覆盖 attach/connect 版本校验失败、校验失败不发远端请求、禁用开关、连接拒绝、缓存路径故障、TUI 提前异常退出（含 127）、正常退出、握手后但 initialized 前失败、initialized 后运行失败，以及 connect 参数错误；提示词不含凭据和会话 ticket。增加远端请求断言后单独重跑新增测试通过。测试需要本机 socket，沙箱拒绝后在沙箱外运行；未调用真实模型，未在 Windows 实机验证，未部署。
+
+2026-11-06 CW 跨设备只读历史恢复：`npm run test:ui` 完整通过，新增模拟控制连接被其他设备接管（4009）、历史连接 OPEN 但不送达更新，返回页面后通过 HTTP 补回最新消息且 attach 次数不增加。`npx vitest run tests/history-sync.test.ts tests/history-subscription.test.ts` 20/20 通过；`npm run typecheck`、`npm run build:web`、受影响 TS 文件 ESLint 和 `git diff --check` 通过。UI 测试需本机 HTTP/WebSocket 与 Chromium，在沙箱外执行；首次新增断言存在重复定位器及恢复步骤面板定位问题，修正后完整重跑通过。未部署，未进行真实跨设备长稳验证。

@@ -1132,6 +1132,39 @@ try {
     'Successful direct refresh preserves control',
   );
   stallHistory = false;
+  // Another device takes control while this browser is away. Recovery must
+  // work with a closed control socket and an OPEN but stalled history socket.
+  for (const ws of controls) ws.close(4009, 'taken over');
+  await expect(page.locator('.workspace-context')).toContainText(
+    '其他设备控制',
+  );
+  const observerAttachCalls = attachCalls;
+  stallHistory = true;
+  events.push({
+    seq: 80,
+    type: 'user',
+    data: { text: '手机交互后电脑只读恢复的最新消息' },
+    time: 80,
+  });
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
+  await expect(
+    page.getByText('手机交互后电脑只读恢复的最新消息', { exact: true }),
+  ).toBeVisible();
+  assert.equal(
+    attachCalls,
+    observerAttachCalls,
+    'observer recovery never takes control',
+  );
+  stallHistory = false;
+  // Reopen normally for the remaining control-oriented checks.
+  await page.reload();
+  await page
+    .locator('.workspace-context')
+    .getByText('已连接', { exact: true })
+    .waitFor();
+  languageAttachCalls = attachCalls;
   // Reliable result recovery can stall without holding the conversation snapshot.
   let stalledDelivery = false;
   const stallDelivery = async (route: import('@playwright/test').Route) => {

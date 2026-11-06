@@ -468,11 +468,9 @@ function App() {
         void refresh();
         void recoverCatalog.current?.().catch(report);
         setRevision((value) => value + 1);
-        if (
-          historySocket.current?.readyState === WebSocket.OPEN &&
-          socket.current?.readyState === WebSocket.OPEN
-        )
-          void refreshSession.current?.().catch(report);
+        // Read recovery also belongs to observers whose control socket was
+        // closed by another device. HTTP snapshots need neither socket.
+        void refreshSession.current?.().catch(report);
       }
     };
     window.addEventListener('online', visible);
@@ -1247,7 +1245,6 @@ function App() {
       if (typeof heads?.agent !== 'number') return;
       historySync.observe(heads.agent, undefined);
       if (
-        reliableCommands &&
         (historySync.received === undefined || historySync.missing) &&
         !syncTimer
       )
@@ -2053,6 +2050,7 @@ function App() {
                 }
               }
               void Promise.resolve(committed)
+                .catch(cacheError)
                 .then(() => {
                   if (disposed || historySocket.current !== hs) return;
                   historySubscription?.commit();
