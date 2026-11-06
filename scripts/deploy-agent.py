@@ -238,7 +238,7 @@ def remote(host, operation, args, candidate='', sha256='', source_digest=''):
                '--source-digest', source_digest, '--verify-seconds', str(args.verify_seconds)]
     if args.allow_restart_active:
         command += ['--allow-restart-active']
-    if args.recover_stopped_evidence:
+    if getattr(args, 'recover_stopped_evidence', None):
         command += ['--recover-stopped-evidence', str(args.recover_stopped_evidence.resolve()),
                     '--database', str(args.database.resolve())]
     if getattr(args, 'allow_uncommitted', False) and getattr(args, 'local_build', False):

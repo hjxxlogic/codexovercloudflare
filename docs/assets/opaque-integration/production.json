@@ -1,0 +1,171 @@
+{
+  "target": "https://r.xlogic.cc",
+  "version": "0.6.14",
+  "workerVersionId": "58dfe832-7796-497d-967c-a02140d9c15f",
+  "cloudSource": {
+    "version": "0.6.14",
+    "commit": "9c546cc1eac2ab0e7e29c8350f3b8eface6871d3",
+    "target": "linux-x86_64",
+    "sourceDigest": "1a448de2e466361b477a6799c0463b1d375bbb234a6ca7e2bea35bc0c30a80ea",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals",
+      "delivery-v2",
+      "configuration-v1"
+    ]
+  },
+  "cloudCiVerified": false,
+  "agentSource": {
+    "version": "0.6.14",
+    "commit": "9c546cc1eac2ab0e7e29c8350f3b8eface6871d3",
+    "target": "linux-x86_64",
+    "sourceDigest": "1a448de2e466361b477a6799c0463b1d375bbb234a6ca7e2bea35bc0c30a80ea",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals",
+      "delivery-v2",
+      "configuration-v1"
+    ]
+  },
+  "agentSha256": "9f96c80e6ab325ef401910d035282f4a231aa86ffd86885288017e28b756a729",
+  "agentVerifiedSeconds": 120,
+  "nativeDownloads": {
+    "version": "0.6.14",
+    "commit": "4a9d4414b734f0060d72b4854c729b4d67dbdbd7",
+    "sourceDigest": "9cfbb1670a291be33f5a9948e06c62562413d7910fcdab89a3513b99d878017c",
+    "protocol": 1
+  },
+  "nativeCiVerified": true,
+  "actions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42178474355",
+  "requiredJobs": [
+    {
+      "name": "regression",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-musl",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success"
+    }
+  ],
+  "artifactDigests": [
+    {
+      "name": "linux-debian12",
+      "id": 13484182880,
+      "digest": "sha256:f2037805da5774889f3e0bd98241e76d8584a3801533152bf5dcfe6735d712ff"
+    },
+    {
+      "name": "linux-musl",
+      "id": 13485160016,
+      "digest": "sha256:387acfe868e97f73b24e81a012217fcf5dd78020b178a39098abe17a19332d81"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 13483933438,
+      "digest": "sha256:57dcbc444dc92a1600060f0eb7dce84886440b9e9e09ba43f81e6a4189143bb7"
+    },
+    {
+      "name": "windows-x64",
+      "id": 13484897245,
+      "digest": "sha256:7a1842a5fc7fc13149d8862ef4755772d197e6c584ab9f473cff3adfb1c4fdc0"
+    }
+  ],
+  "packageSha256": {
+    "coc-0.6.14-linux-x86_64-debian12.tar.gz": "c29e3dfa8b757e38464b48f86f2fc6ca0968fd87b160c454fbcb888b134d82e9",
+    "coc-0.6.14-linux-x86_64-musl.tar.gz": "7e319dc9cca1333c681a164a946007857bf8fd7102631d3d265eeb4bb7242ad9",
+    "coc-0.6.14-linux-x86_64-ubuntu20.04.tar.gz": "fbdc284f89bcdb86c0093c151d3c53c31b1b73557df600669a9fe4a2d9af02be",
+    "coc-0.6.14-windows-x64.zip": "264c4684b40624a2c1e73b6bd1ad1bd16b0d1f8904d8d43011512c4c2fc32913",
+    "codex-over-cloudflare-0.6.14-source.tar.gz": "64c6b8ad82b8c302d4a87f3b10c1b8a48beab59bcad7138d8a6b91a9e8ba1211"
+  },
+  "ghProxy": true,
+  "downloadsBytesMatch": true,
+  "workerModulesPreserved": true,
+  "sqlite": {
+    "beforeVersion": 0,
+    "afterVersion": 2,
+    "integrity": "ok",
+    "originalSessionsMissing": 0,
+    "originalHistoryIdentitiesMissing": 0,
+    "originalRequestsChanged": 0
+  },
+  "doMigration": {
+    "originalRecordsChecked": 880,
+    "originalRecordsMissingOrChanged": 0,
+    "channelVersion": 1,
+    "complete": true,
+    "reconciledLeases": 8
+  },
+  "onlineReadVerification": {
+    "target": "https://r.xlogic.cc",
+    "sessionCount": 130,
+    "listPages": 2,
+    "samples": [
+      {
+        "eventsRead": 63,
+        "sequencesMatchSnapshot": true,
+        "metadataMatches": true
+      },
+      {
+        "eventsRead": 69,
+        "sequencesMatchSnapshot": true,
+        "metadataMatches": true
+      },
+      {
+        "eventsRead": 105,
+        "sequencesMatchSnapshot": true,
+        "metadataMatches": true
+      }
+    ],
+    "desktopEvents": 6,
+    "reloadHistory": true,
+    "mobileHistory": true,
+    "browserErrors": [],
+    "promptSent": false,
+    "sourceDatabaseOpened": false
+  },
+  "localTests": {
+    "native": 15,
+    "vitest": 393,
+    "migrationAndRelaySubset": 30,
+    "agentDeployment": 19,
+    "cloudDeployment": 18,
+    "webDeployment": 5,
+    "migrationRecovery": 2,
+    "nativeInputGate": 2
+  },
+  "limitations": [
+    "Cloud migration fixes were deployed from local source, not the completed CI commit.",
+    "No release notification or tag was published.",
+    "Other hosts and their lazy DO migrations were not verified.",
+    "Installed Agent is local 0.6.14; equal-version CI 0.6.14 will not replace it automatically."
+  ]
+}

@@ -49,7 +49,7 @@ def status(binary, name):
 
 
 def target_status(binary, args):
-    if not args.recover_stopped_evidence:
+    if not getattr(args, 'recover_stopped_evidence', None):
         return status(binary, args.service)
     if int(execute(['systemctl', '--user', 'show', args.service, '--property=MainPID', '--value'])):
         raise RuntimeError('Stopped recovery requires a service with no process')
@@ -105,7 +105,7 @@ def install(args):
         # Preserve the executable actually running, even if an auto-update replaced its disk path.
         shutil.copy2('/proc/' + str(before['pid']) + '/exe' if before['pid'] else binary, backup)
         backup.chmod(0o700)
-        database = args.database
+        database = getattr(args, 'database', None)
         if not database and before['pid']:
             command = pathlib.Path('/proc/' + str(before['pid']) + '/cmdline').read_bytes().decode().split('\0')
             if '--config' in command:
@@ -146,7 +146,7 @@ def install(args):
             if stopped:
                 try:
                     service('stop', args.service)
-                    if args.recover_stopped_evidence or schema_version(database) != old_schema:
+                    if getattr(args, 'recover_stopped_evidence', None) or schema_version(database) != old_schema:
                         raise RuntimeError('Database migration/recovery forbids binary-only rollback; new binary retained with service stopped')
                     rollback = pathlib.Path(str(binary) + '.rollback-' + stamp)
                     shutil.copy2(backup, rollback)
