@@ -705,6 +705,9 @@ export async function navigationUI(
   await continuation.click();
   await expect(page.locator('.readonly-hint')).toHaveCount(0);
   await expect(page.getByLabel('任务内容')).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: '发送', exact: true }),
+  ).toBeEnabled();
   const beforeRetry = calls();
   transientFailures = 1;
   await emitState('disconnect');
@@ -716,6 +719,9 @@ export async function navigationUI(
   ).toBeVisible();
   await expect.poll(calls, { timeout: 15000 }).toBeGreaterThan(beforeRetry);
   await expect(page.locator('.connection-notice')).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '发送', exact: true }),
+  ).toBeEnabled();
   await expect(
     page.getByRole('alert').filter({ hasText: 'HOST_OFFLINE' }),
   ).toHaveCount(0);

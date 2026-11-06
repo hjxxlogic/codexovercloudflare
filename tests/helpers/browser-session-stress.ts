@@ -96,20 +96,26 @@ export async function browserSessionStress(options: {
           await expect
             .poll(
               async () => {
-                if (await readonly.isVisible()) return true;
-                const composer = page.getByRole('textbox', {
-                  name: '任务内容',
-                  exact: true,
-                });
-                if (
-                  (await composer.isVisible()) &&
-                  (await composer.inputValue()) !== 'CW_STRESS_BARRIER'
-                )
-                  await composer.fill('CW_STRESS_BARRIER', { timeout: 1000 });
-                return (
-                  (await button(page, '发送').count()) > 0 &&
-                  (await button(page, '发送').isEnabled())
-                );
+                try {
+                  if (await readonly.isVisible()) return true;
+                  const composer = page.getByRole('textbox', {
+                    name: '任务内容',
+                    exact: true,
+                  });
+                  if (!(await composer.isVisible())) return false;
+                  // A reader transition can remove the composer between queries.
+                  // Keep every individual query shorter than the outer barrier.
+                  if (
+                    (await composer.inputValue({ timeout: 1000 })) !==
+                    'CW_STRESS_BARRIER'
+                  )
+                    await composer.fill('CW_STRESS_BARRIER', { timeout: 1000 });
+                  return await button(page, '发送').isEnabled({
+                    timeout: 1000,
+                  });
+                } catch {
+                  return false;
+                }
               },
               { timeout: 30000 },
             )
@@ -193,16 +199,24 @@ export async function browserSessionStress(options: {
       throw error;
     } finally {
       const cleanupErrors: string[] = [];
+      if (failure)
+        await Promise.all(
+          entries.map(async (entry) => {
+            writeFileSync(
+              join(artifacts, `browser-stress-${size}-${entry.index}.txt`),
+              await entry.page.locator('body').innerText().catch(String),
+            );
+            await entry.page
+              .screenshot({
+                path: join(
+                  artifacts,
+                  `browser-stress-${size}-${entry.index}.png`,
+                ),
+              })
+              .catch(() => {});
+          }),
+        );
       for (const entry of entries) {
-        if (failure)
-          await entry.page
-            .screenshot({
-              path: join(
-                artifacts,
-                `browser-stress-${size}-${entry.index}.png`,
-              ),
-            })
-            .catch(() => {});
         try {
           await end(entry);
         } catch (error) {
