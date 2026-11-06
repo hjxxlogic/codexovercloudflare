@@ -7,6 +7,7 @@ import pathlib
 import shutil
 import subprocess
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('cloud', ROOT / 'scripts/deploy-cloud.py')
@@ -32,8 +33,13 @@ def main():
                         help='Successful cloud deployment.json for the currently running Worker/web')
     parser.add_argument('--run-id', type=int, required=True)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
+    parser.add_argument('--gh-proxy', action='store_true', help='Accelerate public artifacts via gh-proxy.org; never send credentials')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
+    if args.gh_proxy:
+        public = json.loads(agent.curl('https://api.github.com/repos/' + args.repository))
+        if public.get('private') is not False:
+            raise RuntimeError('GH-Proxy is limited to public repositories')
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT):
         raise RuntimeError('Deployment tool requires a clean working tree')
     prior = json.loads(args.deployment.read_text())
@@ -60,8 +66,8 @@ def main():
             shutil.rmtree(destination)
         shutil.copytree(original / name, destination)
     artifacts = agent.api(args.repository, 'runs/' + str(args.run_id) + '/artifacts?per_page=100')['artifacts']
-    bundles, selected, identity = {}, [], None
-    for platform in sorted({'linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'}):
+    platforms = sorted({'linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'})
+    def download(platform):
         matches = [a for a in artifacts if a['name'] == platform and not a['expired']]
         if len(matches) != 1:
             raise RuntimeError('Expected one unexpired artifact for ' + platform)
@@ -71,9 +77,19 @@ def main():
         if not digest.startswith('sha256:'):
             raise RuntimeError('GitHub artifact digest is required')
         if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
-            agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+            url = ('https://gh-proxy.org/https://github.com/' + args.repository +
+                   '/actions/runs/' + str(args.run_id) + '/artifacts/' + str(artifact['id'])
+                   if args.gh_proxy else 'https://nightly.link/' + args.repository +
+                   '/actions/artifacts/' + str(artifact['id']) + '.zip')
+            agent.curl(url, archive)
         if 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
-            raise RuntimeError('Artifact digest mismatch')
+            raise RuntimeError('Artifact digest mismatch: ' + platform)
+        print('Downloaded and digest-verified ' + platform, flush=True)
+        return platform, artifact, archive, digest
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        downloaded = list(pool.map(download, platforms))
+    bundles, selected, identity = {}, [], None
+    for platform, artifact, archive, digest in downloaded:
         with zipfile.ZipFile(archive) as bundle:
             manifest = json.loads(bundle.read('index.json'))
         if manifest.get('commit') != run['head_sha'] or manifest.get('protocol') != 1:
@@ -90,7 +106,7 @@ def main():
     evidence = {'run': run['html_url'], 'jobs': jobs, 'artifacts': selected,
                 'sourceIdentity': prior['sourceIdentity'], 'preservedWorker': before,
                 'nativeIdentity': {k: identity[k] for k in ('version', 'commit', 'sourceDigest', 'protocol')},
-                'nativeCiVerified': True, 'nativeInputsMatch': True,
+                'nativeCiVerified': True, 'nativeInputsMatch': True, 'ghProxy': args.gh_proxy,
                 'deploymentToolCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'target': prior['target'], 'applied': False, 'verification': 'pending'}
     evidence_path = output / 'deployment.json'

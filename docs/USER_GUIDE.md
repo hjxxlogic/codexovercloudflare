@@ -822,3 +822,5 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 显式本地构建部署也支持 `--client-binary /absolute/coc-client`：在 Agent 验证通过后核对同一源码构建的 CLI 身份并备份替换。
 
 已完成的 Actions 原生制品可单独发布到主站下载：`python3 scripts/deploy-downloads.py --deployment /absolute/current-cloud/deployment.json --run-id 42178474355 --apply`。要求全部必需作业成功、四个平台制品与 GitHub 摘要和包内摘要一致，且该提交的原生源码、构建配置与当前 Worker 对应源码一致；不等待运行中的工作流。发布前后核对 Worker 模块，保留当前网页、变量、Secret 和 DO；记录云端与下载各自真实提交，不能把云端本地修复标为 CI 已验证。
+
+下载已完成的公开 Actions 制品时可给 `scripts/deploy-downloads.py` 添加 `--gh-proxy`，通过 `gh-proxy.org` 并行下载四个平台制品。代理仅接收公开资源 URL，不接收 GitHub Token、Cookie 或签名链接；GitHub 原始制品摘要仍从可信 API 获取并逐项验证。
