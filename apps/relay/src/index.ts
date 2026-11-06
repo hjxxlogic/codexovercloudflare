@@ -486,6 +486,8 @@ export default {
       }
       if (p.startsWith('/api/v1/admin/')) {
         const owner = await authenticate(req, env, undefined, true);
+        if (p === '/api/v1/admin/hosts/restore' && req.method === 'POST')
+          return json(await registryCall(env, 'hostRestore', await body(req)));
         const connections = p.match(
           /^\/api\/v1\/admin\/hosts\/([\w-]+)\/connections$/,
         );

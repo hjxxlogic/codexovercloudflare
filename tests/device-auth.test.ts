@@ -83,6 +83,46 @@ beforeEach(() => {
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
 });
 describe('scoped persistent device authorization', () => {
+  it('restores a missing host identity with fresh credentials and rejects overwrite', async () => {
+    const created = await op('hostRestore', {
+      hostId: 'restored-host',
+      name: 'Restored',
+    });
+    expect(created.status).toBe(200);
+    const authenticated = await op('auth', { token: created.data.token });
+    expect(authenticated.data).toMatchObject({
+      role: 'agent',
+      hostId: 'restored-host',
+    });
+    expect((await op('hosts')).data).toEqual([
+      {
+        id: 'restored-host',
+        name: 'Restored',
+        version: 2,
+        disabled: false,
+      },
+    ]);
+    expect(
+      (await op('hostRestore', { hostId: 'restored-host', name: 'Other' }))
+        .status,
+    ).toBe(409);
+    expect((await op('auth', { token: created.data.token })).status).toBe(200);
+    expect(
+      (await op('hostRestore', { hostId: '../bad', name: 'Other' })).status,
+    ).toBe(400);
+  });
+  it('requires owner authorization for identity restoration', async () => {
+    const response = await worker.fetch(
+      new Request('https://relay.test/api/v1/admin/hosts/restore', {
+        method: 'POST',
+        headers: { Origin: 'https://relay.test' },
+        body: JSON.stringify({ hostId: 'restored-host', name: 'Restored' }),
+      }),
+      env,
+    );
+    expect(response.status).toBe(401);
+    expect(storage.values.has('host:restored-host')).toBe(false);
+  });
   it.each([400, 503])(
     'does not turn Registry HTTP %s failures into missing browser credentials',
     async (status) => {

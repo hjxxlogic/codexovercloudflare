@@ -475,6 +475,36 @@ export class RegistryCore {
           await expireAt(s, 'auth:' + result.hash, result.expires);
         return json(result);
       }
+      if (op === 'hostRestore') {
+        const id = idSchema.parse(d.hostId);
+        const name = z.string().trim().min(1).max(100).parse(d.name);
+        const value = token(),
+          hash = await digest(value);
+        await s.transaction(async (tx) => {
+          if (await tx.get('host:' + id))
+            throw new AppError(
+              'HOST_EXISTS',
+              'Host identity already exists; existing authorization was preserved',
+              409,
+            );
+          await tx.put('host:' + id, {
+            id,
+            name,
+            version: 2,
+            disabled: false,
+          } satisfies Host);
+          await tx.put('auth:' + hash, {
+            hash,
+            version: 2,
+            role: 'agent',
+            name,
+            hostId: id,
+            created: Date.now(),
+            expires: Number.MAX_SAFE_INTEGER,
+          } satisfies Auth);
+        });
+        return json({ hostId: id, token: value, name });
+      }
       if (op === 'apiKeyCreate') {
         const role = z.enum(['agent', 'cli']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);

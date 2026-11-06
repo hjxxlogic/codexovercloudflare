@@ -747,6 +747,10 @@ python3 tests/user-database-upgrade.py --snapshot /safe/snapshot.db --output .lo
 
 输出目录必须尚不存在。测试另复制数据库，以新版 Store 连续打开两次，检查版本 2、全部原有表记录、升级前备份与输入快照不变；摘要写入私有输出目录。它验证存储兼容性，不代表真实会话进程已恢复。
 
+将副本接到独立 r2 时，旧会话 ID 和项目登记绑定原主机 ID，普通配对会生成新 ID，不能直接读取旧会话。管理员可通过 `POST /api/v1/admin/hosts/restore` 用原 `hostId` 和 `name` 恢复尚不存在的主机身份，取得全新 Agent Token；已有身份一律返回 `HOST_EXISTS`，不会覆盖或重启现有主机。旧 Token、控制权和生产 DO 不导入。
+
+`scripts/prepare-r2-database.py --source-config <原私有配置> --snapshot <一致性快照> --output <新私有目录> --access-config <r2 专用 Access 文件> --owner-secret-file <r2 owner 文件> --apply` 复制数据库与项目登记，保留主机 ID 并重新授权，生成独立 `agent.json`。此工具固定请求 r2，关闭副本的自动更新、终端及外部会话队列 / 审批，移除 wakeUrl，不启动 Agent；启动副本时设置 `COC_NO_STARTUP_REPAIR=1`。项目工作区和 Codex home 未复制，读取归档正文可能依赖原文件；不要发送测试任务或与生产实例共用 dataDir。
+
 会话停止后读取未缓存的历史页时，使用独立只读 Codex 进程，不向正在退出的运行进程发送历史请求。
 
 ## 排错
