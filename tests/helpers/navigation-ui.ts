@@ -9,6 +9,11 @@ export async function navigationUI(
   artifacts: string,
   calls: () => number,
   emitState: (state: string) => void,
+  observer: {
+    takeover: () => void;
+    append: (text: string) => void;
+    resume: () => void;
+  },
 ) {
   const bytes = Buffer.from(
     '# Unified files\n\n| Name | Result |\n| --- | --- |\n| preview | ready |\n\n```ts\nconst value = 42;\n```\n' +
@@ -607,6 +612,26 @@ export async function navigationUI(
   await expect(continuation).toBeVisible();
   await expect(page.locator('.readonly-hint')).toContainText('其他页面');
   assert.equal(takeoverCalls, 0, 'never take over automatically');
+  const firstObserverAttaches = calls();
+  observer.append('首次以只读方式打开也能补回消息');
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
+  await expect(
+    page.getByText('首次以只读方式打开也能补回消息', { exact: true }),
+  ).toBeVisible();
+  assert.equal(
+    calls(),
+    firstObserverAttaches,
+    'first observer recovery does not attach',
+  );
+  assert.equal(
+    takeoverCalls,
+    0,
+    'first observer recovery does not take control',
+  );
+  observer.resume();
+
   page.once('dialog', (dialog) => {
     assert(dialog.message().includes('原页面将无法继续操作'));
     void dialog.dismiss();
@@ -654,6 +679,31 @@ export async function navigationUI(
     .getByRole('button', { name: '刷新状态', exact: true })
     .click();
   await expect(page.locator('.connection-notice')).toHaveCount(0);
+  observer.takeover();
+  await expect(page.locator('.readonly-hint')).toContainText('其他页面');
+  const observerAttaches = calls();
+  const observerTakeovers = takeoverCalls;
+  observer.append('另一设备继续对话后原页面补回的新消息');
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange')),
+  );
+  await expect(
+    page.getByText('另一设备继续对话后原页面补回的新消息', { exact: true }),
+  ).toBeVisible();
+  assert.equal(
+    calls(),
+    observerAttaches,
+    'observer read recovery never reattaches',
+  );
+  assert.equal(
+    takeoverCalls,
+    observerTakeovers,
+    'observer read recovery never takes control',
+  );
+  observer.resume();
+  page.once('dialog', (dialog) => dialog.accept());
+  await continuation.click();
+  await expect(page.locator('.readonly-hint')).toHaveCount(0);
   const beforeRetry = calls();
   transientFailures = 1;
   emitState('disconnect');

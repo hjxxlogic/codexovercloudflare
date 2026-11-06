@@ -1,5 +1,7 @@
 # 项目文档
 
+- [CW 只读历史恢复修复](CW_OBSERVER_HISTORY_FIX.md)
+
 - [CW 0.6.13 继续对话与连接提示](CW_CONTINUE_0.6.13.md)
 
 - [CW 0.6.12 独立预览与消息复制](CW_UI_0.6.12.md)

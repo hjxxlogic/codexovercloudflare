@@ -3501,6 +3501,20 @@ try {
             }),
           );
       },
+      {
+        takeover: () => {
+          for (const ws of controls) ws.close(4009, 'taken over');
+        },
+        append: (text) => {
+          stallHistory = true;
+          const seq =
+            Math.max(...events.map((event) => event.revision ?? event.seq)) + 1;
+          events.push({ seq, type: 'user', data: { text }, time: seq });
+        },
+        resume: () => {
+          stallHistory = false;
+        },
+      },
     );
   else await legacyUI();
 } finally {
