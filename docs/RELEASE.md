@@ -118,12 +118,12 @@ COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
 
 线上回读的全部下载包 SHA256 与 CI 制品一致：
 
-| 文件 | SHA256 |
-| --- | --- |
-| `coc-0.6.7-linux-x86_64-debian12.tar.gz` | `b1ccb683ba25c4bced558359c01964543da93e66b8cafa614b756b03d1445c01` |
-| `coc-0.6.7-linux-x86_64-musl.tar.gz` | `d7c7f776162b3229e6b0d942730c4958dbafa3d64679fa45096fdc98c11778f9` |
+| 文件                                        | SHA256                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------ |
+| `coc-0.6.7-linux-x86_64-debian12.tar.gz`    | `b1ccb683ba25c4bced558359c01964543da93e66b8cafa614b756b03d1445c01` |
+| `coc-0.6.7-linux-x86_64-musl.tar.gz`        | `d7c7f776162b3229e6b0d942730c4958dbafa3d64679fa45096fdc98c11778f9` |
 | `coc-0.6.7-linux-x86_64-ubuntu20.04.tar.gz` | `dd84b7f6816237e074a5e11fa38a01ea2e58a3d76502bd1d16551768d8fdace3` |
-| `coc-0.6.7-windows-x64.zip` | `be63cb6d16c87950e61c09dcedfa305b780ebaddd97c0b40454e143719b94e8c` |
+| `coc-0.6.7-windows-x64.zip`                 | `be63cb6d16c87950e61c09dcedfa305b780ebaddd97c0b40454e143719b94e8c` |
 | `codex-over-cloudflare-0.6.7-source.tar.gz` | `814e94f3764af434029573c01f92d0bf59c90135a4806d37b3aee86788e1f7bc` |
 
 部署脚本逐字节核对网页入口、69 个静态资源、在线手册、下载清单和 SHA256SUMS，再下载核验四平台及源码的全部 5 个归档；健康接口报告 `ok=true`、`version=0.6.7`。部署后仓库线上验证脚本的 HTTP / WebSocket 准入边界检查通过。
@@ -133,7 +133,6 @@ COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
 本次生产已登录浏览器检查未完成：保存的登录态访问 /auth/email 返回非 JSON 的 Access 响应；CI 浏览器测试已通过，不将其当作已登录生产验证。opaque 分支的两项问题已复现但未修改，该分支不在本次部署中；master 的全 Host 广播及失败重试机制保留，详见 [审查记录](AUTHORIZATION_REVIEW_2026-11-05.md)。未发布 GitHub Release 或发送自动更新通知，其他运行 Agent 未由本次脚本安装。
 
 公开来源、各 artifact ID、摘要、在线验证和本机安装结果见 [部署证据](assets/release-0.6.7-2026-11-05/deployment.json)。私有备份与日志在 `.local/release-0.6.7-20261105/`，脚本原始证据在 `.local/deploy-cloud/41961015104/` 与 `.local/deploy-agent/41961015104/`。
-
 
 ### 发布准备与门禁修复过程（2026-11-05）
 
@@ -199,6 +198,21 @@ Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部
 
 本次 0.6.14 仅集成与验证，不执行云端、下载、Agent 更新或 tag 发布。生产操作仍须完整执行 OPAQUE_RELAY_MERGE_PLAN.md 第 7 节。
 
-HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多 64 键，以同一事务写入 `~opaque-v1:backup:<旧键>`、读回验证、删除旧键并推进 `~opaque-v1:cursor`。wakeUntil 保留原键并备份；完成后标记 channelVersion=1 与 complete，取消旧 alarm。旧连接全部退休，旧 lease/ticket/项目写锁不能恢复资格。权限操作 pending 时拒绝该批；不得通过手工改完成标记绕过未决副作用核对。RegistryDO 不转换身份、主机、授权、撤销、到期与失效重试键，其现有 alarm 继续负责重试。
+HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多 64 键，以同一事务写入 `~opaque-v1:backup:<旧键>`、读回验证、删除旧键并推进 `~opaque-v1:cursor`。wakeUntil 保留原键并备份；完成后标记 channelVersion=1 与 complete，取消旧 alarm。旧连接全部退休，旧 lease/ticket/项目写锁不能恢复资格。租约 active、存在 pending 控制预留或权限操作 pending 时拒绝该批；不得通过手工改完成标记绕过未决副作用核对。RegistryDO 不转换身份、主机、授权、撤销、到期与失效重试键，其现有 alarm 继续负责重试。
 
 迁移备份仅供受控恢复：发布窗口必须导出并核对旧对象状态及未决请求，禁止将备份交回旧 Worker 后直接开放写入。未访问对象首次访问也须完成迁移。只有相应对象完成且实际业务验证通过后才能登记为已验收。本次没有线上存储枚举、快照导出或生产迁移证据。
+
+旧状态映射以 `666d1af` 为准：
+
+| 对象 / 旧状态                                                              | 迁移规则                                                                                 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Registry `@doState`、`host:*`、`auth:*`、device / API Key / 邮箱与主机目录 | 原值及对象身份保留，继续沿现有授权路径读取                                               |
+| Registry `auth-change:*`、到期索引与 alarm                                 | 保留失效事件与重试，不在 Host 迁移中清理或扩大授权                                       |
+| Host `wakeUntil`                                                           | 原键保留，并写入隔离备份；中断后仍有冷却边界                                             |
+| Host `lease:*`、`project-writer:*`、`ticket:*`、`session-mode:*`           | 租约 active 或 pending 时拒绝迁移；确认旧控制退休后备份并删除，新 Agent 自行建立控制状态 |
+| Host `permission-operation:*`、`permission-wire:*`、`due:*`                | 任何非 completed 操作阻止对应批次；已核对终态连同索引备份并退休，不向新业务重放          |
+| Host `agentEpoch`、`revision`、`@doState` 及其余旧键                       | 全部逐键备份并退休，不作为新端点代际或日志                                               |
+| 旧 WebSocket attachment 与 Host alarm                                      | 迁移前退休旧连接；失败仍不放行业务，成功取消旧 alarm，新连接重新准入                     |
+| `~opaque-v1:*`、`channelVersion`                                           | 新的隔离备份、游标与完成标记；未知版本拒绝，不能手工篡改为完成                           |
+
+上述为首次访问懒迁移，不假设跨 DO 全局事务。未决状态须在发布窗口用旧版本完成、取消或与 Agent 账本核对后退休；本次没有实现跳过这些检查的强制入口。失败后可在同一对象重试，后续离线对象也按此规则处理。

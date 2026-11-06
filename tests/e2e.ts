@@ -263,6 +263,9 @@ async function feature(page: Page, name: RegExp) {
   }
   if (value.includes('工作区文件')) {
     await page.getByRole('button', { name: '文件', exact: true }).click();
+    await page
+      .getByRole('button', { name: '上传 / 传输', exact: true })
+      .click();
     return;
   }
   await openSettings(page);
@@ -286,7 +289,7 @@ async function sessionId(page: Page) {
   await feature(page, /^会话详情/);
   await page.getByRole('dialog').getByText('会话标识', { exact: true }).click();
   const id = await page.getByRole('dialog').locator('.id').innerText();
-  await page.getByRole('button', { name: '关闭面板' }).click();
+  await page.getByRole('button', { name: '关闭信息', exact: true }).click();
   return id;
 }
 async function focusedChat(page: Page) {
@@ -2619,9 +2622,7 @@ try {
   await visitorPage
     .getByRole('button', { name: '刷新会话', exact: true })
     .click();
-  await visitorPage
-    .getByRole('button', { name: '恢复并继续：外部运行会话', exact: true })
-    .click();
+  await visitorPage.getByRole('button', { name: /外部运行会话/ }).click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage
     .getByText(/外部会话 · 只读同步/)
@@ -2951,7 +2952,10 @@ try {
   await visitorPage
     .getByRole('button', { name: '上传文件', exact: true })
     .click();
-  await visitorPage.getByRole('dialog').getByRole('alert').waitFor();
+  await visitorPage
+    .getByRole('region', { name: '文件浏览器', exact: true })
+    .getByRole('alert')
+    .waitFor();
   assert.deepEqual(
     readFileSync(join(dir, 'transfer-fixtures', 'binary.bin')),
     binary,
@@ -2990,8 +2994,12 @@ try {
   await visitorPage
     .getByRole('button', { name: '暂停传输', exact: true })
     .click();
-  await visitorPage.keyboard.press('Escape');
-  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await visitorPage
+    .getByRole('button', { name: '关闭文件浏览器', exact: true })
+    .click();
+  await expect(
+    visitorPage.getByRole('region', { name: '文件浏览器', exact: true }),
+  ).not.toBeVisible();
   agent.releaseInterruptedReply();
   await wait(
     async () => (await request(`/hosts/${enrolled.hostId}/probe`, {})).r.ok,
@@ -3023,8 +3031,12 @@ try {
     path: join(artifacts, 'cw-workspace-files-mobile.png'),
     fullPage: true,
   });
-  await visitorPage.keyboard.press('Escape');
-  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await visitorPage
+    .getByRole('button', { name: '关闭文件浏览器', exact: true })
+    .click();
+  await expect(
+    visitorPage.getByRole('region', { name: '文件浏览器', exact: true }),
+  ).not.toBeVisible();
   // The upload channel can recover before the independent chat controller.
   // Await its recovery, then dismiss the expected fault-injection alert.
   await idle(visitorPage);

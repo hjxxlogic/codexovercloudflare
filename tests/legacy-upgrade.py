@@ -10,6 +10,7 @@ import pathlib
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 
 parser = argparse.ArgumentParser()
@@ -49,7 +50,7 @@ for version in (0, 1):
             project = pathlib.Path(directory) / 'project'
             project.mkdir()
             config = pathlib.Path(directory) / 'agent.json'
-            config.write_text(json.dumps(dict(relayUrl='http://127.0.0.1:9', hostId='legacy-host', token='x' * 32, dataDir=directory, autoUpdate=False, projects=[dict(id='original-project', name='Original', path=str(project))])))
+            config.write_text(json.dumps(dict(relayUrl='http://127.0.0.1:9', hostId='legacy-host', token='x' * 32, dataDir=directory, autoUpdate=False, codexPath=sys.executable, codexArgs=['-c', "print('codex-cli test')"], projects=[dict(id='original-project', name='Original', path=str(project))])))
             config.chmod(0o600)
             original_config = config.read_bytes()
             original_projects = (pathlib.Path(directory) / 'projects.json').read_bytes()

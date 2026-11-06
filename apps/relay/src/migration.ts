@@ -32,7 +32,8 @@ export async function migrateHost(storage: DurableObjectStorage) {
         if (
           (key.startsWith('permission-operation:') &&
             (value as any)?.state !== 'completed') ||
-          (key.startsWith('lease:') && (value as any)?.active === true)
+          (key.startsWith('lease:') &&
+            ((value as any)?.active === true || (value as any)?.pending))
         )
           throw new AppError(
             'MIGRATION_PENDING',

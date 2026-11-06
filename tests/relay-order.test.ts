@@ -511,6 +511,26 @@ describe('authorization retirement confirmation', () => {
     expect((await result).status).toBe(200);
     expect(h.agent.deserializeAttachment().retired).toBe(true);
   });
+  it('retries a blocked migration on the same object after pending state is reconciled', async () => {
+    const storage = new MemoryStorage();
+    await storage.put('lease:pending', {
+      active: false,
+      pending: { epoch: 7 },
+    });
+    const relay = new HostRelayDO(
+      { storage, getWebSockets: () => [] } as any,
+      {} as any,
+    );
+    const request = () => relay.fetch(new Request('https://internal/status'));
+    expect((await request()).status).toBe(503);
+    expect(await storage.get('channelVersion')).toBeUndefined();
+    await storage.put('lease:pending', { active: false });
+    expect((await request()).status).toBe(200);
+    expect(await storage.get('channelVersion')).toBe(1);
+    expect(await storage.get('~opaque-v1:backup:lease:pending')).toEqual({
+      active: false,
+    });
+  });
   it('archives old cloud business journals at the one-way migration boundary', async () => {
     const storage = new MemoryStorage();
     await storage.put({

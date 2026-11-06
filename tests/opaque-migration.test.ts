@@ -55,6 +55,14 @@ it('rejects active legacy controllers and unknown future versions', async () => 
     code: 'MIGRATION_PENDING',
   });
   expect(storage.values.get('lease:one')).toEqual({ active: true });
+  storage.values.set('lease:one', { active: false, pending: { epoch: 7 } });
+  await expect(migrate(storage)).rejects.toMatchObject({
+    code: 'MIGRATION_PENDING',
+  });
+  expect(storage.values.get('lease:one')).toEqual({
+    active: false,
+    pending: { epoch: 7 },
+  });
   storage.values.set('channelVersion', 2);
   await expect(migrate(storage)).rejects.toMatchObject({
     code: 'MIGRATION_FAILED',

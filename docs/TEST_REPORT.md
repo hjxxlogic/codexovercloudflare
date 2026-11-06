@@ -84,7 +84,7 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 | 本机检查             | 实际结果                                                                                                                                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 依赖、构建与静态检查 | npm ci、完整 npm run build（原生 / Web / Worker dry-run）、typecheck、lint、lint:cpp、protocol generate/check 通过                                                              |
-| 基础与 sanitizer     | 15 项 CTest、36 个 Vitest 文件 / 389 项测试通过；独立 ASan/UBSan 构建的 15 项 CTest 通过                                                                                        |
+| 基础与 sanitizer     | 15 项 CTest、36 个 Vitest 文件 / 390 项测试通过；独立 ASan/UBSan 构建的 15 项 CTest 通过                                                                                        |
 | 加密、队列与历史     | test:opaque、test:queue、delivery / retention、operations、configuration、projects、runtime 通过；真实加密通道与浏览器覆盖队列去重、取消、立即执行、刷新恢复和观察历史          |
 | 认证及资源           | TLS / Access、browser-access / guest-access、真实计时 billing、billing:web、wake 通过                                                                                           |
 | Web 与真实协议       | 默认 test:ui 和 navigation、新增恢复行为、markdown/cache、projects:e2e、operations:web、uploads:web、native Terminal、native-login、真实 Codex 无模型初始化与 native smoke 通过 |
@@ -93,10 +93,10 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 
 `test:ui` 默认联合当前导航和行为回归：快照超时恢复、400/500 不清登录或草稿、语言持久化、模型选择、未知提交结果、0/1/3/10 审批和丢回包后不重复发送。`--navigation` 只运行导航，`--behavior` 可单独复现行为；`--legacy-layout` 保留旧布局供历史复现。队列 UI 由真实加密 `test:opaque` 验证。当前桌面与手机截图见 [界面说明](CW_HAPPIER_UI_PLAN.md)。
 
-旧数据库演练使用准确旧提交 `666d1af` 编译其原 Store / Projects，创建含会话、队列、历史、回执与项目登记的 SQLite 0/1。新 Store / Agent 使用原配置、凭据和 dataDir 连续启动两次；旧项目登记逐字节不变，旧程序拒绝升级后的版本 2。SQLite backup API 验证包含已提交 WAL；备份写入失败保留旧版本并可重试，子进程文件大小限制模拟实际写入不足后仍可由旧程序验证原记录。入口为 `python3 tests/legacy-upgrade.py --legacy-source <隔离旧源码> --agent build/coc-agent`，CI 固定 checkout 旧提交。
+旧数据库演练使用准确旧提交 `666d1af` 编译其原 Store / Projects，创建含会话、队列、历史、回执与项目登记的 SQLite 0/1。新 Store / Agent 使用原配置、凭据和 dataDir 连续启动两次；旧项目登记逐字节不变，旧程序拒绝升级后的版本 2。SQLite backup API 验证包含已提交 WAL；备份写入失败保留旧版本并可重试，子进程文件大小限制模拟实际写入不足后仍可由旧程序验证原记录。入口为 `python3 tests/legacy-upgrade.py --legacy-source <隔离旧源码> --agent build/coc-agent`，CI 固定 checkout 旧提交；版本探测使用隔离模拟程序，不依赖系统安装 Codex。
 
-DO fixture 覆盖多页事务备份、批次提交后中断与重启、同实例重试、重复迁移、wakeUntil 持久化、活动旧 lease / 未完成权限操作 / 未知未来版本失败关闭。Registry 身份授权保留原结构。发布时仍需确认线上未决状态、导出快照及验证实际对象；本次没有生产副本或在线迁移证据。
+DO fixture 覆盖多页事务备份、批次提交后中断与重启、同实例重试、重复迁移、wakeUntil 持久化、活动旧 lease / 待决控制预留 / 未完成权限操作 / 未知未来版本失败关闭。Registry 身份授权保留原结构。发布时仍需确认线上未决状态、导出快照及验证实际对象；本次没有生产副本或在线迁移证据。
 
-中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。中间提交和运行中作业均不作为最终门禁。
+中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。`15a705d` 与 `0d71c41` 的 regression 暴露升级演练依赖 CI 未安装的 Codex，现已改为隔离版本探测并在本机重跑通过。中间提交和运行中作业均不作为最终门禁。
 
 本机矩阵与重跑日志保存在忽略的 `.local/opaque-merge/`，截图原件位于 `.local/ui-stability/`、`.local/screenshots/`；不提交配置、数据库或凭据。最终准确提交的 CI、制品摘要与合入结果完成后补录。生产云端 / 下载 / Agent、真实线上迁移、外网长稳及真实模型任务均未执行。
