@@ -4,7 +4,14 @@ import { AppError } from '../../../packages/protocol/src/admission.ts';
 // Backups and progress are outside the legacy key range scanned by this pass.
 const prefix = '~opaque-v1:';
 export async function migrateHost(storage: DurableObjectStorage) {
-  if ((await storage.get('channelVersion')) === 1) return;
+  const version = await storage.get('channelVersion');
+  if (version === 1) return;
+  if (version !== undefined)
+    throw new AppError(
+      'MIGRATION_FAILED',
+      'Unknown relay storage version',
+      503,
+    );
   for (;;) {
     const done = await storage.transaction(async (tx) => {
       const cursor = (await tx.get<string>(prefix + 'cursor')) || '';
@@ -23,12 +30,13 @@ export async function migrateHost(storage: DurableObjectStorage) {
         // Unknown pending permission side effects require explicit reconciliation.
         // Fail before touching the batch. Registry invalidations stay in RegistryDO.
         if (
-          key.startsWith('permission-operation:') &&
-          (value as any)?.state !== 'completed'
+          (key.startsWith('permission-operation:') &&
+            (value as any)?.state !== 'completed') ||
+          (key.startsWith('lease:') && (value as any)?.active === true)
         )
           throw new AppError(
             'MIGRATION_PENDING',
-            'Reconcile legacy permission operations before upgrading',
+            'Retire legacy controllers and reconcile permission operations before upgrading',
             503,
           );
       }

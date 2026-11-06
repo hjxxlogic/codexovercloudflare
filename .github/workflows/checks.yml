@@ -15,7 +15,7 @@ env:
 jobs:
   regression:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,6 +51,13 @@ jobs:
           ccache --zero-stats
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           npm run build
+      - name: Check out exact pre-merge storage implementation
+        uses: actions/checkout@v4
+        with:
+          ref: 666d1affbe063d9273ef34f435c5384a0e0e58c2
+          path: .local/legacy-source
+      - name: Verify databases created by pre-merge Store
+        run: python3 scripts/ci-command.py python3 tests/legacy-upgrade.py --legacy-source .local/legacy-source
       - name: Native and unit regressions including DO persistence and CW recovery
         run: npm test
       - run: python3 scripts/ci-command.py npm run test:tls

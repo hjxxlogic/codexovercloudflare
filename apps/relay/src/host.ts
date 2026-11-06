@@ -105,6 +105,15 @@ export class HostRelayDO extends DurableObject<Env> {
       throw new AppError('MESSAGE_TOO_LARGE', 'Relay frame too large', 413);
     ws!.send(text);
   }
+  private async ready() {
+    const pass = (this.restored ??= this.restore());
+    try {
+      await pass;
+    } catch (error) {
+      if (this.restored === pass) this.restored = undefined;
+      throw error;
+    }
+  }
   private async restore() {
     if ((await this.ctx.storage.get('channelVersion')) !== 1) {
       for (const ws of this.sockets())
@@ -378,7 +387,7 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   async fetch(req: Request) {
     try {
-      await (this.restored ??= this.restore());
+      await this.ready();
       const u = new URL(req.url),
         hostId = req.headers.get('x-host') || '';
       if (u.pathname === '/authorization-change') {
@@ -485,7 +494,7 @@ export class HostRelayDO extends DurableObject<Env> {
     }
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
-    await (this.restored ??= this.restore());
+    await this.ready();
     if (this.a(ws).retired || ws.readyState >= 2) return;
     const size =
       typeof raw === 'string'
@@ -763,7 +772,7 @@ export class HostRelayDO extends DurableObject<Env> {
     await this.webSocketClose(ws);
   }
   async alarm() {
-    await (this.restored ??= this.restore());
+    await this.ready();
     for (const ws of this.sockets())
       if (live(ws) && this.a(ws).deadline <= Date.now()) this.close(ws, 4001);
     await this.schedule();

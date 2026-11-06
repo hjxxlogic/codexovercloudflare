@@ -201,7 +201,9 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
             sqlite3_close(backup_db);
           throw Error("STORAGE_ERROR", "Cannot create migration backup");
         }
-#ifndef _WIN32
+#ifdef _WIN32
+        private_path(std::filesystem::u8path(temporary));
+#else
         chmod(temporary.c_str(), 0600);
 #endif
         auto backup = sqlite3_backup_init(backup_db, "main", db_, "main");

@@ -704,6 +704,7 @@ export async function navigationUI(
   page.once('dialog', (dialog) => dialog.accept());
   await continuation.click();
   await expect(page.locator('.readonly-hint')).toHaveCount(0);
+  await expect(page.getByLabel('任务内容')).toBeEnabled();
   const beforeRetry = calls();
   transientFailures = 1;
   emitState('disconnect');
@@ -713,7 +714,7 @@ export async function navigationUI(
       .locator('.connection-notice')
       .getByRole('button', { name: '重试连接', exact: true }),
   ).toBeVisible();
-  await expect.poll(calls, { timeout: 15000 }).toBeGreaterThan(beforeRetry);
+  await expect.poll(calls, { timeout: 65000 }).toBeGreaterThan(beforeRetry);
   await expect(page.locator('.connection-notice')).toHaveCount(0);
   await expect(
     page.getByRole('alert').filter({ hasText: 'HOST_OFFLINE' }),

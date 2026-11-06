@@ -1,3 +1,4 @@
+import { openSettings } from './helpers/workspace-ui.ts';
 import { endpointFetch } from './helpers/endpoint-peer.ts';
 // Real Worker, native Agent/CC and Chromium. Temporary state; no model or production calls.
 import assert from 'node:assert/strict';
@@ -243,7 +244,7 @@ try {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(origin);
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(page);
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();

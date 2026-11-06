@@ -1,3 +1,4 @@
+import { openNavigation } from './helpers/workspace-ui.ts';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
@@ -498,10 +499,20 @@ try {
     );
     const adminPage = await adminContext.newPage();
     adminPage.on('pageerror', (error) => errors.push(error.message));
+    const openAdminSettings = async () => {
+      const settings = adminPage.getByRole('button', {
+        name: '设置',
+        exact: true,
+      });
+      if (!(await settings.isVisible()))
+        await adminPage
+          .getByRole('button', { name: '打开会话导航', exact: true })
+          .click();
+      await settings.click();
+    };
+
     await adminPage.goto(origin);
-    await adminPage
-      .getByRole('button', { name: '设置', exact: true })
-      .click();
+    await openAdminSettings();
     await adminPage
       .getByRole('button', { name: '切换到管理员模式', exact: true })
       .click();
@@ -511,9 +522,7 @@ try {
       adminPage.getByRole('tab', { name: '待授权请求', exact: true }),
     ).toBeVisible();
     for (const theme of ['light', 'dark']) {
-      await adminPage
-        .getByRole('button', { name: '功能菜单', exact: true })
-        .click();
+      await openAdminSettings();
       await adminPage
         .getByLabel('全站主题', { exact: true })
         .selectOption(theme);
@@ -538,6 +547,7 @@ try {
           '管理会话',
           '杂项',
         ]) {
+          await openNavigation(adminPage);
           await adminPage.getByRole('tab', { name, exact: true }).click();
           await expect(
             adminPage.getByRole('tabpanel', { name, exact: true }),
@@ -557,9 +567,7 @@ try {
       }
     }
     assert.equal(errors.length, 0, errors.join('\n'));
-    await adminPage
-      .getByRole('button', { name: '功能菜单', exact: true })
-      .click();
+    await openAdminSettings();
     await adminPage.getByRole('button', { name: /^退出管理/ }).click();
     await expect(
       adminPage.getByRole('heading', { name: '管理员登录', exact: true }),

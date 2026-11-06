@@ -93,7 +93,9 @@ try {
   assert.equal(entry.headers.get('Location'), origin + '/guest/?test=1');
   const html = await call('/guest/');
   assert.equal(html.status, 200);
-  const script = (await html.text()).match(/<script[^>]+src="([^"]+)"/)![1];
+  const script = (await html.text()).match(
+    /<script[^>]+type="module"[^>]+src="([^"]+)"/,
+  )![1];
   const scriptUrl = new URL(script, origin + '/guest/');
   assert(scriptUrl.pathname.startsWith('/guest/assets/'));
   assert.equal((await fetch(scriptUrl)).status, 200);

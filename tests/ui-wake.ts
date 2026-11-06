@@ -1,3 +1,8 @@
+import {
+  openSettings,
+  selectHostId,
+  selectProjectId,
+} from './helpers/workspace-ui.ts';
 import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import { WebSocketServer, WebSocket } from 'ws';
 // Browser checks against a local deterministic relay peer; no model calls.
@@ -124,7 +129,7 @@ try {
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(page);
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();
@@ -205,15 +210,15 @@ try {
   const cw = await browser.newPage({ viewport: { width: 390, height: 844 } });
   cw.on('pageerror', (error) => failures.push(error.message));
   await cw.goto(origin);
-  await cw.getByRole('button', { name: '功能菜单' }).click();
-  await cw.getByRole('button', { name: /^会话记录/ }).click();
-  await cw.getByLabel('主机', { exact: true }).selectOption('host');
+  await selectHostId(cw, 'host');
+  await selectProjectId(cw, 'project');
   await expect.poll(() => wakes).toBe(1);
-  await expect(cw.getByLabel('项目', { exact: true })).toHaveValue('project');
+  await expect(cw.locator('[data-project-id="project"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   assert(projectReads > 0, 'catalog loaded after wake');
-  await expect(
-    cw.getByLabel('主机', { exact: true }).locator('option:checked'),
-  ).toHaveText('开发服务器 · 在线');
+  await expect(cw.locator('[data-host-id="host"]')).toContainText('在线');
   await cw.screenshot({
     path: join(artifacts, 'cw-online-mobile.png'),
     fullPage: true,

@@ -1,3 +1,9 @@
+import {
+  openNavigation,
+  openSettings,
+  selectHostId,
+  selectProjectId,
+} from './helpers/workspace-ui.ts';
 import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -119,10 +125,12 @@ try {
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await page.getByLabel('主机', { exact: true }).selectOption('host');
-  await expect(page.getByLabel('项目', { exact: true })).toHaveValue('project');
+  await selectHostId(page, 'host');
+  await selectProjectId(page, 'project');
+  await expect(page.locator('[data-project-id="project"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   await page.clock.install();
@@ -143,7 +151,7 @@ try {
     path: join(artifacts, 'cw-refresh-390.png'),
     fullPage: true,
   });
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(page);
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();
@@ -168,6 +176,7 @@ try {
   const refresh = page.getByRole('button', { name: '刷新状态', exact: true });
   await refresh.click();
   await expect(refresh).toBeEnabled();
+  await openNavigation(page);
   await page.getByRole('tab', { name: '已授权设备', exact: true }).click();
   await page.locator('.device-group > summary').click();
   await expect(
@@ -180,6 +189,7 @@ try {
   await expect(
     page.getByRole('table', { name: '已授权设备', exact: true }),
   ).toContainText('暂无已授权设备');
+  await openNavigation(page);
   await page.getByRole('tab', { name: '服务器唤醒配置', exact: true }).click();
   await expect(
     page.getByRole('table', { name: '服务器唤醒配置', exact: true }),
@@ -191,6 +201,7 @@ try {
   await expect(
     page.getByRole('table', { name: '服务器唤醒配置', exact: true }),
   ).toContainText('build-server');
+  await openNavigation(page);
   await page.getByRole('tab', { name: 'API Key 管理', exact: true }).click();
   page.once('dialog', (dialog) => void dialog.accept());
   await page
@@ -199,6 +210,7 @@ try {
   await expect(
     page.getByRole('table', { name: 'API Key 管理', exact: true }),
   ).toContainText('暂无 API Key');
+  await openNavigation(page);
   await page.getByRole('tab', { name: '服务器唤醒配置', exact: true }).click();
   await expect(
     page.getByRole('table', { name: '服务器唤醒配置', exact: true }),

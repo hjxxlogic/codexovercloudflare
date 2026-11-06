@@ -47,3 +47,17 @@ describe('one-way opaque Host migration', () => {
     });
   });
 });
+
+it('rejects active legacy controllers and unknown future versions', async () => {
+  const storage = new MemoryStorage();
+  storage.values.set('lease:one', { active: true });
+  await expect(migrate(storage)).rejects.toMatchObject({
+    code: 'MIGRATION_PENDING',
+  });
+  expect(storage.values.get('lease:one')).toEqual({ active: true });
+  storage.values.set('channelVersion', 2);
+  await expect(migrate(storage)).rejects.toMatchObject({
+    code: 'MIGRATION_FAILED',
+  });
+  expect(storage.values.get('channelVersion')).toBe(2);
+});

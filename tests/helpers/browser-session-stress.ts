@@ -1,3 +1,4 @@
+import { selectHostId, selectProjectId } from './workspace-ui.ts';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -39,12 +40,9 @@ export async function browserSessionStress(options: {
       page.getByRole('button', { name, exact: true });
     const end = async (entry: (typeof entries)[number]) => {
       if (entry.closed) return;
-      await entry.page.locator('.workspace-context').click();
+      await button(entry.page, '信息').click();
       await button(entry.page, '结束会话').click();
-      await expect(entry.page.locator('.workspace-context')).toContainText(
-        '会话已结束',
-        { timeout: 20000 },
-      );
+      await expect(entry.page.getByLabel('任务内容')).toHaveCount(0);
       await expect(entry.page.locator('body')).not.toContainText(
         'signal is aborted without reason',
       );
@@ -84,36 +82,19 @@ export async function browserSessionStress(options: {
               entry.plaintextCommands++;
           });
           await page.goto(origin);
-          await button(page, '功能菜单').click();
-          await page
-            .getByRole('navigation', { name: '功能菜单', exact: true })
-            .getByRole('button', { name: /^会话记录/ })
-            .click();
-          await page
-            .getByRole('combobox', { name: '主机', exact: true })
-            .selectOption(hostId);
-          await expect(
-            page.getByRole('combobox', { name: '项目', exact: true }),
-          ).toHaveValue(projectId);
-          await button(page, '创建网页会话').click();
+          await selectHostId(page, hostId);
+          await selectProjectId(page, projectId);
+          await button(page, '＋ 新建对话').click();
           await expect(page.getByRole('dialog')).toHaveCount(0);
           await expect
             .poll(
-              async () => {
-                const text = await page
-                  .locator('.workspace-context')
-                  .innerText();
-                return (
-                  text.includes('已连接') ||
-                  text.includes('只读会话 · 同项目已有写会话')
-                );
-              },
+              async () =>
+                (await page.getByLabel('任务内容').count()) +
+                (await page.locator('.readonly-hint').count()),
               { timeout: 30000 },
             )
-            .toBe(true);
-          entry.reader = (
-            await page.locator('.workspace-context').innerText()
-          ).includes('只读会话');
+            .toBeGreaterThan(0);
+          entry.reader = (await page.getByLabel('任务内容').count()) === 0;
         }),
       );
       const rejected = opened.find((result) => result.status === 'rejected');
@@ -164,9 +145,7 @@ export async function browserSessionStress(options: {
       await end(writer);
       const successor = readers[0];
       await button(successor.page, '获取写权限').click();
-      await expect(successor.page.locator('.workspace-context')).toContainText(
-        '已连接',
-      );
+      await expect(successor.page.getByLabel('任务内容')).toBeEnabled();
       await successor.page
         .getByRole('textbox', { name: '任务内容', exact: true })
         .fill(`CW_STRESS_HANDOFF_${size}`);

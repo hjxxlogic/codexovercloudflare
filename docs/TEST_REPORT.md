@@ -153,3 +153,9 @@ DO 测试覆盖多页旧 lease 备份、事务批次后重启、重复迁移、w
 `test:ui` 默认使用当前导航验收；`--legacy-layout` 保留旧布局测试供历史版本复现。队列 UI 行为转入真实加密 `test:opaque`，默认和 navigation 入口均使用当前界面，旧布局选择器不作为当前行为验证。
 
 本机完整矩阵日志位于集成 worktree 的忽略目录 `.local/opaque-merge/`，临时构建诊断位于 /tmp/opaque-*。最终 CI、SHA 与限制待完成后补录。
+
+补充：已用准确提交 666d1af 的原 Store 实现生成含会话、队列、历史和缓存回执的版本 0/1 数据库，新 Store 两次打开验证记录保持，旧 Store 拒绝升级后的版本 2；入口 `python3 tests/legacy-upgrade.py --legacy-source <旧源码目录>`，CI 通过独立 checkout 固定旧源码身份。新增备份写入失败保持原版本并恢复重试的 CTest。迁移拒绝仍活动的旧 lease 及未知未来 channelVersion，失败后可在同一 DO 实例重试。
+
+管理界面保留手动“刷新状态”，可在通知中断后重新读取管理快照。手机选择管理分类后自动收起导航，避免抽屉阻挡面板操作；真实数据表在统一布局内限制宽度并保持内部滚动。
+
+本机完整基础回归现为 15 项 CTest 与 389 项 Vitest 通过；加密 E2E、队列、可靠交付、操作、配置、项目、runtime、TLS/Access、计费、唤醒、原生 Terminal、新导航、Markdown/cache、项目 E2E、Web 操作/上传、真实 Codex 无模型初始化、native smoke、release/update/backup、cloud-deploy/deploy-web 工具已获得对应本机通过结果。完整 PTY E2E 仍在适配旧界面定位。首轮 CI 0de34e4 / Actions 42151853443 的 regression 因格式失败，sanitizers 的 core 报 CONFIG_BUSY；不得视为最终通过。

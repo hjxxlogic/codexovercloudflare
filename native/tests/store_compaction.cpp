@@ -124,6 +124,24 @@ int main() {
                           "json_extract(value,'$.promptQueue[0].text')='preserved'") == 1,
             "Backup retains committed queue body");
     }
+    {
+      Fixture fixture(false, false, true);
+      fixture.sql("PRAGMA user_version=1");
+      std::filesystem::create_directory(fixture.path + "/agent.db.pre-opaque-v2.tmp");
+      bool rejected = false;
+      try {
+        Store store(fixture.path, false);
+      } catch (const Error &error) {
+        rejected = error.code == "STORAGE_ERROR";
+      }
+      check(rejected && fixture.count("PRAGMA user_version") == 1 &&
+                fixture.count("SELECT COUNT(*) FROM sessions") == 1,
+            "Backup write failure leaves old database intact and retryable");
+      std::filesystem::remove(fixture.path + "/agent.db.pre-opaque-v2.tmp");
+      Store retry(fixture.path, false);
+      check(retry.get("unbound").at("projectId") == "project",
+            "Migration retries after backup failure");
+    }
     for (int kind = 0; kind < 3; ++kind) {
       Fixture fixture(kind == 1, kind == 2);
       bool rejected = false;

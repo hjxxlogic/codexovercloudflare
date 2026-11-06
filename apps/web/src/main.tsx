@@ -3086,6 +3086,9 @@ function App() {
                   aria-controls={`admin-panel-${id}`}
                   tabIndex={selected ? 0 : -1}
                   onClick={() => {
+                    setMenuOpen(false);
+                    if (matchMedia('(max-width: 900px)').matches)
+                      setNavigationOpen(false);
                     if (id === 'keys') setView('keys');
                     else {
                       setAdminTab(id);
@@ -3139,6 +3142,16 @@ function App() {
           </nav>
         )}
       </SessionNavigation>
+      {mode === 'admin' && admin && (
+        <div className="admin-refresh">
+          <IconButton
+            icon="refresh"
+            label={t('刷新状态')}
+            disabled={refreshing}
+            onClick={() => void refreshView()}
+          />
+        </div>
+      )}
       <section
         className="unified-settings"
         hidden={!menuOpen}

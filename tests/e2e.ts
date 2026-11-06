@@ -1,3 +1,8 @@
+import {
+  openNavigation,
+  openSettings,
+  selectHostId,
+} from './helpers/workspace-ui.ts';
 import { EndpointPeer, endpointFetch } from './helpers/endpoint-peer.ts';
 import { browserSessionStress } from './helpers/browser-session-stress.ts';
 import { resolveAsync } from './helpers/async-http.ts';
@@ -224,14 +229,39 @@ async function web(id: string, takeover = false, claimId = randomUUID()) {
 }
 const pass = (message: string) => console.log('PASS: ' + message);
 async function feature(page: Page, name: RegExp) {
-  if (await page.getByRole('dialog').isVisible())
-    await page.getByRole('button', { name: '关闭面板' }).click();
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  const value = name.source;
+  if (value.includes('会话记录')) {
+    await openNavigation(page);
+    return;
+  }
+  if (value.includes('新建对话')) {
+    await openNavigation(page);
+    const sessions = page.getByRole('button', {
+      name: '选择会话',
+      exact: true,
+    });
+    if ((await sessions.getAttribute('aria-expanded')) !== 'true')
+      await sessions.click();
+    await page
+      .getByRole('button', { name: '＋ 新建对话', exact: true })
+      .click();
+    return;
+  }
+  if (value.includes('会话详情')) {
+    await page.getByRole('button', { name: '信息', exact: true }).click();
+    return;
+  }
+  if (value.includes('工作区文件')) {
+    await page.getByRole('button', { name: '文件', exact: true }).click();
+    return;
+  }
+  await openSettings(page);
   await page
-    .getByRole('navigation', { name: '功能菜单' })
+    .getByRole('region', { name: '设置', exact: true })
     .getByRole('button', { name })
     .click();
 }
+
 async function idle(page: Page) {
   await wait(
     async () =>
@@ -256,14 +286,10 @@ async function focusedChat(page: Page) {
     .locator('.notice')
     .getByRole('button', { name: '关闭', exact: true });
   if (await dismiss.isVisible()) await dismiss.click();
-  assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(await page.locator('dialog[open]').count(), 0);
   assert.equal(await page.getByLabel('主机').count(), 0);
   assert.equal(
-    await page
-      .locator(
-        '.page-heading, footer, .conversation .id, .conversation .status, .session-sidebar',
-      )
-      .count(),
+    await page.locator('.conversation .id, .conversation .status').count(),
     0,
   );
   const geometry = await page.evaluate(() => {
@@ -1873,7 +1899,7 @@ try {
   });
   const page = await browser.newPage();
   await page.goto(origin);
-  await page.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(page);
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();
@@ -1883,8 +1909,8 @@ try {
   await page
     .getByRole('heading', { name: '待授权请求', exact: true })
     .waitFor();
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /API Key 管理访问/ }).click();
+  await openNavigation(page);
+  await page.getByRole('tab', { name: 'API Key 管理', exact: true }).click();
   // API keys are credentials themselves; no browser pairing or token exchange.
   await page.getByLabel('Key 名称').fill('e2e-agent-key');
   await page.getByRole('button', { name: '生成 API_KEY', exact: true }).click();
@@ -2011,8 +2037,8 @@ try {
   pass(
     'web role/host scoped key generation, native A/CC direct-key login, immutable A binding and immediate live revocation',
   );
-  await page.getByRole('button', { name: '功能菜单' }).click();
-  await page.getByRole('button', { name: /设备授权 审批/ }).click();
+  await openNavigation(page);
+  await page.getByRole('tab', { name: '待授权请求', exact: true }).click();
   const pairedCliFile = join(dir, 'ui-paired-client.json');
   await cliCommand(
     [
@@ -2185,7 +2211,9 @@ try {
     .click();
   await visitorPage.locator('.chat-workspace').waitFor();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').waitFor();
+  await visitorPage
+    .getByRole('button', { name: '选择主机', exact: true })
+    .waitFor();
   assert.equal(
     await visitorPage
       .getByRole('heading', { name: '待授权请求', exact: true })
@@ -2200,7 +2228,9 @@ try {
   assert(webCookie.expires * 1000 > Date.now() + 300 * 86400000);
   // Save another A credential in the same browser, then switch back to the online A.
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByRole('button', { name: '添加 A 授权' }).click();
+  await visitorPage
+    .getByRole('button', { name: '申请授权', exact: true })
+    .click();
   await visitorPage.getByLabel('给管理员留言').fill('请再授权第二台服务器');
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
@@ -2221,11 +2251,10 @@ try {
   await visitorPage.reload();
   await visitorPage.locator('.chat-workspace').waitFor();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').waitFor();
-  assert.equal(
-    await visitorPage.getByLabel('主机').locator('option').count(),
-    3,
-  );
+  await visitorPage
+    .getByRole('button', { name: '选择主机', exact: true })
+    .waitFor();
+  assert.equal(await visitorPage.locator('[data-host-id]').count(), 2);
   await visitorPage.screenshot({
     path: process.env.COC_LOGIN_SCREENSHOT_PATH || join(dir, 'login-link.png'),
     fullPage: true,
@@ -2246,10 +2275,12 @@ try {
   const otherPage = await visitor.newPage();
   await otherPage.goto(origin);
   await feature(otherPage, /^会话记录/);
-  await otherPage.getByLabel('主机').selectOption(other.hostId);
+  await selectHostId(otherPage, other.hostId);
   await wait(
     async () =>
-      (await otherPage.getByLabel('项目').inputValue()) === 'other-project',
+      (await otherPage
+        .locator('[data-project-id="other-project"]')
+        .getAttribute('data-project-id')) === 'other-project',
     'other A project selection',
   );
   await feature(otherPage, /^新建对话/);
@@ -2258,8 +2289,8 @@ try {
   await otherPage.getByRole('button', { name: '发送', exact: true }).click();
   await otherPage.getByText('echo: other host', { exact: true }).waitFor();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
-  await visitorPage.getByRole('button', { name: '创建网页会话' }).click();
+  await selectHostId(visitorPage, enrolled.hostId);
+  await feature(visitorPage, /^新建对话/);
   await idle(visitorPage);
   agent.interruptNextRequest();
   await visitorPage.getByLabel('任务内容').fill('browser hello');
@@ -2299,9 +2330,7 @@ try {
       await offlineNotice
         .getByRole('button', { name: '关闭', exact: true })
         .click();
-    await visitorPage
-      .getByRole('button', { name: '功能菜单', exact: true })
-      .click();
+    await openSettings(visitorPage);
     await visitorPage
       .locator('.workbench-menu-items')
       .getByRole('button', { name: 'Terminal', exact: true })
@@ -2448,7 +2477,7 @@ try {
   });
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await selectHostId(visitorPage, enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: /browser hello/ })
@@ -2517,7 +2546,7 @@ try {
   });
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').selectOption(enrolled.hostId);
+  await selectHostId(visitorPage, enrolled.hostId);
   await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: /browser hello/ })
@@ -2793,7 +2822,7 @@ try {
     ),
   );
   await visitorPage.setViewportSize({ width: 1280, height: 900 });
-  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(visitorPage);
   await visitorPage.getByRole('button', { name: /^会话记录/ }).click();
   assert.equal(await visitorPage.locator('.conversation').count(), 1);
   assert(
@@ -2807,13 +2836,13 @@ try {
   });
   await visitorPage.keyboard.press('Escape');
   await focusedChat(visitorPage);
-  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(visitorPage);
   await visitorPage.keyboard.press('Escape');
   assert.equal(
     await visitorPage.getByRole('navigation', { name: '功能菜单' }).count(),
     0,
   );
-  await visitorPage.getByRole('button', { name: '功能菜单' }).click();
+  await openSettings(visitorPage);
   await visitorPage.waitForTimeout(4500);
   assert.equal(
     await visitorPage.getByRole('navigation', { name: '功能菜单' }).isVisible(),
@@ -3005,11 +3034,10 @@ try {
   await visitorPage.reload();
   await visitorPage.locator('.chat-workspace').waitFor();
   await feature(visitorPage, /^会话记录/);
-  await visitorPage.getByLabel('主机').waitFor();
-  assert.equal(
-    await visitorPage.getByLabel('主机').locator('option').count(),
-    2,
-  );
+  await visitorPage
+    .getByRole('button', { name: '选择主机', exact: true })
+    .waitFor();
+  assert.equal(await visitorPage.locator('[data-host-id]').count(), 2);
   assert.equal(
     (await api('/admin/devices', undefined, { admin: true })).credentials.some(
       (c: any) => c.id === visitorGrant.id,

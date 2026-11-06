@@ -1,3 +1,8 @@
+import {
+  openNavigation,
+  openSettings,
+  selectHost,
+} from './helpers/workspace-ui.ts';
 import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import { createHash } from 'node:crypto';
 // Browser flow checks with synthetic identities; server authorization is tested separately.
@@ -160,16 +165,17 @@ const browser = await chromium.launch({ headless: true });
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/browser-access';
 mkdirSync(artifacts, { recursive: true });
 async function openHosts(page: Page) {
-  await page.getByRole('button', { name: '功能菜单', exact: true }).click();
-  await page.getByRole('button', { name: /^会话记录/ }).click();
-  await expect(page.getByRole('region', { name: '连接设置' })).toBeVisible();
+  await openNavigation(page);
+  const heading = page.getByRole('button', { name: '选择主机', exact: true });
+  if ((await heading.getAttribute('aria-expanded')) !== 'true')
+    await heading.click();
 }
 async function adminMode(page: Page) {
-  await page.getByRole('button', { name: '功能菜单', exact: true }).click();
+  await openSettings(page);
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();
-  await page.getByRole('button', { name: '功能菜单', exact: true }).click();
+  await page.keyboard.press('Escape');
 }
 try {
   for (let i = 0; i < 2; i++) {
@@ -177,20 +183,19 @@ try {
     const page = await context.newPage();
     await page.goto(origin);
     await openHosts(page);
-    await expect(page.getByText('当前邮箱：user@example.test')).toBeVisible();
+    await expect(page.getByText('user', { exact: true })).toBeVisible();
     await expect(
-      page
-        .getByRole('combobox', { name: '主机', exact: true })
-        .locator('option'),
-    ).toHaveCount(3);
-    await page
-      .getByRole('combobox', { name: '主机', exact: true })
-      .selectOption('a');
+      page.getByLabel('主机列表', { exact: true }).getByRole('button'),
+    ).toHaveCount(2);
+    await selectHost(page, /服务器 A/);
+    await expect.poll(() => restored).toBe(i * hosts.length + 1);
+    await selectHost(page, /服务器 B/);
     await expect.poll(() => restored).toBe((i + 1) * hosts.length);
+    await selectHost(page, /服务器 A/);
     assert.deepEqual(
       restoredHosts.slice(i * hosts.length).sort(),
       ['a', 'b'],
-      'Welcome loads each authorized host once; selection reuses its restored credential',
+      'Each selected host restores its authorization once; revisiting reuses its credential',
     );
     if (i === 1)
       await page.screenshot({
@@ -198,8 +203,8 @@ try {
         fullPage: true,
       });
     if (i === 1) {
-      await page.getByRole('button', { name: '关闭面板', exact: true }).click();
-      await page.getByRole('button', { name: '功能菜单', exact: true }).click();
+      await page.keyboard.press('Escape');
+      await openSettings(page);
       await expect(
         page.getByRole('button', { name: /^登出 user@example\.test/ }),
       ).toBeVisible();
@@ -213,7 +218,7 @@ try {
         path: join(artifacts, 'email-sign-out.png'),
         fullPage: true,
       });
-      const logout = 'https://r.xlogic.cc/cdn-cgi/access/logout';
+      const logout = origin + '/cdn-cgi/access/logout';
       await page.route(logout, (route) =>
         route.fulfill({ contentType: 'text/html', body: 'Signed out' }),
       );
@@ -235,13 +240,9 @@ try {
   await adminPage.goto(origin);
   await expect.poll(() => adminLogins).toBe(1);
   await adminMode(adminPage);
-  await adminPage
-    .getByRole('button', { name: '功能菜单', exact: true })
-    .click();
+  await openSettings(adminPage);
   await expect(adminPage.getByRole('button', { name: /^登出/ })).toHaveCount(0);
-  await adminPage
-    .getByRole('button', { name: '功能菜单', exact: true })
-    .click();
+  await adminPage.keyboard.press('Escape');
   await expect(
     adminPage.getByRole('tab', { name: '已授权设备', exact: true }),
   ).toBeVisible();
@@ -280,9 +281,7 @@ try {
   ]);
   const accessDisabledPage = await accessDisabledContext.newPage();
   await accessDisabledPage.goto(origin);
-  await accessDisabledPage
-    .getByRole('button', { name: '功能菜单', exact: true })
-    .click();
+  await openSettings(accessDisabledPage);
   await expect(
     accessDisabledPage.getByRole('button', { name: /^登出/ }),
   ).toHaveCount(0);
@@ -293,6 +292,11 @@ try {
   ]);
   const unclaimedPage = await unclaimedContext.newPage();
   await unclaimedPage.goto(origin);
+  await openHosts(unclaimedPage);
+  await unclaimedPage
+    .getByRole('button', { name: '申请授权', exact: true })
+    .first()
+    .click();
   const claim = unclaimedPage.getByRole('button', { name: /^关联旧授权：/ });
   await expect(claim).toBeVisible();
   await unclaimedPage.screenshot({
@@ -310,10 +314,8 @@ try {
   await expect(claim).toHaveCount(0);
   await openHosts(unclaimedPage);
   await expect(
-    unclaimedPage
-      .getByRole('combobox', { name: '主机', exact: true })
-      .locator('option'),
-  ).toHaveCount(2);
+    unclaimedPage.getByLabel('主机列表', { exact: true }).getByRole('button'),
+  ).toHaveCount(1);
   await unclaimedContext.close();
   const guestContext = await browser.newContext();
   await guestContext.addCookies([
@@ -336,10 +338,8 @@ try {
   await expect(guestPage).toHaveURL(origin + '/guest/');
   await openHosts(guestPage);
   await expect(
-    guestPage
-      .getByRole('combobox', { name: '主机', exact: true })
-      .locator('option'),
-  ).toHaveCount(2);
+    guestPage.getByLabel('主机列表', { exact: true }).getByRole('button'),
+  ).toHaveCount(1);
   await expect
     .poll(() => guestSockets.includes('/guest/ws/v1/channel/a'))
     .toBe(true);

@@ -97,12 +97,18 @@ void save_private_text(const std::filesystem::path &p, const std::string &text, 
     throw Error("CONFIG_ERROR", "Cannot open configuration directory");
   const auto temporary = p.string() + ".tmp-" + uuid();
   int fd = -1;
+  bool directory_locked = false;
   try {
     // Serialize actual replacements in this directory, including across threads
     // and processes, before reclaiming this target's abandoned private files.
     // No lock file is added to bounded receipt directories.
-    if (flock(dirfd, LOCK_EX | LOCK_NB) != 0)
+    int acquired;
+    do {
+      acquired = flock(dirfd, LOCK_EX | LOCK_NB);
+    } while (acquired != 0 && errno == EINTR);
+    if (acquired != 0)
       throw Error("CONFIG_BUSY", "Another private replacement is in progress");
+    directory_locked = true;
     const auto prefix = p.filename().string() + ".tmp-";
     static const std::regex temporary_id(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
@@ -151,10 +157,14 @@ void save_private_text(const std::filesystem::path &p, const std::string &text, 
       throw Error("CONFIG_ERROR", "Configuration replacement failed");
     if (fsync(dirfd) != 0)
       throw Error("CONFIG_ERROR", "Configuration directory sync failed");
+    flock(dirfd, LOCK_UN);
+    directory_locked = false;
     close(dirfd);
   } catch (...) {
     if (fd >= 0)
       close(fd);
+    if (directory_locked)
+      flock(dirfd, LOCK_UN);
     close(dirfd);
     unlink(temporary.c_str());
     throw;

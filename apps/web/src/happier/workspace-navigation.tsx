@@ -113,6 +113,7 @@ export function WorkspaceNavigation({
                   {hosts.map((item) => (
                     <button
                       className="navigation-option"
+                      data-host-id={item.id}
                       key={item.id}
                       aria-pressed={item.id === host}
                       disabled={locked}
@@ -154,6 +155,7 @@ export function WorkspaceNavigation({
                   {projects.map((item) => (
                     <button
                       key={item.id}
+                      data-project-id={item.id}
                       className="navigation-option"
                       aria-pressed={item.id === project}
                       disabled={locked || item.available === false}

@@ -775,3 +775,13 @@
     display: inline-flex !important;
   }
 }
+
+.unified-shell.admin-workspace > [role='tabpanel'] {
+  align-self: stretch;
+  width: auto;
+}
+
+.unified-shell > .admin-refresh {
+  padding: 16px 72px;
+  min-height: 64px;
+}
