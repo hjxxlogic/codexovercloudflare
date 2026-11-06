@@ -22,3 +22,7 @@
 ## 模拟截图
 
 [其他页面占用](assets/cw-continue-0.6.13/continue-elsewhere.png)、[历史继续入口](assets/cw-continue-0.6.13/continue-history.png)。均使用模拟数据。
+
+## 上线结果
+
+列出的 Web 检查均通过。源码 `d3c69e2d3f59b287fb439423660b51eca7d1fc45` 已部署到 https://r2.xlogic.cc，Worker Version ID `5df20399-ff4f-404e-8fd7-508c14cbf3fe`。健康检查、全部公开资源字节核对、线上 Web 验收与临时凭据清理通过；旧站和两个现有 Agent 以本次发布前基线核对保持不变。原生下载仍为 `0.6.7`，完整 CI 未运行。[公开证据](assets/cw-continue-0.6.13/verified-preview.json)。
