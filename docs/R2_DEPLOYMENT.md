@@ -2,6 +2,16 @@
 
 以下为 2026-11-05 至 2026-11-06 源分支的历史证据，保留准确来源、摘要和验证边界。0.6.14 的最新本地预览与验证见下节。旧阶段文档与截图通过固定源提交访问。
 
+## 2026-11-06：真实用户数据库副本在线验证
+
+按用户要求，将真实数据库副本连接 r2。普通重新配对会生成新主机 ID，旧会话 ID 则包含原主机前缀；离线 Store 升级通过不代表新身份能读取旧历史。因此新增 owner 专属的缺失主机身份恢复：保留原 ID、签发全新 Agent Token，不导入旧 Token 或生产 DO，不覆盖既有身份。设备授权专项 43 项、typecheck / lint 通过，产品源码 `d8accd5` 通过仓库部署脚本本地构建发布，r2 Worker Version ID 为 `fcf48444-dc46-4566-b515-b37eb6a7a040`；健康与静态资源字节核对通过。仍为 `ciVerified=false` 本地预览，原生测试程序也是本地开发构建，不视为完整 CI 发行制品。
+
+使用在线备份生成的原数据库快照，再复制到独立 dataDir，并复制原项目登记；通过 `scripts/prepare-r2-database.py` 生成 r2 专用配置。独立测试主机名为 **r2-real-database-0.6.14**，验证后保持连接，未替换或重启两既有 Agent。自动更新、终端、外部队列 / 审批与启动修复关闭，原控制端口 / token 不复制。项目工作区与 Codex home 未复制，本轮仅读取旧历史，不发送任务、创建会话或接管控制。
+
+真实 Cloudflare 加密通道分页返回全部 **129 个原会话**（两页），与快照 ID 集合完全一致；三份原历史的事件序号及元数据匹配。Chromium 实际打开一个既有关闭会话，验证桌面历史显示、刷新恢复和手机显示，无页面异常；截图和正文仅在私有忽略目录。初次浏览器定位用旧标题，目录显示的 Codex thread 标题覆盖了该标题；改按已加载的原会话 ID 选择实际列表项后完整重跑通过，没有放宽历史显示断言。临时浏览器凭据已撤销，独立 Agent 授权保留供后续查看。
+
+发布与连接后复核，生产 Worker 仍为 `a103c4dd-f5b8-4a82-a19d-3329129339b5`，生产 DO、路由、两既有 Agent PID / 启动身份、r2 独立 DO / Access audience 保持原样。[不含聊天内容的验证记录](assets/opaque-integration/r2-real-database.json)。此结果验证原数据库副本在 r2 的真实历史访问，不代表原生产会话进程恢复或生产部署完成。
+
 ## 2026-11-06：0.6.14 本地集成预览与用户数据库副本
 
 用户明确授权让 Actions 后台继续运行，先发布本地构建到 r2。已通过 `scripts/deploy-cloud.py --target r2 --local-build --commit HEAD --r2-access-aud <原 r2 audience> --apply` 发布干净源码 `fd537026a97f3c2462ea4997b7e7628d1c7c8990`，源码摘要 `6f8e9d94dd1c131c9f4adec71002fa0ee0b509e7fec2b904524eaeda569ce3cc`。Worker / Web `0.6.14`，Worker Version ID `b3f5ad63-abf5-43df-860d-001b960ca863`。这是 `ciVerified=false` 的本地预览；[后台 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611) 不是该部署的来源，不视为已完成验证的发行制品。原生下载保留原版本，不发布更新通知。

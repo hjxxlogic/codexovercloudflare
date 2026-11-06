@@ -1,0 +1,39 @@
+{
+  "target": "https://r2.xlogic.cc",
+  "sessionCount": 129,
+  "listPages": 2,
+  "samples": [
+    {
+      "eventsRead": 63,
+      "sequencesMatchSnapshot": true,
+      "metadataMatches": true
+    },
+    {
+      "eventsRead": 69,
+      "sequencesMatchSnapshot": true,
+      "metadataMatches": true
+    },
+    {
+      "eventsRead": 105,
+      "sequencesMatchSnapshot": true,
+      "metadataMatches": true
+    }
+  ],
+  "desktopEvents": 6,
+  "reloadHistory": true,
+  "mobileHistory": true,
+  "browserErrors": [],
+  "promptSent": false,
+  "sourceDatabaseOpened": false,
+  "workerCommit": "d8accd5",
+  "workerVersion": "fcf48444-dc46-4566-b515-b37eb6a7a040",
+  "ciVerified": false,
+  "hostName": "r2-real-database-0.6.14",
+  "originalHostIdPreserved": true,
+  "freshAgentCredential": true,
+  "productionDoCopied": false,
+  "agentLeftRunning": true,
+  "temporaryBrowserCredentialRevoked": true,
+  "productionUnchanged": true,
+  "screenshots": "private ignored directory only"
+}
