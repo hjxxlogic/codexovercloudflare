@@ -755,6 +755,8 @@ python3 tests/user-database-upgrade.py --snapshot /safe/snapshot.db --output .lo
 
 ## 排错
 
+Agent 可用自身凭据读取 `GET /api/v1/agent/relay-migration`，检查绑定主机的旧中继状态、分页备份与迁移游标；该诊断在迁移阻塞时仍可用，返回值含私有运维状态，只存私有目录，不修改或绕过未决状态。
+
 先运行 `coc-agent doctor` 或 `coc-client doctor`，核对实际版本、配置、Codex、TLS、目录权限和磁盘。Agent 不在线时检查其运行用户、HOME、PATH、项目目录及服务日志；Access 故障按 [接入说明](cloudflare-access-coc-auth.md) 检查入口策略和 CoC 凭据。
 
 `coc-agent run` 在连接、鉴权、协议协商失败或断线后保持进程，每次失败固定等待 30 秒再连接，不耗尽重试次数。HTTP 401 / 403 和 WebSocket 4001 也按此规则处理，认证仍由中继检查。初始化或运行故障时，先清理故障实例，停止受影响的工作，每 30 秒重新读取配置、检查 Codex 并打开存储；配置修复或状态锁释放后自动恢复，不跳过存储校验。Ctrl+C、SIGINT / SIGTERM 或显式停止服务会取消重试并退出；受控自动更新与远程配置重启仍按原流程执行。单次 `status / doctor / login` 等命令继续返回自己的结果，不进入常驻重试。

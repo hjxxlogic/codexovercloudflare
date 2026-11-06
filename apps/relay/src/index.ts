@@ -802,6 +802,12 @@ export default {
           );
         return json({ ok: true });
       }
+      if (p === '/api/v1/agent/relay-migration' && req.method === 'GET') {
+        const auth = await authenticateAgent(req, env);
+        return hostStub(env, auth.hostId!).fetch(
+          internal(req, '/relay-migration', auth, auth.hostId!),
+        );
+      }
       if (p === '/api/v1/agent/requests' && req.method === 'GET') {
         const auth = await authenticateAgent(req, env);
         return json(

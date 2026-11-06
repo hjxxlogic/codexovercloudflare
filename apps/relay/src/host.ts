@@ -387,6 +387,23 @@ export class HostRelayDO extends DurableObject<Env> {
   }
   async fetch(req: Request) {
     try {
+      if (
+        new URL(req.url).pathname === '/relay-migration' &&
+        req.method === 'GET'
+      ) {
+        const entries: [string, unknown][] = [];
+        let cursor = '';
+        for (;;) {
+          const page = await this.ctx.storage.list({
+            startAfter: cursor,
+            limit: 64,
+          });
+          entries.push(...page);
+          if (page.size < 64) break;
+          cursor = [...page.keys()].at(-1)!;
+        }
+        return json({ entries });
+      }
       await this.ready();
       const u = new URL(req.url),
         hostId = req.headers.get('x-host') || '';
