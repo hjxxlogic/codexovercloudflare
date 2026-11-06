@@ -149,3 +149,9 @@ HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多
 | `~opaque-v1:*`、`channelVersion`                                           | 新的隔离备份、游标与完成标记；未知版本拒绝，不能手工篡改为完成                           |
 
 上述为首次访问懒迁移，不假设跨 DO 全局事务。未决状态须在发布窗口用旧版本完成、取消或与 Agent 账本核对后退休；本次没有实现跳过这些检查的强制入口。失败后可在同一对象重试，后续离线对象也按此规则处理。
+
+## 0.6.14 r2 本地预览与数据库验证
+
+用户明确授权在 Actions 后台运行期间，用干净源码 `fd53702` 本地构建并发布 r2；`ciVerified=false`，保留已有下载 / 独立 Access / Secret / DO。线上健康、静态资源字节和隔离加密业务验收通过，原站及两既有 Agent 未变，见 [r2 发布记录](R2_DEPLOYMENT.md)。功能验收源码 `d4a3f4e` 的 [六项必需 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611) 随后全部成功；这不改变 r2 部署的本地制品来源。制品摘要与 CI Agent 隔离验收见 [证据](assets/opaque-integration/ci-artifacts.json)。
+
+用户允许 Agent 重新登录，仅要求数据库可迁移，因此不复制生产 DO 或旧 Token。真实数据库通过在线备份 API 生成副本，另复制后用真实 Store 离线完成 0→2 升级并核对所有原表；不替换原数据库或重启服务。新站登录和数据库目录必须使用独立配置 / 副本，不能让两个 Agent 共享 dataDir，也不能将原生产 Agent 的 relayUrl 改成测试站。

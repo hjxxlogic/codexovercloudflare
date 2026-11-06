@@ -738,6 +738,15 @@ python3 scripts/state-backup.py restore --data-dir /path/data --file /safe/snaps
 
 备份使用 SQLite 在线备份 API，包含 WAL 中已提交数据，备份及全新恢复数据库权限均为 0600，拒绝覆盖既有备份。恢复使用与 Agent 相同的实例锁；Agent 运行时拒绝恢复。恢复历史不会恢复 Codex 进程或回滚项目文件。秘密配置、Codex home 和工作区需要独立备份；不要只复制活动数据库的 `.db` 文件。
 
+升级前可仅对备份做离线迁移验证，不启动 Agent 或 Codex，也不连接中继：
+
+```bash
+cmake --build build --target coc-database-upgrade -j 2
+python3 tests/user-database-upgrade.py --snapshot /safe/snapshot.db --output .local/user-upgrade-check
+```
+
+输出目录必须尚不存在。测试另复制数据库，以新版 Store 连续打开两次，检查版本 2、全部原有表记录、升级前备份与输入快照不变；摘要写入私有输出目录。它验证存储兼容性，不代表真实会话进程已恢复。
+
 会话停止后读取未缓存的历史页时，使用独立只读 Codex 进程，不向正在退出的运行进程发送历史请求。
 
 ## 排错

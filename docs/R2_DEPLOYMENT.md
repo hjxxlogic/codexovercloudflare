@@ -1,6 +1,20 @@
-# r2 历史发布记录
+# r2 发布记录
 
-以下为 2026-11-05 至 2026-11-06 源分支的历史证据，保留准确来源、摘要和验证边界。本次 0.6.14 集成没有部署，也未重新核验线上当前状态。旧阶段文档与截图通过固定源提交访问。
+以下为 2026-11-05 至 2026-11-06 源分支的历史证据，保留准确来源、摘要和验证边界。0.6.14 的最新本地预览与验证见下节。旧阶段文档与截图通过固定源提交访问。
+
+## 2026-11-06：0.6.14 本地集成预览与用户数据库副本
+
+用户明确授权让 Actions 后台继续运行，先发布本地构建到 r2。已通过 `scripts/deploy-cloud.py --target r2 --local-build --commit HEAD --r2-access-aud <原 r2 audience> --apply` 发布干净源码 `fd537026a97f3c2462ea4997b7e7628d1c7c8990`，源码摘要 `6f8e9d94dd1c131c9f4adec71002fa0ee0b509e7fec2b904524eaeda569ce3cc`。Worker / Web `0.6.14`，Worker Version ID `b3f5ad63-abf5-43df-860d-001b960ca863`。这是 `ciVerified=false` 的本地预览；[后台 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611) 不是该部署的来源，不视为已完成验证的发行制品。原生下载保留原版本，不发布更新通知。
+
+健康与全部公开静态资源字节核对通过。线上真实 Cloudflare、临时本地 Agent、模拟 Codex 和 Chromium 验收通过：加密任务、原请求去重、权限拒绝、文件、历史、控制接管，桌面 / 手机及九个管理面板深浅色无异常。测试结束撤销临时 Agent 及关联客户端授权。首轮测试因 Node 网络配置预载路径相对于临时工作目录而退出，改为绝对路径后完整重跑通过；TLS 校验保持启用。
+
+原站 Worker 版本仍为 `a103c4dd-f5b8-4a82-a19d-3329129339b5`。前后只读核对确认生产 Worker、DO、路由、r2 独立 namespaces / Access audience 和两既有 Agent 的 PID / 启动标识保持原样；未安装或重启现有 Agent。
+
+按用户授权用 SQLite 在线备份 API 复制当前用户数据库，约 167 MiB、版本 0、47 张原表、129 个会话、17,436 条事件、42,128 条历史。另复制一份后用新版真实 Store 连续打开两次，升级到 2；逐表逐行摘要核对全部原记录、升级前备份和输入快照均保持完整。该检查离线执行，未启动 Agent / Codex、连接中继或恢复原会话进程。原数据库、配置与工作区未替换，副本与完整摘要仅存忽略的私有目录。
+
+用户确认 Agent 可以重新登录，只要求数据库能够迁移，因此取消 DO / 旧凭据导入；r2 使用独立授权。不在生产启用原始存储导出接口。
+
+[公开验证记录](assets/opaque-integration/r2-local-preview.json) · [线上桌面](assets/opaque-integration/r2-online-desktop.png) · [线上手机](assets/opaque-integration/r2-online-mobile.png)。邮箱 / OTP、生产迁移和外网长稳仍未验证。
 
 ## 2026-11-06：0.6.13 网页补丁（只读历史恢复）
 

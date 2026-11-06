@@ -83,6 +83,8 @@ npm run test:e2e
 
 `npm test` 是 CTest 加 Vitest，不调用模型。其它测试入口、依赖与覆盖见 [测试说明](TEST_REPORT.md)。需要真实模型的 `test:task` 和 `test:native -- --task` 应单独运行。
 
+经授权读取真实用户数据库时，先用 `scripts/state-backup.py backup` 保存私有一致性快照，再运行 `tests/user-database-upgrade.py --snapshot <快照> --output <不存在的私有目录>`。原生辅助程序 `coc-database-upgrade` 只打开 Store；不启动 Agent、Codex 或连接生产中继。脚本核对全部原有表的行数与逐行摘要、升级备份和重复打开，输入快照始终保持原样。不要将用户数据库作为仓库 fixture 提交。
+
 Terminal 专项需要 Linux、Bash、bubblewrap、prlimit 及可用 namespace。缺少工具或非 Linux 可跳过相应原生测试；工具存在但隔离启动失败应修复测试环境，不能绕过隔离。
 
 ## 协议与配置维护

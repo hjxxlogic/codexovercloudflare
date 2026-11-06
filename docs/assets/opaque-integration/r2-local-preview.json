@@ -1,0 +1,63 @@
+{
+  "commit": "fd537026a97f3c2462ea4997b7e7628d1c7c8990",
+  "sourceDigest": "6f8e9d94dd1c131c9f4adec71002fa0ee0b509e7fec2b904524eaeda569ce3cc",
+  "ciVerified": false,
+  "applied": true,
+  "target": "https://r2.xlogic.cc",
+  "worker": "codex-over-cloudflare-r2",
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "workerVersion": "b3f5ad63-abf5-43df-860d-001b960ca863",
+  "isolation": {
+    "productionWorkerDeploymentUnchanged": true,
+    "productionWorkerVersion": "a103c4dd-f5b8-4a82-a19d-3329129339b5",
+    "productionAgentPidAndStartUnchanged": true,
+    "r2NamespacesPreserved": true,
+    "durableObjectNamespacesDisjoint": true,
+    "routesIsolated": true,
+    "r2AccessAudiencePreserved": true,
+    "r2WorkerVersion": "b3f5ad63-abf5-43df-860d-001b960ca863"
+  },
+  "onlineTest": {
+    "target": "https://r2.xlogic.cc",
+    "passed": true,
+    "checks": [
+      "Browser project selection, prompt streaming and history after reload",
+      "Happier 0.6.14 administration: all nine panels, light/dark, desktop/mobile, no page errors or overflow",
+      "Service Auth native admission; browser CoC guest flow (email login not exercised)",
+      "encrypted projects, configuration and permission denial",
+      "session create original request deduplication",
+      "CONTROL_READY, models, prompt and streamed task completion",
+      "file byte transfer and history",
+      "control takeover and stable retry ticket",
+      "ciphertext excludes prompt and session ID",
+      "Worker directory excludes business metadata",
+      "Chromium desktop/mobile without page errors"
+    ]
+  },
+  "userDatabaseRehearsal": {
+    "originalVersion": 0,
+    "upgradedVersion": 2,
+    "originalTableCount": 47,
+    "sessions": 129,
+    "events": 17436,
+    "history": 42128,
+    "allOriginalRowsPreserved": true,
+    "repeatedOpenPassed": true,
+    "agentStarted": false,
+    "modelCalled": false
+  },
+  "authorizationImport": "not required: user accepts Agent login again; no production DO or credential copy",
+  "limitations": [
+    "Local preview, not a verified CI release",
+    "No email OTP login, production migration or external long-running test",
+    "User journal tested offline, no original session process resumed"
+  ]
+}

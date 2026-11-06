@@ -1,0 +1,118 @@
+{
+  "commit": "d4a3f4e3dcd0ade4e4eac806fb0578a2842e587d",
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "linux-musl",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414058"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414234"
+    },
+    {
+      "name": "regression",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414341"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414345"
+    },
+    {
+      "name": "windows-x64",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414354"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127740414450"
+    },
+    {
+      "name": "publish-release",
+      "conclusion": "skipped",
+      "url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611/job/127751962593"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 13483111189,
+      "name": "verified-worker",
+      "digest": "sha256:e987a1dfff4d4a199cea543d04c31342a88c25315f5e72d812320020e0289c60"
+    },
+    {
+      "id": 13482701813,
+      "name": "verified-web",
+      "digest": "sha256:8e6c19aae9729ad98ba8fe784508db81e7fc227b1055600c7cf223a13ec3856e"
+    },
+    {
+      "id": 13482622067,
+      "name": "browser-evidence",
+      "digest": "sha256:7a5609abec7c0157a5b2dac8beadd74b91051a4ea5057838d0eb4e46fc61b732"
+    },
+    {
+      "id": 13482225339,
+      "name": "windows-x64",
+      "digest": "sha256:2eff835a210548794d5865611239634ac9c9126723ab295f5503584d09c67651"
+    },
+    {
+      "id": 13481701251,
+      "name": "linux-debian12",
+      "digest": "sha256:d33a27b2892d353fb9548d211f84dfd5b7ea47960e35b9f51508344b66e25db6"
+    },
+    {
+      "id": 13481671598,
+      "name": "hjxxlogic~codexovercloudflare~KA4F1A.dockerbuild",
+      "digest": "sha256:0bbdadb396165fe6242dffcaa8d861c2a7383ac4a2964ead47cea398230ccf4c"
+    },
+    {
+      "id": 13481497089,
+      "name": "linux-musl",
+      "digest": "sha256:81cb7dabc0eb04315bec2514e18272b4465d52f351461f157d2275cc34881293"
+    },
+    {
+      "id": 13481158378,
+      "name": "linux-ubuntu20.04",
+      "digest": "sha256:7fae20d40b6c80f7384da205559391886d97a256cd55c132a22513d085469aa6"
+    }
+  ],
+  "isolatedCiAgent": {
+    "commit": "d4a3f4e3dcd0ade4e4eac806fb0578a2842e587d",
+    "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611",
+    "artifact": {
+      "name": "linux-musl",
+      "id": 13481497089,
+      "digest": "sha256:81cb7dabc0eb04315bec2514e18272b4465d52f351461f157d2275cc34881293"
+    },
+    "binarySha256": "b852e9b86c98e39edbc0b3c28a23779f3753da42e8e9827efa599d55e89a2eac",
+    "build": {
+      "version": "0.6.14",
+      "commit": "d4a3f4e3dcd0ade4e4eac806fb0578a2842e587d",
+      "target": "linux-x86_64",
+      "sourceDigest": "231903bc7f839fcc58def55a7ccc1aa2c8be86d7c046687fa352aa8eabd6062e",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals",
+        "delivery-v2",
+        "configuration-v1"
+      ]
+    },
+    "rehearsal": "isolated SQLite 0/1 backup failure, migration rollback, preserved configuration and projects, repeated real CI Agent startup, old executable rejection",
+    "installed": false,
+    "deployed": false
+  },
+  "productionApplied": false,
+  "r2Deployment": "separate local build fd53702, ciVerified=false"
+}
