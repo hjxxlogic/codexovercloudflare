@@ -33,6 +33,7 @@ import { chromium, expect, type Page } from '@playwright/test';
 import { Agent } from './support/native-agent.ts';
 import { SharedApprovals } from './fixtures/shared-approvals.ts';
 
+process.env.COC_NO_STARTUP_REPAIR = '1';
 const dir = mkdtempSync(join(tmpdir(), 'coc-e2e-'));
 const revocationDir = mkdtempSync(join(tmpdir(), 'coc-e2e-revocation-'));
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local';

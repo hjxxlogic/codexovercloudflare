@@ -166,7 +166,10 @@ export class Agent {
     this.child = spawn(
       resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
       ['run', '--config', file],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        env: { ...process.env, COC_NO_STARTUP_REPAIR: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     );
     this.child.stdout?.on('data', (d) => {
       this.output += d;

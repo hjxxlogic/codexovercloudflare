@@ -113,7 +113,7 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 普通 CW 排队回归：构建原生程序后运行 `npm run test:queue`。测试使用隔离 Agent、模拟 Codex 与回环 HTTP/WebSocket，无模型调用，覆盖可靠入队去重、取消、优先执行、等待真实轮次结束、停止失败、跨控制端管理，以及 Agent 重启后保留排队与未知执行状态。`npm run test:opaque` 覆盖真实加密通道、忙碌输入区、刷新恢复和手机队列截图。`test:ui` 联合当前导航与请求恢复、语言 / 草稿、模型和审批行为回归；`test:ui:navigation` 仅验证导航，`--behavior` 可单独复现行为，其中通过真实 IndexedDB 完成回调屏障验证草稿恢复期间输入禁用、控制握手等待及恢复后原文完整。旧布局仅供 `--legacy-layout` 历史复现。CI regression 包含原生队列及加密浏览器检查；需要本机 socket 与浏览器执行权限。
 
-旧库升级演练使用 `python3 tests/legacy-upgrade.py --legacy-source <独立旧源码目录> --agent build/coc-agent`。CI 固定旧源码为 `666d1af`，编译其原 Store 创建 SQLite 0/1，再验证备份、写入失败后的重试、旧程序拒绝版本 2、新 Agent 沿用配置和项目连续启动两次。POSIX 文件大小限制仅施加于隔离子进程，不耗尽宿主磁盘。该演练不安装 Agent，也不连接线上目标；正式安装仍需同一准确提交的成功 CI 制品。
+旧库升级演练使用 `python3 tests/legacy-upgrade.py --legacy-source <独立旧源码目录> --agent build/coc-agent`。CI 固定旧源码为 `666d1af`，编译其原 Store 创建 SQLite 0/1，再验证备份、写入失败后的重试、旧程序拒绝版本 2、新 Agent 沿用配置和项目连续启动两次。POSIX 文件大小限制仅施加于隔离子进程，不耗尽宿主磁盘。该演练不安装 Agent，也不连接线上目标；正式安装仍需同一准确提交的成功 CI 制品。自动更新演练、默认 E2E 入口与公共原生 Agent 测试 harness 固定 `COC_NO_STARTUP_REPAIR=1`，避免测试启动失败触发修复模型；专门的启动修复测试使用自己的隔离模拟程序。
 
 ### 统一导航专项验证
 
