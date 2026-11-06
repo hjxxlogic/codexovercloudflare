@@ -86,14 +86,17 @@ export async function browserSessionStress(options: {
           await selectProjectId(page, projectId);
           await button(page, '＋ 新建对话').click();
           await expect(page.getByRole('dialog')).toHaveCount(0);
-          const readonly = page.getByText('只读会话 · 同项目已有写会话', {
-            exact: true,
-          });
+          // The hidden context header can repeat this text. The composer hint
+          // identifies the actual reader state without a strict-locator race.
+          const readonly = page
+            .locator('.readonly-hint')
+            .getByText('只读会话 · 同项目已有写会话', { exact: true });
           // Drafts can be edited before CONTROL_READY; only the enabled send
           // action proves the actual write handshake has completed.
           await expect
             .poll(
               async () => {
+                if (await readonly.isVisible()) return true;
                 const composer = page.getByRole('textbox', {
                   name: '任务内容',
                   exact: true,
@@ -104,9 +107,8 @@ export async function browserSessionStress(options: {
                 )
                   await composer.fill('CW_STRESS_BARRIER', { timeout: 1000 });
                 return (
-                  ((await button(page, '发送').count()) > 0 &&
-                    (await button(page, '发送').isEnabled())) ||
-                  (await readonly.isVisible())
+                  (await button(page, '发送').count()) > 0 &&
+                  (await button(page, '发送').isEnabled())
                 );
               },
               { timeout: 30000 },
