@@ -156,6 +156,8 @@ DO 测试覆盖多页旧 lease 备份、事务批次后重启、重复迁移、w
 
 补充：已用准确提交 666d1af 的原 Store 实现生成含会话、队列、历史和缓存回执的版本 0/1 数据库，新 Store 两次打开验证记录保持，旧 Store 拒绝升级后的版本 2；入口 `python3 tests/legacy-upgrade.py --legacy-source <旧源码目录>`，CI 通过独立 checkout 固定旧源码身份。新增备份写入失败保持原版本并恢复重试的 CTest。迁移拒绝仍活动的旧 lease 及未知未来 channelVersion，失败后可在同一 DO 实例重试。
 
+使用 `--agent build/coc-agent` 的演练现已通过：旧版真实 Projects 写出的登记文件逐字节保留，新 Agent 使用相同配置、凭据和 dataDir 连续启动两次。对子进程施加文件大小限制，SQLite 写入失败后仍由旧程序验证原业务记录，再解除限制完成升级。本机完整 `npm run build`（含 Worker dry-run）、最新 lint/typecheck、15 项 ASan/UBSan CTest 均通过。中间提交 0ecf0b4 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 已通过 sanitizers、Ubuntu 20.04、Debian 12、musl；其余作业与后续修正的准确提交 CI 仍需完成。
+
 管理界面保留手动“刷新状态”，可在通知中断后重新读取管理快照。手机选择管理分类后自动收起导航，避免抽屉阻挡面板操作；真实数据表在统一布局内限制宽度并保持内部滚动。
 
 本机完整基础回归现为 15 项 CTest 与 389 项 Vitest 通过；加密 E2E、队列、可靠交付、操作、配置、项目、runtime、TLS/Access、计费、唤醒、原生 Terminal、新导航、Markdown/cache、项目 E2E、Web 操作/上传、真实 Codex 无模型初始化、native smoke、release/update/backup、cloud-deploy/deploy-web 工具已获得对应本机通过结果。完整 PTY E2E 仍在适配旧界面定位。首轮 CI 0de34e4 / Actions 42151853443 的 regression 因格式失败，sanitizers 的 core 报 CONFIG_BUSY；不得视为最终通过。

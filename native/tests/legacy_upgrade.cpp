@@ -1,3 +1,4 @@
+#include "coc/projects.hpp"
 #include "coc/store.hpp"
 #include <iostream>
 using namespace coc;
@@ -7,6 +8,11 @@ int main(int argc, char **argv) {
       return 2;
     Store store(argv[2], false);
     if (std::string(argv[1]) == "seed") {
+      Projects projects(
+          {{"dataDir", argv[2]},
+           {"hostId", "legacy-host"},
+           {"projects",
+            Json::array({{{"id", "original-project"}, {"name", "Original"}, {"path", argv[2]}}})}});
       store.save(
           {{"id", "legacy"},
            {"mode", "web"},

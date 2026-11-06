@@ -3599,6 +3599,7 @@ async function legacyUI() {
   );
 }
 let navigationSeq = 10000;
+let takeoverSync = 0;
 try {
   if (!process.argv.includes('--legacy-layout'))
     await navigationUI(
@@ -3606,8 +3607,11 @@ try {
       origin,
       artifacts,
       () => attachCalls,
-      (state) => {
+      async (state) => {
         if (state === 'disconnect') {
+          await expect
+            .poll(() => controlSyncCalls)
+            .toBeGreaterThan(takeoverSync);
           for (const ws of controls) ws.close(1012);
           return;
         }
@@ -3627,6 +3631,7 @@ try {
       },
       {
         takeover: () => {
+          takeoverSync = controlSyncCalls;
           for (const ws of controls) ws.close(4009, 'taken over');
         },
         append: (text) => {

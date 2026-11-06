@@ -8,7 +8,7 @@ export async function navigationUI(
   origin: string,
   artifacts: string,
   calls: () => number,
-  emitState: (state: string) => void,
+  emitState: (state: string) => void | Promise<void>,
   observer: {
     takeover: () => void;
     append: (text: string) => void;
@@ -707,14 +707,14 @@ export async function navigationUI(
   await expect(page.getByLabel('任务内容')).toBeEnabled();
   const beforeRetry = calls();
   transientFailures = 1;
-  emitState('disconnect');
+  await emitState('disconnect');
   await expect(page.locator('.connection-notice')).toContainText('连接中');
   await expect(
     page
       .locator('.connection-notice')
       .getByRole('button', { name: '重试连接', exact: true }),
   ).toBeVisible();
-  await expect.poll(calls, { timeout: 65000 }).toBeGreaterThan(beforeRetry);
+  await expect.poll(calls, { timeout: 15000 }).toBeGreaterThan(beforeRetry);
   await expect(page.locator('.connection-notice')).toHaveCount(0);
   await expect(
     page.getByRole('alert').filter({ hasText: 'HOST_OFFLINE' }),

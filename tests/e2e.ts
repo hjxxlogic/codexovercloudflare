@@ -2,6 +2,7 @@ import {
   openNavigation,
   openSettings,
   selectHostId,
+  selectProjectId,
 } from './helpers/workspace-ui.ts';
 import { EndpointPeer, endpointFetch } from './helpers/endpoint-peer.ts';
 import { browserSessionStress } from './helpers/browser-session-stress.ts';
@@ -232,6 +233,15 @@ async function feature(page: Page, name: RegExp) {
   const value = name.source;
   if (value.includes('会话记录')) {
     await openNavigation(page);
+    const sessions = page.getByRole('button', {
+      name: '选择会话',
+      exact: true,
+    });
+    if (
+      (await sessions.isEnabled()) &&
+      (await sessions.getAttribute('aria-expanded')) !== 'true'
+    )
+      await sessions.click();
     return;
   }
   if (value.includes('新建对话')) {
@@ -323,7 +333,10 @@ async function focusedChat(page: Page) {
     geometry.chatHeight + geometry.toolbarHeight > geometry.height * 0.85,
     JSON.stringify(geometry),
   );
-  assert.equal(await page.locator('.workspace-context').isVisible(), true);
+  assert.equal(
+    await page.locator('.happier-session-heading').isVisible(),
+    true,
+  );
   assert(
     geometry.messageHeight +
       geometry.toolbarHeight +
@@ -1849,9 +1862,17 @@ try {
   })();
   void recoveringCli.catch(() => {});
   await wait(
-    () =>
-      existsSync(recoveryCapture) &&
-      JSON.parse(readFileSync(recoveryCapture, 'utf8')).phase === 'connected',
+    () => {
+      try {
+        return (
+          existsSync(recoveryCapture) &&
+          JSON.parse(readFileSync(recoveryCapture, 'utf8')).phase ===
+            'connected'
+        );
+      } catch {
+        return false;
+      }
+    },
     'reliable TUI attached',
     60000,
   );
@@ -2069,6 +2090,10 @@ try {
   });
   const targetedPage = await targetedBrowser.newPage();
   await targetedPage.goto(origin);
+  await targetedPage
+    .locator('.authorization-welcome')
+    .getByRole('button', { name: '申请授权', exact: true })
+    .click();
   await targetedPage.getByLabel('设备名称').fill('Agent targeted CW');
   await targetedPage.getByLabel('目标服务器 ID（选填）').fill(enrolled.hostId);
   await targetedPage
@@ -2138,6 +2163,10 @@ try {
   });
   const rejectedPage = await rejectedBrowser.newPage();
   await rejectedPage.goto(origin);
+  await rejectedPage
+    .locator('.authorization-welcome')
+    .getByRole('button', { name: '申请授权', exact: true })
+    .click();
   await rejectedPage.getByLabel('目标服务器 ID（选填）').fill(enrolled.hostId);
   await rejectedPage
     .getByRole('button', { name: '申请登录', exact: true })
@@ -2175,6 +2204,10 @@ try {
   });
   const visitorPage = await visitor.newPage();
   await visitorPage.goto(origin);
+  await visitorPage
+    .locator('.authorization-welcome')
+    .getByRole('button', { name: '申请授权', exact: true })
+    .click();
   assert.equal(await visitorPage.getByLabel('服务器标识').count(), 0);
   const browserMessage =
     '我是测试用户，请授权开发服务器。\n用途：验证 <script>alert(1)</script> 留言按文本显示。';
@@ -2186,7 +2219,7 @@ try {
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
-  const pending = await visitorPage.locator('strong').innerText();
+  const pending = await visitorPage.locator('.login-card strong').innerText();
   const requestRow = page
     .getByRole('row')
     .filter({
@@ -2227,7 +2260,10 @@ try {
   assert(webCookie.httpOnly);
   assert(webCookie.expires * 1000 > Date.now() + 300 * 86400000);
   // Save another A credential in the same browser, then switch back to the online A.
-  await feature(visitorPage, /^会话记录/);
+  await openNavigation(visitorPage);
+  await visitorPage
+    .getByRole('button', { name: '选择主机', exact: true })
+    .click();
   await visitorPage
     .getByRole('button', { name: '申请授权', exact: true })
     .click();
@@ -2235,7 +2271,9 @@ try {
   await visitorPage
     .getByRole('button', { name: '申请登录', exact: true })
     .click();
-  const secondCode = await visitorPage.locator('strong').innerText();
+  const secondCode = await visitorPage
+    .locator('.login-card strong')
+    .innerText();
   await page
     .getByLabel('目标服务器 ' + secondCode, { exact: true })
     .selectOption(other.hostId);
@@ -2276,6 +2314,7 @@ try {
   await otherPage.goto(origin);
   await feature(otherPage, /^会话记录/);
   await selectHostId(otherPage, other.hostId);
+  await selectProjectId(otherPage, 'other-project');
   await wait(
     async () =>
       (await otherPage
@@ -2290,6 +2329,7 @@ try {
   await otherPage.getByText('echo: other host', { exact: true }).waitFor();
   await feature(visitorPage, /^会话记录/);
   await selectHostId(visitorPage, enrolled.hostId);
+  await selectProjectId(visitorPage, 'test-project');
   await feature(visitorPage, /^新建对话/);
   await idle(visitorPage);
   agent.interruptNextRequest();
@@ -2330,9 +2370,7 @@ try {
       await offlineNotice
         .getByRole('button', { name: '关闭', exact: true })
         .click();
-    await openSettings(visitorPage);
     await visitorPage
-      .locator('.workbench-menu-items')
       .getByRole('button', { name: 'Terminal', exact: true })
       .click();
     const terminalRequests: string[] = [];
@@ -2478,6 +2516,7 @@ try {
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
   await selectHostId(visitorPage, enrolled.hostId);
+  await selectProjectId(visitorPage, 'test-project');
   await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: /browser hello/ })
@@ -2547,6 +2586,7 @@ try {
   await visitorPage.reload();
   await feature(visitorPage, /^会话记录/);
   await selectHostId(visitorPage, enrolled.hostId);
+  await selectProjectId(visitorPage, 'test-project');
   await feature(visitorPage, /^会话记录/);
   await visitorPage
     .getByRole('button', { name: /browser hello/ })
@@ -2822,33 +2862,26 @@ try {
     ),
   );
   await visitorPage.setViewportSize({ width: 1280, height: 900 });
-  await openSettings(visitorPage);
-  await visitorPage.getByRole('button', { name: /^会话记录/ }).click();
+  await openNavigation(visitorPage);
   assert.equal(await visitorPage.locator('.conversation').count(), 1);
-  assert(
-    await visitorPage
-      .getByRole('dialog')
-      .getByRole('region', { name: '连接设置' })
-      .isVisible(),
-  );
+  await expect(visitorPage.locator('aside.unified-navigation')).toBeVisible();
   await visitorPage.screenshot({
     path: join(artifacts, 'cw-session-connections-desktop.png'),
   });
+  await openSettings(visitorPage);
   await visitorPage.keyboard.press('Escape');
+  await expect(
+    visitorPage.getByRole('region', { name: '设置', exact: true }),
+  ).not.toBeVisible();
   await focusedChat(visitorPage);
   await openSettings(visitorPage);
-  await visitorPage.keyboard.press('Escape');
-  assert.equal(
-    await visitorPage.getByRole('navigation', { name: '功能菜单' }).count(),
-    0,
-  );
-  await openSettings(visitorPage);
   await visitorPage.waitForTimeout(4500);
-  assert.equal(
-    await visitorPage.getByRole('navigation', { name: '功能菜单' }).isVisible(),
-    true,
-  );
-  await visitorPage.getByRole('button', { name: /CW 对话 会话/ }).click();
+  await expect(
+    visitorPage.getByRole('region', { name: '设置', exact: true }),
+  ).toBeVisible();
+  await visitorPage
+    .getByRole('button', { name: '返回会话', exact: true })
+    .click();
   await visitorPage
     .getByText('echo: continue restored conversation', { exact: true })
     .waitFor();

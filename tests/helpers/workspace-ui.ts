@@ -45,7 +45,9 @@ export async function selectHostId(page: Page, id: string) {
   const heading = page.getByRole('button', { name: '选择主机', exact: true });
   if ((await heading.getAttribute('aria-expanded')) !== 'true')
     await heading.click();
-  await page.locator(`[data-host-id="${id}"]`).click();
+  const selected = page.locator(`[data-host-id="${id}"]`);
+  if ((await selected.getAttribute('aria-pressed')) !== 'true')
+    await selected.click();
 }
 export async function selectProjectId(page: Page, id: string) {
   await openNavigation(page);

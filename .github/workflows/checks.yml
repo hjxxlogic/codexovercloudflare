@@ -57,7 +57,7 @@ jobs:
           ref: 666d1affbe063d9273ef34f435c5384a0e0e58c2
           path: .local/legacy-source
       - name: Verify databases created by pre-merge Store
-        run: python3 scripts/ci-command.py python3 tests/legacy-upgrade.py --legacy-source .local/legacy-source
+        run: python3 scripts/ci-command.py python3 tests/legacy-upgrade.py --legacy-source .local/legacy-source --agent build/coc-agent
       - name: Native and unit regressions including DO persistence and CW recovery
         run: npm test
       - run: python3 scripts/ci-command.py npm run test:tls
