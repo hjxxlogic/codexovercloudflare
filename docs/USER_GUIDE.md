@@ -159,6 +159,10 @@ Linux 默认启用自动更新。Agent 在启动、明确重连或收到发布�
 
 Linux 上批量清理 x0–x9 用户的该字段，可在仓库根目录运行 `sudo python3 scripts/remove-update-interval.py` 预览，再追加 `--apply` 执行。脚本从系统账户读取主目录，默认检查 `.config/coc-agent/agent.json` 和 `.config/coc-client/credentials.json`，仅删除顶层 `autoUpdate` 对象中的 `intervalHours`，其余 JSON 值保留（缩进会统一）。每个修改文件旁生成唯一备份，保留文件所有者和权限，以原子替换写入；不重启服务。自定义路径使用可重复的 `--config-relative .coc-agent/agent.json`（替代默认路径）。缺失账户或文件跳过，解析、权限或符号链接错误会打印跳过原因，并继续处理其余配置及用户；最后汇总检查数和错误数，有错误时返回非零状态。执行期间请勿同时登录或修改配置。
 
+排查 x0–x9 本机 Agent 启动失败，可执行 `sudo python3 scripts/collect-user-diagnostics.py --owner ubuntu`。脚本只读源文件，在唯一 `/tmp/coc-user-diagnostics-*` 目录生成 Agent / CLI 配置和 `dataDir/projects.json` 的脱敏副本、源文件权限及摘要、Agent 进程信息、最近 20 分钟内最多 500 条日志的诊断摘要；同时检查默认配置和运行进程显式指定的 `--config`。常见凭据键、URL 密码及查询参数会遮盖，原始日志、数据库、审批令牌文件及二进制不复制；损坏 JSON 只记录错误类型，缺失文件或单用户错误提示后继续。副本目录权限为 `0700`、文件为 `0600`，完成后交给指定用户（默认 sudo 调用者）；输出末尾给出目录路径。脱敏副本用于检查，不能直接用于恢复凭据。
+
+针对 2026-11-05 已检查的 x0、x1、x2、x3、x7、x8 空旧项目登记，可运行 `sudo python3 scripts/repair-user-startup.py --snapshot /tmp/coc-user-diagnostics-目录` 预览，追加 `--apply` 执行一次性显式修复。仅接受原摘要未变化、revision=0、receipts=[] 的精确旧结构，保留主机和项目，补齐当前 journal / retiredIds；x1、x2 同时删除废弃 codexUseProxy，保留已核实的 codexProxyMode。增加 `--sync-proxy-from /home/ubuntu/v2/.coc-agent/agent.json` 可在同次运行将 x0–x9 Agent 的 proxy / codexProxyMode 和 CLI 的 proxy 同步为该 Agent 配置（缺失模式视为 inherit），不复制其他凭据或配置。源文件变动、非空旧回执或不匹配结构会跳过并报错；修改前生成唯一备份并保留所有者和权限，不重启服务。故障 Agent 下次初始化重试可读取修复结果；正常 Agent 的运行配置需等空闲后单独安排重启。此脚本不是自动存储迁移，也不改写 SQLite。
+
 自动匹配 Linux x86_64 / Ubuntu 20.04 或 Debian 12；兼容衍生系统需明确设置 `autoUpdate.platform` 为 `ubuntu20.04` 或 `debian12`，不会猜测 ABI。musl 静态版默认始终选择 `musl` 更新包，不按宿主发行版切换到动态包。检查来自所连接中继，CLI 优先 `--relay`，否则选中主机的中继；无选中主机时使用默认地址。不向下载接口发送设备凭据，不跟随重定向，不降级或安装预发行版本，要求协议主版本一致。开发脏构建不自动更新。
 
 程序和安装目录必须归运行用户所有、目录可写且没有组/其他用户写权限；拒绝 set-ID 程序。建议安装到该用户的 `~/.local/bin`，并让 systemd 使用相同路径。root 所有的 `/usr/local/bin` 安装不会让普通用户自动提权更新，需管理员手动安装，或改为用户目录。更新依赖系统 `/bin/tar`；无需 Node.js，不更新 Codex、系统动态库、配置、凭据或数据库。

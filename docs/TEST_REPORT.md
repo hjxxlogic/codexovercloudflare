@@ -62,6 +62,10 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 
 2026-11-05 自动更新配置容错本地验证：`npm test`（11 项 CTest、35 个 Vitest 文件 / 505 项断言）、`npm run test:configuration`、`npm run test:update`、`npm run lint`、`npm run lint:cpp`、`npm run typecheck` 通过。配套 CLI 安装辅助验证通过源码身份检查、原文件备份、权限保留及符号链接拒绝。CI 与实际部署结果另记部署文档。
 
+诊断收集脚本使用独立临时目录验证配置与项目结构复制、凭据键及 URL 脱敏、缺失文件继续、损坏 JSON 拒绝和源文件不改写；真实 x0–x9 文件收集需由有权限的管理员执行，尚未代为运行。
+
+启动修复及代理同步脚本基于已收集的十个用户结构，在独立临时目录验证预览不写入、六份空旧登记转换、项目及凭据保留、十用户代理同步、正常项目登记不变、备份内容一致，以及非空旧回执和过期源摘要拒绝。尚未对真实用户执行修复。
+
 ## 验证边界
 
 测试使用独立配置和数据目录，不清理生产状态。截图、日志、测量与本机证据放在忽略的 `.local/`，可用 `COC_ARTIFACT_DIR` 指定浏览器证据目录。
