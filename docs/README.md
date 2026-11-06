@@ -15,15 +15,15 @@
 | 远程读取配置、替换与重启   | [远程配置](REMOTE_CONFIGURATION.md)                   |
 | 构建、开发和本机测试       | [开发说明](DEVELOPMENT.md)                            |
 | 选择测试入口和了解验证边界 | [测试说明](TEST_REPORT.md)                            |
-| 查看 r2 当前部署和线上验证 | [r2 部署记录](R2_DEPLOYMENT.md)                       |
-| 集成范围及迁移准备 | [不透明中继合并计划](OPAQUE_RELAY_MERGE_PLAN.md) |
+| 查看 r2 历史部署和验证     | [r2 部署记录](R2_DEPLOYMENT.md)                       |
+| 集成范围及迁移准备         | [不透明中继合并计划](OPAQUE_RELAY_MERGE_PLAN.md)      |
 | 发布、部署与回退           | [发布操作](RELEASE.md)                                |
 
 [protocol.generated.json](protocol.generated.json) 由 `packages/protocol` 的 schema 生成，修改协议后运行 `npm run protocol:generate`，不要手工编辑。
 
 [不透明中继架构](OPAQUE_RELAY_DESIGN.md) 说明本次职责迁移：Agent / Client 承担业务路由、控制权和可靠传输，Worker 保留权限管理、连接准入与密文转发。实施用例、运行入口与本机证据见 [设计测试与验收](OPAQUE_RELAY_TEST_PLAN.md)。
 
-[CW Happier 界面计划与实施记录](CW_HAPPIER_UI_PLAN.md) 记录会话视图的上游来源、移植范围、步骤及浏览器验证。
+[CW 界面结构与来源](CW_HAPPIER_UI_PLAN.md) 记录会话视图的上游来源、组件职责和验证入口。
 
 ## 维护约定
 

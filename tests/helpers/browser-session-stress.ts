@@ -86,15 +86,25 @@ export async function browserSessionStress(options: {
           await selectProjectId(page, projectId);
           await button(page, '＋ 新建对话').click();
           await expect(page.getByRole('dialog')).toHaveCount(0);
+          const readonly = page.getByText('只读会话 · 同项目已有写会话', {
+            exact: true,
+          });
+          // Drafts can be edited before CONTROL_READY; only the enabled send
+          // action proves the actual write handshake has completed.
+          await page
+            .getByLabel('任务内容')
+            .fill('CW_STRESS_BARRIER', { timeout: 1000 })
+            .catch(() => {});
           await expect
             .poll(
               async () =>
-                (await page.getByLabel('任务内容').count()) +
-                (await page.locator('.readonly-hint').count()),
+                ((await button(page, '发送').count()) > 0 &&
+                  (await button(page, '发送').isEnabled())) ||
+                (await readonly.isVisible()),
               { timeout: 30000 },
             )
-            .toBeGreaterThan(0);
-          entry.reader = (await page.getByLabel('任务内容').count()) === 0;
+            .toBe(true);
+          entry.reader = await readonly.isVisible();
         }),
       );
       const rejected = opened.find((result) => result.status === 'rejected');

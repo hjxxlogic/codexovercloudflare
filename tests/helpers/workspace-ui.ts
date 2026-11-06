@@ -15,11 +15,15 @@ export async function openNavigation(page: Page) {
     await expect(drawer).toBeVisible();
   } else {
     const navigation = page.locator('aside.unified-navigation');
-    if (!(await navigation.isVisible()))
-      await page
-        .getByRole('button', { name: '打开会话导航', exact: true })
-        .click();
-    await expect(navigation).toBeVisible();
+    // Resizing replaces the mobile toggle with the desktop sidebar in an
+    // effect. Reassess the DOM if that transition retires the clicked toggle.
+    await expect(async () => {
+      if (!(await navigation.isVisible()))
+        await page
+          .getByRole('button', { name: '打开会话导航', exact: true })
+          .click({ timeout: 1000 });
+      await expect(navigation).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
   }
 }
 export async function openSettings(page: Page) {

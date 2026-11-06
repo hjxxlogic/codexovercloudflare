@@ -1,6 +1,8 @@
 # 不透明中继架构设计（精简版）
 
-状态：已实现并通过本机回归；尚未发布。基线：`589c26b`。实现与测试证据见 [验收记录](OPAQUE_RELAY_TEST_PLAN.md)；支持能力以 [项目需求](REQUIREMENTS.md)、[技术架构](ARCHITECTURE.md) 和 [用户手册](USER_GUIDE.md) 为准。
+本文保留源分支截至 2026-11-06 的设计与阶段验收；历史部署针对独立 r2。0.6.14 合并、迁移及准确提交验证以 [合并计划](OPAQUE_RELAY_MERGE_PLAN.md) 与 [测试说明](TEST_REPORT.md) 为准，本次没有部署。
+
+状态：设计已实现，初始基线为 `589c26b`；2026-11-04 的准确提交 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859` 后续通过完整 CI 并部署至独立 r2。该历史发布不代表本次 0.6.14 已发布。实现与测试证据见 [验收记录](OPAQUE_RELAY_TEST_PLAN.md)；支持能力以 [项目需求](REQUIREMENTS.md)、[技术架构](ARCHITECTURE.md) 和 [用户手册](USER_GUIDE.md) 为准。
 
 目标：**Worker 管理身份、权限和连接；Agent / Client 负责业务协议、控制权和可靠传输。Worker 知道谁可以连接谁、具有什么权限，看不到实际业务内容。** Client 包括现有 CLI/TUI、网页和可被远程管理的 CLI 进程。
 

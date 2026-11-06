@@ -1,38 +1,6 @@
 # 测试说明
 
-## 2026-11-06：r2 仅网页发布工具
-
-`python3 tests/deploy-web.py` 覆盖原 Worker 执行代码完全匹配、代码不一致拒绝、额外执行模块拒绝、缺失入口拒绝，以及变量 / 原生变更选项拒绝。调试 source map 规范化不参与执行代码摘要比较。发布前后还会从 Cloudflare 实际读取执行模块核对，网页资源逐字节校验；5/5 检查通过，线上模块摘要、资源字节、Web 验收、临时凭据清理和隔离核对通过，见 [发布证据](assets/cw-observer-web/verified-preview.json)。
-
-## 2026-11-06：CW 只读历史恢复
-
-适配 master `9580dcb` 的修复与当前“继续对话”界面，新增首次只读、控制连接被 4009 替换后只读两项浏览器回归；检查返回页面补回新消息且不增加 attach / takeover 请求。修复前新增回归按预期失败，修复后导航专项通过，无浏览器异常；历史同步 / 订阅单元测试 20/20、Web 构建、TypeScript、受影响文件 ESLint / Prettier 通过。结果与边界见 [实施记录](CW_OBSERVER_HISTORY_FIX.md)。之后按用户“仅部署网页”要求已发布 r2，Worker 执行代码保持，见 [发布证据](assets/cw-observer-web/verified-preview.json)。
-
-## 2026-11-06：0.6.13 继续对话
-
-仅 Web UI 验证：覆盖连接正常时隐藏连接 / 接管操作、其他页面占用时的继续入口、转移确认取消 / 接受的实际请求数量、临时断线自动重试与提示恢复消失、closed / failed 的继续入口及 starting / closing 的等待状态。保留桌面 / 手机导航、草稿、文件预览及管理界面回归。构建、类型与受影响文件静态检查及准确结果见 [实施记录](CW_CONTINUE_0.6.13.md)。完整仓库、原生、模型任务与完整 CI 不在范围内。r2 线上 Web 验收、资源字节核对、临时凭据撤销与旧站 / 两个 Agent 隔离复核通过，见 [发布证据](assets/cw-continue-0.6.13/verified-preview.json)。
-
-## 2026-11-06：0.6.12 顶栏、独立预览与消息复制
-
-仅进行 Web UI 验证：导航专项通过，覆盖正常顶栏精简、离线浮动 / 恢复消失且对话尺寸不变、用户 / AI 原文复制、超过 13 万字符分页完整复制且不改变正文高度、浏览器 / 预览独立关闭、保留筛选、手机列表 / 预览切换。高级 Markdown 浏览器回归通过；发布前同时完成 Web 构建、类型及受影响文件静态检查。完整仓库、原生、模型调用与完整 CI 不在本次范围。准确结果见 [实施记录](CW_UI_0.6.12.md)。r2 线上 Web 验收、资源字节核对、临时凭据撤销和旧站 / 两个 Agent 隔离复核通过，见 [发布证据](assets/cw-ui-0.6.12/verified-preview.json)。
-
-## 2026-11-06：0.6.11 Web 交互细节
-
-Web 构建、类型检查、受影响代码 ESLint / Prettier、导航浏览器专项和高级 Markdown 检查通过；无浏览器异常。仅验证 Web UI：单行折叠、项目刷新 / 路径预填、设置图标文字、信息模态与焦点恢复、长预览 / 全屏工具栏、复制按需显示、长工具命令单行省略，并回归既有桌面 / 手机导航与 Markdown。准确检查结果及边界见 [0.6.11 实施记录](CW_UI_POLISH_0.6.11.md)。r2 线上 Web 验收、资源字节核对、临时凭证清理和旧站 / 两个 Agent 隔离复核通过，见 [发布证据](assets/cw-ui-polish-0.6.11/verified-preview.json)。
-
-## 2026-11-05：0.6.10 三级导航与图标操作
-
-Web 构建、类型检查、受影响代码静态检查、`npm run test:ui:navigation` 与 `npm run test:markdown` 通过。覆盖三级互斥展开、上级有效性、邮箱前缀、授权 / 新建项目表单与权限提示、主机切换清空下级、草稿 / Terminal 保留、桌面 / 手机、管理导航、工具提示关联及富文本。未执行完整仓库、原生、模型任务或完整 CI 测试；上线只做 Web UI 验证。详见 [0.6.10 实施记录](CW_NAVIGATION_0.6.10.md)。 r2 线上 Web 验收、资源字节核对、临时凭证清理与旧站 / 两个 Agent 隔离复核均通过，见 [发布证据](assets/cw-navigation-0.6.10/verified-preview.json)。
-
-## 2026-11-05：0.6.9 Web UI 专项
-
-统一左侧导航、设置页、五按钮和文件面板合并完成。Web 构建、类型检查、受影响文件静态检查、`npm run test:ui:navigation` 与 `npm run test:markdown` 通过。按用户要求不执行完整测试或原生测试，采用 r2 本地预览；完整 CI 未验证。具体覆盖、限制和截图见 [实施记录](CW_NAVIGATION_0.6.9.md)。
-
-本文列出当前测试入口和验证边界，不把历史通过结果当作当前提交的检查结果。运行依赖与构建步骤见 [开发说明](DEVELOPMENT.md)，正式发布需检查准确提交的完整 Actions 运行。
-
-2026-11-05 授权复核修复新增持续事件流、原 Agent 回复、缓冲顺序、真实撤权和输入/输出超限回归，并更新刷新交错及控制异常断言。本地 Vitest 505/505、类型检查及 Lint 通过；另运行原生 delivery 与 history retention 集成通过。opaque 分支两项问题及 master 的差异用隔离复现验证，具体边界见 [审查记录](AUTHORIZATION_REVIEW_2026-11-05.md)。包含修复的准确提交 `a1fc79f3a80e74ee8310739bd4d69934ab48e331` 已通过 [完整 Actions 门禁](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104)，六个必需作业全部成功。云端字节与包摘要验证、线上准入边界检查、本机 Agent 空闲安装及 120 秒运行观察均通过；已登录生产浏览器验证的限制和完整部署证据见 [发布操作](RELEASE.md)。
-
-2026-11-05 Happier 官方 Web 实测与第二轮改版：两个隔离真实模型会话覆盖多会话、工具 / 文件审批、长输出和复杂格式；自动回归仍使用模拟 Codex。当前 TypeScript、Lint、Web 构建、`test:opaque`、完整 `test:ui` 和 `test:markdown` 通过；完整 Terminal / E2E 46 项以及 r2 预览线上 `test:opaque` 已通过；准确提交 CI 尚在验证。新增紧凑标题、全高度侧栏和顶部操作不重叠断言。见 [官方 Web 对照](HAPPIER_WEB_COMPARISON_2026-11-05.md) 和 [实施记录](CW_HAPPIER_UI_PLAN.md)。
+本文列出当前入口与验证边界；本次集成结果见文末。历史预览不代表当前提交或线上部署，准确来源见 [r2 历史发布记录](R2_DEPLOYMENT.md)。
 
 ## 基础检查
 
@@ -103,61 +71,32 @@ Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on
 
 CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64 全部必要作业。运行中、已触发或仅部分通过不构成发布验证。部署后的运行身份与下载包身份分别核对，见 [发布操作](RELEASE.md)。
 
-## 不透明中继实施记录（2026-11-04）
+## 历史证据边界
 
-2026-11-05 Client 会话启动诊断补齐：`cmake --build build -j2` 通过；`ctest --test-dir build -R 'startup-repair|native-core' --output-on-failure` 3/3 通过（69.06 秒）。新增回环 HTTP/WebSocket + 假 Codex 回归覆盖 attach/connect 版本校验失败、校验失败不发远端请求、禁用开关、连接拒绝、缓存路径故障、TUI 提前异常退出（含 127）、正常退出、握手后但 initialized 前失败、initialized 后运行失败，以及 connect 参数错误；提示词不含凭据和会话 ticket。增加远端请求断言后单独重跑新增测试通过。测试需要本机 socket，沙箱拒绝后在沙箱外运行；未调用真实模型，未在 Windows 实机验证，未部署。
+初始不透明中继源码 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859` 的 [Actions 41764690561](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 六项必需作业成功，随后部署至独立 r2。原 master 授权复核修复 `a1fc79f3a80e74ee8310739bd4d69934ab48e331` 的 [Actions 41961015104](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104) 全部成功。它们均不代替本次准确提交门禁。
 
-2026-11-06 CW 跨设备只读历史恢复：`npm run test:ui` 完整通过，新增模拟控制连接被其他设备接管（4009）、历史连接 OPEN 但不送达更新，返回页面后通过 HTTP 补回最新消息且 attach 次数不增加。`npx vitest run tests/history-sync.test.ts tests/history-subscription.test.ts` 20/20 通过；`npm run typecheck`、`npm run build:web`、受影响 TS 文件 ESLint 和 `git diff --check` 通过。UI 测试需本机 HTTP/WebSocket 与 Chromium，在沙箱外执行；首次新增断言存在重复定位器及恢复步骤面板定位问题，修正后完整重跑通过。未部署，未进行真实跨设备长稳验证。
+0.6.8–0.6.13 的多次 Web 预览包含局部测试和 `ciVerified=false` 发布；未将未运行的原生或完整 CI 计为通过。逐次 SHA、版本、摘要与线上验证范围见 [r2 历史发布记录](R2_DEPLOYMENT.md)，详细阶段流水可从 [固定源提交](https://github.com/hjxxlogic/codexovercloudflare/tree/f2de6f8ccea342575ce99b8c852f893f938285c3/docs) 复现。界面结构归入 [界面说明](CW_HAPPIER_UI_PLAN.md)，实际官方 Web 对照保留于 [实测记录](HAPPIER_WEB_COMPARISON_2026-11-05.md)。
 
-2026-11-06 CW 普通会话持久队列：原生/网页构建通过；`npm test` 完整通过（13/13 CTest、35 个 Vitest 文件 / 510 项测试），`npm run test:ui` 完整通过，类型检查、完整 ESLint/Prettier、C++ 格式及 `protocol:check` 通过。新增 `tests/native-prompt-queue.ts` 使用隔离 Agent、模拟 Codex 与回环服务，验证同一请求重复投递不重复入队、快照恢复、取消、容量拒绝原子回滚、接管后管理原队列、指定条目优先、等待真正轮次结束（中断 ACK 后延迟终止）、空闲竞争、停止失败暂停、旧轮审批失效，以及重启保留 queued/unknown 且不重放。网页覆盖忙碌时入队、清空输入框、刷新保留、立即执行与取消；手机/桌面截图在 `.local/ui-stability/cw-prompt-queue-mobile.png` 与 `cw-prompt-queue-desktop.png`。测试初期因沙箱拒绝 tsx IPC 导致旧网页资源被使用，以及模拟会话浅拷贝共享队列/任务身份不完整，已修正并完整重跑。测试需本机 socket 与 Chromium，沙箱外执行，不调用模型；未部署，未进行真实 Codex 或线上多设备长稳验证。会话关闭/失败或 Agent 重启后保留旧队列供核对，不自动搬运到恢复的新 runtime。
-本轮在基于 `589c26b` 的独立 `docs/opaque-relay-architecture` worktree 实施，最终部署源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。具体用例和证据见 [不透明中继验收](OPAQUE_RELAY_TEST_PLAN.md)。原生/网页、Worker dry-run、静态检查与确定性集成分别记录，不把组件夹具通过写成完整公网通道通过。`test:delivery`、`test:runtime`、`test:terminal` 的内部引擎压力测试使用 `coc-agent-component`；生产通道由独立端点和端到端测试验证。
+## 2026-11-06 不透明中继集成验证
 
-本机结果：13/13 CTest、35 文件 / 379 Vitest、完整 E2E 46 项通过（含 Terminal）；加密互通、真实 Codex TUI 初始化和原生/浏览器专项通过。构建与静态检查证据见验收记录。
+输入固定为 master `7c344413607becd70444341882951844a6e72dbd` 与源 `f2de6f8ccea342575ce99b8c852f893f938285c3`。合并提交 `0de34e4` 保留双方父提交，后续修正继续在 `integrate/opaque-relay`；源码版本统一为 0.6.14。本次没有部署、下载发布、Agent 安装或 tag。
 
-该准确提交的 [完整 CI](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41764690561) 六项必需作业全部成功，已使用 CI 制品部署到独立 r2。真实 Cloudflare、CI 原生 Agent 和 Chromium 的线上协议、浏览器任务及刷新恢复测试通过；模拟 Codex 未调用模型，邮箱登录和长稳未验证。来源摘要、截图及旧站 / Agent 隔离核对见 [r2 部署记录](R2_DEPLOYMENT.md)。
+| 本机检查             | 实际结果                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 依赖、构建与静态检查 | npm ci、完整 npm run build（原生 / Web / Worker dry-run）、typecheck、lint、lint:cpp、protocol generate/check 通过                                                              |
+| 基础与 sanitizer     | 15 项 CTest、36 个 Vitest 文件 / 389 项测试通过；独立 ASan/UBSan 构建的 15 项 CTest 通过                                                                                        |
+| 加密、队列与历史     | test:opaque、test:queue、delivery / retention、operations、configuration、projects、runtime 通过；真实加密通道与浏览器覆盖队列去重、取消、立即执行、刷新恢复和观察历史          |
+| 认证及资源           | TLS / Access、browser-access / guest-access、真实计时 billing、billing:web、wake 通过                                                                                           |
+| Web 与真实协议       | 默认 test:ui 和 navigation、新增恢复行为、markdown/cache、projects:e2e、operations:web、uploads:web、native Terminal、native-login、真实 Codex 无模型初始化与 native smoke 通过 |
+| 工具                 | release / update / backup、agent-deploy 19 项、cloud-deploy、deploy-web、Access 工具 4 项、CI 输出工具通过；均为隔离测试，没有执行生产 apply                                    |
+| 完整 PTY E2E         | 已通过原生协议与 CLI、任务 / 模型 / 去重、TUI 断线恢复、真实授权、3 / 5 浏览器并发单写与交接；后半段 Terminal / 文件 / 撤权仍在完成最终重跑                                     |
 
-## master 合并验证（2026-11-05）
+`test:ui` 默认联合当前导航和行为回归：快照超时恢复、400/500 不清登录或草稿、语言持久化、模型选择、未知提交结果、0/1/3/10 审批和丢回包后不重复发送。`--navigation` 只运行导航，`--behavior` 可单独复现行为；`--legacy-layout` 保留旧布局供历史复现。队列 UI 由真实加密 `test:opaque` 验证。当前桌面与手机截图见 [界面说明](CW_HAPPIER_UI_PLAN.md)。
 
-合入 master 至 `05a1f85` 的已提交改动。授权复核缓冲适配密文通道，控制事件串行处理，退休确认绕过暂停的数据；保留新架构的端点控制及 SQLite 版本 2。启动诊断、配置容错和固定重试采用 master 行为；Client 启动回归的模拟 Relay 复用原生密码互通夹具作为加密端点，Agent 重试回归使用 channel-register。
+旧数据库演练使用准确旧提交 `666d1af` 编译其原 Store / Projects，创建含会话、队列、历史、回执与项目登记的 SQLite 0/1。新 Store / Agent 使用原配置、凭据和 dataDir 连续启动两次；旧项目登记逐字节不变，旧程序拒绝升级后的版本 2。SQLite backup API 验证包含已提交 WAL；备份写入失败保留旧版本并可重试，子进程文件大小限制模拟实际写入不足后仍可由旧程序验证原记录。入口为 `python3 tests/legacy-upgrade.py --legacy-source <隔离旧源码> --agent build/coc-agent`，CI 固定 checkout 旧提交。
 
-验证在独立 worktree、临时配置和数据目录进行，使用 `COC_NO_STARTUP_REPAIR=1` 禁止故障测试调用真实模型；启动诊断专项单独使用假 Codex。此合并不代表更新已部署的 r2 或旧站。
+DO fixture 覆盖多页事务备份、批次提交后中断与重启、同实例重试、重复迁移、wakeUntil 持久化、活动旧 lease / 未完成权限操作 / 未知未来版本失败关闭。Registry 身份授权保留原结构。发布时仍需确认线上未决状态、导出快照及验证实际对象；本次没有生产副本或在线迁移证据。
 
-合并检查：原生构建、类型、lint / C++ 格式、Vitest 35 文件 / 381 项、原生 15 项（完整运行 14 项通过后单独修正并通过 Client 启动夹具）、配置管理、自动更新和实际计时重试通过。完整 E2E 发现故障注入恢复等待窗口短于新的 30 秒重试周期，已调整；在随后的 CW 界面实施中，包含 Terminal 的完整 46 项 E2E 最终全部通过，不将先前超时运行计为通过。合并专项日志为本机 `/tmp/opaque-master-*.log`，最终 E2E 为 `/tmp/cw-happier-e2e-complete.log`，未调用模型或部署。
+中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。中间提交和运行中作业均不作为最终门禁。
 
-## CW Happier 界面移植（2026-11-05）
-
-计划、来源与实施过程见 [CW 界面记录](CW_HAPPIER_UI_PLAN.md)。本次产品差异仅在 `apps/web/`，复用原会话、消息、审批、文件及可靠传输，不引入新依赖。完整 MIT 许可随网页静态资源发布。
-
-类型、ESLint / Prettier、网页构建和 Vitest 35 文件 / 381 项通过；英文词条专项 5 项单独复核通过。完整 `test:ui` 通过，包含桌面侧栏、手机抽屉搜索 / 焦点、选择当前会话不重复连接、主题、审批、文件 / Markdown、模型、草稿、身份隔离，以及新增 720px / 650px 分屏输入卡片不覆盖 Terminal 的断言。
-
-`COC_NO_STARTUP_REPAIR=1 COC_TEST_TERMINAL=1 npm run test:e2e` 最终退出码 0，46 项全部通过，覆盖原生 CLI、真实 PTY 的输入输出 / 拖动 / 全屏 / 手机、会话历史与可靠传输、控制权、审批、文件上传断线恢复、双主机隔离及权限撤销。阅读区保留原有 65% 比例约束，新增标题计入与现有工作台工具栏一致的高度预算；去除输入卡片叠加留白，保持输入区在视口内。强制断网后的测试等待给固定 30 秒重试留足时间，原请求编号和去重断言保留。
-
-`COC_NO_STARTUP_REPAIR=1 npm run test:opaque` 通过真实本地 Worker、原生 Agent 和 Chromium 的项目选择、提示词流式回复、刷新恢复及回复去重；该浏览器任务流程现也在本地模式执行。模拟 Codex 未调用模型。截图和结构化结果见 `docs/assets/cw-happier-ui/`；原始日志在 `/tmp/cw-happier-*.log`。未部署，未更改正在运行的 Agent 或旧站。
-
-## 0.6.8 全站 Happier 与 r2 升级
-
-本轮将共享主题覆盖登录 / 配对、管理九个面板、CW、文件预览、图表、Terminal 和下载页。管理桌面侧栏与手机 Tab 保留原有审批、撤销、排序和权限行为；同页 / 跨标签主题同步不重建会话或终端。实施过程见 [计划记录](CW_HAPPIER_UI_PLAN.md#全站实施记录)。
-
-本地原生构建和 CTest 15/15、Vitest 35 文件 / 381 项、完整 E2E 46 项（包含 Terminal）通过；完整 UI 专项已通过九面板 × 深浅色 × 桌面 / 手机，以及跨标签同步和既有故障恢复。类型、lint、网页构建、部署工具与来源校验测试通过。合成数据截图和本地结果见 [验证记录](assets/happier-site-0.6.8/verification.json)；准确提交 CI、部署来源、下载摘要与线上结果写入 [r2 部署记录](R2_DEPLOYMENT.md)，此处本地结果不代替 CI 门禁。
-
-用户授权的本地 r2 预览已通过真实 Cloudflare / Agent / Chromium 线上测试，覆盖加密业务与九个管理面板的桌面 / 手机深浅色。79 个静态资源字节一致；下载页规范地址修正后部署工具 18 项回归通过。独立用户测试 Agent 已连接，原 Agent / 旧站隔离断言均通过。[预览证据](assets/r2-deployment-0.6.8-2026-11-05/local-preview-verification.json) 标记 `ciVerified=false`，不将仍在运行的 Actions 视为成功。
-
-CI 的真实计时账单 / 重试专项需要约 8 分 35 秒，主回归总预算提高至 45 分钟，所有用例与断言保留。CI 默认禁用会调用模型的自动启动修复；专门的假 Codex 修复夹具清除此标记后验证该功能。
-
-## 2026-11-06 不透明中继集成验证（进行中）
-
-输入：master 7c34441、源 f2de6f8；独立 worktree 的源码版本 0.6.14。未部署。已实际通过类型、ESLint/Prettier、C++ 格式、协议生成检查、原生编译、队列组件专项、36 个 Vitest 文件 / 388 条断言、新导航桌面/手机及观察历史验收、SQLite 0/1 升级备份与重复启动测试。加密集成已验证队列去重、取消、立即执行，以及浏览器队列刷新恢复；完整端到端与跨平台 CI 仍待完成，不将中间结果记为全通过。
-
-DO 测试覆盖多页旧 lease 备份、事务批次后重启、重复迁移、wakeUntil 持久化、未完成权限操作失败关闭；Registry 身份授权保持原结构。SQLite 使用真实 backup API 验证包含 WAL 的队列记录及原版本；结构不支持时保持拒绝。生产副本、磁盘耗尽、实际旧发布包升级及线上快照导出仍需独立证据。
-
-`test:ui` 默认使用当前导航验收；`--legacy-layout` 保留旧布局测试供历史版本复现。队列 UI 行为转入真实加密 `test:opaque`，默认和 navigation 入口均使用当前界面，旧布局选择器不作为当前行为验证。
-
-本机完整矩阵日志位于集成 worktree 的忽略目录 `.local/opaque-merge/`，临时构建诊断位于 /tmp/opaque-*。最终 CI、SHA 与限制待完成后补录。
-
-补充：已用准确提交 666d1af 的原 Store 实现生成含会话、队列、历史和缓存回执的版本 0/1 数据库，新 Store 两次打开验证记录保持，旧 Store 拒绝升级后的版本 2；入口 `python3 tests/legacy-upgrade.py --legacy-source <旧源码目录>`，CI 通过独立 checkout 固定旧源码身份。新增备份写入失败保持原版本并恢复重试的 CTest。迁移拒绝仍活动的旧 lease 及未知未来 channelVersion，失败后可在同一 DO 实例重试。
-
-使用 `--agent build/coc-agent` 的演练现已通过：旧版真实 Projects 写出的登记文件逐字节保留，新 Agent 使用相同配置、凭据和 dataDir 连续启动两次。对子进程施加文件大小限制，SQLite 写入失败后仍由旧程序验证原业务记录，再解除限制完成升级。本机完整 `npm run build`（含 Worker dry-run）、最新 lint/typecheck、15 项 ASan/UBSan CTest 均通过。中间提交 0ecf0b4 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 已通过 sanitizers、Ubuntu 20.04、Debian 12、musl；其余作业与后续修正的准确提交 CI 仍需完成。
-
-管理界面保留手动“刷新状态”，可在通知中断后重新读取管理快照。手机选择管理分类后自动收起导航，避免抽屉阻挡面板操作；真实数据表在统一布局内限制宽度并保持内部滚动。
-
-本机完整基础回归现为 15 项 CTest 与 389 项 Vitest 通过；加密 E2E、队列、可靠交付、操作、配置、项目、runtime、TLS/Access、计费、唤醒、原生 Terminal、新导航、Markdown/cache、项目 E2E、Web 操作/上传、真实 Codex 无模型初始化、native smoke、release/update/backup、cloud-deploy/deploy-web 工具已获得对应本机通过结果。完整 PTY E2E 仍在适配旧界面定位。首轮 CI 0de34e4 / Actions 42151853443 的 regression 因格式失败，sanitizers 的 core 报 CONFIG_BUSY；不得视为最终通过。
+本机矩阵与重跑日志保存在忽略的 `.local/opaque-merge/`，截图原件位于 `.local/ui-stability/`、`.local/screenshots/`；不提交配置、数据库或凭据。最终准确提交的 CI、制品摘要与合入结果完成后补录。生产云端 / 下载 / Agent、真实线上迁移、外网长稳及真实模型任务均未执行。

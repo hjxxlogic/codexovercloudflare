@@ -1,78 +1,80 @@
-# r2 当前部署
+# r2 历史发布记录
+
+以下为 2026-11-05 至 2026-11-06 源分支的历史证据，保留准确来源、摘要和验证边界。本次 0.6.14 集成没有部署，也未重新核验线上当前状态。旧阶段文档与截图通过固定源提交访问。
 
 ## 2026-11-06：0.6.13 网页补丁（只读历史恢复）
 
-当前 https://r2.xlogic.cc 的网页来源为 [`4b08796d25194b176dce02613aea2b528d225568`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b08796d25194b176dce02613aea2b528d225568)，包含只读历史恢复修复 `fcfb6e1`，网页版本号保持 `0.6.13`。网页源码摘要 `6a4d670eb2f01b40e53fa1d302d419d78b6285c81ae662dbf338e9fc284b358a`。本次仅更新网页，使用 `scripts/deploy-cloud.py --local-build --target r2 --web-only-from <已验证的 0.6.13 deployment.json> --apply`，没有编译 Worker。
+该次发布后，https://r2.xlogic.cc 的网页来源为 [`4b08796d25194b176dce02613aea2b528d225568`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b08796d25194b176dce02613aea2b528d225568)，包含只读历史恢复修复 `fcfb6e1`，网页版本号保持 `0.6.13`。网页源码摘要 `6a4d670eb2f01b40e53fa1d302d419d78b6285c81ae662dbf338e9fc284b358a`。本次仅更新网页，使用 `scripts/deploy-cloud.py --local-build --target r2 --web-only-from <已验证的 0.6.13 deployment.json> --apply`，没有编译 Worker。
 
 Cloudflare 代码与静态资源以同一版本部署，新 Version ID `993f12d9-0670-45b6-a4e6-d0ae013fa154`；Worker 执行代码仍来自 `d3c69e2d3f59b287fb439423660b51eca7d1fc45`，发布前后实际读取线上 `index.js`，SHA256 均为 `996509bd0fd931a352bffec62ba673d0b7545c3c65710f8507b37f93abdea5b9`。原配置复用，变量使用 `--keep-vars` 保留，Secret 不变；source map 会由 Wrangler 规范化，不计入执行代码一致性。原生下载、下载说明与下载页主题保留。
 
 网页构建 / 类型检查、部署保护测试 5/5、健康与全部公开资源字节核对通过；历史修复此前的 Web 导航与历史单测 20/20 已通过。线上桌面 / 手机 / 管理 Web 验收无浏览器异常，临时凭据撤销通过，不创建或 attach 真实会话，不调用模型 / Shell。
 
-以本次发布前基线核对，旧站 Worker `a103c4dd-f5b8-4a82-a19d-3329129339b5`、r2 路由 / DO namespaces / Access audience 和两个 Agent 身份保持不变；原 Agent PID `846124`、r2 测试 Agent PID `2527593` 未重启或替换。原生下载保持 `0.6.7`。本地预览 `ciVerified=false`，提交含 `[skip ci]`，完整 CI 未运行。见 [发布证据](assets/cw-observer-web/verified-preview.json) 与 [历史恢复实施记录](CW_OBSERVER_HISTORY_FIX.md)。
+以本次发布前基线核对，旧站 Worker `a103c4dd-f5b8-4a82-a19d-3329129339b5`、r2 路由 / DO namespaces / Access audience 和两个 Agent 身份保持不变；原 Agent PID `846124`、r2 测试 Agent PID `2527593` 未重启或替换。原生下载保持 `0.6.7`。本地预览 `ciVerified=false`，提交含 `[skip ci]`，完整 CI 未运行。见 [发布证据](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-observer-web/verified-preview.json) 与 [历史恢复实施记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_OBSERVER_HISTORY_FIX.md)。
 
 ## 2026-11-06：0.6.13 继续对话与连接提示
 
-当前 https://r2.xlogic.cc 已部署源码 [`d3c69e2d3f59b287fb439423660b51eca7d1fc45`](https://github.com/hjxxlogic/codexovercloudflare/commit/d3c69e2d3f59b287fb439423660b51eca7d1fc45)，Web / Worker `0.6.13`，Worker Version ID `5df20399-ff4f-404e-8fd7-508c14cbf3fe`。源码摘要 `bb684cc5db84a42c340e262f441b6dee4f5e448550b3747f14856213e5eb74b2`。按用户仅 Web UI 验证要求发布本地预览，`ciVerified=false`、提交含 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行。
+该次发布后，https://r2.xlogic.cc 已部署源码 [`d3c69e2d3f59b287fb439423660b51eca7d1fc45`](https://github.com/hjxxlogic/codexovercloudflare/commit/d3c69e2d3f59b287fb439423660b51eca7d1fc45)，Web / Worker `0.6.13`，Worker Version ID `5df20399-ff4f-404e-8fd7-508c14cbf3fe`。源码摘要 `bb684cc5db84a42c340e262f441b6dee4f5e448550b3747f14856213e5eb74b2`。按用户仅 Web UI 验证要求发布本地预览，`ciVerified=false`、提交含 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行。
 
-历史与控制转移统一为“继续对话”，占用时确认转到当前页面、取消不转移；正常连接隐藏连接操作，短暂断线自动恢复，失败时提供“重试连接”，恢复后提示消失。启动 / 结束 / 历史 / 中断分别说明；确认转移成功后自动重连使用普通连接，不重复转移。Worker / Agent 业务代码未改。实现、验证边界和模拟截图见 [0.6.13 记录](CW_CONTINUE_0.6.13.md)。
+历史与控制转移统一为“继续对话”，占用时确认转到当前页面、取消不转移；正常连接隐藏连接操作，短暂断线自动恢复，失败时提供“重试连接”，恢复后提示消失。启动 / 结束 / 历史 / 中断分别说明；确认转移成功后自动重连使用普通连接，不重复转移。Worker / Agent 业务代码未改。实现、验证边界和模拟截图见 [0.6.13 记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_CONTINUE_0.6.13.md)。
 
 Web 构建、类型检查、受影响文件 ESLint / Prettier、导航浏览器专项通过。使用 `scripts/deploy-cloud.py --local-build --target r2 --commit d3c69e2d3f59b287fb439423660b51eca7d1fc45 --apply`，显式保留 r2 Access audience，健康与全部公开资源字节核对通过。线上 `scripts/verify-web-navigation.ts` 验证桌面 / 手机导航、文件 / 预览入口、信息对话框、设置 / 主题和管理页，无浏览器异常，临时凭据已撤销。控制转移与重连细节使用本地模拟浏览器覆盖；未在线创建 / attach / 恢复真实会话或调用模型 / Shell。
 
-以本次发布前新采集基线为准，旧站 Worker `a103c4dd-f5b8-4a82-a19d-3329129339b5`、DO namespaces、路由及 r2 Access audience 保持不变；原 Agent PID `846124` 和 r2 测试 Agent PID `2527593` 的可执行文件、启动身份未变，未重启或替换程序 / 配置 / 数据库。原生下载保留 `0.6.7`。[公开发布证据](assets/cw-continue-0.6.13/verified-preview.json)，凭据与机器本地证据仅在忽略目录。
+以本次发布前新采集基线为准，旧站 Worker `a103c4dd-f5b8-4a82-a19d-3329129339b5`、DO namespaces、路由及 r2 Access audience 保持不变；原 Agent PID `846124` 和 r2 测试 Agent PID `2527593` 的可执行文件、启动身份未变，未重启或替换程序 / 配置 / 数据库。原生下载保留 `0.6.7`。[公开发布证据](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-continue-0.6.13/verified-preview.json)，凭据与机器本地证据仅在忽略目录。
 
 ## 2026-11-06：0.6.12 独立预览与消息复制
 
-当前 https://r2.xlogic.cc 已部署源码 [`425f450f0945b6ed1ef124d233ab5ea53000e388`](https://github.com/hjxxlogic/codexovercloudflare/commit/425f450f0945b6ed1ef124d233ab5ea53000e388)，Web / Worker `0.6.12`，Worker Version ID `7e38b51f-f775-45c0-85e4-7c05f84aa684`。源码摘要 `7dd8d58e1e8f3ebe98d7bf8d4aa2bdae0125af2ba87c2760937f3157090eefca`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行，不作为 CI 验证制品。
+该次发布后，https://r2.xlogic.cc 已部署源码 [`425f450f0945b6ed1ef124d233ab5ea53000e388`](https://github.com/hjxxlogic/codexovercloudflare/commit/425f450f0945b6ed1ef124d233ab5ea53000e388)，Web / Worker `0.6.12`，Worker Version ID `7e38b51f-f775-45c0-85e4-7c05f84aa684`。源码摘要 `7dd8d58e1e8f3ebe98d7bf8d4aa2bdae0125af2ba87c2760937f3157090eefca`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行，不作为 CI 验证制品。
 
-正常顶栏仅保留导航与操作，连接异常浮动、恢复自动消失；文件树与内容预览拆分为独立控件，支持分别关闭 / 全屏与手机返回列表；用户和 AI 消息整条复制，AI 保留原始 Markdown，长消息按需读全，复制按钮与反馈浮动、不占正文空间。实施和模拟截图见 [0.6.12 记录](CW_UI_0.6.12.md)。Worker / Agent 业务代码未改。
+正常顶栏仅保留导航与操作，连接异常浮动、恢复自动消失；文件树与内容预览拆分为独立控件，支持分别关闭 / 全屏与手机返回列表；用户和 AI 消息整条复制，AI 保留原始 Markdown，长消息按需读全，复制按钮与反馈浮动、不占正文空间。实施和模拟截图见 [0.6.12 记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_UI_0.6.12.md)。Worker / Agent 业务代码未改。
 
 Web 构建、类型检查、受影响文件 ESLint / Prettier、导航专项与高级 Markdown 浏览器回归通过。通过 `scripts/deploy-cloud.py --local-build --target r2 --commit 425f450f0945b6ed1ef124d233ab5ea53000e388 --apply` 发布；显式指定 r2 Access audience，健康检查及全部公开资源字节核对通过。线上 `scripts/verify-web-navigation.ts` 验证桌面 / 手机导航、精简顶栏、文件 / 传输、信息对话框、设置 / 主题与管理页，无浏览器异常，临时 Web 凭据清理通过；不创建 / attach 会话，不发送任务，不启动 Shell。消息复制与独立预览的细节由本地模拟浏览器覆盖。
 
-发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5`、路由、独立 DO namespaces 和 r2 Access audience 均保持；原 Agent PID `846124` 与 r2 测试 Agent PID `2527593` 的可执行文件、启动身份未变，未重启服务或替换程序 / 配置 / 数据。原生下载保留 `0.6.7`。源码、制品摘要、线上检查与隔离证据见 [公开记录](assets/cw-ui-0.6.12/verified-preview.json)；凭据与机器本地证据仅保留于忽略目录。
+发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5`、路由、独立 DO namespaces 和 r2 Access audience 均保持；原 Agent PID `846124` 与 r2 测试 Agent PID `2527593` 的可执行文件、启动身份未变，未重启服务或替换程序 / 配置 / 数据。原生下载保留 `0.6.7`。源码、制品摘要、线上检查与隔离证据见 [公开记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-ui-0.6.12/verified-preview.json)；凭据与机器本地证据仅保留于忽略目录。
 
 ## 2026-11-06：0.6.11 紧凑导航与可见工具栏
 
-当前 https://r2.xlogic.cc 已部署源码 [`0105572f65b1860a16345c5faee4afa1e4ad4637`](https://github.com/hjxxlogic/codexovercloudflare/commit/0105572f65b1860a16345c5faee4afa1e4ad4637)，Web / Worker `0.6.11`，Worker Version ID `6a6c08bd-2d1a-4f25-9e9a-8c2e5ad91c60`。源码摘要 `e4ee24a148e8ed24e6c81cae695acccad0ae877fc7c428503cd51e12054dd8f9`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，未运行完整 CI 或原生测试。
+该次发布后，https://r2.xlogic.cc 已部署源码 [`0105572f65b1860a16345c5faee4afa1e4ad4637`](https://github.com/hjxxlogic/codexovercloudflare/commit/0105572f65b1860a16345c5faee4afa1e4ad4637)，Web / Worker `0.6.11`，Worker Version ID `6a6c08bd-2d1a-4f25-9e9a-8c2e5ad91c60`。源码摘要 `e4ee24a148e8ed24e6c81cae695acccad0ae877fc7c428503cd51e12054dd8f9`；用户授权的本地预览，`ciVerified=false`，提交带 `[skip ci]`，未运行完整 CI 或原生测试。
 
-折叠层级改为单行，项目刷新常显于新建左侧，新建路径推断父目录或根目录；设置操作图标附文字，信息改模态对话框，长预览 / 全屏 / 对话框保留工具栏，复制按需显示，折叠工具调用最多一行。实现及模拟截图见 [0.6.11 记录](CW_UI_POLISH_0.6.11.md)。Worker / Agent 业务代码未改。
+折叠层级改为单行，项目刷新常显于新建左侧，新建路径推断父目录或根目录；设置操作图标附文字，信息改模态对话框，长预览 / 全屏 / 对话框保留工具栏，复制按需显示，折叠工具调用最多一行。实现及模拟截图见 [0.6.11 记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_UI_POLISH_0.6.11.md)。Worker / Agent 业务代码未改。
 
 Web 构建、类型检查、受影响代码 ESLint / Prettier、导航专项和高级 Markdown 浏览器回归通过。部署脚本确认健康版本 `0.6.11` 和主页 / 静态资源 / 下载清单字节一致，Worker bundle SHA256 `38fdfd0da58994b66d2d53c7f14ac2b0bb78851cede4944df3aa41b953108dbc`。原生下载保留已验证 `0.6.7`。
 
 线上 Web 验收通过，覆盖单行层级、项目刷新顺序与常显、信息模态 / 长内容关闭按钮 / Escape 焦点恢复、五按钮、文件 / 传输、设置主题、手机抽屉和管理左栏；无浏览器异常。仅访问既有隔离测试主机，临时 Web 凭证已确认撤销；未创建 / attach 会话、发送任务或启动终端。
 
-发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站 / r2 DO namespace 独立，r2 namespace、路由、Access audience 保持。原 Agent PID `846124` 和测试 Agent PID `2527593` 的可执行文件、启动标识不变，未重启。准确来源与摘要见 [公开发布证据](assets/cw-ui-polish-0.6.11/verified-preview.json)，私有日志 / 截图保存在忽略的 `.local/r2-release-0.6.11/`。
+发布前后复核旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站 / r2 DO namespace 独立，r2 namespace、路由、Access audience 保持。原 Agent PID `846124` 和测试 Agent PID `2527593` 的可执行文件、启动标识不变，未重启。准确来源与摘要见 [公开发布证据](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-ui-polish-0.6.11/verified-preview.json)，私有日志 / 截图保存在忽略的 `.local/r2-release-0.6.11/`。
 
 本节及后续文档提交仅补充证据，线上功能源码为上述准确提交。
 
 ## 2026-11-05：0.6.10 三级折叠导航与图标操作
 
-当前 https://r2.xlogic.cc 已部署源码 [`26aeb63ed8821cdffb99d16fb13265f103d37306`](https://github.com/hjxxlogic/codexovercloudflare/commit/26aeb63ed8821cdffb99d16fb13265f103d37306)，Web / Worker `0.6.10`，Worker Version ID `aa03ae33-cfc7-49b2-98a2-b97cf15b7284`。源码摘要 `5b8b1d3cf9dfc64ce22628e1b026c43dc14df85f5a5619b397d39c8d321e0d5f`；本地预览，`ciVerified=false`。按用户要求仅验证 Web UI，提交含 `[skip ci]`，没有运行 / 等待完整 Actions 或原生测试。
+该次发布后，https://r2.xlogic.cc 已部署源码 [`26aeb63ed8821cdffb99d16fb13265f103d37306`](https://github.com/hjxxlogic/codexovercloudflare/commit/26aeb63ed8821cdffb99d16fb13265f103d37306)，Web / Worker `0.6.10`，Worker Version ID `aa03ae33-cfc7-49b2-98a2-b97cf15b7284`。源码摘要 `5b8b1d3cf9dfc64ce22628e1b026c43dc14df85f5a5619b397d39c8d321e0d5f`；本地预览，`ciVerified=false`。按用户要求仅验证 Web UI，提交含 `[skip ci]`，没有运行 / 等待完整 Actions 或原生测试。
 
-左栏采用主机 → 项目 → 会话互斥展开、上级有效后解锁下级；授权置于主机列表下、新建项目置于项目列表下、新建会话在会话列表上。顶部显示会话图标、邮箱用户名前缀与收起按钮，底部仅设置；各工作面板操作统一图标与悬停 / 键盘工具提示。实现、测试边界与模拟截图见 [0.6.10 实施记录](CW_NAVIGATION_0.6.10.md)。
+左栏采用主机 → 项目 → 会话互斥展开、上级有效后解锁下级；授权置于主机列表下、新建项目置于项目列表下、新建会话在会话列表上。顶部显示会话图标、邮箱用户名前缀与收起按钮，底部仅设置；各工作面板操作统一图标与悬停 / 键盘工具提示。实现、测试边界与模拟截图见 [0.6.10 实施记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_NAVIGATION_0.6.10.md)。
 
 Web 构建、类型检查、受影响文件 ESLint / Prettier、导航浏览器专项和高级 Markdown 浏览器测试通过。既有部署脚本核对健康版本 `0.6.10`、主页 / 静态资源 / 下载清单字节一致，Worker bundle SHA256 `6aeef9d8c022c614c7d10c8f98d3aa78ac38c25c6abea96c869556ceb064bd1b`；原生下载仍为 CI 已验证 `0.6.7`。Worker / Agent 业务代码未改，未构建或替换 Agent。
 
 线上 `scripts/verify-web-navigation.ts` 通过：三级导航解锁、五按钮、文件 / 传输入口、面板互斥、设置主题、手机抽屉与管理左栏，无浏览器异常。使用既有隔离主机的临时 Web 身份，结束后已确认撤销；未创建 / attach 会话、发送任务、启动终端。访客入口不提供邮箱，线上用户名显示“用户”；邮箱前缀由本地 Web 模拟身份验证。
 
-发布前后只读复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变；旧站与 r2 DO namespace 独立，r2 namespace、路由、Access audience 保持；原 Agent PID `846124`、独立测试 Agent PID `2527593` 的可执行文件及启动标识不变，未重启。完整可公开身份 / 摘要 / 验证见 [发布证据](assets/cw-navigation-0.6.10/verified-preview.json)。凭据、原始日志与线上截图仅保存在忽略的 `.local/r2-release-0.6.10/`。
+发布前后只读复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变；旧站与 r2 DO namespace 独立，r2 namespace、路由、Access audience 保持；原 Agent PID `846124`、独立测试 Agent PID `2527593` 的可执行文件及启动标识不变，未重启。完整可公开身份 / 摘要 / 验证见 [发布证据](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-navigation-0.6.10/verified-preview.json)。凭据、原始日志与线上截图仅保存在忽略的 `.local/r2-release-0.6.10/`。
 
 本节及后续文档提交仅补充发布证据，线上功能源码保持上述准确提交。
 
 ## 2026-11-05：0.6.9 统一左栏与工作区面板
 
-当前 r2 已部署源码 [`4b458083aa80379cc9fa87ebe4c1ec101f291510`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b458083aa80379cc9fa87ebe4c1ec101f291510)，Web / Worker `0.6.9`，Worker Version ID `87d08b89-701c-4284-ac16-02e143a56be0`。源码摘要 `b5d55ee872eaeb4b21be54f17fb4b91e8a4aa2ed4af21bdcf1832d3b075a7dfe`；本地构建预览，`ciVerified=false`。用户本轮明确要求只测 Web UI，因此提交使用 `[skip ci]`，未运行 / 等待完整 Actions，也未执行原生或完整集成测试。
+该次发布后，r2 已部署源码 [`4b458083aa80379cc9fa87ebe4c1ec101f291510`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b458083aa80379cc9fa87ebe4c1ec101f291510)，Web / Worker `0.6.9`，Worker Version ID `87d08b89-701c-4284-ac16-02e143a56be0`。源码摘要 `b5d55ee872eaeb4b21be54f17fb4b91e8a4aa2ed4af21bdcf1832d3b075a7dfe`；本地构建预览，`ciVerified=false`。用户本轮明确要求只测 Web UI，因此提交使用 `[skip ci]`，未运行 / 等待完整 Actions，也未执行原生或完整集成测试。
 
-可收起左栏统一主机、项目和会话；左下设置收纳外观及授权 / 管理入口，原会话记录弹窗和右侧菜单取消。右上五按钮、统一文件浏览 / 预览 / 传输及右侧输出 / 信息面板已上线。实现过程、Web 验证和截图见 [0.6.9 实施记录](CW_NAVIGATION_0.6.9.md)。
+可收起左栏统一主机、项目和会话；左下设置收纳外观及授权 / 管理入口，原会话记录弹窗和右侧菜单取消。右上五按钮、统一文件浏览 / 预览 / 传输及右侧输出 / 信息面板已上线。实现过程、Web 验证和截图见 [0.6.9 实施记录](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/CW_NAVIGATION_0.6.9.md)。
 
 Web 构建、类型检查、受影响文件 ESLint / Prettier、导航浏览器专项和高级 Markdown 浏览器测试通过。部署经 `scripts/deploy-cloud.py --local-build --target r2` 完成，健康版本 `0.6.9`，主页 / 静态资源 / 下载清单与准备目录逐字节一致；原生下载保持 CI 已验证 `0.6.7`。Worker bundle SHA256 `483a7ed41a12c8a713db93ffc9868588cc4cf9fad008ff5e19e9bfcf3957b857`。
 
 上线另用 `scripts/verify-web-navigation.ts` 通过实际 r2 页面验证：桌面左栏、五按钮、文件 / 传输入口、面板互斥、设置主题、手机抽屉和管理左栏，无浏览器异常。仅为临时 Web 身份授权既有隔离测试主机，结束后已撤销该凭证；未创建 / attach 会话、发送任务或启动终端。线上截图和凭据留在忽略的 `.local/r2-release-0.6.9/`。
 
-发布前后复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站和 r2 的 DO namespace 仍独立，r2 存储 / Access audience / 路由保持。原 Agent PID `846124` 与独立测试 Agent `2527593` 的可执行文件、启动标识均未变，未重启。可公开的精确身份、摘要与验证结果见 [发布证据](assets/cw-navigation-0.6.9/verified-preview.json)。
+发布前后复核：旧站 Worker `0b54f874-3b3a-43f3-8855-0465bcb646f5` 未变，旧站和 r2 的 DO namespace 仍独立，r2 存储 / Access audience / 路由保持。原 Agent PID `846124` 与独立测试 Agent `2527593` 的可执行文件、启动标识均未变，未重启。可公开的精确身份、摘要与验证结果见 [发布证据](https://github.com/hjxxlogic/codexovercloudflare/blob/f2de6f8ccea342575ce99b8c852f893f938285c3/docs/assets/cw-navigation-0.6.9/verified-preview.json)。
 
 ## 2026-11-05：官方 Web 实测后的第二轮预览
 
-当前 r2 已更新为源码 `6cb27bc88fe6372cf1b2ee20bea303fb180479dd`、Web / Worker `0.6.8`，Worker Version ID 为 `99f6777d-3406-4087-b343-2cd60284213c`。这仍是用户授权的本地预览，`ciVerified=false`；[准确提交 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42036227735) 记录时仍在运行，不能视为完整通过。原生下载保留已验证 `0.6.7`，没有替换或重启已有 Agent。
+该次发布后，r2 已更新为源码 `6cb27bc88fe6372cf1b2ee20bea303fb180479dd`、Web / Worker `0.6.8`，Worker Version ID 为 `99f6777d-3406-4087-b343-2cd60284213c`。这仍是用户授权的本地预览，`ciVerified=false`；[准确提交 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42036227735) 记录时仍在运行，不能视为完整通过。原生下载保留已验证 `0.6.7`，没有替换或重启已有 Agent。
 
 本轮实际注册官方 Happier 测试账户，完成两个真实会话、工具与文件审批、长输出和桌面 / 手机富文本对照，再改写页面结构与富文本工具栏；[实测文档](HAPPIER_WEB_COMPARISON_2026-11-05.md) 包含官方截图及同段 Markdown 的 CoC 对照。
 

@@ -2378,7 +2378,10 @@ try {
       if (new URL(req.url()).pathname.endsWith('/terminal'))
         terminalRequests.push(req.method());
     });
-    const terminal = visitorPage.getByLabel('Terminal', { exact: true });
+    const terminal = visitorPage.getByRole('region', {
+      name: 'Terminal',
+      exact: true,
+    });
     await expect(
       terminal.getByRole('button', { name: '打开终端' }),
     ).toBeEnabled();

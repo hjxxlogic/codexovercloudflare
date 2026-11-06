@@ -15,6 +15,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Event } from '../packages/protocol/src/index.ts';
 import { version as webVersion } from '../package.json';
 import { navigationUI } from './helpers/navigation-ui.ts';
+import {
+  openSettings,
+  selectHostId,
+  selectProjectId,
+} from './helpers/workspace-ui.ts';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
@@ -3598,10 +3603,228 @@ async function legacyUI() {
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 }
+const originalUIEvents = structuredClone(events);
+async function currentBehaviorUI() {
+  session.state = 'ready';
+  session.autoApproval = false;
+  session.promptQueue = [];
+  approvals = [];
+  admin = false;
+  logged = true;
+  online = true;
+  stallHistory = false;
+  events.splice(0, events.length, ...structuredClone(originalUIEvents));
+  submitted.clear();
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    const draft = '恢复与语言切换保留草稿';
+    await page.getByLabel('任务内容').fill(draft);
+    const attached = attachCalls;
+    const seq =
+      Math.max(...events.map((event) => event.revision ?? event.seq)) + 1;
+    events.push({
+      seq,
+      type: 'user',
+      data: { text: '手动刷新独立补回的消息' },
+      time: seq,
+    });
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByText('手动刷新独立补回的消息', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel('任务内容')).toHaveValue(draft);
+    assert.equal(
+      attachCalls,
+      attached,
+      'snapshot refresh preserves the controller',
+    );
+    for (const error of [
+      { code: 'INVALID_REQUEST', status: 400 },
+      { code: 'INTERNAL_ERROR', status: 500 },
+    ]) {
+      hostListError = error;
+      await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+      await expect(page.getByRole('alert')).toContainText(error.code);
+      await expect(page.getByLabel('任务内容')).toHaveValue(draft);
+      assert.equal(
+        attachCalls,
+        attached,
+        'ordinary request failures do not log out or reconnect',
+      );
+      await page
+        .getByRole('alert')
+        .getByRole('button', { name: '关闭', exact: true })
+        .click();
+    }
+    hostListError = undefined;
+    let stalled = false;
+    await fixtureRoutes.route(
+      '**/api/v1/sessions/**/snapshot*',
+      async (route) => {
+        stalled = true;
+        await new Promise<void>((resolve) => setTimeout(resolve, 22000));
+        await route.abort().catch(() => {});
+      },
+    );
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: '刷新状态', exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: '刷新状态', exact: true }),
+    ).toBeEnabled({ timeout: 25000 });
+    assert(stalled);
+    await expect(page.getByRole('alert')).toContainText('刷新超时，已恢复操作');
+    await fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*');
+    await page
+      .getByRole('alert')
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
+    await openSettings(page);
+    await page.getByLabel('语言 / Language').selectOption('en');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await page
+      .getByRole('button', { name: 'Return to conversation', exact: true })
+      .click();
+    await expect(page.getByLabel('Task', { exact: true })).toHaveValue(draft);
+    assert.equal(attachCalls, attached);
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.getByLabel('Task', { exact: true })).toHaveValue(draft);
+    await page
+      .getByRole('button', { name: 'Open session navigation', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByLabel('语言 / Language').selectOption('zh-CN');
+    await page.getByRole('button', { name: '返回会话', exact: true }).click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    const beforeModels = submitted.size;
+    await page.getByLabel('任务内容').fill('/model');
+    await page.getByLabel('任务内容').press('Enter');
+    await expect(
+      page.getByRole('button', { name: /Test alternative/ }),
+    ).toBeEnabled();
+    await expect(page.getByRole('button', { name: /Hidden/ })).toHaveCount(0);
+    assert.equal(submitted.size, beforeModels, '/model never submits a task');
+    modelListFailure = true;
+    await page.getByRole('button', { name: '刷新模型列表' }).click();
+    await expect(
+      page.locator('.model-picker').getByRole('alert'),
+    ).toContainText('model/list unavailable');
+    modelListFailure = false;
+    await page.getByRole('button', { name: '刷新模型列表' }).click();
+    await page.getByRole('button', { name: /Test alternative/ }).click();
+    await expect(page.locator('.model-toggle')).toContainText('test-model-alt');
+    await page.getByLabel('任务内容').fill('提交结果不明测试');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => submitted.size).toBeGreaterThan(beforeModels);
+    const requestId = [...submitted].at(-1)!;
+    assert.equal(promptCommands.at(-1)?.model, 'test-model-alt');
+    for (const ws of controls)
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          requestId,
+          error: {
+            code: 'RESULT_UNKNOWN',
+            message: 'Synthetic unknown outcome',
+          },
+        }),
+      );
+    await expect(page.locator('.submission-state')).toContainText(
+      '任务提交结果待确认',
+    );
+    for (const ws of controls)
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          requestId,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Synthetic rejected submission',
+          },
+        }),
+      );
+    await expect(page.locator('.submission-state')).toHaveCount(0);
+    await expect(page.getByLabel('任务内容')).toHaveValue('提交结果不明测试');
+    for (const count of [0, 1, 3, 10]) {
+      approvals = Array.from({ length: count }, (_, index) => ({
+        approvalId: `current-${count}-${index}`,
+        method: 'item/commandExecution/requestApproval',
+        params: { command: `echo current-${index}` },
+      }));
+      for (const ws of controls) sync(ws);
+      await expect(
+        page.getByRole('button', { name: '拒绝', exact: true }),
+      ).toHaveCount(count ? 1 : 0);
+      if (count)
+        await expect(
+          page.getByText(`等待你的确认 · 1 / ${count}`, { exact: true }),
+        ).toBeVisible();
+      await page.setViewportSize({ width: 390, height: 480 });
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      );
+      if (count) {
+        const answers = approvalAnswers.length;
+        const beforeApprovalReconnect = attachCalls;
+        dropApprovalAck = true;
+        await page
+          .getByRole('button', { name: '拒绝', exact: true })
+          .first()
+          .click();
+        await expect
+          .poll(() => approvalAnswers.length, { timeout: 20000 })
+          .toBe(answers + 1);
+        await expect
+          .poll(() => attachCalls)
+          .toBeGreaterThan(beforeApprovalReconnect);
+        await page
+          .getByRole('button', { name: '刷新状态', exact: true })
+          .click();
+        await expect(
+          page.getByRole('button', { name: '刷新状态', exact: true }),
+        ).toBeEnabled();
+        assert.equal(
+          approvalAnswers.length,
+          answers + 1,
+          'lost approval reply does not repeat the decision',
+        );
+      }
+    }
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: current UI snapshot deadlines, request failures, language/draft persistence, model selection, unknown submissions and approval recovery',
+    );
+  } finally {
+    hostListError = undefined;
+    modelListFailure = false;
+    approvals = [];
+    dropApprovalAck = false;
+    await fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*');
+    await context.close();
+  }
+}
 let navigationSeq = 10000;
 let takeoverSync = 0;
 try {
-  if (!process.argv.includes('--legacy-layout'))
+  if (process.argv.includes('--behavior')) await currentBehaviorUI();
+  else if (!process.argv.includes('--legacy-layout')) {
     await navigationUI(
       browser,
       origin,
@@ -3645,7 +3868,8 @@ try {
         },
       },
     );
-  else await legacyUI();
+    if (!process.argv.includes('--navigation')) await currentBehaviorUI();
+  } else await legacyUI();
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();
