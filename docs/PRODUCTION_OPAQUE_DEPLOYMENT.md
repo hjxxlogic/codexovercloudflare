@@ -10,7 +10,7 @@
 - [Actions 42178474355](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42178474355) 的 regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 均成功；publish-release 跳过，未创建 tag 或 GitHub Release。使用现成成功结果，没有等待新修复提交的 CI。
 - 发布下载使用 `scripts/deploy-downloads.py --gh-proxy`。代理仅接收公开 Actions URL；GitHub 摘要由可信 API 获取，四个 ZIP、包内校验和及线上下载字节全部核对通过。发布前后 Worker 执行模块摘要一致，保留网页、生产变量、Secret、Access 与 DO namespace。
 
-最后一次 Worker 发布版本为 `58dfe832-7796-497d-967c-a02140d9c15f`。组件源码身份、GitHub 制品摘要及线上安装包 SHA256 见 [机器可读证据](assets/opaque-integration/production.json)。本机私有配置、数据库、原始 DO 内容、聊天截图和部署日志保存在忽略的 `.local/production-opaque-20261106/`，不入库。
+本次架构切换及下载发布的 Worker 版本为 `58dfe832-7796-497d-967c-a02140d9c15f`。组件源码身份、GitHub 制品摘要及线上安装包 SHA256 见 [机器可读证据](assets/opaque-integration/production.json)。本机私有配置、数据库、原始 DO 内容、聊天截图和部署日志保存在忽略的 `.local/production-opaque-20261106/`，不入库。
 
 ## 数据与恢复
 
@@ -29,3 +29,9 @@
 本机原生 CTest 15 项、Vitest 393 项通过，类型检查和 lint 通过。部署工具回归 Agent 19 项、Cloud 18 项、Web 5 项通过；新增数据库升级回退保护 2 项和原生构建输入一致性 2 项通过。
 
 本机 Agent 已开启自动更新。当前运行和 CI 下载都是 `0.6.14`，同版本不同提交不会自动替换；未来更高版本在启动、重连或管理员发布通知后检查，等待会话与历史读取结束再安装。未广播发布通知，未声称其他 Agent 已升级，也未将本地云端修复标记为经过该 CI 提交验证。
+
+## 后续：CW 会话列表与模式切换入口
+
+2026-11-06 随后按用户直接部署要求完成网页单独更新：Web 来源 `281ed20aa6f36f1ac0ff0b5ce888b048f44dab7c`，本地构建，Worker 发布版本 `8e893754-4b08-430e-8a34-a08b4170bb67`。会话列表移除附加继续按钮；已登录管理员的模式切换移到左栏底部设置右侧，设置页移除旧入口。Worker 执行模块前后摘要一致，原生下载保持 4a9d441 CI 制品，本机 Agent PID 保持 2472690。
+
+本地桌面 / 手机完整导航回归、类型检查、lint，以及部署回归 6 + 18 项通过。线上网页字节与构建一致；另用真实线上资源、模拟普通用户 / 管理员 API 身份响应检查入口可见性、位置和桌面 / 手机切换，无页面错误，不创建生产凭据或调用模型。摘要与验证范围见 [网页部署证据](assets/cw-sidebar-20261106/deployment.json)，未等待或假报该本地网页提交的 Actions 通过。

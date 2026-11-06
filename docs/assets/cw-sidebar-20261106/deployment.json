@@ -1,0 +1,82 @@
+{
+  "target": "https://r.xlogic.cc",
+  "webCommit": "281ed20aa6f36f1ac0ff0b5ce888b048f44dab7c",
+  "workerVersionId": "8e893754-4b08-430e-8a34-a08b4170bb67",
+  "webCiVerified": false,
+  "workerSource": {
+    "version": "0.6.14",
+    "commit": "9c546cc1eac2ab0e7e29c8350f3b8eface6871d3",
+    "target": "linux-x86_64",
+    "sourceDigest": "1a448de2e466361b477a6799c0463b1d375bbb234a6ca7e2bea35bc0c30a80ea",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals",
+      "delivery-v2",
+      "configuration-v1"
+    ]
+  },
+  "workerModuleHashes": {
+    "index.js": "108d6b2414e8be51d336c1891fcc09798d1ba22187c6e66bf53375a0bbda5824"
+  },
+  "workerVerifiedAfterDeploy": true,
+  "downloadSource": {
+    "version": "0.6.14",
+    "commit": "4a9d4414b734f0060d72b4854c729b4d67dbdbd7",
+    "sourceDigest": "9cfbb1670a291be33f5a9948e06c62562413d7910fcdab89a3513b99d878017c",
+    "protocol": 1
+  },
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.14",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "browserVerification": {
+    "target": "https://r.xlogic.cc",
+    "deployedAssets": true,
+    "syntheticIdentityResponses": true,
+    "productionCredentialsCreated": false,
+    "modelCalls": false,
+    "results": [
+      {
+        "administrator": false,
+        "footerButtons": 1,
+        "noSettingsModeSwitch": true,
+        "desktop": true,
+        "mobileSwitch": false,
+        "pageErrors": []
+      },
+      {
+        "administrator": true,
+        "footerButtons": 2,
+        "noSettingsModeSwitch": true,
+        "desktop": true,
+        "mobileSwitch": true,
+        "pageErrors": []
+      }
+    ]
+  },
+  "changes": [
+    "CW session rows no longer show a separate continue button",
+    "Authenticated administrators switch modes from the footer button to the right of settings",
+    "Settings no longer contains the mode switch"
+  ],
+  "checks": [
+    "build:web",
+    "typecheck",
+    "lint",
+    "test:ui:navigation",
+    "tests/deploy-web.py (6)",
+    "tests/cloud-deploy.py (18)"
+  ]
+}
