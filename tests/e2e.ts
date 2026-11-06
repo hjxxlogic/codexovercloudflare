@@ -2628,15 +2628,22 @@ try {
   await visitorPage
     .getByRole('button', { name: '继续对话：外部运行会话', exact: true })
     .click();
-  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
-  await visitorPage
-    .getByText(/外部会话 · 只读同步/)
-    .first()
-    .waitFor();
+  // Creating the resumed session clears the previous panel asynchronously.
+  // Wait for its composer before opening information on the new session.
   const queuedButton = visitorPage.getByRole('button', {
     name: '加入队列',
     exact: true,
   });
+  await expect(queuedButton).toBeVisible();
+  await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
+  await feature(visitorPage, /^会话详情/);
+  await visitorPage
+    .getByText(/外部会话 · 只读同步/)
+    .first()
+    .waitFor();
+  await visitorPage
+    .getByRole('button', { name: '关闭信息', exact: true })
+    .click();
   await visitorPage
     .getByRole('textbox', { name: '任务内容' })
     .fill('browser external queued input');
