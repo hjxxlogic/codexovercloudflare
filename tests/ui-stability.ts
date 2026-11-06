@@ -3618,6 +3618,43 @@ async function currentBehaviorUI() {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
+  await context.addInitScript(() => {
+    if (sessionStorage.getItem('hold-draft-restore') !== '1') return;
+    const state = window as unknown as {
+      draftRestoreBlocked?: boolean;
+      releaseDraftRestore?: () => void;
+    };
+    const get = IDBObjectStore.prototype.get;
+    const complete = Object.getOwnPropertyDescriptor(
+      IDBTransaction.prototype,
+      'oncomplete',
+    )!;
+    let held = false;
+    IDBObjectStore.prototype.get = function (query) {
+      const request = get.call(this, query);
+      if (
+        !held &&
+        this.name === 'pages' &&
+        Array.isArray(query) &&
+        query[1] === 'draft'
+      ) {
+        held = true;
+        const transaction = this.transaction;
+        Object.defineProperty(transaction, 'oncomplete', {
+          set(callback: EventListener) {
+            complete.set!.call(transaction, (event: globalThis.Event) => {
+              state.draftRestoreBlocked = true;
+              state.releaseDraftRestore = () => {
+                sessionStorage.removeItem('hold-draft-restore');
+                callback.call(transaction, event);
+              };
+            });
+          },
+        });
+      }
+      return request;
+    };
+  });
   const page = await context.newPage();
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
@@ -3632,6 +3669,52 @@ async function currentBehaviorUI() {
     await expect(page.getByLabel('任务内容')).toBeEnabled();
     const draft = '恢复与语言切换保留草稿';
     await page.getByLabel('任务内容').fill(draft);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (text) =>
+            new Promise<boolean>((resolve) => {
+              const open = indexedDB.open('coc-history-v3', 2);
+              open.onsuccess = () => {
+                const db = open.result;
+                const tx = db.transaction('pages');
+                const read = tx.objectStore('pages').getAll();
+                tx.oncomplete = () => {
+                  db.close();
+                  resolve(read.result.includes(text));
+                };
+              };
+              open.onerror = () => resolve(false);
+            }),
+          draft,
+        ),
+      )
+      .toBe(true);
+    await expect(
+      page.getByRole('button', { name: '发送', exact: true }),
+    ).toBeEnabled();
+    const beforeRestore = attachCalls;
+    await page.evaluate(() =>
+      sessionStorage.setItem('hold-draft-restore', '1'),
+    );
+    await page.reload();
+    await expect
+      .poll(() =>
+        page.evaluate(() => Reflect.get(window, 'draftRestoreBlocked')),
+      )
+      .toBe(true);
+    await expect(page.getByLabel('任务内容')).toBeDisabled();
+    assert.equal(
+      attachCalls,
+      beforeRestore,
+      'control waits for local draft and pending restoration',
+    );
+    await page.evaluate(() => Reflect.get(window, 'releaseDraftRestore')());
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await expect(page.getByLabel('任务内容')).toHaveValue(draft);
+    await expect(
+      page.getByRole('button', { name: '发送', exact: true }),
+    ).toBeEnabled();
     const attached = attachCalls;
     const seq =
       Math.max(...events.map((event) => event.revision ?? event.seq)) + 1;

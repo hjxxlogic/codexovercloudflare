@@ -89,7 +89,7 @@ CI 必须核对准确提交的 regression、sanitizers、Ubuntu 20.04、Debian 1
 | 认证及资源           | TLS / Access、browser-access / guest-access、真实计时 billing、billing:web、wake 通过                                                                                           |
 | Web 与真实协议       | 默认 test:ui 和 navigation、新增恢复行为、markdown/cache、projects:e2e、operations:web、uploads:web、native Terminal、native-login、真实 Codex 无模型初始化与 native smoke 通过 |
 | 工具                 | release / update / backup、agent-deploy 19 项、cloud-deploy、deploy-web、Access 工具 4 项、CI 输出工具通过；均为隔离测试，没有执行生产 apply                                    |
-| 完整 PTY E2E         | 已通过原生协议与 CLI、任务 / 模型 / 去重、TUI 断线恢复、真实授权、3 / 5 浏览器并发单写与交接；后半段 Terminal / 文件 / 撤权仍在完成最终重跑                                     |
+| 完整 PTY E2E         | 默认完整入口通过原生协议 / CLI、TUI 恢复、3 / 5 浏览器交接、真实隔离 PTY、历史 / 审批、文件断点与手机关闭、双主机及撤权；未使用 --skip-tui                                     |
 
 `test:ui` 默认联合当前导航和行为回归：快照超时恢复、400/500 不清登录或草稿、语言持久化、模型选择、未知提交结果、0/1/3/10 审批和丢回包后不重复发送。`--navigation` 只运行导航，`--behavior` 可单独复现行为；`--legacy-layout` 保留旧布局供历史复现。队列 UI 由真实加密 `test:opaque` 验证。当前桌面与手机截图见 [界面说明](CW_HAPPIER_UI_PLAN.md)。
 
@@ -102,5 +102,7 @@ DO fixture 覆盖多页事务备份、批次提交后中断与重启、同实例
 中间失败如实保留：`0de34e4` 的 [Actions 42151853443](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42151853443) 因格式及 sanitizer CONFIG_BUSY 失败；锁处理中补齐 EINTR 重试与显式解锁后，`0ecf0b4` 的 [Actions 42154302199](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42154302199) 五个平台 / sanitizer 作业全部成功，regression 在加密浏览器的尺寸切换导航竞态失败。后者已修正并由本机 test:opaque 重跑通过。`15a705d` 与 `0d71c41` 的 regression 暴露升级演练依赖 CI 未安装的 Codex，现已改为隔离版本探测并在本机重跑通过。`adfd2ed` 的 sanitizer 日志显示 CTest 零失败（14 项通过，native-terminal 因该作业未提供隔离工具而跳过；真实 PTY 在 regression 和本机独立验证），但依赖安装耗时约 11 分钟导致作业超过 20 分钟总时限而被取消；将作业时限调为 45 分钟，保留全部检查及断言，取消仍不计为通过。中间提交和运行中作业均不作为最终门禁。
 
 `a57a160` 的完整本机 PTY E2E 通过，CI 五项平台 / sanitizer 成功，但综合回归在三浏览器的只读就绪等待失败。现场截图与角色记录显示一写两读均已建立；旧测试按全页文本匹配，与隐藏的上下文头部重复文本发生严格定位竞态。就绪判断现限定实际只读提示区域，保留启用发送、一写多读、审批、刷新、交接及关闭断言。本机后续重跑通过 3 / 5 浏览器交接，并暴露聊天重连提示遮挡手机文件面板关闭按钮；将连接提示置于手机工作面板下方，保留全屏层级及实际点击关闭断言。进一步的清理前快照确认角色建立正确，但输入框在只读切换时移除，单次 inputValue / isEnabled 的默认等待可耗尽整个 30 秒屏障；将单次定位限制为 1 秒，在原总期限内重试。失败截图和文本在任何会话清理前统一保存，避免清理改变现场；导航断线注入前后均确认发送已启用，即真实控制握手完成。
+
+最新完整 E2E 的五浏览器交接进一步发现旧草稿与新输入混合：本机记录未恢复完即开放输入并启动控制握手。现先恢复草稿 / 模型 / pending，再开放输入与握手；UI 行为回归使用真实 IndexedDB 读取完成回调的人工屏障，验证暂停时输入禁用且未 attach，释放后原草稿完整、可输入及可发送。修复后的默认完整 E2E（启用真实 PTY、未使用 --skip-tui）、默认完整 UI、typecheck 和 lint 本机重跑全部通过；准确提交的 CI 仍待完成。
 
 本机矩阵与重跑日志保存在忽略的 `.local/opaque-merge/`，截图原件位于 `.local/ui-stability/`、`.local/screenshots/`；不提交配置、数据库或凭据。最终准确提交的 CI、制品摘要与合入结果完成后补录。未执行生产变更、真实线上迁移、外网长稳或真实用户业务模型任务。一次本机补充更新演练因旧 fixture 主机身份不匹配而意外触发启动修复模型；该子进程只检查临时状态和公开下载索引后随演练结束，未部署，已修正身份并在测试内部固定禁用启动修复，后续重跑通过。

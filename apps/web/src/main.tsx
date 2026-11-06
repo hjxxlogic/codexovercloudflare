@@ -246,6 +246,7 @@ function App() {
     [events, setEvents] = useState<Event[]>([]),
     [approvals, setApprovals] = useState<any[]>([]),
     [text, setText] = useState(''),
+    [draftReady, setDraftReady] = useState(false),
     [status, setStatus] = useState('未连接'),
     [error, setError] = useState(''),
     [ready, setReady] = useState(false),
@@ -1039,6 +1040,7 @@ function App() {
     olderView.current = false;
     setApprovals([]);
     setText('');
+    setDraftReady(false);
     setUnconfirmed(undefined);
     setPromptProgress(undefined);
     setSelectedModel('');
@@ -1860,8 +1862,6 @@ function App() {
               },
             },
           );
-          deliveryLoadReady!();
-          openDelivery();
           const savedDraft = await cache.record('draft').catch(() => undefined);
           const savedModel = await cache.record('model').catch(() => undefined);
           const savedPending = await cache
@@ -1876,6 +1876,9 @@ function App() {
             setUnconfirmed(savedPending);
             void checkPending();
           }
+          setDraftReady(true);
+          deliveryLoadReady!();
+          openDelivery();
           const stored = await cache.latest().catch(() => {
             cacheError();
             return undefined;
@@ -4346,7 +4349,8 @@ function App() {
                               maxLength={64000}
                               title={t('Enter 发送，Shift + Enter 换行')}
                               disabled={
-                                selected.external && !selected.queueEnabled
+                                !draftReady ||
+                                (selected.external && !selected.queueEnabled)
                               }
                               placeholder={
                                 selected.external
