@@ -124,3 +124,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 自动更新完整演练：干净构建后运行 `python3 tests/native-update.py --automatic --busy`，覆盖空闲安装、关闭状态库后重启及活动会话结束前不替换程序。可设置 `COC_LEGACY_FIXTURE=<旧源码>/build/coc-legacy-upgrade`，以准确旧版创建的数据库和项目登记验证自动更新保留原配置与账本；CI 固定运行此组合。测试下载服务与全部安装目录均位于临时环境。
 
 浏览器流程定位可用 `npm run test:e2e -- --skip-tui` 跳过两段原生 TUI 专项，仅用于加快重现；其余初始化和浏览器检查照常执行。最终本机与 CI 门禁仍必须使用不带该参数的完整 E2E，并设置 `COC_TEST_TERMINAL=1` 验证真实 PTY。
+
+部署回归还包括 `python3 tests/deploy-agent-recovery.py`（SQLite 升级后禁止单独回退旧二进制、停止恢复拒绝活动会话）及 `python3 tests/deploy-downloads.py`（已完成 CI 下载与当前原生构建输入的一致性）。两者已加入 regression 作业。

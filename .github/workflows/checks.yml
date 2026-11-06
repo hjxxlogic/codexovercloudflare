@@ -72,6 +72,8 @@ jobs:
       - run: npm run test:backup
       - run: npm run test:release
       - run: python3 tests/agent-deploy.py
+      - run: python3 tests/deploy-agent-recovery.py
+      - run: python3 tests/deploy-downloads.py
       - run: python3 tests/deploy-web.py
       - run: python3 tests/cloud-deploy.py
       - run: python3 tests/cloudflare-access-tools.py
