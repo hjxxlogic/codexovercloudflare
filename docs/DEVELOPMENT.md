@@ -2,23 +2,24 @@
 
 ## 工具与目录
 
-Agent / CLI 使用 C++17，运行无需 Node.js。构建需要 CMake ≥3.16、Python 3、Git、Boost.System ≥1.71、OpenSSL、SQLite3 和 nlohmann/json ≥3.7。网页、Worker 和 TypeScript 测试需要 Node.js ≥22.17。Codex `0.164.0` 是已验证基线；程序不固定安装版本，其他版本需兼容使用的 app-server / TUI API。
+Agent / CLI 使用 C++17，运行无需 Node.js。构建需要 CMake ≥3.16、Python 3、Git、Boost.System ≥1.71、OpenSSL、libsodium ≥1.0.14、SQLite3 和 nlohmann/json ≥3.7。网页、Worker 和 TypeScript 测试需要 Node.js ≥22.17。Codex `0.164.0` 是已验证基线；程序不固定安装版本，其他版本需兼容使用的 app-server / TUI API。
 
-| 目录                                 | 内容                                       |
-| ------------------------------------ | ------------------------------------------ |
-| `native/include/coc/`、`native/src/` | 原生 Agent、CLI、传输、进程、策略和 SQLite |
-| `native/tests/`                      | CTest、真实 Codex 协议及任务检查           |
-| `apps/relay/src/`                    | Worker、RegistryDO、HostRelayDO 与授权     |
-| `apps/web/src/`                      | React 网页                                 |
-| `packages/protocol/`                 | Zod schema 和 TypeScript 类型              |
-| `tests/`                             | 协议、集成和浏览器测试                     |
-| `tests/support/`                     | 原生进程 harness 与故障注入                |
-| `scripts/`、`examples/`              | 初始化、构建部署工具、配置和 systemd 模板  |
+| 目录                                 | 内容                                                          |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `native/include/coc/`、`native/src/` | 原生 Agent、CLI、传输、进程、策略和 SQLite                    |
+| `native/tests/`                      | CTest、真实 Codex 协议及任务检查                              |
+| `apps/relay/src/`                    | Worker、RegistryDO、HostRelayDO 与授权                        |
+| `apps/web/src/`                      | React 网页                                                    |
+| `packages/channel/`                  | 浏览器端点加密（锁定 libsodium-wrappers）；原生使用 libsodium |
+| `packages/protocol/`                 | Zod schema 和 TypeScript 类型                                 |
+| `tests/`                             | 协议、集成和浏览器测试                                        |
+| `tests/support/`                     | 原生进程 harness 与故障注入                                   |
+| `scripts/`、`examples/`              | 初始化、构建部署工具、配置和 systemd 模板                     |
 
 ## 构建与运行
 
 ```bash
-sudo apt-get install build-essential cmake python3 git libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format
+sudo apt-get install build-essential cmake python3 git libboost-system-dev libssl-dev libsodium-dev libsqlite3-dev nlohmann-json3-dev clang-format
 npm ci
 npm run build:native
 npm run setup:local
@@ -92,7 +93,7 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 云端只支持原生 DO；测试和部署使用相同后端。修改持久状态需要事务校验、冲突回滚及故障注入，不通过清库消除未知请求。凭据、配置、项目文件和运行任务必须保留。
 
-无邮箱网页授权保留显式认领；无邮箱会话由用户连接后绑定当前邮箱，不自动分配归属。配置、协议和存储只接受当前格式；不执行旧格式导入、补列、时间回填或身份降级。SQLite 新库标记 `user_version=1`，已有完整当前结构的未标记库直接使用；缺列或未知版本的库返回 `UNSUPPORTED_STORAGE_VERSION`；项目目录和浏览器记账同样拒绝不支持的格式。DO 到期索引补齐尚未完成时返回 `UPGRADE_REQUIRED`。测试应验证明确错误及拒绝前后数据不变，不用删除既有状态让升级通过。
+无邮箱网页授权保留显式认领；无邮箱会话由用户连接后绑定当前邮箱，不自动分配归属。配置、协议和存储只接受当前格式；不执行旧格式导入、补列、时间回填或身份降级。SQLite 新库标记 `user_version=2`，已有完整的版本 `0` / `1` 库保留原记录并单向升级到 `2`；缺列或未知版本的库返回 `UNSUPPORTED_STORAGE_VERSION`；项目目录和浏览器记账同样拒绝不支持的格式。RegistryDO 到期索引补齐尚未完成时返回 `UPGRADE_REQUIRED`。测试应验证明确错误及拒绝前后数据不变，不用删除既有状态让升级通过。
 
 ## CI、缓存与发布
 
@@ -100,8 +101,18 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 本地可配置 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，用 `ccache --show-stats` 检查命中。正式部署必须使用准确源码提交的全部必要 CI 成功后的制品，见 [发布操作](RELEASE.md)。
 
+## 不透明中继回归
+
+`npm run test:opaque` 使用真实 Worker、原生 Agent、浏览器密码实现与 Chromium，验证权限绑定、加密业务调用、控制竞争、去重及目录不可见性。CTest 的 `native-endpoint` 验证 Agent 控制权与退休屏障；`native-secure-channel` 和 `secure-channel.test.ts` 验证原生/浏览器互操作和负向密文。
+
+`coc-agent-component` 仅在 BUILD_TESTING 中编译，用于 delivery/runtime/terminal 的内部业务引擎故障测试。它在编译时暴露内部消息入口，不安装、不打包，发布 Agent 不含该入口或运行时开关。完整端点接入由 `test:opaque`、`test:e2e`、projects/operations/configuration/history 集成另行覆盖。UI 合成测试在模拟 Agent 解密后的边界注入故障；不能通过浏览器 HTTP 拦截看到加密请求。
+
 启动修复回归可运行 `ctest --test-dir build -R native-startup-repair --output-on-failure`（POSIX）。该测试用临时 PATH 中的假 Codex 验证 Client 配置故障、提示词不含配置内容、禁用开关、help 不触发，以及 Agent 跨 30 秒重试只诊断一次；不调用模型。其他故障注入测试若不应触发真实诊断，应设置 `COC_NO_STARTUP_REPAIR=1`。
 
 `native-client-startup-repair` 使用假 Codex 和回环 HTTP/WebSocket Relay，验证 attach/connect 的版本校验、连接拒绝、缓存初始化故障、TUI 初始化前失败及 initialized 后故障的诊断边界，不调用模型。该测试需允许本机 socket；`ctest --test-dir build -R startup-repair --output-on-failure` 可运行两项修复回归。
 
 普通 CW 排队回归：构建原生程序后运行 `npm run test:queue`。测试使用隔离 Agent、模拟 Codex 与回环 HTTP/WebSocket，无模型调用，覆盖可靠入队去重、取消、优先执行、等待真实轮次结束、停止失败、跨控制端管理，以及 Agent 重启后保留排队与未知执行状态。`npm run test:ui` 覆盖忙碌输入区和手机队列截图（忽略目录 `.local/ui-stability/cw-prompt-queue-mobile.png`）。CI regression 包含该原生队列检查；需要本机 socket 与浏览器执行权限。
+
+### 统一导航专项验证
+
+`npm run build:web && npm run test:ui:navigation` 使用本地模拟接收端检查新版左栏、设置、工作面板、文件预览和管理界面，无原生 Agent 或模型调用。`npm run test:markdown` 检查富文本。r2 上线可运行 `node node_modules/tsx/dist/cli.mjs scripts/verify-web-navigation.ts --access-config <0600 文件> --owner-secret-file <0600 文件> --host <现有隔离测试主机> --output .local/<目录>`；仅检查 Web，不创建会话或启动 Terminal，临时网页授权在结束时撤销。不要将它解释为完整发布门禁通过。

@@ -158,7 +158,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
   try {
     const auto version = query("PRAGMA user_version").at(0).at("user_version").get<int>();
     const bool populated = !query("SELECT name FROM sqlite_master WHERE type='table'").empty();
-    if ((populated && version != 0 && version != 1) || (!populated && version != 0))
+    if ((populated && version != 0 && version != 1 && version != 2) || (!populated && version != 0))
       throw Error("UNSUPPORTED_STORAGE_VERSION",
                   "Unsupported journal schema; automatic migration is disabled");
     if (populated) {
@@ -189,6 +189,30 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         for (const auto &column : query("PRAGMA table_info(" + field.first + ")"))
           if (column.at("name") == field.second)
             throw Error("UNSUPPORTED_STORAGE_VERSION", "Obsolete journal column: " + field.second);
+    }
+    if (populated && version < 2) {
+      // SQLite's backup API includes committed WAL pages under the dataDir lock.
+      const auto backup_path = path.u8string() + ".pre-opaque-v2";
+      if (!std::filesystem::exists(std::filesystem::u8path(backup_path))) {
+        const auto temporary = backup_path + ".tmp";
+        sqlite3 *backup_db = nullptr;
+        if (sqlite3_open(temporary.c_str(), &backup_db) != SQLITE_OK) {
+          if (backup_db)
+            sqlite3_close(backup_db);
+          throw Error("STORAGE_ERROR", "Cannot create migration backup");
+        }
+#ifndef _WIN32
+        chmod(temporary.c_str(), 0600);
+#endif
+        auto backup = sqlite3_backup_init(backup_db, "main", db_, "main");
+        const auto copied = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
+        const auto finished = backup ? sqlite3_backup_finish(backup) : SQLITE_ERROR;
+        sqlite3_close(backup_db);
+        if (copied != SQLITE_DONE || finished != SQLITE_OK)
+          throw Error("STORAGE_ERROR", "Cannot complete migration backup");
+        std::filesystem::rename(std::filesystem::u8path(temporary),
+                                std::filesystem::u8path(backup_path));
+      }
     }
     run("PRAGMA journal_mode=WAL");
     run("BEGIN IMMEDIATE");
@@ -331,8 +355,7 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "cache(json_extract(value,'$.completedAt')) WHERE key GLOB 'upload:*'");
     history_budget_init(authoritative);
     retention_init();
-    if (!populated)
-      run("PRAGMA user_version=1");
+    run("PRAGMA user_version=2");
     run("COMMIT");
     // Restart terminal records enter the same durable completion log as live results.
     for (const auto &record :

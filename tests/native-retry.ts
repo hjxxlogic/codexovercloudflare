@@ -30,17 +30,16 @@ server.on('upgrade', (req, socket, head) => {
   sockets.handleUpgrade(req, socket, head, (ws) => {
     ws.on('message', (raw) => {
       const frame = JSON.parse(raw.toString());
-      if (frame.type !== 'capabilities') return;
+      if (frame.type !== 'channel-register') return;
+      ws.send(JSON.stringify({ type: 'channel-registered' }));
       connected.set(token, (connected.get(token) ?? 0) + 1);
       if (attempt === 3) ws.close(4001, 'Synthetic authorization rejection');
       else if (token === 'local-test-retry-network-credential') recovered = ws;
     });
     ws.send(
       JSON.stringify({
-        type: 'hello',
-        delivery: attempt === 2 ? 1 : 2,
-        minProtocol: 1,
-        demand: 1,
+        type: attempt === 2 ? 'hello' : 'channel-welcome',
+        version: 1,
       }),
     );
   });
@@ -68,7 +67,10 @@ function launch(file: string) {
     child: spawn(
       resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
       ['run', '--config', file],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, COC_NO_STARTUP_REPAIR: '1' },
+      },
     ),
     output: '',
   };
@@ -122,7 +124,7 @@ async function connectionFailures() {
     );
   assert.match(entry.output, /HTTP 401/);
   assert.match(entry.output, /HTTP 403/);
-  assert.match(entry.output, /upgrade the Relay/);
+  assert.match(entry.output, /Encrypted endpoint channel required/);
   assert.match(
     entry.output,
     /Relay disconnected \(code 4001\); retrying in 30 seconds/,

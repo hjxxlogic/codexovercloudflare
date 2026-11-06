@@ -1,3 +1,6 @@
+vi.mock('../apps/web/src/channel.ts', () => ({
+  businessSocket: (url: string) => new WebSocket(url),
+}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalStream } from '../apps/web/src/workbench/terminal-stream.ts';
 class Socket {

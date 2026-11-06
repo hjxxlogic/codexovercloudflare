@@ -187,7 +187,7 @@ async function open(
 
 function startAgent() {
   child = spawn(
-    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent'),
+    resolve(process.env.COC_AGENT_BINARY || 'build/coc-agent-component'),
     ['run', '--config', config],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );

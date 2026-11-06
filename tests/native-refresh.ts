@@ -1,3 +1,4 @@
+import { encryptedFixture } from './helpers/encrypted-fixture.ts';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -12,7 +13,7 @@ let scenarioCalls = 0;
 const scenarioIds: string[] = [];
 let started = 0,
   mutations = 0;
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const send = (value: unknown, status = 200) => {
     res.writeHead(status, {
       'Content-Type': 'application/json',
@@ -68,10 +69,8 @@ const server = createServer((req, res) => {
     mutations++;
     started = Date.now();
     assert.equal(req.headers['x-coc-async'], '1');
-    return send(
-      { accepted: true, operationId: 'receipt', hostId: 'host' },
-      202,
-    );
+    await new Promise((r) => setTimeout(r, 19000));
+    return send([{ id: 'project' }]);
   }
   if (req.url === '/api/v1/hosts/host/operations/receipt') {
     if (req.method === 'POST') return send({ ok: true });
@@ -85,9 +84,10 @@ const server = createServer((req, res) => {
   send({ error: { code: 'NOT_FOUND', message: 'Unknown test route' } }, 404);
 });
 const sockets = new WebSocketServer({ server });
-sockets.on('connection', (ws) =>
-  ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 })),
-);
+sockets.on('connection', (ws, request) => {
+  if (encryptedFixture(ws, request)) return;
+  ws.send(JSON.stringify({ type: 'subscribed', revision: 0, demand: 1 }));
+});
 await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
 const relay = `http://127.0.0.1:${(server.address() as any).port}`;
 const file = join(dir, 'client.json');
@@ -131,10 +131,15 @@ try {
   assert.equal(exit, 0, errors);
   assert.equal(JSON.parse(output)[0].id, 'project');
   assert.equal(mutations, 1);
-  const rounds = reads.filter((at, i) => !i || at - reads[i - 1] > 1000);
-  assert.equal(rounds.length, 3, JSON.stringify(reads));
-  for (let i = 1; i < rounds.length; i++)
-    assert(rounds[i] - rounds[i - 1] >= 9900, JSON.stringify(reads));
+  assert.equal(
+    reads.length,
+    0,
+    'Encrypted endpoint waits for its response without cloud result polling',
+  );
+  assert(
+    Date.now() - started >= 19000,
+    'Delayed response is awaited by the native endpoint',
+  );
   const finished = reads.length;
   await new Promise((done) => setTimeout(done, 10500));
   assert.equal(
@@ -181,8 +186,8 @@ try {
   console.log(
     JSON.stringify({
       scenario: 'A-CC',
-      rounds: rounds.length,
-      gapsMs: rounds.slice(1).map((at, i) => at - rounds[i]),
+      cloudPollingRequests: reads.length,
+      delayedResponseMs: 19000,
       submissions: mutations,
       stoppedAfterExit: true,
     }),

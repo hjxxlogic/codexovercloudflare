@@ -31,7 +31,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
   beast::flat_buffer buffer_{max_queue};
   std::unique_ptr<http::request_parser<http::empty_body>> request_;
   Url relay_;
-  std::string ticket_, path_;
+  std::string ticket_, path_, credential_;
   std::shared_ptr<Socket> remote_;
   struct Write {
     std::string body;
@@ -82,7 +82,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
     connection_confirmed_ = false;
     std::weak_ptr<Impl> weak = shared_from_this();
     remote_ = connect_socket(
-        io_, relay_, ticket_,
+        io_, relay_, credential_.empty() ? ticket_ : credential_,
         [weak, generation](Json message) {
           auto self = weak.lock();
           if (!self || self->ended_ || generation != self->generation_)
@@ -177,7 +177,7 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
             return;
           self->disconnected(code);
         },
-        path_);
+        credential_.empty() ? path_ : path_ + "?ticket=" + ticket_);
     remote_->start();
   }
   void disconnected(unsigned code) {
@@ -422,10 +422,10 @@ class TuiBridge::Impl : public std::enable_shared_from_this<TuiBridge::Impl> {
 
 public:
   Impl(asio::io_context &io, Url relay, std::string ticket, std::string path, Store &store,
-       std::function<Json(Json)> resume)
+       std::function<Json(Json)> resume, std::string credential)
       : io_(io), acceptor_(io, {asio::ip::address_v4::loopback(), 0}), poll_(io), credit_timer_(io),
         resume_(std::move(resume)), relay_(std::move(relay)), ticket_(std::move(ticket)),
-        path_(std::move(path)), delivery_store_(store) {
+        path_(std::move(path)), credential_(std::move(credential)), delivery_store_(store) {
     store.local_reserve(path_ + ":output:v2", "output");
     const auto saved = store.cache_get(path_ + ":output:v2");
     if (!saved.is_null())
@@ -470,8 +470,9 @@ public:
   }
 };
 TuiBridge::TuiBridge(asio::io_context &io, const Url &relay, const std::string &ticket,
-                     const std::string &path, Store &store, std::function<Json(Json)> resume)
-    : impl_(std::make_shared<Impl>(io, relay, ticket, path, store, std::move(resume))) {
+                     const std::string &path, Store &store, std::function<Json(Json)> resume,
+                     const std::string &credential)
+    : impl_(std::make_shared<Impl>(io, relay, ticket, path, store, std::move(resume), credential)) {
   impl_->start();
 }
 TuiBridge::~TuiBridge() { impl_->close(); }

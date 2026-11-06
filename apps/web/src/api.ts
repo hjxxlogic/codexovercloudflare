@@ -1,4 +1,4 @@
-import { observe } from './notifications.ts';
+import { endpointHost, endpointRequest, ChannelError } from './channel.ts';
 import { relayPath } from './routes.ts';
 import {
   idSchema,
@@ -84,6 +84,77 @@ export async function api(
       (data as { hostId?: string } | undefined)?.hostId;
     if (hostId) await ensureEmailHost(hostId);
   }
+  if (endpointHost(path, data)) {
+    try {
+      const packet = await endpointRequest(
+        path,
+        data,
+        originalId,
+        signal,
+        operation
+          ? { instance: operation.instance, ack: operation.ack }
+          : undefined,
+        headers,
+      );
+      if (operation && packet.intent !== undefined) {
+        const proof = operationIntentSchema.parse(packet.intent);
+        if (
+          proof.instance !== operation.instance ||
+          proof.owner !== operation.owner ||
+          proof.requestId !== originalId ||
+          (proof.ack ?? false) !== (operation.ack ?? false)
+        )
+          throw new ApiError(
+            'DELIVERY_STATE_MISMATCH',
+            'Endpoint receipt identity mismatch',
+            409,
+          );
+        await operation.commit(
+          packet.error ? { error: packet.error } : { data: packet.data },
+          proof,
+        );
+      } else if (operation && !packet.error)
+        throw new ApiError('RESULT_UNKNOWN', 'Missing endpoint receipt', 409);
+      if (packet.error)
+        throw new ApiError(
+          packet.error.code,
+          packet.error.message,
+          packet.error.status ||
+            (packet.error.code === 'UNAUTHORIZED'
+              ? 401
+              : packet.error.code === 'FORBIDDEN'
+                ? 403
+                : packet.error.code === 'BACKPRESSURE'
+                  ? 429
+                  : [
+                        'HOST_OFFLINE',
+                        'AGENT_OFFLINE',
+                        'CODEX_EXITED',
+                        'INTERNAL_ERROR',
+                      ].includes(packet.error.code)
+                    ? 503
+                    : packet.error.code === 'TIMEOUT'
+                      ? 504
+                      : 409),
+        );
+      return packet.data;
+    } catch (error) {
+      if (error instanceof ChannelError)
+        throw new ApiError(error.code, error.message, error.status);
+      throw error;
+    }
+  }
+  if (
+    /^\/sessions(?:[/?]|$)/.test(path) ||
+    /^\/(?:admin\/)?hosts\/[^/]+\/(?:projects|project-management|probe|threads|files|terminal|configuration|build|operations)(?:[/?]|$)/.test(
+      path,
+    )
+  )
+    throw new ApiError(
+      'INVALID_REQUEST',
+      '缺少加密业务目标或使用了过期接口',
+      400,
+    );
   const response = await fetch(relayPath('/api/v1' + path), {
     method: data === undefined ? 'GET' : 'POST',
     signal: signal
@@ -146,21 +217,31 @@ export async function api(
       'Upgrade Relay for delivery:2 asynchronous requests',
       409,
     );
-  if (response.status === 202 && result.accepted === true) {
-    return waitOperation(
-      result.hostId,
-      result.operationId,
-      signal,
-      path.startsWith('/admin/'),
-      operation ? { ...operation, requestId: originalId } : undefined,
-    );
-  }
+  if (response.status === 202)
+    throw new ApiError('UPGRADE_REQUIRED', '业务结果必须由加密端点确认', 409);
   if (operation)
     throw new ApiError(
       'UPGRADE_REQUIRED',
       'Original operation requires endpoint receipt forwarding',
       409,
     );
+  if (path === '/admin/hosts' && Array.isArray(result)) {
+    await Promise.all(
+      result
+        .filter((h: any) => h.online)
+        .map(async (h: any) => {
+          try {
+            h.build = await api(
+              `/admin/hosts/${h.id}/build`,
+              undefined,
+              signal,
+            );
+          } catch {
+            /* A lost endpoint does not hide the connection directory. */
+          }
+        }),
+    );
+  }
   return result;
 }
 // GET reads and explicitly read-only POST queries may be repeated after the
@@ -205,139 +286,4 @@ export async function queryApi(
       });
     }
   }
-}
-function waitOperation(
-  hostId: string,
-  operationId: string,
-  signal?: AbortSignal,
-  admin = false,
-  operation?: OperationExchange & { requestId: string },
-): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let ended = false,
-      running = false,
-      dirty = false,
-      attempts = 0;
-    let poll: ReturnType<typeof setTimeout> | undefined;
-    const reading = new AbortController();
-    let stop = () => {};
-    const finish = (error?: unknown, result?: unknown) => {
-      if (ended) return;
-      ended = true;
-      clearTimeout(timer);
-      clearTimeout(poll);
-      reading.abort();
-      signal?.removeEventListener('abort', abort);
-      stop();
-      if (error) reject(error);
-      else resolve(result);
-    };
-    const abort = () =>
-      finish(signal?.reason || new DOMException('Cancelled', 'AbortError'));
-    const timer = setTimeout(
-      () =>
-        finish(
-          new ApiError(
-            'RESULT_UNKNOWN',
-            `未确认，请刷新并核对原请求结果 (${operationId})`,
-            504,
-          ),
-        ),
-      30000,
-    );
-    const read = async () => {
-      if (ended) return;
-      if (running) {
-        dirty = true;
-        return;
-      }
-      running = true;
-      dirty = false;
-      clearTimeout(poll);
-      try {
-        const receipt = await api(
-          `${admin ? '/admin' : ''}/hosts/${hostId}/operations/${operationId}`,
-          undefined,
-          reading.signal,
-        );
-        if (ended) return;
-        if (receipt.state === 'completed') {
-          if (operation) {
-            if (receipt.intent !== undefined) {
-              const proof = operationIntentSchema.safeParse(receipt.intent);
-              if (
-                !proof.success ||
-                proof.data.instance !== operation.instance ||
-                proof.data.requestId !== operation.requestId ||
-                proof.data.owner !== operation.owner ||
-                (proof.data.ack ?? false) !== (operation.ack ?? false)
-              )
-                throw new ApiError(
-                  'DELIVERY_STATE_MISMATCH',
-                  'Endpoint receipt belongs to another original operation',
-                  409,
-                );
-              if (receipt.error === undefined && receipt.result === undefined)
-                throw new ApiError(
-                  'INVALID_RESPONSE',
-                  'Missing original operation result',
-                  502,
-                );
-              await operation.commit(
-                receipt.error === undefined
-                  ? { data: receipt.result }
-                  : { error: receipt.error },
-                proof.data,
-              );
-              if (ended) return;
-            } else if (receipt.error === undefined)
-              throw new ApiError(
-                'RESULT_UNKNOWN',
-                'Endpoint did not confirm a durable original result',
-                409,
-              );
-          }
-          void api(
-            `${admin ? '/admin' : ''}/hosts/${hostId}/operations/${operationId}`,
-            {},
-          ).catch(() => {});
-          if (receipt.error)
-            finish(
-              new ApiError(
-                receipt.error.code,
-                receipt.error.message,
-                receipt.error.status || 409,
-              ),
-            );
-          else finish(undefined, receipt.result);
-        }
-      } catch (error) {
-        if (!ended && !retryable(error)) finish(error);
-      } finally {
-        running = false;
-        if (dirty && !ended) void read();
-        else if (!ended)
-          poll = setTimeout(
-            () => void read(),
-            Math.min(2000, 250 * 2 ** Math.min(attempts++, 3)),
-          );
-      }
-    };
-    if (!admin)
-      stop = observe(`/ws/v1/hosts/${hostId}`, (event) => {
-        if (
-          event.type === 'subscribed' ||
-          (event.type === 'change' && event.operationId === operationId)
-        )
-          void read();
-      });
-    if (signal?.aborted) abort();
-    else {
-      signal?.addEventListener('abort', abort, { once: true });
-      // Notifications accelerate completion; a missed/delayed subscription
-      // cannot strand a committed result. Only this receipt is retried, and
-      // only while the original request is outstanding. Never resend work.
-      void read();
-    }
-  });
 }

@@ -31,6 +31,32 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --publish-
 
 需要通知自动更新时，在全部下载验证后加 `--notify-release --owner-secret-file /absolute/private/owner-secret`。通知只触发检查，不代表 Agent 已安装；安装仍等待空闲。需要删除已废弃 Secret 可显式重复 `--delete-secret NAME`。下载快照恢复可使用 `--preserved-downloads /absolute/path/downloads`，仍须逐包 SHA256 校验。
 
+## 独立 r2 测试站
+
+`--target r2` 固定使用 `codex-over-cloudflare-r2` 与 `r2.xlogic.cc`，两个 DO 类仅绑定这个 Worker 的独立 namespace；不修改默认 `wrangler.jsonc` 或旧站路由。r2 必须明确指定新 Access 应用的 `--r2-access-aud AUD`，或经授权选择 `--r2-without-access`（仅 CoC 身份与权限）。不沿用旧站 AUD 或 owner secret。
+
+首次部署须准备权限为 0600 的独立 owner secret 文件，并用完整 CI 制品初始化下载站：
+
+```bash
+python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID \
+  --target r2 --r2-access-aud AUD --publish-downloads --initialize-downloads \
+  --initialize-owner-secret-file /absolute/private/r2-owner --apply
+```
+
+仅 Worker / 网页配置中的目标与 Access audience 按显式参数选择；业务代码和四平台包仍必须来自同一完整成功的 Actions。首次初始化只用于新站，后续省略两个 `--initialize-*` 参数以保全原有下载和 Secret；r2 的证据、缓存均与默认目标分开。
+
+线上测试复用本地加密端到端套件，固定请求 r2，启动一个临时独立 Agent，使用临时配置、SQLite 和项目，结束时只撤销测试授权并停止自己的子进程：
+
+```bash
+npm run test:opaque -- --online-r2 \
+  --agent /absolute/verified-ci/coc-agent \
+  --owner-secret-file /absolute/private/r2-owner
+```
+
+r2 部署脚本的在线检查还需设置 `COC_ACCESS_CONFIG=/absolute/private/r2-access.json`，使私有配置明确允许 `https://r2.xlogic.cc`。它与浏览器测试的 `--access-config` 分别传递，默认生产配置只允许旧站 origin；不要改写生产配置或把入口凭据发送到其他域。
+
+Access 开启时另传 `--access-config /absolute/private/r2-access.json`，文件须包含 r2 精确 origin 与获准用于该入口的 Service Auth 凭据；原生 Agent 经主入口验证，测试浏览器的 HTTP / WebSocket 同样携带机器入口凭据且仅放行 r2 域请求；网页设备配对测试走现有 `/guest/` 入口，不将 Service Auth 冒充邮箱用户，邮箱登录须另行验证。测试不会安装二进制、调用 systemd 或读取既有 Agent 数据。结果和桌面、手机截图写入忽略的 `.local/r2-deployment/`；模拟 Codex 不调用模型。
+
 ## 部署 Linux systemd 用户服务 Agent
 
 ```bash
@@ -71,32 +97,24 @@ Relay / 网页先部署，再让新版原生程序连接；业务只接受 `deli
 
 ## 运行状态格式
 
-发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0` 或 `1`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本项目不提供旧库迁移或配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。结构完整的未标记库直接读取，不修改版本；缺列的库不自动升级。具体错误见用户手册。
+发布前必须核对待使用的状态是否符合当前格式：SQLite 结构完整且 `user_version` 为 `0`、`1` 或 `2`、项目目录含完整日志、浏览器 `commandAccounting:2`，DO 到期索引完整（`expiryMigration` 不存在或 `pending:false`）。本次支持结构完整的 SQLite 0/1 单向迁移到 2，不提供配置别名转换；有效无邮箱网页授权保留显式认领入口；不满足时返回格式或升级错误，部署脚本不转换这些业务状态。新版写入端将结构完整的 0/1 库升级到 2；缺列的库不自动升级，旧版程序不能读取升级后的库。具体错误见用户手册。
 
 ## 当前线上版本
 
-### 0.6.7 完整 CI 部署（2026-11-05）
+独立测试站 `https://r2.xlogic.cc` 的 Worker / 网页及下载包为 `0.6.7`，源码为 `a61423f4f1cbd82b018dbcf3f29c1ac2acb43859`。该准确提交的六项必需 CI 作业全部成功，使用经过来源与摘要校验的 CI 制品部署，`ciVerified=true`。线上健康、静态资源、下载包及隔离端到端验证通过，详见 [r2 部署记录](R2_DEPLOYMENT.md)。
 
-已将 `https://r.xlogic.cc` 的 Worker / 网页、四平台下载及源码包、本机 `coc-agent.service` 完整更新到源码 `a1fc79f3a80e74ee8310739bd4d69934ab48e331`，包含授权复核有界缓冲修复。来源干净 `dirty=false`、`ciVerified=true`；[Actions 41961015104](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/41961015104) 已完成并成功，regression、sanitizers、Ubuntu 20.04、Debian 12、musl、Windows x64 六项必需作业全部成功。非标签发布的 publish-release 作业按配置跳过，本次下载站发布由部署脚本完成。
+本次仅部署 r2。旧站 `r.xlogic.cc` 和既有本机 Agent 保持独立，未由此升级；两者运行身份不能从 r2 版本推断。测试 Agent 为临时进程，测试后停止并撤销授权。
 
-| 身份 | 值 / SHA256 |
-| --- | --- |
-| 源码摘要 | `f344baebae28f4e5b19b70ed005344fb7fa39ed14401d7b4c51ab2dbcd41327d` |
-| Worker Version ID | `0b54f874-3b3a-43f3-8855-0465bcb646f5` |
-| Worker bundle | `646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee` |
-| 网页入口 | `e41265b8bdaa83376b019a669a8fbfe47455ab119975e11dfd45e78206b2a961` |
-| 本机 Agent | `c49ddae199737793655bccdb16d7a52ff19c51b9d3ce99e45f133e0c88d66e91` |
+### r2 仅更新网页
 
-CI artifacts 的 GitHub SHA256 均已独立校验：
+已有明确的本地预览授权时，可用已验证的 r2 `deployment.json` 保留线上 Worker 执行制品，只重建网页：
 
-| Artifact | GitHub SHA256 |
-| --- | --- |
-| verified-web | `sha256:84528c21e20552b43f58df20e1f0d6b2862b68643b1552cc6276d38fca5ad91d` |
-| verified-worker | `sha256:f50dc54596b675f2d2b18001625898fb2dd680dcb22685f5a9a5725be33cd045` |
-| linux-ubuntu20.04 | `sha256:ec84d0659758e263c2428d4c36b9b5343e4dad8f9c46eb763be677f08b854c1a` |
-| linux-debian12 | `sha256:19b0d6af3e1af770f07410b42c67c029b8f985861ea25b617eed8f80218354f8` |
-| linux-musl | `sha256:890d3d8b62c070f87b1d638e1687a9f1ddf7b0cec630bd8e20a747e3db3bc894` |
-| windows-x64 | `sha256:267b58ed502175b74d7248adf5c07c596b8a61bbf23a126ccf5d36a8ba4dc8c8` |
+```bash
+COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
+  --local-build --target r2 --commit HEAD \
+  --r2-access-aud R2_ACCESS_AUD \
+  --web-only-from .local/deploy-cloud/PREVIOUS-r2/deployment.json --apply
+```
 
 线上回读的全部下载包 SHA256 与 CI 制品一致：
 
@@ -175,3 +193,12 @@ Linux Agent 候选程序已构建并验证准确提交与摘要。既有 systemd
 Cloudflare 版本 ID：`a103c4dd-f5b8-4a82-a19d-3329129339b5`。源码摘要：`a232fb336e093df79a27e7e51ce86e678c8e67ab05f8412101b88ca8d923b9bb`；网页入口 SHA256：`bec7a9c07bf9f37868e6b3f2b0ec1b2bac0ba1c6ff08ea3660310f816b4d35bf`；Worker 构建文件 SHA256：`646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee`。
 
 本地网页构建、类型检查及 Worker dry-run 通过。部署脚本核对线上网页、静态资源、在线手册、下载清单与校验和字节一致；健康接口 `ok=true`、版本 `0.6.7`、协议 `1`。跨设备恢复的模拟浏览器回归已通过，未进行线上真实手机/电脑长稳测试。机器证据位于 `.local/deploy-cloud/local-a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5-a232fb336e09/deployment.json`，日志位于 `.local/cw-observer-deploy.log`。
+Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式不编译 Worker，复用原 Worker 制品和原配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后从 Cloudflare 读取线上可执行模块并与原制品核对 SHA256；Wrangler 会规范化调试 source map，因此 source map 不计入执行代码不变校验。只允许 r2 `--local-build`，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；Web 来源和保留的 Worker 来源分别记录，`ciVerified=false`。仅适用于前后端接口兼容的网页变更。
+
+## 不透明中继的状态迁移准备
+
+本次 0.6.14 仅集成与验证，不执行云端、下载、Agent 更新或 tag 发布。生产操作仍须完整执行 OPAQUE_RELAY_MERGE_PLAN.md 第 7 节。
+
+HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多 64 键，以同一事务写入 `~opaque-v1:backup:<旧键>`、读回验证、删除旧键并推进 `~opaque-v1:cursor`。wakeUntil 保留原键并备份；完成后标记 channelVersion=1 与 complete，取消旧 alarm。旧连接全部退休，旧 lease/ticket/项目写锁不能恢复资格。权限操作 pending 时拒绝该批；不得通过手工改完成标记绕过未决副作用核对。RegistryDO 不转换身份、主机、授权、撤销、到期与失效重试键，其现有 alarm 继续负责重试。
+
+迁移备份仅供受控恢复：发布窗口必须导出并核对旧对象状态及未决请求，禁止将备份交回旧 Worker 后直接开放写入。未访问对象首次访问也须完成迁移。只有相应对象完成且实际业务验证通过后才能登记为已验收。本次没有线上存储枚举、快照导出或生产迁移证据。

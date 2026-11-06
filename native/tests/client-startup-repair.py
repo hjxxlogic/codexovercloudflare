@@ -16,6 +16,38 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 
+# Reuse the native crypto interoperability fixture; no shared-library or Node dependency.
+class SecureFixture:
+    def __init__(self, peer):
+        self.process = subprocess.Popen([sys.argv[2], '--interop'], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, text=True)
+        self.public = json.loads(self.process.stdout.readline())['key']
+        self.binding = b'coc-channel-1:interop'
+        self.header = self.call({'key': peer})['header']
+
+    def call(self, value):
+        self.process.stdin.write(json.dumps(value) + '\n')
+        self.process.stdin.flush()
+        result = json.loads(self.process.stdout.readline())
+        assert not result.get('failed'), result
+        return result
+
+    def accept(self, header):
+        assert self.call({'header': header})['ready']
+
+    def seal(self, value):
+        return self.call({'plain': '1' + json.dumps(value)})['cipher']
+
+    def open(self, value):
+        plain = self.call({'cipher': value})['plain']
+        assert plain[0] == '1'
+        return json.loads(plain[1:])
+
+    def close(self):
+        self.process.stdin.close()
+        self.process.wait(timeout=5)
+        self.process.stdout.close()
+
 def read_exact(stream, size):
     result = b''
     while len(result) < size:
@@ -121,9 +153,7 @@ with tempfile.TemporaryDirectory(prefix='coc-client-repair-') as temporary:
 
         def do_GET(self):
             requests.append(self.path)
-            if self.path != '/ws/v1/cli/session':
-                self.reply(404, {})
-                return
+            cipher = None
             try:
                 key = self.headers['Sec-WebSocket-Key']
                 accept = base64.b64encode(hashlib.sha1(
@@ -136,9 +166,11 @@ with tempfile.TemporaryDirectory(prefix='coc-client-repair-') as temporary:
                 self.connection.settimeout(5)
                 control = {'controlEpoch': 1, 'connectionGeneration': 1,
                            'controlId': 'control', 'owner': 'owner'}
-                send_frame(self.wfile, {'type': 'delivery-ready', 'delivery': 2,
-                                       'instance': 'journal', 'controller': 'controller',
-                                       'control': control})
+                send_frame(self.wfile, {'type': 'channel-welcome', 'version': 1})
+                cipher = None
+                logical = None
+                def send(value):
+                    send_frame(self.wfile, {'type': 'channel-data', 'data': cipher.seal(value)})
                 while True:
                     opcode, body = read_frame(self.rfile)
                     if opcode == 8:
@@ -146,19 +178,50 @@ with tempfile.TemporaryDirectory(prefix='coc-client-repair-') as temporary:
                     if opcode != 1:
                         continue
                     frame = json.loads(body)
-                    if frame['type'] == 'delivery-open':
-                        for lane in ['normal', 'priority']:
-                            send_frame(self.wfile, {
-                                'type': 'delivery-window', 'lane': lane,
-                                'exchangeId': frame['exchangeId'],
-                                'controlReady': dict(control, exchangeId=frame['exchangeId'], instance='journal'),
-                                'window': {'stream': lane, 'instance': 'journal', 'streamSerial': 1,
-                                           'creditGeneration': 'generation', 'received': 0,
-                                           'receivedBytes': 0, 'credit': 4, 'byteCredit': 262144}})
+                    kind = frame['type']
+                    if kind == 'channel-register':
+                        send_frame(self.wfile, {'type': 'channel-registered'})
+                    elif kind == 'channel-connect':
+                        cipher = SecureFixture(frame['key'])
+                        send_frame(self.wfile, {'type': 'channel-key',
+                                   'data': cipher.public,
+                                   'binding': cipher.binding.decode()})
+                    elif kind == 'channel-header':
+                        cipher.accept(frame['data'])
+                        send_frame(self.wfile, {'type': 'channel-header', 'data': cipher.header})
+                    elif kind == 'channel-data':
+                        packet = cipher.open(frame['data'])
+                        if packet['type'] == 'request':
+                            requests.append(packet['path'])
+                            if mode == 'http-fail':
+                                send({'type': 'response', 'id': packet['id'], 'error': {
+                                    'code': 'FORBIDDEN', 'message': 'test refusal', 'status': 403}})
+                            else:
+                                send({'type': 'response', 'id': packet['id'], 'data': {
+                                    'mode': 'cli', 'ticket': 'private-test-ticket', 'delivery': 2}})
+                        elif packet['type'] == 'open':
+                            logical = packet['id']
+                            send({'type': 'opened', 'id': logical, 'frame': {
+                                'type': 'delivery-ready', 'delivery': 2, 'instance': 'journal',
+                                'controller': 'controller', 'control': control}})
+                        elif packet['type'] == 'stream' and packet['frame']['type'] == 'delivery-open':
+                            for lane in ['normal', 'priority']:
+                                exchange = packet['frame']['exchangeId']
+                                send({'type': 'stream', 'id': logical, 'frame': {
+                                    'type': 'delivery-window', 'lane': lane, 'exchangeId': exchange,
+                                    'controlReady': dict(control, exchangeId=exchange, instance='journal'),
+                                    'window': {'stream': lane, 'instance': 'journal', 'streamSerial': 1,
+                                               'creditGeneration': 'generation', 'received': 0,
+                                               'receivedBytes': 0, 'credit': 4, 'byteCredit': 262144}}})
             except (EOFError, ConnectionError, TimeoutError):
                 pass
             except Exception as error:
                 errors.append(repr(error))
+                import traceback
+                traceback.print_exc()
+            finally:
+                if cipher:
+                    cipher.close()
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -177,7 +240,7 @@ with tempfile.TemporaryDirectory(prefix='coc-client-repair-') as temporary:
         selected = dict(env, FAKE_CODEX_MODE=fake_mode)
         if disabled:
             selected['COC_NO_STARTUP_REPAIR'] = '1'
-        result = subprocess.run([client, command, 'session', '--config', str(config),
+        result = subprocess.run([client, command, 'host~session', '--config', str(config),
                                  '--offline', 'true', '--cache-dir', str(root / name), *extra],
                                 env=selected, capture_output=True, timeout=12)
         after = len(capture.read_text().splitlines()) if capture.exists() else 0

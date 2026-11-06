@@ -147,6 +147,12 @@ public:
   Json archive_event(const std::string &id, const std::string &type, const Json &data);
   const std::string &delivery_instance() const { return delivery_instance_; }
   Json control_state(const std::string &session);
+  Json endpoint_claim(const std::string &session, const std::string &owner,
+                      const std::string &claim, bool takeover, const Json &resume);
+  Json endpoint_attach(const std::string &session, const std::string &owner,
+                       const std::string &ticket);
+  void endpoint_stream(const std::string &session, const std::string &owner,
+                       const std::string &stream);
   Json control_apply(const std::string &session, int64_t epoch, const std::string &control_id,
                      const std::string &owner);
   void delivery_bind(const std::string &stream, int64_t epoch, const std::string &control_id);

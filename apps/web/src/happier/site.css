@@ -1,0 +1,265 @@
+/* CoC-specific settings use the same inset rows and surfaces as Happier. */
+@font-face {
+  font-family: Inter;
+  src: url('./assets/inter-latin-var.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+.topbar {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.brand {
+  color: var(--text);
+  letter-spacing: -0.4px;
+}
+.brand small {
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.topbar nav {
+  background: var(--surface-raised);
+  box-shadow: 0 12px 36px var(--shadow);
+}
+.topbar nav button {
+  border-radius: 10px;
+}
+.topbar nav .mode-switch {
+  background: var(--surface);
+}
+.page-heading {
+  padding: 28px 2px 20px;
+}
+.page-heading > span {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+.card {
+  border-radius: 14px;
+  background: var(--bg);
+  border-color: transparent;
+  box-shadow: none;
+}
+.card .card {
+  background: var(--surface);
+}
+.login-card {
+  margin: 64px auto;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 8px 48px var(--shadow);
+}
+.login-card h2 {
+  font-size: 25px;
+  letter-spacing: -0.7px;
+  margin-bottom: 24px;
+}
+.primary,
+.login-card > button[type='submit'] {
+  background: var(--text);
+  color: var(--bg);
+}
+button.primary:hover:enabled,
+.login-card > button[type='submit']:hover:enabled {
+  background: var(--text);
+  filter: brightness(0.9);
+}
+.admin-workspace {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-rows: 58px auto 1fr auto;
+  align-content: start;
+  max-width: none;
+  min-height: 100dvh;
+  padding: 0;
+  background: var(--surface);
+  gap: 0 40px;
+}
+.admin-workspace > .topbar {
+  grid-column: 1 / -1;
+  padding: 0 24px;
+  height: 58px;
+  background: transparent;
+  border: 0;
+}
+.admin-workspace > .page-heading {
+  grid-column: 2;
+  padding: 34px 0 20px;
+  margin: 0;
+  max-width: 1100px;
+}
+.admin-workspace > .admin-tabs {
+  grid-column: 1;
+  grid-row: 2 / 5;
+  position: sticky;
+  top: 58px;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: auto;
+  margin: 20px 0 0 16px;
+  padding: 4px 0;
+  gap: 2px;
+  background: transparent;
+  border: 0;
+  max-height: calc(100dvh - 90px);
+  overflow-y: auto;
+}
+.admin-workspace > .admin-tabs [role='tab'] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text);
+  background: transparent;
+  font-size: 13px;
+}
+.admin-workspace > .admin-tabs [aria-selected='true'] {
+  background: var(--bg);
+  font-weight: 600;
+}
+.admin-workspace > :is([role='tabpanel'], .notice, .error, footer) {
+  grid-column: 2;
+  margin-right: 40px;
+  max-width: 1100px;
+  min-width: 0;
+}
+.admin-workspace > [role='tabpanel'] {
+  grid-row: 3;
+  align-self: start;
+}
+.admin-workspace > :is(.notice, .error) {
+  grid-row: auto;
+}
+.admin-workspace > footer {
+  grid-row: 4;
+}
+.admin-workspace [role='tabpanel'] > .card {
+  padding: 24px;
+}
+.admin-workspace h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.admin-workspace :is(input, select, textarea) {
+  border-radius: 8px;
+  background: var(--surface);
+}
+.admin-table-scroll {
+  border-radius: 12px;
+  background: var(--bg);
+}
+.admin-table thead th {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.admin-table th,
+.admin-table td {
+  padding: 15px 12px;
+}
+.admin-table tbody tr:hover {
+  background: var(--surface);
+}
+.admin-table button {
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+.admin-table .admin-sort {
+  color: inherit;
+}
+.happier-site footer {
+  padding: 20px 0 28px;
+  font-size: 11px;
+}
+.file-preview-page,
+.file-preview-toolbar {
+  background: var(--bg);
+}
+.file-preview-toolbar {
+  border-color: var(--border);
+}
+.status-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .happier-site:not(.chat-workspace) {
+    padding: 0 16px;
+  }
+  .admin-workspace {
+    display: block;
+  }
+  .admin-workspace > .topbar {
+    padding: 0;
+  }
+  .admin-workspace > .admin-tabs {
+    position: static;
+    max-height: none;
+    margin: 0 0 20px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--bg);
+  }
+  .admin-workspace > .admin-tabs [role='tab'] {
+    width: auto;
+    flex-shrink: 0;
+    padding: 10px;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .admin-workspace > .admin-tabs [aria-selected='true'] {
+    background: var(--surface);
+  }
+  .admin-workspace > :is([role='tabpanel'], .notice, .error, footer) {
+    margin-right: 0;
+  }
+  .admin-workspace > .page-heading {
+    padding-top: 22px;
+  }
+  .page-heading > span {
+    font-size: 20px;
+  }
+  .card,
+  .admin-workspace [role='tabpanel'] > .card {
+    padding: 16px;
+  }
+  .login-card {
+    margin: 32px auto;
+    padding: 24px;
+  }
+  .topbar .brand {
+    font-size: 18px;
+    min-width: 0;
+  }
+  .topbar .brand small,
+  .menu-toggle-label,
+  .admin-workspace .status-refresh small {
+    display: none;
+  }
+}

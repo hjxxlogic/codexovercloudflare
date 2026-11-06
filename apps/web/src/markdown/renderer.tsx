@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import {
   Children,
   isValidElement,
@@ -42,25 +43,79 @@ export function textOf(node: ReactNode): string {
     )
     .join('');
 }
-export function Copy({ value }: { value: string }) {
+export function Copy({
+  value,
+  read,
+  floating = false,
+  label = t('复制'),
+}: {
+  value: string;
+  read?: () => Promise<string>;
+  floating?: boolean;
+  label?: string;
+}) {
   const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!status || busy) return;
+    const timer = setTimeout(() => setStatus(''), 3000);
+    return () => clearTimeout(timer);
+  }, [status, busy]);
+  async function copy() {
+    if (busy) return;
+    setBusy(true);
+    setStatus(read ? t('正在读取完整消息…') : '');
+    try {
+      if (read) {
+        const text = read();
+        if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+          const blob = text.then(
+            (text) => new Blob([text], { type: 'text/plain' }),
+          );
+          void blob.catch(() => {});
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'text/plain': blob }),
+          ]);
+        } else await navigator.clipboard.writeText(await text);
+      } else await navigator.clipboard.writeText(value);
+      if (mounted.current) setStatus(t('已复制'));
+    } catch (error) {
+      if (mounted.current)
+        setStatus(
+          read && error instanceof Error
+            ? error.message
+            : t('请手动选择文本复制'),
+        );
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
   return (
-    <>
-      <button
+    <span className={`copy-control${floating ? ' floating-copy' : ''}`}>
+      <IconButton
+        className="copy-action"
+        icon="copy"
+        label={label}
+        disabled={busy}
         type="button"
-        onClick={() =>
-          void navigator.clipboard
-            .writeText(value)
-            .then(() => setStatus(t('已复制')))
-            .catch(() => setStatus(t('请手动选择文本复制')))
-        }
-      >
-        {t('复制')}
-      </button>
-      <small role="status">{status}</small>
-    </>
+        onClick={() => void copy()}
+      />
+      {status && (
+        <small className="copy-feedback" role="status">
+          {status}
+        </small>
+      )}
+    </span>
   );
 }
+
 function AutoRich({
   source,
   kind,
@@ -139,6 +194,11 @@ function Table({ children }: { children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null);
   const overflow = useContentOverflow(content, fullscreen.active);
   const [status, setStatus] = useState('');
+  useEffect(() => {
+    if (!status) return;
+    const timer = setTimeout(() => setStatus(''), 3000);
+    return () => clearTimeout(timer);
+  }, [status]);
   async function copy() {
     const value = Array.from(root.current?.rows || [], (row) =>
       Array.from(
@@ -160,10 +220,18 @@ function Table({ children }: { children: ReactNode }) {
     >
       <div className="element-toolbar">
         <span>{t('表格')}</span>
-        <button type="button" onClick={() => void copy()}>
-          {t('复制表格 TSV')}
-        </button>
-        <small role="status">{status}</small>
+        <IconButton
+          className="copy-action"
+          icon="copy"
+          label={t('复制表格 TSV')}
+          type="button"
+          onClick={() => void copy()}
+        />
+        {status && (
+          <small className="copy-feedback" role="status">
+            {status}
+          </small>
+        )}
         {(fullscreen.active || overflow) && (
           <ElementFullscreenButton
             active={fullscreen.active}
@@ -216,7 +284,9 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
           {!special && (
             <>
               <Copy value={source} />
-              <button
+              <IconButton
+                icon="download"
+                label={t('下载源码')}
                 type="button"
                 onClick={() =>
                   saveFile(
@@ -224,20 +294,21 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
                     `code.${language === 'mermaid' ? 'mmd' : 'txt'}`,
                   )
                 }
-              >
-                {t('下载源码')}
-              </button>
-              <button
+              />
+              <IconButton
+                icon="wrap"
+                label={t('折行')}
                 type="button"
                 onClick={() => setWrap(!wrap)}
                 aria-pressed={wrap}
-              >
-                {t('折行')}
-              </button>
+              />
               {language && (
-                <button type="button" onClick={() => void colorize()}>
-                  {t('语法高亮')}
-                </button>
+                <IconButton
+                  icon="code"
+                  label={t('语法高亮')}
+                  type="button"
+                  onClick={() => void colorize()}
+                />
               )}
             </>
           )}

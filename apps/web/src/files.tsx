@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { t } from './i18n.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryCache } from './history.ts';
@@ -60,6 +61,14 @@ export function WorkspaceFiles({
     );
   async function load(append = false) {
     const request = ++listing.current;
+    if (!host || !project) {
+      setEntries([]);
+      setNext(null);
+      setWritable(false);
+      setLoading(false);
+      setError('');
+      return;
+    }
     setLoading(true);
     setWritable(undefined);
     setError('');
@@ -268,9 +277,12 @@ export function WorkspaceFiles({
       </p>
       <div className="file-toolbar">
         <div className="file-path">
-          <button disabled={busy} onClick={() => setPath('')}>
-            {t('项目根目录')}
-          </button>
+          <IconButton
+            icon="folder"
+            label={t('项目根目录')}
+            disabled={busy}
+            onClick={() => setPath('')}
+          />
           {path
             .split('/')
             .filter(Boolean)
@@ -285,15 +297,18 @@ export function WorkspaceFiles({
               </button>
             ))}
         </div>
-        <button
+        <IconButton
+          icon="back"
+          label={t('上级目录')}
           disabled={!path || busy || loading}
           onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
-        >
-          {t('上级目录')}
-        </button>
-        <button disabled={busy || loading} onClick={() => void load()}>
-          {t('刷新文件')}
-        </button>
+        />
+        <IconButton
+          icon="refresh"
+          label={t('刷新文件')}
+          disabled={busy || loading}
+          onClick={() => void load()}
+        />
       </div>
       {error && (
         <p role="alert" className="error">
@@ -333,13 +348,12 @@ export function WorkspaceFiles({
                     {entry.size > limit ? t(' · 超过单文件传输上限') : ''}
                   </small>
                 </span>
-                <button
+                <IconButton
+                  icon="download"
+                  label={t('下载 {0}', entry.name)}
                   disabled={busy || entry.size > limit}
                   onClick={() => void download(entry)}
-                  aria-label={t('下载 {0}', entry.name)}
-                >
-                  {t('下载')}
-                </button>
+                />
               </>
             )}
           </div>
@@ -350,9 +364,12 @@ export function WorkspaceFiles({
         )}
       </div>
       {next && (
-        <button disabled={loading || busy} onClick={() => void load(true)}>
-          {t('加载更多文件')}
-        </button>
+        <IconButton
+          icon="plus"
+          label={t('加载更多文件')}
+          disabled={loading || busy}
+          onClick={() => void load(true)}
+        />
       )}
       <form
         className="file-upload"
@@ -400,25 +417,27 @@ export function WorkspaceFiles({
             </label>
           </>
         )}
-        <button
+        <IconButton
+          icon="upload"
+          label={t('上传文件')}
           type="submit"
           disabled={!writable || !file || !name.trim() || busy || loading}
-        >
-          {t('上传文件')}
-        </button>
+        />
         {!loading && writable === false && (
           <p>{t('Agent 当前为只读模式，允许下载，禁止上传。')}</p>
         )}
       </form>
       {unknownUpload && (
         <>
-          <button
+          <IconButton
+            icon="history"
+            label={t('恢复原上传')}
             disabled={busy}
             onClick={() => void recoverUpload(unknownUpload)}
-          >
-            {t('恢复原上传')}
-          </button>
-          <button
+          />
+          <IconButton
+            icon="info"
+            label={t('查询提交结果')}
             onClick={() =>
               void uploadRecords(cache!)
                 .then((records) => {
@@ -444,9 +463,7 @@ export function WorkspaceFiles({
                 })
                 .catch((error: Error) => setError(error.message))
             }
-          >
-            {t('查询提交结果')}
-          </button>
+          />
         </>
       )}
       {busy && (
@@ -458,13 +475,15 @@ export function WorkspaceFiles({
         </p>
       )}
       {busy && (
-        <button onClick={() => transfer.current?.abort()}>
-          {t('暂停传输')}
-        </button>
+        <IconButton
+          icon="pause"
+          label={t('暂停传输')}
+          onClick={() => transfer.current?.abort()}
+        />
       )}
       <p className="file-context">
         {t(
-          '仅访问当前项目内的普通文件；不跟随符号链接。关闭面板会暂停传输并保留原上传，重新打开后恢复；已完成的上传会保留。',
+          '仅访问当前项目内的普通文件；不跟随符号链接。收起面板不取消传输；暂停后保留原上传，重新打开后恢复。',
         )}
       </p>
     </section>

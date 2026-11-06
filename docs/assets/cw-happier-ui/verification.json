@@ -1,0 +1,46 @@
+{
+  "upstream": "https://github.com/happier-dev/happier",
+  "commit": "d515b5547a1a3aa03e3141ddb6a45f4a72ae1025",
+  "license": "MIT",
+  "presentation": "React DOM adaptation of session shell, sidebar, input card and palette",
+  "uiRegression": "passed",
+  "unitTests": {
+    "files": 35,
+    "tests": 381,
+    "passed": true
+  },
+  "typecheck": "passed",
+  "lint": "passed",
+  "webBuild": "passed",
+  "workerAndAgentChangedByUi": false,
+  "newNpmDependencies": false,
+  "deployed": false,
+  "modelCalls": false,
+  "scopeVerifiedAgainst": "d59cf749b1f1059e69e5e050ae949bed86982f65",
+  "nativeBrowserIntegration": "passed: projects, prompt streaming and history after reload through real Worker and locally built native Agent",
+  "i18nRegression": "5 tests passed",
+  "screenshots": {
+    "desktop.png": {
+      "width": 1280,
+      "height": 900
+    },
+    "mobile.png": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "fullE2e": {
+    "passed": true,
+    "checks": 46,
+    "terminal": true,
+    "exitCode": 0,
+    "command": "COC_NO_STARTUP_REPAIR=1 COC_TEST_TERMINAL=1 npm run test:e2e"
+  },
+  "uiRegressionDetails": [
+    "Desktop sidebar beside conversation",
+    "Mobile drawer search, Escape/focus and selection without duplicate attach",
+    "Desktop and mobile reading area over 65% including heading and toolbar",
+    "Composer stays above Terminal in 720px and 650px split viewports",
+    "Existing approvals, drafts, files, themes, Markdown, isolation and recovery"
+  ]
+}

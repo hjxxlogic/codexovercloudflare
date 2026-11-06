@@ -1,3 +1,5 @@
+import { Icon } from '../happier/icon.tsx';
+import { IconButton } from '../happier/icon-button.tsx';
 import { createPortal } from 'react-dom';
 import { ResizeHandle } from './resize-handle.tsx';
 import {
@@ -19,7 +21,11 @@ import { t, useLanguage } from '../i18n.ts';
 import './workbench.css';
 import { PreviewContext } from './context.ts';
 import { FileContext } from '../file-links.tsx';
-import { ThemeContext } from '../theme.ts';
+import {
+  ThemeContext,
+  useThemePreference,
+  setThemePreference,
+} from '../theme.ts';
 import { FullscreenContext, usePaneFullscreen } from './fullscreen.tsx';
 import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import type { OperationClient } from '../operations.ts';
@@ -84,7 +90,12 @@ export function Workbench({
   chunks,
   reading,
   read,
-  upload,
+  transfer,
+  appearanceTarget,
+  refresh,
+  refreshing,
+  information,
+  openInformation,
   reference,
   terminal,
   activity,
@@ -100,7 +111,12 @@ export function Workbench({
   chunks: Record<number, ContentChunk>;
   reading: Record<number, boolean>;
   read: (seq: number, offset: number, revision: number) => void;
-  upload: () => void;
+  transfer: ReactNode;
+  appearanceTarget: HTMLElement | null;
+  refresh: () => void;
+  refreshing: boolean;
+  information?: ReactNode;
+  openInformation: () => void;
   reference: (path: string) => void;
   activity: { busy: boolean; ready: boolean; approvals: string[] };
   terminal: {
@@ -111,12 +127,22 @@ export function Workbench({
 }) {
   useLanguage();
   const [preferences, setPreferences] = useState(readPreferences);
+  const theme = useThemePreference();
+  const [mobilePanel, setMobilePanel] = useState<
+    'files' | 'preview' | 'output'
+  >('files');
   const [preview, setPreview] = useState<{ path: string; scope: string }>();
   const previewScope = JSON.stringify([host, project, session]);
   const path = preview?.scope === previewScope ? preview.path : '';
   const setPath = (value: string) => {
     fullscreen.exit();
     setPreview({ path: value, scope: previewScope });
+    if (!value) setMobilePanel('files');
+    if (value) {
+      closeMenu();
+      setMobilePanel('preview');
+      update({ output: false });
+    }
   };
   const attention = useWorkbenchAttention(
     previewScope,
@@ -156,22 +182,31 @@ export function Workbench({
       promise,
     };
   }
-  const [appearance, setAppearance] = useState(false);
+  const [filesLoaded, setFilesLoaded] = useState(preferences.files);
+  useEffect(() => {
+    if (preferences.files) setFilesLoaded(true);
+  }, [preferences.files]);
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const fullscreen = usePaneFullscreen(root, previewScope);
-  const update = (value: Partial<Preferences>) =>
+  const update = (value: Partial<Preferences>) => {
+    if (value.theme) setThemePreference(value.theme);
     setPreferences((old) => ({ ...old, ...value }));
+  };
   useEffect(() => {
     try {
-      localStorage.setItem('coc-workbench-v1', JSON.stringify(preferences));
+      localStorage.setItem(
+        'coc-workbench-v1',
+        JSON.stringify({ ...preferences, theme }),
+      );
     } catch {
       /* Private browsing remains functional. */
     }
-  }, [preferences]);
+  }, [preferences, theme]);
   useEffect(() => {
     setPath('');
     setSearch('');
+    setMobilePanel(preferences.output ? 'output' : 'files');
   }, [host, project, session]);
   function findNext() {
     if (!search.trim()) return;
@@ -200,13 +235,14 @@ export function Workbench({
     }
   }
   return (
-    <ThemeContext.Provider value={preferences.theme}>
+    <ThemeContext.Provider value={theme}>
       <FullscreenContext.Provider value={fullscreen}>
         <FileContext.Provider value={{ host, project, root: projectRoot }}>
           <PreviewContext.Provider value={setPath}>
             <div
               className={`cw-workbench density-${preferences.density}${terminalShown ? ' terminal-visible' : ''}`}
-              data-theme={preferences.theme}
+              data-theme={theme}
+              data-mobile-panel={mobilePanel}
               data-fullscreen={fullscreen.pane || undefined}
               ref={root}
               style={
@@ -221,200 +257,229 @@ export function Workbench({
               {menuTarget &&
                 createPortal(
                   <>
-                    <button
-                      aria-pressed={preferences.files}
+                    <IconButton
+                      icon="folder"
+                      label={t('文件浏览器')}
+                      aria-pressed={preferences.files && !information}
                       onClick={() => {
-                        update({ files: !preferences.files });
+                        fullscreen.exit();
                         closeMenu();
+                        setMobilePanel('files');
+                        update({
+                          files:
+                            !preferences.files ||
+                            !!information ||
+                            (mobilePanel !== 'files' &&
+                              window.matchMedia('(max-width: 900px)').matches),
+                          output: false,
+                        });
                       }}
-                    >
-                      {t('文件浏览器')}
-                    </button>
-                    <button
-                      aria-pressed={preferences.output}
-                      onClick={() => {
-                        closeMenu();
-                        setTerminalShown(false);
-                        update({ output: !preferences.output });
-                      }}
-                    >
-                      {t('命令输出')}
-                    </button>
-                    <button
+                    />
+                    <IconButton
+                      icon="terminal"
+                      label="Terminal"
                       aria-pressed={terminalShown}
                       onPointerEnter={prepareTerminal}
                       onFocus={prepareTerminal}
                       onClick={() => {
                         prepareTerminal();
-                        closeMenu();
                         setTerminalLoaded(true);
-                        setAppearance(false);
-                        update({ output: false });
                         setTerminalShown(!terminalShown);
                       }}
-                    >
-                      Terminal
-                    </button>
-                    <button
-                      aria-expanded={appearance}
+                    />
+                    <IconButton
+                      icon="activity"
+                      label={t('命令输出')}
+                      aria-pressed={preferences.output && !information}
                       onClick={() => {
-                        setAppearance(!appearance);
+                        fullscreen.exit();
                         closeMenu();
+                        setMobilePanel('output');
+                        update({
+                          output: !preferences.output || !!information,
+                          files: false,
+                        });
                       }}
-                    >
-                      {t('外观')}
-                    </button>
+                    />
+                    <IconButton
+                      icon="refresh"
+                      label={t('刷新状态')}
+                      disabled={refreshing}
+                      onClick={refresh}
+                    />
+                    <IconButton
+                      icon="info"
+                      label={t('信息')}
+                      aria-pressed={!!information}
+                      onClick={() => {
+                        fullscreen.exit();
+                        openInformation();
+                      }}
+                    />
                   </>,
                   menuTarget,
                 )}
-              {appearance && (
-                <div className="appearance-panel">
-                  <button
-                    onClick={() => setAppearance(false)}
-                    aria-label={t('关闭外观')}
-                  >
-                    {t('关闭')}
-                  </button>
-                  <form
-                    className="workbench-search"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      findNext();
-                    }}
-                  >
-                    <input
-                      aria-label={t('搜索已加载对话')}
-                      placeholder={t('搜索已加载对话')}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <button type="submit">{t('查找下一个')}</button>
-                  </form>
+              {appearanceTarget &&
+                createPortal(
+                  <div className="appearance-panel">
+                    <form
+                      className="workbench-search"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        findNext();
+                      }}
+                    >
+                      <input
+                        aria-label={t('搜索已加载对话')}
+                        placeholder={t('搜索已加载对话')}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <IconButton
+                        showLabel
+                        icon="search"
+                        label={t('查找下一个')}
+                        type="submit"
+                      />
+                    </form>
 
-                  <button
-                    type="button"
-                    aria-pressed={attention.enabled}
-                    onClick={() => void attention.toggle()}
-                  >
-                    {attention.enabled ? t('关闭页面通知') : t('启用页面通知')}
-                  </button>
-                  <small role="status">{attention.notice}</small>
-                  <WorkbenchActions
-                    scope={previewScope}
-                    events={events}
-                    chunks={chunks}
-                    actions={[
-                      {
-                        label: t('文件浏览器'),
-                        run: () => update({ files: true }),
-                      },
-                      {
-                        label: t('命令输出'),
-                        run: () => {
-                          setTerminalShown(false);
-                          update({ output: true });
-                        },
-                      },
-                      {
-                        label: 'Terminal',
-                        run: () => {
-                          prepareTerminal();
-                          setTerminalLoaded(true);
-                          setAppearance(false);
-                          update({ output: false });
-                          setTerminalShown(true);
-                        },
-                      },
-                      {
-                        label: t('搜索已加载对话'),
-                        run: () => {
-                          setAppearance(true);
-                          requestAnimationFrame(() =>
-                            root.current
-                              ?.querySelector<HTMLInputElement>(
-                                '.workbench-search input',
-                              )
-                              ?.focus(),
-                          );
-                        },
-                      },
-                      { label: t('上传 / 传输'), run: upload },
-                    ]}
-                  />
-                  <label>
-                    {t('主题')}
-                    <select
-                      aria-label={t('主题')}
-                      value={preferences.theme}
-                      onChange={(e) =>
-                        update({
-                          theme: e.target.value as Preferences['theme'],
-                        })
+                    <IconButton
+                      showLabel
+                      icon="info"
+                      label={
+                        attention.enabled
+                          ? t('关闭页面通知')
+                          : t('启用页面通知')
                       }
-                    >
-                      <option value="system">{t('跟随系统')}</option>
-                      <option value="dark">{t('深色')}</option>
-                      <option value="light">{t('浅色')}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t('密度')}
-                    <select
-                      aria-label={t('密度')}
-                      value={preferences.density}
-                      onChange={(e) =>
-                        update({
-                          density: e.target.value as Preferences['density'],
-                        })
-                      }
-                    >
-                      <option value="standard">{t('标准')}</option>
-                      <option value="compact">{t('紧凑')}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t('侧栏宽度')}
-                    <input
-                      type="range"
-                      min="220"
-                      max="640"
-                      value={preferences.width}
-                      onChange={(e) =>
-                        update({ width: Number(e.target.value) })
-                      }
+                      type="button"
+                      aria-pressed={attention.enabled}
+                      onClick={() => void attention.toggle()}
                     />
-                  </label>
-                  <label>
-                    {t('输出面板高度')}
-                    <input
-                      type="range"
-                      min="160"
-                      max="800"
-                      value={preferences.height}
-                      onChange={(e) =>
-                        update({ height: Number(e.target.value) })
-                      }
+                    <small role="status">{attention.notice}</small>
+                    <WorkbenchActions
+                      scope={previewScope}
+                      events={events}
+                      chunks={chunks}
+                      actions={[
+                        {
+                          label: t('文件浏览器'),
+                          icon: 'folder',
+                          run: () => {
+                            closeMenu();
+                            setMobilePanel('files');
+                            update({ files: true, output: false });
+                          },
+                        },
+                        {
+                          label: t('命令输出'),
+                          icon: 'activity',
+                          run: () => {
+                            closeMenu();
+                            setMobilePanel('output');
+                            update({ output: true, files: false });
+                          },
+                        },
+                        {
+                          label: 'Terminal',
+                          icon: 'terminal',
+                          run: () => {
+                            prepareTerminal();
+                            setTerminalLoaded(true);
+                            setTerminalShown(true);
+                          },
+                        },
+                        {
+                          label: t('搜索已加载对话'),
+                          icon: 'search',
+                          run: () => {
+                            requestAnimationFrame(() =>
+                              root.current
+                                ?.querySelector<HTMLInputElement>(
+                                  '.workbench-search input',
+                                )
+                                ?.focus(),
+                            );
+                          },
+                        },
+                        {
+                          label: t('上传 / 传输'),
+                          icon: 'upload',
+                          run: () => {
+                            closeMenu();
+                            setMobilePanel('files');
+                            update({ files: true, output: false });
+                          },
+                        },
+                      ]}
                     />
-                  </label>
-                </div>
-              )}
+                    <label>
+                      <span className="setting-label">
+                        <Icon name="settings" />
+                        {t('密度')}
+                      </span>
+                      <select
+                        aria-label={t('密度')}
+                        value={preferences.density}
+                        onChange={(e) =>
+                          update({
+                            density: e.target.value as Preferences['density'],
+                          })
+                        }
+                      >
+                        <option value="standard">{t('标准')}</option>
+                        <option value="compact">{t('紧凑')}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="setting-label">
+                        <Icon name="fullscreen" />
+                        {t('工作面板宽度')}
+                      </span>
+                      <input
+                        type="range"
+                        min="280"
+                        max="900"
+                        aria-label={t('工作面板宽度')}
+                        value={preferences.previewWidth}
+                        onChange={(e) =>
+                          update({ previewWidth: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span className="setting-label">
+                        <Icon name="terminal" />
+                        {t('Terminal 高度')}
+                      </span>
+                      <input
+                        type="range"
+                        min="220"
+                        max="900"
+                        aria-label={t('Terminal 高度')}
+                        value={preferences.terminalHeight}
+                        onChange={(e) =>
+                          update({ terminalHeight: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                  </div>,
+                  appearanceTarget,
+                )}
               <div className="workbench-body">
-                {preferences.files && (
-                  <aside className="workbench-sidebar" data-pane="files">
+                <div className="workbench-conversation">{children}</div>
+                {filesLoaded && (
+                  <aside
+                    className="unified-work-panel unified-files"
+                    data-pane="files"
+                    hidden={!preferences.files || !!information}
+                  >
                     <ResizeHandle
                       axis="x"
+                      reverse
                       size={preferences.width}
                       minimum={220}
                       maximum={() =>
-                        matchMedia('(max-width: 899px)').matches
-                          ? Math.min(
-                              640,
-                              (root.current?.clientWidth || 1600) - 16,
-                            )
-                          : Math.min(
-                              640,
-                              (root.current?.clientWidth || 1600) * 0.4,
-                            )
+                        Math.min(900, (root.current?.clientWidth || 1600) - 120)
                       }
                       initial={256}
                       label={t('调整文件浏览器宽度')}
@@ -425,7 +490,7 @@ export function Workbench({
                       host={host}
                       project={project}
                       open={setPath}
-                      upload={upload}
+                      transfer={transfer}
                       close={() => {
                         fullscreen.exit();
                         update({ files: false });
@@ -433,41 +498,77 @@ export function Workbench({
                     />
                   </aside>
                 )}
-                <div className="workbench-conversation">{children}</div>
-                {path && (
-                  <Preview
-                    key={`${host}:${project}:${path}`}
-                    host={host}
-                    project={project}
-                    path={path}
-                    close={() => setPath('')}
-                    resize={
-                      <ResizeHandle
-                        axis="x"
-                        reverse
-                        size={preferences.previewWidth}
-                        minimum={280}
-                        maximum={() =>
-                          matchMedia('(max-width: 1279px)').matches
-                            ? Math.min(
-                                900,
-                                (root.current?.clientWidth || 1600) - 16,
-                              )
-                            : Math.min(
-                                900,
-                                (root.current?.clientWidth || 1600) * 0.55,
-                              )
-                        }
-                        initial={420}
-                        label={t('调整文件预览宽度')}
-                        change={(previewWidth) => update({ previewWidth })}
-                      />
-                    }
-                    reference={(value) => {
-                      reference(value);
-                      setPath('');
-                    }}
-                  />
+                {path && !preferences.output && !information && (
+                  <aside className="unified-work-panel unified-preview">
+                    <Preview
+                      key={`${host}:${project}:${path}`}
+                      host={host}
+                      project={project}
+                      path={path}
+                      resize={
+                        <ResizeHandle
+                          axis="x"
+                          reverse
+                          size={preferences.previewWidth}
+                          minimum={280}
+                          maximum={() =>
+                            Math.min(
+                              900,
+                              (root.current?.clientWidth || 1600) - 120,
+                            )
+                          }
+                          initial={420}
+                          label={t('调整文件预览宽度')}
+                          change={(previewWidth) => update({ previewWidth })}
+                        />
+                      }
+                      close={() => setPath('')}
+                      back={() => {
+                        fullscreen.exit();
+                        setMobilePanel('files');
+                        update({ files: true, output: false });
+                      }}
+                      reference={(value) => {
+                        reference(value);
+                        setPath('');
+                      }}
+                    />
+                  </aside>
+                )}
+                {preferences.output && !information && (
+                  <aside
+                    className="unified-work-panel unified-output"
+                    data-pane="output"
+                  >
+                    <ResizeHandle
+                      axis="x"
+                      reverse
+                      size={preferences.previewWidth}
+                      minimum={280}
+                      maximum={() =>
+                        Math.min(900, (root.current?.clientWidth || 1600) - 120)
+                      }
+                      initial={420}
+                      label={t('调整命令输出宽度')}
+                      change={(previewWidth) => update({ previewWidth })}
+                    />
+                    <OutputPanel
+                      key={session || ''}
+                      events={events}
+                      chunks={chunks}
+                      reading={reading}
+                      read={read}
+                      close={() => {
+                        fullscreen.exit();
+                        update({ output: false });
+                      }}
+                    />
+                  </aside>
+                )}
+                {information && (
+                  <InformationDialog close={closeMenu}>
+                    {information}
+                  </InformationDialog>
                 )}
               </div>
               {terminalLoaded && (
@@ -517,40 +618,52 @@ export function Workbench({
                   </Suspense>
                 </div>
               )}
-              {preferences.output && (
-                <div
-                  className="workbench-bottom output-shell"
-                  data-pane="output"
-                >
-                  <ResizeHandle
-                    axis="y"
-                    reverse
-                    size={preferences.height}
-                    minimum={160}
-                    maximum={() =>
-                      Math.min(800, (root.current?.clientHeight || 900) - 180)
-                    }
-                    initial={240}
-                    label={t('调整命令输出高度')}
-                    change={(height) => update({ height })}
-                  />
-                  <OutputPanel
-                    key={session || ''}
-                    events={events}
-                    chunks={chunks}
-                    reading={reading}
-                    read={read}
-                    close={() => {
-                      fullscreen.exit();
-                      update({ output: false });
-                    }}
-                  />
-                </div>
-              )}
             </div>
           </PreviewContext.Provider>
         </FileContext.Provider>
       </FullscreenContext.Provider>
     </ThemeContext.Provider>
+  );
+}
+
+function InformationDialog({
+  children,
+  close,
+}: {
+  children: ReactNode;
+  close: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      element?.close();
+      requestAnimationFrame(() => {
+        const trigger = Array.from(
+          document.querySelectorAll<HTMLButtonElement>(
+            '.workspace-toolbar button',
+          ),
+        ).find((button) => button.getAttribute('aria-label') === t('信息'));
+        trigger?.focus();
+      });
+    };
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="workspace-information-dialog"
+      aria-label={t('会话详情')}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+    >
+      <header className="pane-heading">
+        <h2>{t('信息')}</h2>
+        <IconButton icon="close" label={t('关闭信息')} onClick={close} />
+      </header>
+      {children}
+    </dialog>
   );
 }

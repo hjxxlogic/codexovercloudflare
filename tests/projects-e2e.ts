@@ -1,3 +1,4 @@
+import { endpointFetch } from './helpers/endpoint-peer.ts';
 // Real Worker, native Agent/CC and Chromium. Temporary state; no model or production calls.
 import assert from 'node:assert/strict';
 import { OriginalHttpRequests } from './helpers/original-http.ts';
@@ -78,11 +79,7 @@ async function api(path: string, data?: unknown) {
     Authorization: 'Bearer ' + owner,
   };
   await originals.prepare(path, data, headers, (probe) => api(probe, {}));
-  const res = await fetch(origin + '/api/v1' + path, {
-    method: data === undefined ? 'GET' : 'POST',
-    headers,
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
+  const res = await endpointFetch(origin, path, data, headers);
   let result: any = await res.json();
   assert(res.ok, JSON.stringify(result));
   if (res.status === 202) {

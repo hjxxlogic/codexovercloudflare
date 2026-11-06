@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n.ts';
 
@@ -109,8 +110,12 @@ export function ElementFullscreenButton({
   toggle: () => void;
 }) {
   return (
-    <button type="button" aria-pressed={active} onClick={toggle}>
-      {active ? t('退出全屏') : t('全屏')}
-    </button>
+    <IconButton
+      icon={active ? 'minimize' : 'fullscreen'}
+      label={active ? t('退出全屏') : t('全屏')}
+      type="button"
+      aria-pressed={active}
+      onClick={toggle}
+    />
   );
 }

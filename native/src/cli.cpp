@@ -98,7 +98,8 @@ class Cli {
           woke = true;
           continue;
         }
-        if ((body.is_null() || p.find("/probe") != std::string::npos) &&
+        if ((body.is_null() || p.find("/probe") != std::string::npos ||
+             p.find("/attach") != std::string::npos || p.find("/takeover") != std::string::npos) &&
             e.code == "RESULT_UNKNOWN" && attempt < 2) {
           std::this_thread::sleep_for(std::chrono::milliseconds(500 << attempt++));
           continue;
@@ -357,7 +358,9 @@ class Cli {
     auto c = load();
     verify_codex({{"codexPath", "codex"}, {"codexArgs", Json::array()}});
     auto u = relay_url(c.at("relay"));
-    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"), {{"delivery", 2}});
+    start_management(c);
+    auto t = api("/sessions/" + id + (takeover_ ? "/takeover" : "/attach"),
+                 {{"delivery", 2}, {"claimId", management_ ? management_->instance() : uuid()}});
     if (t["mode"] != "cli")
       throw Error("WRONG_MODE", "Use the browser for a web session");
     std::cout << "Remote session: " << id << '\n' << std::flush;
@@ -388,7 +391,7 @@ class Cli {
       return api("/sessions/" + id + "/attach", {{"delivery", 2}, {"resume", resume}});
     };
     auto bridge = std::make_unique<TuiBridge>(history_io, u, t.at("ticket"), "/ws/v1/cli/" + id,
-                                              *command_store, resume_connection);
+                                              *command_store, resume_connection, c.at("token"));
     auto url = bridge->url();
     std::vector<std::string> args = {"codex",
                                      "--remote",

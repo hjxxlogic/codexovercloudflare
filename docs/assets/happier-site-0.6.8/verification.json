@@ -1,0 +1,30 @@
+{
+  "version": "0.6.8",
+  "upstreamCommit": "d515b5547a1a3aa03e3141ddb6a45f4a72ae1025",
+  "license": "MIT",
+  "uiRegression": "passed",
+  "adminPanels": 9,
+  "themes": ["light", "dark"],
+  "widths": [1280, 390],
+  "crossTabThemeSync": "passed",
+  "nativeCTest": {
+    "passed": 15,
+    "total": 15
+  },
+  "unitTests": {
+    "files": 35,
+    "passed": 381
+  },
+  "fullE2e": {
+    "passed": 46,
+    "terminal": true
+  },
+  "typecheck": "passed",
+  "lint": "passed",
+  "webBuild": "passed",
+  "workerBusinessSourceChanged": false,
+  "agentBusinessSourceChanged": false,
+  "newNpmDependencies": false,
+  "modelCalls": false,
+  "screenshots": "Synthetic local data, no production credentials"
+}

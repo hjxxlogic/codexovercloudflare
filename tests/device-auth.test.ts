@@ -1027,7 +1027,11 @@ describe('host wake configuration and requests', () => {
                   ? [
                       {
                         readyState: 1,
-                        deserializeAttachment: () => ({ protocol: 1 }),
+                        deserializeAttachment: () => ({
+                          kind: 'agent',
+                          bound: true,
+                          deadline: Number.MAX_SAFE_INTEGER,
+                        }),
                       },
                     ]
                   : [],

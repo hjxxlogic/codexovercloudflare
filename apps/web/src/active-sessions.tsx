@@ -105,7 +105,7 @@ export function ActiveSessions({
             {new Date(session.updatedAt || session.createdAt).toLocaleString(
               localeTag(),
             )}{' '}
-            · {t('恢复并继续')}
+            · {t('继续对话')}
           </small>
         </button>
       ))}

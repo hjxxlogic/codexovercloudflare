@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
 env:
+  COC_NO_STARTUP_REPAIR: '1'
   CCACHE_DIR: ${{ github.workspace }}/.local/ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_COMPILERCHECK: content
@@ -14,14 +15,14 @@ env:
 jobs:
   regression:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.17.0
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev clang-format bubblewrap
+      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsodium-dev libsqlite3-dev nlohmann-json3-dev clang-format bubblewrap
       - name: Prepare isolated Terminal test namespaces
         run: python3 scripts/prepare-ci-sandbox.py
       - uses: actions/cache/restore@v4
@@ -58,21 +59,23 @@ jobs:
       - run: python3 scripts/ci-command.py npm run test:delivery
       - run: python3 scripts/ci-command.py npm run test:queue
       - run: python3 scripts/ci-command.py npm run test:terminal
+      - run: python3 scripts/ci-command.py npm run test:operations && python3 scripts/ci-command.py npm run test:runtime
       - run: python3 scripts/ci-command.py npm run test:configuration
       - run: python3 tests/native-login.py
       - run: npm run test:backup
       - run: npm run test:release
       - run: python3 tests/agent-deploy.py
+      - run: python3 tests/deploy-web.py
       - run: python3 tests/cloud-deploy.py
       - run: python3 tests/cloudflare-access-tools.py
       - run: python3 tests/ci-command.py
       - run: npm run test:update
       - run: npx playwright install --with-deps chromium
-      - run: python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:markdown && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
+      - run: python3 scripts/ci-command.py npm run test:opaque && python3 scripts/ci-command.py npm run test:e2e && python3 scripts/ci-command.py npm run test:markdown && python3 scripts/ci-command.py npm run test:ui && python3 scripts/ci-command.py npm run test:cache && python3 scripts/ci-command.py npm run test:billing:web && python3 scripts/ci-command.py npm run test:access:web
         env:
           COC_ARTIFACT_DIR: .local/screenshots
           COC_TEST_TERMINAL: '1'
-      - run: python3 scripts/ci-command.py npm run test:projects:e2e
+      - run: python3 scripts/ci-command.py npm run test:ui:navigation && python3 scripts/ci-command.py npm run test:projects:e2e
         env:
           COC_ARTIFACT_DIR: .local/screenshots
       - uses: actions/upload-artifact@v4
@@ -121,7 +124,7 @@ jobs:
       - name: Install target build dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates build-essential cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev python3
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates build-essential cmake ccache libboost-system-dev libssl-dev libsodium-dev libsqlite3-dev nlohmann-json3-dev python3
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -216,7 +219,7 @@ jobs:
       CCACHE_MAXSIZE: 512M
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
+      - run: sudo apt-get update && sudo apt-get install -y cmake ccache libboost-system-dev libssl-dev libsodium-dev libsqlite3-dev nlohmann-json3-dev
       - uses: actions/cache/restore@v4
         id: compiler-cache
         with:

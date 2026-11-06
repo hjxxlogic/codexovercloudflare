@@ -166,7 +166,7 @@ try {
   };
   socket = new WebSocket(
     origin.replace(/^http/, 'ws') +
-      '/guest/ws/v1/hosts/' +
+      '/guest/ws/v1/channel/' +
       host.hostId +
       '?delivery=2',
     socketOptions,
@@ -175,7 +175,7 @@ try {
     once(socket, 'open', { signal: AbortSignal.timeout(15000) }),
     once(socket, 'message', { signal: AbortSignal.timeout(15000) }),
   ]);
-  assert.equal(JSON.parse(message.toString()).type, 'subscribed');
+  assert.equal(JSON.parse(message.toString()).type, 'channel-welcome');
   const closed = once(socket, 'close', { signal: AbortSignal.timeout(15000) });
   await api('/admin/revoke', { id: identity }, '', true);
   assert.equal((await closed)[0], 4001);
@@ -184,7 +184,7 @@ try {
     401,
   );
   console.log(
-    'PASS: real Worker guest assets, public downloads, CoC pairing, WebSocket subscription and revocation; root still requires Access',
+    'PASS: real Worker guest assets, public downloads, CoC pairing, encrypted channel admission and revocation; root still requires Access',
   );
 } finally {
   socket?.terminate();

@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Event } from '../../../../packages/protocol/src/index.ts';
 import { visibleEvents } from '../events.ts';
@@ -55,46 +56,55 @@ export function OutputPanel({
   }, [log, follow]);
   return (
     <section className="command-output" aria-label={t('命令输出')}>
-      <header className="pane-heading">
-        <h2>{t('命令输出')}</h2>
-        <FullscreenButton pane="output" />
-        <button onClick={close}>{t('收起')}</button>
-      </header>
-      <div className="row">
-        <input
-          aria-label={t('查找已加载输出')}
-          placeholder={t('查找已加载输出')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <Copy value={log} />
-        <button
-          onClick={() =>
-            saveFile(
-              new Blob([`${t('仅包含已加载输出')}\n\n${log}`], {
-                type: 'text/plain;charset=utf-8',
-              }),
-              'loaded-output.txt',
-            )
-          }
-        >
-          {t('导出')}
-        </button>
-        <button aria-pressed={follow} onClick={() => setFollow(!follow)}>
-          {t('自动跟随')}
-        </button>
-        <button
-          onClick={() =>
-            setCleared(Math.max(-1, ...events.map((event) => event.seq)))
-          }
-        >
-          {t('清屏')}
-        </button>
-        <button onClick={() => setCleared(Number.NEGATIVE_INFINITY)}>
-          {t('恢复显示')}
-        </button>
+      <div className="pane-controls">
+        <header className="pane-heading">
+          <h2>{t('命令输出')}</h2>
+          <FullscreenButton pane="output" />
+          <IconButton icon="close" label={t('收起')} onClick={close} />
+        </header>
+        <div className="row">
+          <input
+            aria-label={t('查找已加载输出')}
+            placeholder={t('查找已加载输出')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Copy value={log} />
+          <IconButton
+            icon="download"
+            label={t('导出')}
+            onClick={() =>
+              saveFile(
+                new Blob([`${t('仅包含已加载输出')}\n\n${log}`], {
+                  type: 'text/plain;charset=utf-8',
+                }),
+                'loaded-output.txt',
+              )
+            }
+          />
+          <IconButton
+            icon="activity"
+            label={t('自动跟随')}
+            aria-pressed={follow}
+            onClick={() => setFollow(!follow)}
+          />
+          <IconButton
+            icon="trash"
+            label={t('清屏')}
+            onClick={() =>
+              setCleared(Math.max(-1, ...events.map((event) => event.seq)))
+            }
+          />
+          <IconButton
+            icon="history"
+            label={t('恢复显示')}
+            onClick={() => setCleared(Number.NEGATIVE_INFINITY)}
+          />
+        </div>
+        <small>
+          {t('只读命令输出；清屏不删除历史，导出仅包含已加载内容。')}
+        </small>
       </div>
-      <small>{t('只读命令输出；清屏不删除历史，导出仅包含已加载内容。')}</small>
       <div
         className="output-scroll"
         ref={container}
@@ -114,7 +124,9 @@ export function OutputPanel({
               <strong>{eventTitle(event)}</strong>
               <pre>{content}</pre>
               {event.contentSeq !== undefined && (
-                <button
+                <IconButton
+                  icon="plus"
+                  label={t('展开更多')}
                   disabled={
                     reading[event.contentSeq] ||
                     (chunks[event.contentSeq]?.revision ===
@@ -131,9 +143,7 @@ export function OutputPanel({
                       event.revision ?? 0,
                     );
                   }}
-                >
-                  {t('展开更多')}
-                </button>
+                />
               )}
             </article>
           ))}

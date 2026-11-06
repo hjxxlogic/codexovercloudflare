@@ -1,3 +1,4 @@
+import { AgentEndpoint } from './helpers/agent-endpoint.ts';
 // Real Agent/client processes, a simulated relay and a local TUI fixture. No model calls.
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -13,16 +14,15 @@ import {
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 
 const root = mkdtempSync(join(tmpdir(), 'coc-configuration-'));
 const children: ChildProcess[] = [];
 const diagnostics = new Map<ChildProcess, string>();
 const sockets = new WebSocketServer({ noServer: true });
-const peers = new Map<string, WebSocket>();
+const peers = new Map<string, AgentEndpoint>();
 const connections = { agent: 0, client: 0 };
-const pending = new Map<string, (value: any) => void>();
-let attaches = 0;
+
 let clientPings = 0;
 const clientInstances: string[] = [];
 const server = createServer((req, res) => {
@@ -31,71 +31,34 @@ const server = createServer((req, res) => {
   res.setHeader('X-CoC-Delivery', '2');
   if (req.url === '/api/v1/agent/requests')
     res.end(JSON.stringify({ pending: [] }));
-  else if (req.url === '/api/v1/sessions/host~session/attach') {
-    attaches++;
-    res.end(
-      JSON.stringify({
-        mode: 'cli',
-        delivery: 2,
-        ticket: 'ticket',
-        sandbox: 'workspace-write',
-      }),
-    );
-  } else res.writeHead(404).end('{}');
+  else res.writeHead(404).end('{}');
 });
 server.on('upgrade', (req, socket, head) =>
   sockets.handleUpgrade(req, socket, head, (ws) =>
     sockets.emit('connection', ws, req),
   ),
 );
-sockets.on('connection', (ws, req) => {
-  const kind =
-    req.url === '/ws/v1/agent'
-      ? 'agent'
-      : req.url?.startsWith('/ws/v1/client-management/')
-        ? 'client'
-        : 'history';
-  ws.send(
-    JSON.stringify(
-      kind === 'agent'
-        ? { type: 'hello', delivery: 2, demand: 1, minProtocol: 1 }
-        : kind === 'client'
-          ? { type: 'management-ready' }
-          : { type: 'history-ready' },
-    ),
-  );
-  if (kind === 'client')
-    ws.on('ping', () => {
-      clientPings++;
-    });
+sockets.on('connection', (raw, req) => {
+  if (req.url?.startsWith('/ws/v1/channel/')) {
+    peers.get('agent')!.route(raw);
+    return;
+  }
+  const kind = req.url === '/ws/v1/agent' ? 'agent' : 'client';
+  const ws = new AgentEndpoint(raw, 'host', kind === 'agent');
+  if (kind === 'client') raw.on('ping', () => clientPings++);
   ws.on('message', (raw) => {
     const value = JSON.parse(String(raw));
-    if (value.type === 'capabilities' || value.type === 'management-register') {
-      if (kind === 'history')
-        throw new Error('Unexpected history registration');
-      assert.equal((value.management || value.metadata).kind, kind);
-      if (kind === 'client') clientInstances.push(value.metadata.instance);
+    if (value.type === 'capabilities') {
+      if (kind === 'client') clientInstances.push(value.instance);
       peers.set(kind, ws);
       connections[kind]++;
     }
-    if (value.type === 'management-result') {
-      pending.get(value.wire)?.(value);
-      pending.delete(value.wire);
-    }
-    if (kind === 'history' && value.operation === 'page')
-      ws.send(
-        JSON.stringify({
-          type: 'history',
-          events: [],
-          snapshotSeq: 0,
-          more: false,
-        }),
-      );
   });
   ws.on('close', () => {
     if (peers.get(kind) === ws) peers.delete(kind);
   });
 });
+
 async function waitFor(
   predicate: () => boolean,
   message: string,
@@ -108,21 +71,12 @@ async function waitFor(
   }
 }
 async function command(kind: string, data: unknown) {
-  const wire = randomUUID();
-  return new Promise<any>((done, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(wire);
-      reject(new Error('Management request timed out'));
-    }, 10000);
-    pending.set(wire, (value) => {
-      clearTimeout(timer);
-      done(value);
-    });
-    peers
-      .get(kind)!
-      .send(JSON.stringify({ type: 'management-request', wire, data }));
-  });
+  const response = await peers
+    .get(kind)!
+    .call('/admin/hosts/host/configuration', { command: data }, 'owner');
+  return response.error ? { error: response.error } : { result: response.data };
 }
+
 function start(
   binary: string,
   args: string[],
@@ -155,7 +109,7 @@ try {
     hostId: 'host',
     token: 'test-agent-token-123456789',
     dataDir: join(root, 'state'),
-    projects: [],
+    projects: [{ id: 'project', name: 'Project', path: root }],
     autoUpdate: { enabled: false, intervalHours: 24 },
     codexPath: process.execPath,
     codexArgs: [resolve('tests/fixtures/fake-codex.mjs')],
@@ -226,11 +180,21 @@ try {
     autoUpdate: { enabled: 'invalid' },
   };
   writeFileSync(clientPath, JSON.stringify(credentials), { mode: 0o600 });
+  const probe = await peers.get('agent')!.call('/hosts/host/probe', {});
+  const session = await peers
+    .get('agent')!
+    .call(
+      '/sessions',
+      { hostId: 'host', projectId: 'project', mode: 'cli' },
+      'cli',
+      { instance: probe.data.operationInstance, requestId: randomUUID() },
+    );
+  assert(!session.error, JSON.stringify(session));
   const client = start(
     process.env.COC_CLI_BINARY || 'build/coc-client',
     [
       'attach',
-      'host~session',
+      session.data.id,
       '--config',
       clientPath,
       '--cache-dir',
@@ -279,7 +243,6 @@ try {
   await waitFor(
     () =>
       connections.client === 2 &&
-      attaches === 2 &&
       readFileSync(tuiLog, 'utf8').trim().split('\n').length === 2,
     'Client did not re-execute original attach command',
   );
@@ -297,7 +260,7 @@ try {
   );
   await new Promise((done) => setTimeout(done, 2500));
   assert.equal(
-    attaches,
+    readFileSync(tuiLog, 'utf8').trim().split('\n').length,
     2,
     'Duplicate restart must not repeat the original command again',
   );

@@ -514,14 +514,14 @@ describe('guest CoC authorization', () => {
       fetch: socketFetch,
     } as unknown as DurableObjectStub);
     const socket = await guestRequest(
-      '/ws/v1/hosts/' + target.hostId,
+      '/ws/v1/channel/' + target.hostId,
       undefined,
       cookie.split(';')[0],
       { Upgrade: 'websocket' },
     );
     expect(socket.status).toBe(200);
     expect((socketFetch.mock.calls as unknown as [Request][])[0][0].url).toBe(
-      'https://internal/subscribe',
+      'https://internal/channel?target=agent',
     );
     const missing = await guestRequest(
       '/api/v1/client/identity?hostId=' + target.hostId,
@@ -563,7 +563,7 @@ describe('guest CoC authorization', () => {
   it('keeps CoC authentication and origin checks on guest API and WebSocket routes', async () => {
     const target = await host();
     const socket = await guestRequest(
-      '/ws/v1/hosts/' + target.hostId,
+      '/ws/v1/channel/' + target.hostId,
       undefined,
       '',
       { Upgrade: 'websocket' },

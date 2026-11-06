@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { IconButton } from './happier/icon-button.tsx';
+import { useEffect, useRef, useState } from 'react';
 import { api, readApi, queryApi } from './api.ts';
 import { observe } from './notifications.ts';
 import { HistoryCache } from './history.ts';
@@ -7,25 +8,43 @@ import { t } from './i18n.ts';
 
 type Project = { id: string; name: string; path: string; available?: boolean };
 type Catalog = { revision: number; projects: Project[]; canManage: boolean };
+function siblingDirectory(path = '') {
+  const normalized = path.trim().replace(/[\\/]+$/, '');
+  const separator = normalized.includes('\\') ? '\\' : '/';
+  if (!normalized.startsWith(separator) && !/^[a-z]:/i.test(normalized))
+    return '/';
+  const index = normalized.lastIndexOf(separator);
+  if (/^[a-z]:/i.test(normalized) && index < 3)
+    return normalized.slice(0, 2) + separator;
+  return index >= 0 ? normalized.slice(0, index + 1) : '/';
+}
 export function ProjectManager({
   hostId,
   hostName,
   admin = false,
   changed,
   operations,
+  creationOnly = false,
+  defaultProjectPath,
 }: {
   hostId: string;
   hostName: string;
   admin?: boolean;
   changed?: () => Promise<void>;
   operations?: OperationClient | null;
+  creationOnly?: boolean;
+  defaultProjectPath?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [activated, setActivated] = useState(false);
   const [ownOperations, setOwnOperations] = useState<OperationClient>();
   const client = operations || ownOperations;
   const [catalog, setCatalog] = useState<Catalog>();
-  const [path, setPath] = useState('');
+  const [path, setPath] = useState(() => siblingDirectory(defaultProjectPath));
+  const pathEdited = useRef(false);
+  useEffect(() => {
+    if (!pathEdited.current) setPath(siblingDirectory(defaultProjectPath));
+  }, [defaultProjectPath]);
   const [name, setName] = useState('');
   const [mkdir, setMkdir] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,11 +121,15 @@ export function ProjectManager({
       controller.abort();
     };
   }, [open, client, endpoint]);
-  async function refresh() {
+  async function refresh(refreshList = false) {
     setBusy(true);
     setError('');
     try {
-      setCatalog(await readApi(endpoint));
+      const next: Catalog = await readApi(endpoint);
+      setCatalog(next);
+      if (!pathEdited.current)
+        setPath(siblingDirectory(defaultProjectPath || next.projects[0]?.path));
+      if (refreshList) await changed?.();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -147,7 +170,8 @@ export function ProjectManager({
       );
       setPending(undefined);
       if (request.operation === 'add') {
-        setPath('');
+        pathEdited.current = false;
+        setPath(siblingDirectory(String(request.path)));
         setName('');
         setDirectories(undefined);
       }
@@ -175,86 +199,120 @@ export function ProjectManager({
   }
   return (
     <section className="project-management">
-      <button
-        onClick={() => {
-          setActivated(true);
-          setOpen(!open);
-          if (!open) void refresh();
-        }}
-      >
-        {t('项目管理')} · {hostName}
-      </button>
+      <div className="project-management-actions">
+        {creationOnly && (
+          <IconButton
+            icon="refresh"
+            label={t('刷新项目')}
+            disabled={busy}
+            onClick={() => void refresh(true)}
+          />
+        )}
+        {creationOnly ? (
+          <IconButton
+            icon="plus"
+            label={t('新建项目')}
+            aria-expanded={open}
+            onClick={() => {
+              setActivated(true);
+              setOpen(!open);
+              if (!open) void refresh();
+            }}
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setActivated(true);
+              setOpen(!open);
+              if (!open) void refresh();
+            }}
+          >
+            {t('项目管理')} · {hostName}
+          </button>
+        )}
+      </div>
       {open && (
         <>
           <p>
             {t('目标 Agent：')}
             {hostName} <code>{hostId}</code>
           </p>
-          <button disabled={busy} onClick={() => void refresh()}>
-            {t('刷新项目')}
-          </button>
+          {!creationOnly && (
+            <IconButton
+              icon="refresh"
+              label={t('刷新项目')}
+              disabled={busy}
+              onClick={() => void refresh()}
+            />
+          )}
           {error && <p role="alert">{error}</p>}
           {pending && !busy && (
             <div role="status">
               <p>{t('操作结果未确认，请重试原请求或刷新核对后继续。')}</p>
-              <button onClick={() => void mutate(pending)}>
-                {t('重试原请求')}
-              </button>
-              <button
+              <IconButton
+                icon="refresh"
+                label={t('重试原请求')}
+                onClick={() => void mutate(pending)}
+              />
+              <IconButton
+                icon="refresh"
+                label={t('刷新并核对')}
                 onClick={() => {
                   void refresh();
                 }}
-              >
-                {t('刷新并核对')}
-              </button>
+              />
             </div>
           )}
           {catalog && (
             <>
-              {!catalog.projects.length && <p>{t('尚未登记项目')}</p>}
-              <ul>
-                {catalog.projects.map((p) => (
-                  <li key={p.id}>
-                    <strong>{p.name}</strong> <code>{p.path}</code>{' '}
-                    {p.available === false && t('目录不可用')}
-                    <small className="id">{p.id}</small>
-                    {catalog.canManage && (
-                      <>
-                        <button
-                          disabled={busy || !!pending}
-                          onClick={() => {
-                            const value = prompt(t('项目显示名'), p.name);
-                            if (value?.trim())
-                              void mutate({
-                                operation: 'rename',
-                                id: p.id,
-                                name: value.trim(),
-                              });
-                          }}
-                        >
-                          {t('改名')}
-                        </button>
-                        <button
-                          disabled={busy || !!pending}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t(
-                                  '取消注册项目 {0}？不会删除目录或历史；有活动会话时不能移除。',
-                                  p.name,
-                                ),
+              {!creationOnly && !catalog.projects.length && (
+                <p>{t('尚未登记项目')}</p>
+              )}
+              {!creationOnly && (
+                <ul>
+                  {catalog.projects.map((p) => (
+                    <li key={p.id}>
+                      <strong>{p.name}</strong> <code>{p.path}</code>{' '}
+                      {p.available === false && t('目录不可用')}
+                      <small className="id">{p.id}</small>
+                      {catalog.canManage && (
+                        <>
+                          <IconButton
+                            icon="code"
+                            label={t('改名')}
+                            disabled={busy || !!pending}
+                            onClick={() => {
+                              const value = prompt(t('项目显示名'), p.name);
+                              if (value?.trim())
+                                void mutate({
+                                  operation: 'rename',
+                                  id: p.id,
+                                  name: value.trim(),
+                                });
+                            }}
+                          />
+                          <IconButton
+                            icon="trash"
+                            label={t('取消注册')}
+                            disabled={busy || !!pending}
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  t(
+                                    '取消注册项目 {0}？不会删除目录或历史；有活动会话时不能移除。',
+                                    p.name,
+                                  ),
+                                )
                               )
-                            )
-                              void mutate({ operation: 'remove', id: p.id });
-                          }}
-                        >
-                          {t('取消注册')}
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                                void mutate({ operation: 'remove', id: p.id });
+                            }}
+                          />
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {catalog.canManage ? (
                 <form
                   onSubmit={(e) => {
@@ -278,33 +336,38 @@ export function ProjectManager({
                       required
                       value={path}
                       maxLength={4096}
-                      onChange={(e) => setPath(e.target.value)}
+                      onChange={(e) => {
+                        pathEdited.current = true;
+                        setPath(e.target.value);
+                      }}
                       disabled={busy || !!pending}
                     />
                   </label>
-                  <button
+                  <IconButton
+                    icon="folder"
+                    label={t('浏览目录')}
                     type="button"
                     disabled={!path || busy || !!pending}
                     onClick={() => void browse()}
-                  >
-                    {t('浏览目录')}
-                  </button>
+                  />
                   {directories && (
                     <div>
-                      <button
+                      <IconButton
+                        icon="back"
+                        label={t('上级目录')}
                         type="button"
                         onClick={() => {
+                          pathEdited.current = true;
                           setPath(directories.parent);
                           setDirectories(undefined);
                         }}
-                      >
-                        {t('上级目录')}
-                      </button>
+                      />
                       {directories.directories.map((d) => (
                         <button
                           type="button"
                           key={d.path}
                           onClick={() => {
+                            pathEdited.current = true;
                             setPath(d.path);
                             setDirectories(undefined);
                           }}
@@ -335,9 +398,12 @@ export function ProjectManager({
                     />
                     {t('目录不存在时创建')}
                   </label>
-                  <button disabled={busy || !!pending} type="submit">
-                    {t('添加项目')}
-                  </button>
+                  <IconButton
+                    icon="plus"
+                    label={t('添加项目')}
+                    disabled={busy || !!pending}
+                    type="submit"
+                  />
                 </form>
               ) : (
                 <p>{t('仅 Agent 管理员邮箱或系统管理员可以更改项目登记。')}</p>

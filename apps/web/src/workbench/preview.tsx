@@ -1,3 +1,4 @@
+import { IconButton, IconLink } from '../happier/icon-button.tsx';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readFile, downloadFile } from '../download.ts';
 import { fileType, filePreviewUrl } from '../file-types.ts';
@@ -11,8 +12,10 @@ export function Preview({
   close,
   reference,
   resize,
+  back,
 }: {
   resize: ReactNode;
+  back: () => void;
   host: string;
   project: string;
   path: string;
@@ -59,48 +62,63 @@ export function Preview({
       aria-label={t('文件预览')}
     >
       {resize}
-      <header className="pane-heading">
-        <h2 title={path}>{path}</h2>
-        <FullscreenButton pane="preview" />
-        <button onClick={close} aria-label={t('关闭预览')}>
-          {t('关闭')}
-        </button>
-      </header>
-      <div className="row">
-        <Copy value={path} />
-        <button onClick={() => reference(path)}>{t('引用到对话')}</button>
-        <a
-          href={filePreviewUrl(host, project, path)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {t('新窗口')}
-        </a>
-        <button
-          onClick={() => {
-            download.current?.abort();
-            const controller = new AbortController();
-            download.current = controller;
-            void downloadFile(host, project, path, controller.signal).catch(
-              (e: unknown) => {
-                if (!controller.signal.aborted) setError(String(e));
-              },
-            );
-          }}
-        >
-          {t('下载')}
-        </button>
+      <div className="pane-controls">
+        <header className="pane-heading">
+          <IconButton
+            className="preview-back"
+            icon="back"
+            label={t('返回文件列表')}
+            onClick={back}
+          />
+          <h2 title={path}>{path}</h2>
+          <FullscreenButton pane="preview" />
+          <IconButton icon="close" label={t('关闭预览')} onClick={close} />
+        </header>
+        <div className="row">
+          <Copy value={path} />
+          <IconButton
+            icon="link"
+            label={t('引用到对话')}
+            onClick={() => reference(path)}
+          />
+          <IconLink
+            icon="external"
+            label={t('新窗口')}
+            href={filePreviewUrl(host, project, path)}
+            target="_blank"
+            rel="noopener noreferrer"
+          />
+
+          <IconButton
+            icon="download"
+            label={t('下载')}
+            onClick={() => {
+              download.current?.abort();
+              const controller = new AbortController();
+              download.current = controller;
+              void downloadFile(host, project, path, controller.signal).catch(
+                (e: unknown) => {
+                  if (!controller.signal.aborted) setError(String(e));
+                },
+              );
+            }}
+          />
+        </div>
+        <input
+          aria-label={t('本文件查找')}
+          placeholder={t('本文件查找')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
-      <input
-        aria-label={t('本文件查找')}
-        placeholder={t('本文件查找')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
       {error ? (
         <p role="alert">
           {error}
-          <button onClick={() => setRetry(retry + 1)}>{t('重试')}</button>
+          <IconButton
+            icon="refresh"
+            label={t('重试')}
+            onClick={() => setRetry(retry + 1)}
+          />
         </p>
       ) : text === undefined ? (
         <p role="status">{t('正在读取…')}</p>

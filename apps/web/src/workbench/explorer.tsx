@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { IconButton } from '../happier/icon-button.tsx';
+import { useEffect, useState, type ReactNode } from 'react';
 import { queryApi } from '../api.ts';
 import { t } from '../i18n.ts';
 import { FullscreenButton } from './fullscreen.tsx';
@@ -7,16 +8,17 @@ export function Explorer({
   host,
   project,
   open,
-  upload,
+  transfer,
   close,
 }: {
   host: string;
   project: string;
   open: (path: string) => void;
-  upload: () => void;
+  transfer: ReactNode;
   close: () => void;
 }) {
   const [filter, setFilter] = useState('');
+  const [transferring, setTransferring] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [sort, setSort] = useState('name');
   return (
@@ -59,45 +61,69 @@ export function Explorer({
         next?.focus();
       }}
     >
-      <header className="pane-heading">
-        <h2>{t('文件浏览器')}</h2>
-        <FullscreenButton pane="files" />
-        <button onClick={close} aria-label={t('关闭文件浏览器')}>
-          {t('关闭')}
-        </button>
-        <button onClick={() => setGeneration(generation + 1)}>
-          {t('刷新')}
-        </button>
-      </header>
-      <input
-        aria-label={t('筛选已加载项')}
-        placeholder={t('筛选已加载项')}
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
-      <select
-        aria-label={t('排序已加载项')}
-        value={sort}
-        onChange={(event) => setSort(event.target.value)}
-      >
-        <option value="name">{t('按名称')}</option>
-        <option value="size">{t('按大小')}</option>
-      </select>
-      <button onClick={upload}>{t('上传 / 传输')}</button>
-      {host && project ? (
-        <Directory
-          key={`${host}:${project}:${generation}`}
-          host={host}
-          project={project}
-          path=""
-          filter={filter}
-          sort={sort}
-          open={open}
-          depth={0}
+      <div className="pane-controls">
+        <header className="pane-heading">
+          <h2>{t('文件浏览器')}</h2>
+          <FullscreenButton pane="files" />
+          <IconButton
+            icon="close"
+            label={t('关闭文件浏览器')}
+            onClick={close}
+          />
+          <IconButton
+            icon="refresh"
+            label={t('刷新')}
+            onClick={() => setGeneration(generation + 1)}
+          />
+        </header>
+        <div className="file-browser-tabs">
+          <button
+            aria-pressed={!transferring}
+            onClick={() => setTransferring(false)}
+          >
+            {t('浏览')}
+          </button>
+          <button
+            aria-pressed={transferring}
+            onClick={() => setTransferring(true)}
+          >
+            {t('上传 / 传输')}
+          </button>
+        </div>
+      </div>
+      <div hidden={transferring}>
+        <input
+          aria-label={t('筛选已加载项')}
+          placeholder={t('筛选已加载项')}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
         />
-      ) : (
-        <p>{t('请先选择项目')}</p>
-      )}
+        <select
+          aria-label={t('排序已加载项')}
+          value={sort}
+          onChange={(event) => setSort(event.target.value)}
+        >
+          <option value="name">{t('按名称')}</option>
+          <option value="size">{t('按大小')}</option>
+        </select>
+        {host && project ? (
+          <Directory
+            key={`${host}:${project}:${generation}`}
+            host={host}
+            project={project}
+            path=""
+            filter={filter}
+            sort={sort}
+            open={open}
+            depth={0}
+          />
+        ) : (
+          <p>{t('请先选择项目')}</p>
+        )}
+      </div>
+      <div className="file-transfers" hidden={!transferring}>
+        {transfer}
+      </div>
     </section>
   );
 }
@@ -228,15 +254,22 @@ function Directory({
       {error && (
         <li role="alert">
           {error}
-          <button onClick={() => setRetry(retry + 1)}>{t('重试')}</button>
+          <IconButton
+            icon="refresh"
+            label={t('重试')}
+            onClick={() => setRetry(retry + 1)}
+          />
         </li>
       )}
       {!loading && !error && !entries.length && <li>{t('空目录')}</li>}
       {next && (
         <li>
-          <button disabled={loading} onClick={() => setPage(next)}>
-            {t('加载更多文件')}
-          </button>
+          <IconButton
+            icon="plus"
+            label={t('加载更多文件')}
+            disabled={loading}
+            onClick={() => setPage(next)}
+          />
         </li>
       )}
     </ul>

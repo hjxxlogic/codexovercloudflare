@@ -100,9 +100,29 @@ int main() {
                   store.session_page({{"cwAccountId", "other"}}).at("data").empty(),
               "Explicit session ownership persists and remains isolated after reopening");
       }
-      check(fixture.count("PRAGMA user_version") == 0 &&
+      check(fixture.count("PRAGMA user_version") == 2 &&
                 fixture.count("SELECT legacy_allowed FROM transport2_retention") == 1,
-            "Current unmarked storage is used without schema conversion or compatibility flags");
+            "Current storage gains the encrypted control compatibility fence without rewriting "
+            "journals");
+    }
+    for (int version : {0, 1}) {
+      Fixture fixture(false, false, true);
+      fixture.sql("PRAGMA user_version=" + std::to_string(version));
+      fixture.sql("UPDATE sessions SET value=json_set(value,'$.promptQueue',"
+                  "json('[{\"id\":\"queued\",\"text\":\"preserved\",\"state\":\"queued\"}]'))");
+      const auto backup = fixture.path + "/agent.db.pre-opaque-v2";
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        Store store(fixture.path, false);
+        check(store.get("unbound").at("promptQueue").at(0).at("text") == "preserved",
+              "Legacy queue survives migration and restart");
+      }
+      check(std::filesystem::exists(backup), "Migration retains consistent SQLite backup");
+      fixture.sql("ATTACH DATABASE '" + backup + "' AS backup");
+      check(fixture.count("PRAGMA backup.user_version") == version,
+            "Backup retains pre-upgrade version including committed WAL");
+      check(fixture.count("SELECT COUNT(*) FROM backup.sessions WHERE "
+                          "json_extract(value,'$.promptQueue[0].text')='preserved'") == 1,
+            "Backup retains committed queue body");
     }
     for (int kind = 0; kind < 3; ++kind) {
       Fixture fixture(kind == 1, kind == 2);

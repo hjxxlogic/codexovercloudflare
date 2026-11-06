@@ -212,33 +212,102 @@ ClientManagement::~ClientManagement() {
   if (thread_.joinable())
     thread_.join();
 }
+void ClientManagement::encrypted(const std::string &id, const Json &d) {
+  auto &link = links_.at(id);
+  if (link.expires <= now())
+    throw Error("UNAUTHORIZED", "Configuration connection expired");
+  for (const auto &part : secure_fragments(d))
+    socket_->send({{"type", "channel-data"}, {"link", id}, {"data", link.cipher->seal(part)}});
+}
+void ClientManagement::channel(const Json &d) {
+  const auto type = d.value("type", ""), id = d.value("link", "");
+  try {
+    if (type == "channel-welcome") {
+      socket_->send({{"type", "channel-register"}, {"instance", instance_}});
+      return;
+    }
+    if (type == "channel-registered")
+      return;
+    if (type == "channel-retire" || type == "channel-close") {
+      if (id == "*")
+        links_.clear();
+      else
+        links_.erase(id);
+      if (type == "channel-retire")
+        socket_->send({{"type", "channel-retired"}, {"event", d.at("event")}});
+      return;
+    }
+    if (type == "channel-open") {
+      const auto identity = d.at("identity");
+      if (links_.size() >= 128 || links_.count(id) ||
+          identity.at("hostId") != credential_.at("hostId") || identity.at("role") != "owner" ||
+          !identity.at("permissions").value("configuration", false) ||
+          identity.at("expires").get<int64_t>() <= now())
+        throw Error("FORBIDDEN", "Owner connection required");
+      Link link;
+      link.expires = identity.at("expires");
+      link.cipher = std::make_unique<SecureChannel>(false, d.at("binding"));
+      const auto header = link.cipher->exchange(d.at("key"));
+      const auto key = link.cipher->public_key();
+      links_.emplace(id, std::move(link));
+      socket_->send({{"type", "channel-key"}, {"link", id}, {"data", key}});
+      socket_->send({{"type", "channel-header"}, {"link", id}, {"data", header}});
+      return;
+    }
+    auto it = links_.find(id);
+    if (it == links_.end())
+      return;
+    if (it->second.expires <= now())
+      throw Error("UNAUTHORIZED", "Configuration connection expired");
+    if (type == "channel-header") {
+      it->second.cipher->accept(d.at("data"));
+      return;
+    }
+    if (type != "channel-data")
+      throw Error("INVALID_REQUEST", "Encrypted channel required");
+    const auto part = it->second.cipher->open(d.at("data"));
+    if (part.empty() || (part[0] != '0' && part[0] != '1') ||
+        it->second.partial.size() + part.size() - 1 > max_queue)
+      throw Error("BACKPRESSURE", "Invalid fragments");
+    it->second.partial += part.substr(1);
+    if (part[0] == '0')
+      return;
+    const auto packet = Json::parse(it->second.partial);
+    it->second.partial.clear();
+    Json reply = {{"type", "response"}, {"id", packet.at("id")}};
+    bool restart = false;
+    try {
+      const auto path = packet.at("path").get<std::string>();
+      if (packet.at("type") != "request" ||
+          (path !=
+               "/admin/hosts/" + credential_.at("hostId").get<std::string>() + "/configuration" &&
+           path != "/api/v1/admin/hosts/" + credential_.at("hostId").get<std::string>() +
+                       "/configuration"))
+        throw Error("FORBIDDEN", "Configuration route required");
+      if (packet.at("body").is_null()) {
+        reply["data"] = config_.metadata();
+        reply["data"]["instance"] = instance_;
+      } else
+        reply["data"] = config_.request(packet.at("body").at("command"), true, restart);
+    } catch (const std::exception &error) {
+      reply["error"] = error_data(error);
+    }
+    encrypted(id, reply);
+    if (restart)
+      restart_ = true;
+  } catch (...) {
+    links_.erase(id);
+    socket_->send({{"type", "channel-close"}, {"link", id}});
+  }
+}
 void ClientManagement::connect() {
   if (stopped_ || restart_)
     return;
   socket_ = connect_socket(
       io_, relay_url(credential_.at("relay")), credential_.at("token"),
-      [this](Json d) {
-        if (d.value("type", "") == "management-ready") {
-          auto metadata = config_.metadata();
-          metadata["instance"] = instance_;
-          socket_->send({{"type", "management-register"}, {"metadata", metadata}});
-        }
-        if (d.value("type", "") != "management-request")
-          return;
-        Json reply = {{"type", "management-result"}, {"wire", d.value("wire", "")}};
-        bool restart = false;
-        try {
-          reply["result"] = config_.request(d.at("data"), true, restart);
-        } catch (const std::exception &error) {
-          reply["error"] = error_data(error);
-        }
-        socket_->send(reply);
-        if (restart) {
-          restart_ = true;
-          // Keep the management thread alive while the TUI is being cleaned up.
-        }
-      },
+      [this](Json d) { channel(d); },
       [this](unsigned code) {
+        links_.clear();
         if (stopped_ || restart_ || code == 4001)
           return;
         retry_.expires_after(std::chrono::seconds(3));

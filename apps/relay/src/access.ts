@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError } from '../../../packages/protocol/src/index.ts';
+import { AppError } from '../../../packages/protocol/src/admission.ts';
 import { digest, type Auth, type Env } from './common.ts';
 
 export type AccessUser = { accountId: string; email: string; issuer: string };

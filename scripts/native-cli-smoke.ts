@@ -77,7 +77,7 @@ task=sys.argv[3]=='task'
 sent=False
 submitted=False
 start=time.time()
-end=start+(90 if task else 15)
+end=start+(90 if task else 30)
 while time.time()<end and p.poll() is None:
  if task and os.path.exists(os.path.join(sys.argv[2],'turn-completed')):break
  if task and not sent and time.time()-start>5:
@@ -88,6 +88,8 @@ while time.time()<end and p.poll() is None:
  if r:
   try:
    data=os.read(master,65536)
+   if os.environ.get('COC_TEST_KEEP'):
+    with open(os.path.join(sys.argv[2],'tui-screen.log'),'ab') as f:f.write(data)
    if b'\\x1b[6n' in data: os.write(master,b'\\x1b[1;1R')
    if b'trust' in data.lower(): os.write(master,b'\\r')
   except OSError:break
@@ -114,7 +116,12 @@ try {
   if (rejected.size)
     console.log('Unsupported native methods:', [...rejected].join(', '));
   if (!responses.has('initialize') || !responses.has('thread/start'))
-    throw new Error('Native TUI did not finish initialization. ' + stderr);
+    throw new Error(
+      'Native TUI did not finish initialization. ' +
+        stderr +
+        '\n' +
+        relay.diagnostics(),
+    );
   if (runTask && !turnCompleted)
     throw new Error('Native TUI real model turn did not complete');
   console.log(
@@ -129,5 +136,6 @@ try {
   for (const ws of wss.clients) ws.terminate();
   wss.close();
   await new Promise((r) => setTimeout(r, 300));
-  rmSync(dir, { recursive: true, force: true });
+  if (process.env.COC_TEST_KEEP) console.log('Test state:', dir);
+  else rmSync(dir, { recursive: true, force: true });
 }

@@ -14,27 +14,38 @@ export class Agent {
   private proxy?: WebSocketServer;
   private peers = new Set<WebSocket>();
   private starting?: Promise<void>;
-  private loseAttach = false;
-  private loseControl = false;
-  lostControlReady = 0;
-  loseNextControlReady() {
-    this.loseControl = true;
+  // Faults see only opaque records; semantic loss cases live in the endpoint
+  // and internal delivery tests, where the business boundary is available.
+  private loseReply = false;
+  private loseRequest = false;
+  private replyCondition?: () => boolean;
+  private replyInterruption?: () => void;
+  interruptReplyWhen(condition: () => boolean) {
+    this.replyCondition = condition;
   }
-  private loseDeliveryResult = false;
-  private loseOutput = false;
-  private loseCommand = false;
-  loseNextDeliveryResult() {
-    this.loseDeliveryResult = true;
+  get replyPaused() {
+    return !!this.replyInterruption;
   }
-  loseNextOutput() {
-    this.loseOutput = true;
+  releaseInterruptedReply() {
+    if (!this.replyInterruption) throw new Error('No paused reply');
+    this.replyInterruption();
+    this.replyInterruption = undefined;
   }
-  loseNextReliableCommand() {
-    this.loseCommand = true;
+  private requestInterruption?: () => void;
+  get requestPaused() {
+    return !!this.requestInterruption;
   }
-  private lostReplies = new Set<string>();
-  loseNextAttachReply() {
-    this.loseAttach = true;
+  releaseInterruptedRequest() {
+    if (!this.requestInterruption) throw new Error('No paused request');
+    this.requestInterruption();
+    this.requestInterruption = undefined;
+  }
+  interruptedReplies = 0;
+  interruptNextReply() {
+    this.loseReply = true;
+  }
+  interruptNextRequest() {
+    this.loseRequest = true;
   }
   constructor(private config: AgentConfig) {}
   start() {
@@ -89,37 +100,22 @@ export class Agent {
       const queue: string[] = [];
       downstream.on('message', (d) => {
         const message = JSON.parse(d.toString());
-        if (
-          this.loseControl &&
-          message.type === 'result' &&
-          message.data?.controlReady
-        ) {
-          this.loseControl = false;
-          this.lostControlReady++;
+        if (this.replyInterruption) return;
+        if (message.type === 'channel-data' && this.replyCondition?.()) {
+          this.replyCondition = undefined;
+          this.replyInterruption = () => {
+            upstream.close(1012);
+            downstream.close(1012);
+          };
           return;
         }
-        if (
-          this.loseDeliveryResult &&
-          message.type === 'notice' &&
-          message.payload?.type === 'delivery-result'
-        ) {
-          this.loseDeliveryResult = false;
+        if (message.type === 'channel-data' && this.loseReply) {
+          this.interruptedReplies++;
+          this.loseReply = false;
+          upstream.close(1012);
+          downstream.close(1012);
           return;
         }
-        if (
-          this.loseOutput &&
-          message.type === 'rpc' &&
-          message.payload?.type === 'delivery-data'
-        ) {
-          this.loseOutput = false;
-          return;
-        }
-
-        if (
-          message.type === 'result' &&
-          this.lostReplies.delete(message.requestId)
-        )
-          return;
         if (upstream.readyState === WebSocket.OPEN) upstream.send(d.toString());
         else queue.push(d.toString());
       });
@@ -129,19 +125,18 @@ export class Agent {
       });
       upstream.on('message', (d) => {
         const message = JSON.parse(d.toString());
-        if (this.loseCommand && message.delivery) {
-          this.loseCommand = false;
+        if (this.requestInterruption) return;
+        if (this.loseRequest && message.type === 'channel-data') {
+          this.loseRequest = false;
+          // Hold opaque traffic until the driver confirms local publication.
+          // No business field or decryption key is available in this proxy.
+          this.requestInterruption = () => {
+            upstream.close(1012);
+            downstream.close(1012);
+          };
           return;
         }
 
-        if (
-          this.loseAttach &&
-          message.type === 'control' &&
-          message.action === 'attach'
-        ) {
-          this.loseAttach = false;
-          this.lostReplies.add(message.requestId);
-        }
         if (downstream.readyState === WebSocket.OPEN)
           downstream.send(d.toString());
       });

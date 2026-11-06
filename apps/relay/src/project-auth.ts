@@ -1,4 +1,4 @@
-import { AppError } from '../../../packages/protocol/src/index.ts';
+import { AppError } from '../../../packages/protocol/src/admission.ts';
 import { adminEmailVersion, accessEnabled } from './access.ts';
 import { digest, type Auth, type Env } from './common.ts';
 export function effectiveAdminEmail(host: any): string {

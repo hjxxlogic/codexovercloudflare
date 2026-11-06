@@ -9,7 +9,8 @@ class TuiBridge {
 
 public:
   TuiBridge(asio::io_context &, const Url &, const std::string &ticket, const std::string &path,
-            Store &delivery_store, std::function<Json(Json)> resume = {});
+            Store &delivery_store, std::function<Json(Json)> resume = {},
+            const std::string &credential = "");
   ~TuiBridge();
   std::string url() const;
   // Sticky: authenticated TUI sent initialized after transport handshakes.

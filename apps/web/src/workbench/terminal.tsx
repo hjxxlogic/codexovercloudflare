@@ -1,3 +1,4 @@
+import { IconButton } from '../happier/icon-button.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -8,6 +9,7 @@ import type { ControlProof } from '../../../../packages/protocol/src/index.ts';
 import { t } from '../i18n.ts';
 import { TerminalStream } from './terminal-stream.ts';
 import { FullscreenButton } from './fullscreen.tsx';
+import { useResolvedTheme } from '../theme.ts';
 export type TerminalMetadata = {
   enabled: boolean;
   deliveryInstance: string;
@@ -35,6 +37,7 @@ export default function InteractiveTerminal({
   close,
   prepared,
 }: Props) {
+  const theme = useResolvedTheme();
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(null);
   const fit = useRef<FitAddon>(null);
@@ -80,7 +83,6 @@ export default function InteractiveTerminal({
       fontSize: 13,
       allowProposedApi: false,
       disableStdin: true,
-      theme: { background: '#11151c', foreground: '#e8edf5' },
     });
     const addon = new FitAddon();
     term.loadAddon(addon);
@@ -99,6 +101,23 @@ export default function InteractiveTerminal({
       term.dispose();
     };
   }, []);
+  useEffect(() => {
+    if (terminal.current)
+      terminal.current.options.theme =
+        theme === 'dark'
+          ? {
+              background: '#191717',
+              foreground: '#efefef',
+              cursor: '#efefef',
+              selectionBackground: '#453d3d',
+            }
+          : {
+              background: '#ffffff',
+              foreground: '#222222',
+              cursor: '#222222',
+              selectionBackground: '#dedede',
+            };
+  }, [theme]);
   useEffect(() => {
     if (visible) requestAnimationFrame(() => fit.current?.fit());
   }, [visible]);
@@ -275,7 +294,7 @@ export default function InteractiveTerminal({
       <header className="pane-heading">
         <h2>Terminal · {connected ? t('已连接') : t('未连接')}</h2>
         <FullscreenButton pane="terminal" />
-        <button onClick={close}>{t('收起')}</button>
+        <IconButton icon="close" label={t('收起')} onClick={close} />
       </header>
       <p className="terminal-scope">
         {host} / {project} · {t('隔离项目终端；终端存活期间助手任务互斥。')}
@@ -294,7 +313,13 @@ export default function InteractiveTerminal({
         <p role="status">{t('终端需要当前项目写权限和空闲的助手会话。')}</p>
       )}
       <div className="row">
-        <button
+        <IconButton
+          icon="terminal"
+          label={
+            pending.current?.body.operation === 'open'
+              ? t('重试原请求')
+              : t('打开终端')
+          }
           disabled={
             !metadata?.enabled ||
             (metadata.streaming || 0) < 2 ||
@@ -310,29 +335,29 @@ export default function InteractiveTerminal({
             )
               void original('open');
           }}
-        >
-          {pending.current?.body.operation === 'open'
-            ? t('重试原请求')
-            : t('打开终端')}
-        </button>
-        <button
+        />
+        <IconButton
+          icon="stop"
+          label={t('终止终端')}
           disabled={!runtime || starting || !enabled}
           onClick={() => {
             if (confirm(t('终止终端及其子进程？'))) void original('close');
           }}
-        >
-          {t('终止终端')}
-        </button>
-        <button
+        />
+        <IconButton
+          icon="refresh"
+          label={t('重新连接')}
           disabled={!runtime || connected || !enabled}
           onClick={() => {
             setError('');
             setRetry(retry + 1);
           }}
-        >
-          {t('重新连接')}
-        </button>
-        <button onClick={() => terminal.current?.clear()}>{t('清屏')}</button>
+        />
+        <IconButton
+          icon="trash"
+          label={t('清屏')}
+          onClick={() => terminal.current?.clear()}
+        />
       </div>
       {error && <p role="alert">{error}</p>}
       <div ref={container} className="xterm-container" />

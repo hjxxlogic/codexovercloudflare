@@ -1,3 +1,8 @@
+import {
+  encryptedFixture,
+  fixtureRoutes,
+  fixtureStreams,
+} from './helpers/encrypted-fixture.ts';
 // Synthetic UI stress checks: no production credentials or model tasks.
 import assert from 'node:assert/strict';
 import { SyntheticDelivery } from './helpers/synthetic-delivery.ts';
@@ -9,6 +14,7 @@ import { chromium, expect, type Page } from '@playwright/test';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Event } from '../packages/protocol/src/index.ts';
 import { version as webVersion } from '../package.json';
+import { navigationUI } from './helpers/navigation-ui.ts';
 
 const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
@@ -131,7 +137,9 @@ const events: Event[] = [
       item: {
         id: `tool-${seq}`,
         type: 'commandExecution',
-        command: `echo example-${seq}`,
+        command: !process.argv.includes('--legacy-layout')
+          ? `echo example-${seq}\n` + 'long tool command '.repeat(70)
+          : `echo example-${seq}`,
         exitCode: 0,
       },
     },
@@ -253,6 +261,7 @@ const server = createServer((req, res) => {
             },
           ]
         : [];
+    else if (path === '/admin/hosts/sample/build') body = adminHost.build;
     else if (path === '/admin/hosts')
       body = adminSamples
         ? [
@@ -275,7 +284,13 @@ const server = createServer((req, res) => {
             message: 'Synthetic host list failure',
           },
         };
-      } else body = [{ id: 'sample', name: '示例服务器', online }];
+      } else
+        body = [
+          { id: 'sample', name: '示例服务器', online },
+          ...(!process.argv.includes('--legacy-layout')
+            ? [{ id: 'second', name: '另一台服务器', online: false }]
+            : []),
+        ];
     } else if (path === '/client/identity') {
       identityCalls++;
       if (identityFailures > 0) {
@@ -297,7 +312,13 @@ const server = createServer((req, res) => {
     } else if (path === '/hosts/sample/terminal') {
       terminalInfoCalls++;
       body = { enabled: false, streaming: 2, deliveryInstance: 'ui-instance' };
-    } else if (path === '/hosts/sample/projects') body = availableProjects;
+    } else if (path === '/admin/hosts/sample/connections')
+      body = { targets: ['client-runtime'] };
+    else if (
+      path === '/hosts/sample/projects' ||
+      path === '/hosts/second/projects'
+    )
+      body = availableProjects;
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
@@ -333,7 +354,10 @@ const server = createServer((req, res) => {
           snapshotSeq: maximum,
         },
       };
-    } else if (path === '/hosts/sample/threads')
+    } else if (
+      path === '/hosts/sample/threads' ||
+      path === '/hosts/second/threads'
+    )
       body = { data: [], nextCursor: null };
     else if (path.endsWith('/delivery') && req.method === 'POST') {
       let data = '';
@@ -466,6 +490,7 @@ const sync = (ws: WebSocket) =>
     }),
   );
 wss.on('connection', (ws, request) => {
+  if (encryptedFixture(ws, request)) return;
   sockets.add(ws);
   if (
     request.url?.split('?')[0] === '/ws/v1/admin' ||
@@ -758,8 +783,11 @@ async function openMenu(page: Page) {
     await page.getByRole('button', { name: '关闭面板' }).click();
   await page.getByRole('button', { name: '功能菜单' }).click();
 }
-try {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+async function legacyUI() {
+  const uiContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await uiContext.newPage();
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   await page.goto(origin);
@@ -806,6 +834,80 @@ try {
     .poll(() => historyConnections, { timeout: 25000 })
     .toBeGreaterThan(1);
   await expect(page.getByText('示例任务', { exact: true })).toBeVisible();
+  const layoutError = page
+    .locator('.error')
+    .getByRole('button', { name: '关闭', exact: true });
+  if (await layoutError.isVisible()) await layoutError.click();
+  // Happier's desktop sidebar / mobile drawer use the existing CoC session callbacks.
+  const beforeNavigation = attachCalls;
+  const navigation = page.getByRole('button', {
+    name: '打开会话导航',
+    exact: true,
+  });
+  await navigation.click();
+  const drawer = page.getByRole('dialog', { name: '会话导航', exact: true });
+  await expect(drawer).toBeVisible();
+  await drawer.getByLabel('搜索会话导航').fill('no-such-cw-session');
+  await expect(drawer.getByText('没有匹配的已加载会话。')).toBeVisible();
+  await drawer.getByLabel('搜索会话导航').fill('');
+  await page.keyboard.press('Escape');
+  await expect(navigation).toBeFocused();
+  await expect(drawer).not.toBeVisible();
+  await page.screenshot({
+    path: join(artifacts, 'happier-mobile.png'),
+    fullPage: true,
+  });
+  await navigation.click();
+  await drawer.locator('.session.active').click();
+  await expect(drawer).not.toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.locator('aside.happier-sidebar')).toBeVisible();
+  await expect(
+    page.locator('aside.happier-sidebar .session.active'),
+  ).toBeVisible();
+  const sidebarBox = (await page
+    .locator('aside.happier-sidebar')
+    .boundingBox())!;
+  const conversationBox = (await page.locator('.conversation').boundingBox())!;
+  assert(
+    sidebarBox.x + sidebarBox.width <= conversationBox.x + 1,
+    'sidebar is beside the conversation',
+  );
+  const infoBox = (await page
+    .getByRole('button', { name: '打开会话详情', exact: true })
+    .boundingBox())!;
+  const refreshBox = (await page
+    .getByRole('button', { name: '刷新状态', exact: true })
+    .boundingBox())!;
+  assert(
+    infoBox.x + infoBox.width <= refreshBox.x,
+    JSON.stringify({ infoBox, refreshBox }),
+  );
+  assert.equal(sidebarBox.y, 0, 'sidebar spans from the top of the viewport');
+  assert(
+    (await page.locator('.happier-session-heading').boundingBox())!.height <=
+      64,
+  );
+  await page.screenshot({
+    path: join(artifacts, 'happier-desktop.png'),
+    fullPage: true,
+  });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  assert.equal(
+    attachCalls,
+    beforeNavigation,
+    'navigating the current session does not reconnect or submit',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  console.log(
+    'PASS: Happier desktop navigation, mobile drawer, search, selection, Escape/focus and no duplicate connection',
+  );
+
   const reconnectDraft = '断网后保留的草稿';
   await page.getByLabel('任务内容').fill(reconnectDraft);
   const beforeNetworkLoss = attachCalls;
@@ -986,7 +1088,7 @@ try {
     await returnLatest.click();
     await expect(returnLatest).toHaveCount(0);
   }
-  let languageAttachCalls = attachCalls;
+  let languageAttachCalls: number;
   // Busy composers enqueue without stopping or submitting another prompt.
   approvals = [
     {
@@ -1256,7 +1358,6 @@ try {
     .locator('.workspace-context')
     .getByText('已连接', { exact: true })
     .waitFor();
-  languageAttachCalls = attachCalls;
   // Reliable result recovery can stall without holding the conversation snapshot.
   let stalledDelivery = false;
   const stallDelivery = async (route: import('@playwright/test').Route) => {
@@ -1264,7 +1365,7 @@ try {
     await new Promise<void>((resolve) => setTimeout(resolve, 22000));
     await route.abort().catch(() => {});
   };
-  await page.route('**/api/v1/sessions/**/delivery*', stallDelivery);
+  await fixtureRoutes.route('**/api/v1/sessions/**/delivery*', stallDelivery);
   const beforeIndependentSnapshot = controlSyncCalls;
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
@@ -1275,7 +1376,7 @@ try {
     controlSyncCalls > beforeIndependentSnapshot,
     'snapshot refresh bypasses stalled command recovery',
   );
-  await page.unroute('**/api/v1/sessions/**/delivery*', stallDelivery);
+  await fixtureRoutes.unroute('**/api/v1/sessions/**/delivery*', stallDelivery);
   // A stalled HTTP read must release the refresh button at the total deadline.
   let stalledSnapshot = false;
   const stallSnapshot = async (route: import('@playwright/test').Route) => {
@@ -1283,7 +1384,7 @@ try {
     await new Promise<void>((resolve) => setTimeout(resolve, 22000));
     await route.abort().catch(() => {});
   };
-  await page.route('**/api/v1/sessions/**/snapshot*', stallSnapshot);
+  await fixtureRoutes.route('**/api/v1/sessions/**/snapshot*', stallSnapshot);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
     page.getByRole('button', { name: '刷新状态', exact: true }),
@@ -1295,7 +1396,7 @@ try {
   await expect(page.getByRole('alert')).toContainText(
     '刷新超时，已恢复操作；请稍后重试。',
   );
-  await page.unroute('**/api/v1/sessions/**/snapshot*', stallSnapshot);
+  await fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*', stallSnapshot);
   await expect(page.getByLabel('任务内容')).toHaveValue(languageDraft);
   await page.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(
@@ -1375,7 +1476,7 @@ try {
     version?: string;
   }[] = [];
   const previewFiles = new Map<string, Buffer>();
-  await page.context().route('**/api/v1/hosts/sample/files', async (route) => {
+  await fixtureRoutes.route('**/api/v1/hosts/sample/files', async (route) => {
     const data = route.request().postDataJSON();
     if (!['read', 'list'].includes(data.operation)) return route.continue();
     fileReads.push(data);
@@ -1414,6 +1515,25 @@ try {
   const missingPreview = await missingWindow;
   await expect(missingPreview.getByRole('alert')).toContainText('NOT_FOUND');
   await missingPreview.close();
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const readingHeight = await page.evaluate(() =>
+      ['.messages', '.happier-session-heading', '.workbench-toolbar'].reduce(
+        (height, selector) =>
+          height +
+          (document.querySelector(selector)?.getBoundingClientRect().height ||
+            0),
+        0,
+      ),
+    );
+    assert(
+      readingHeight > viewport.height * 0.65,
+      JSON.stringify({ ...viewport, readingHeight }),
+    );
+  }
   for (const viewport of [
     { width: 1280, height: 900 },
     { width: 390, height: 844 },
@@ -1666,6 +1786,22 @@ try {
     'mount reuses the parallel info read',
   );
   await page.unroute(terminalModule);
+  for (const height of [720, 650]) {
+    await page.setViewportSize({ width: 1280, height });
+    const split = await page.evaluate(() => ({
+      terminalTop: document
+        .querySelector('.terminal-shell')!
+        .getBoundingClientRect().top,
+      composerBottom: document
+        .querySelector('.composer')!
+        .getBoundingClientRect().bottom,
+    }));
+    assert(split.composerBottom <= split.terminalTop, JSON.stringify(split));
+    await page.getByLabel('任务内容').fill('terminal split draft');
+    await expect(page.getByLabel('任务内容')).toBeVisible();
+    await page.getByLabel('任务内容').fill('');
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await enterFullscreen('.terminal-shell');
   await page
     .locator('.interactive-terminal')
@@ -2768,7 +2904,7 @@ try {
   let failReplacement = true;
   let failRestart = true;
   const configRevision = 'a'.repeat(64);
-  await page.route(
+  await fixtureRoutes.route(
     '**/api/v1/admin/hosts/sample/configuration',
     async (route) => {
       if (route.request().method() === 'GET') {
@@ -2909,7 +3045,7 @@ try {
     .getByRole('button', { name: 'Clear configuration from page', exact: true })
     .click();
   await expect(configEditor).toHaveCount(0);
-  await page.unroute('**/api/v1/admin/hosts/sample/configuration');
+  await fixtureRoutes.unroute('**/api/v1/admin/hosts/sample/configuration');
   const notifyUpdate = updates.getByRole('button');
   const publishedRelease = {
     version: '0.5.15',
@@ -3245,6 +3381,80 @@ try {
       }
     }
   }
+  const injectedAuthError = page
+    .locator('.happier-site > .error')
+    .filter({ hasText: 'UNAUTHORIZED' });
+  if (await injectedAuthError.isVisible())
+    await injectedAuthError
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
+  const themePeer = await page.context().newPage();
+  await themePeer.goto(origin);
+  for (const theme of ['light', 'dark']) {
+    await openMenu(page);
+    await page.getByLabel('全站主题', { exact: true }).selectOption(theme);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(themePeer.locator('html')).toHaveAttribute(
+      'data-theme',
+      theme,
+    );
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const name of [
+        '待授权请求',
+        '已授权设备',
+        'Agent 运行版本',
+        '服务器唤醒配置',
+        'Agent 邮箱关联',
+        '项目管理',
+        'API Key 管理',
+        '管理会话',
+        '杂项',
+      ]) {
+        await page.getByRole('tab', { name, exact: true }).click();
+        const panel = page.getByRole('tabpanel', { name, exact: true });
+        await expect(panel).toBeVisible();
+        await page.evaluate(() => scrollTo(0, 0));
+        const visual = await page.evaluate(() => {
+          const panel = document.querySelector(
+            '[role="tabpanel"]:not([hidden])',
+          )!;
+          const root = getComputedStyle(document.documentElement);
+          const nav = document
+            .querySelector('.admin-tabs')!
+            .getBoundingClientRect();
+          const card = panel.getBoundingClientRect();
+          return {
+            background: getComputedStyle(panel).backgroundColor,
+            expected: root.getPropertyValue('--bg').trim(),
+            navRight: nav.right,
+            cardLeft: card.left,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        });
+        assert.equal(
+          visual.background,
+          theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(25, 23, 23)',
+        );
+        assert(!visual.overflow, `${name} ${theme} ${width}: page overflow`);
+        if (width === 1280)
+          assert(visual.navRight < visual.cardLeft, JSON.stringify(visual));
+        if (['待授权请求', '项目管理'].includes(name))
+          await page.screenshot({
+            path: join(
+              artifacts,
+              `happier-admin-${name === '项目管理' ? 'projects' : 'pending'}-${theme}-${width}.png`,
+            ),
+            fullPage: true,
+          });
+      }
+    }
+  }
+  await themePeer.close();
+  console.log(
+    'PASS: Happier presentation across all nine admin panels, light/dark, desktop/mobile and cross-tab theme synchronization',
+  );
   // Exercise the built application, not only its cache module, with an explicit retention gap.
   logged = online = true;
   admin = false;
@@ -3272,29 +3482,28 @@ try {
     retainedAfter: retained.seq - 1,
     gap: true,
   };
-  await gapContext.route('**/api/v1/sessions/**/snapshot*', async (route) => {
-    if (!gapMode) return route.continue();
-    assert.equal(
-      new URL(route.request().url()).searchParams.get('historyVersion'),
-      '2',
-    );
-    await route.fulfill({
-      headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
-      json: { session, approvals: [], history: gapPageData },
-    });
-  });
-  await gapContext.routeWebSocket('**/ws/v1/history/**', (route) => {
-    const backend = route.connectToServer();
-    route.onMessage((message) => backend.send(message));
-    backend.onMessage((message) => {
-      const frame = JSON.parse(String(message));
-      if (gapMode && frame.type === 'history' && Array.isArray(frame.events))
-        Object.assign(frame, gapPageData);
-      if (gapMode && ['history-window', 'history-dirty'].includes(frame.type))
-        frame.maxRevision = retained.revision;
-      route.send(JSON.stringify(frame));
-    });
-  });
+  await fixtureRoutes.route(
+    '**/api/v1/sessions/**/snapshot*',
+    async (route) => {
+      if (!gapMode) return route.continue();
+      assert.equal(
+        new URL(route.request().url()).searchParams.get('historyVersion'),
+        '2',
+      );
+      await route.fulfill({
+        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
+        json: { session, approvals: [], history: gapPageData },
+      });
+    },
+  );
+  fixtureStreams.send = (path, frame) => {
+    if (!path.includes('/history/')) return frame;
+    if (gapMode && frame.type === 'history' && Array.isArray(frame.events))
+      Object.assign(frame, gapPageData);
+    if (gapMode && ['history-window', 'history-dirty'].includes(frame.type))
+      frame.maxRevision = retained.revision;
+    return frame;
+  };
   const gapPage = await gapContext.newPage();
   gapPage.on('pageerror', (error) => failures.push(error.message));
   await gapPage.goto(origin);
@@ -3322,29 +3531,26 @@ try {
   ).toBeVisible();
   await expect(gapPage.locator('[data-event-seq]')).toHaveCount(1);
   await gapContext.close();
+  fixtureStreams.send = undefined;
+  fixtureRoutes.unroute('**/api/v1/sessions/**/snapshot*');
   availableProjects = [
     { id: 'project', name: '示例项目', path: '/workspace/example' },
     { id: 'other-project', name: '第二项目', path: '/workspace/other' },
   ];
   const readerContext = await browser.newContext();
   let denyProjectWrite = true;
-  await readerContext.routeWebSocket('**/ws/v1/web/**', (route) => {
-    if (!denyProjectWrite) {
-      route.connectToServer();
-      return;
-    }
-    route.onMessage(() =>
-      route.send(
-        JSON.stringify({
-          type: 'error',
-          error: {
-            code: 'PROJECT_READ_ONLY',
-            message: 'Another session holds this project write access',
-          },
-        }),
-      ),
-    );
-  });
+  fixtureStreams.receive = (path, frame) => {
+    if (!denyProjectWrite || !path.includes('/web/')) return frame;
+    return {
+      fixtureReply: {
+        type: 'error',
+        error: {
+          code: 'PROJECT_READ_ONLY',
+          message: 'Another session holds this project write access',
+        },
+      },
+    };
+  };
   const reader = await readerContext.newPage();
   await reader.goto(origin);
   await openMenu(reader);
@@ -3368,7 +3574,7 @@ try {
   await expect(
     reader.getByRole('button', { name: '发送', exact: true }),
   ).toBeEnabled({ timeout: 20000 });
-  await readerContext.route('**/api/v1/sessions/*/attach', (route) =>
+  await fixtureRoutes.route('**/api/v1/sessions/*/attach', (route) =>
     route.fulfill({
       status: 409,
       json: {
@@ -3378,7 +3584,7 @@ try {
   );
   await reader.reload();
   await expect(reader.locator('.error')).toContainText('SESSION_CLOSED:');
-  await readerContext.unroute('**/api/v1/sessions/*/attach');
+  await fixtureRoutes.unroute('**/api/v1/sessions/*/attach');
   await openMenu(reader);
   await reader.getByRole('button', { name: /^会话记录/ }).click();
   await reader
@@ -3391,6 +3597,50 @@ try {
   console.log(
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
+}
+let navigationSeq = 10000;
+try {
+  if (!process.argv.includes('--legacy-layout'))
+    await navigationUI(
+      browser,
+      origin,
+      artifacts,
+      () => attachCalls,
+      (state) => {
+        if (state === 'disconnect') {
+          for (const ws of controls) ws.close(1012);
+          return;
+        }
+        session.state = state;
+        for (const ws of controls)
+          ws.send(
+            JSON.stringify({
+              type: 'event',
+              event: {
+                seq: ++navigationSeq,
+                type: 'sessionClosed',
+                data: { state },
+                time: Date.now(),
+              },
+            }),
+          );
+      },
+      {
+        takeover: () => {
+          for (const ws of controls) ws.close(4009, 'taken over');
+        },
+        append: (text) => {
+          stallHistory = true;
+          const seq =
+            Math.max(...events.map((event) => event.revision ?? event.seq)) + 1;
+          events.push({ seq, type: 'user', data: { text }, time: seq });
+        },
+        resume: () => {
+          stallHistory = false;
+        },
+      },
+    );
+  else await legacyUI();
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();

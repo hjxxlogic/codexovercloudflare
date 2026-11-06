@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { modelIdSchema } from '../../../packages/protocol/src/index.ts';
@@ -99,13 +100,13 @@ export function ModelPicker({
           {model.description && <span>{model.description}</span>}
         </button>
       ))}
-      <button
+      <IconButton
+        icon="refresh"
+        label={t('刷新模型列表')}
         type="button"
         disabled={loading || saving}
         onClick={() => setRetry((n) => n + 1)}
-      >
-        {t('刷新模型列表')}
-      </button>
+      />
     </section>
   );
 }

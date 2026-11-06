@@ -49,7 +49,7 @@ describe('DO native storage', () => {
     expect(storage.alarm).toBeNull();
   });
 
-  it('keeps resident authorization and host state across reconstruction with obsolete markers present', async () => {
+  it('preserves authorization but clears obsolete cloud business state on encrypted migration', async () => {
     const registryStorage = new MemoryStorage();
     const hostStorage = new MemoryStorage();
     const host = { id: 'host', name: 'test', version: 2, disabled: false };
@@ -105,7 +105,13 @@ describe('DO native storage', () => {
         (await relay.fetch(new Request('https://internal/status'))).status,
       ).toBe(200);
       await relay.alarm();
-      expect(Object.fromEntries(hostStorage.values)).toEqual(resident);
+      expect(await hostStorage.get('channelVersion')).toBe(1);
+      for (const [key, value] of Object.entries(resident)) {
+        expect(await hostStorage.get(key)).toBeUndefined();
+        expect(await hostStorage.get('~opaque-v1:backup:' + key)).toEqual(
+          value,
+        );
+      }
       expect(hostStorage.alarm).toBeNull();
     }
   });

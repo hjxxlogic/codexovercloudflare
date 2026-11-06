@@ -1,0 +1,636 @@
+/* React DOM adaptation of the live Happier session layout; see SOURCE.md. */
+.happier-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.happier-chat-shell {
+  background: var(--surface);
+}
+.happier-site.happier-chat-shell > .topbar {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  height: 36px;
+  width: 70px;
+  padding: 0;
+  gap: 2px;
+  background: transparent;
+}
+.happier-chat-shell
+  > .topbar
+  :is(.brand, .header-actions, .status-refresh small, .menu-toggle-label) {
+  display: none;
+}
+.happier-site.happier-chat-shell > .topbar > button {
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.happier-site.happier-chat-shell > .topbar nav {
+  top: 42px;
+  right: 0;
+}
+.happier-chat-shell > :is(.notice, .error) {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(720px, calc(100% - 32px));
+  box-shadow: 0 4px 24px var(--shadow);
+}
+.cw-workbench .chat-layout.happier-cw {
+  position: relative;
+  flex-direction: row;
+  background: var(--cw-surface);
+}
+.cw-workbench .happier-cw .conversation {
+  flex: 1;
+  min-width: 0;
+  background: var(--cw-bg);
+  border-radius: 18px 0 0 18px;
+  overflow: hidden;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+.happier-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 304px;
+  flex: 0 0 304px;
+  padding: 14px 16px 10px;
+  min-height: 0;
+  background: var(--cw-surface);
+  color: var(--cw-text);
+}
+.happier-sidebar-heading,
+.happier-sidebar-heading strong {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.happier-sidebar-heading {
+  justify-content: space-between;
+  height: 32px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.happier-sidebar-heading strong {
+  font-size: 19px;
+  letter-spacing: -0.5px;
+}
+.happier-sidebar-heading strong > span:last-child {
+  font-size: 11px;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--cw-muted);
+}
+.happier-app-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: var(--cw-bg);
+  background: var(--cw-text);
+}
+.happier-sidebar .happier-new {
+  order: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 0;
+  color: var(--cw-bg);
+  background: var(--cw-text);
+  box-shadow: 0 3px 10px var(--shadow);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.happier-sidebar .happier-new:hover:enabled {
+  background: var(--cw-text);
+  filter: brightness(0.9);
+}
+.happier-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 0 10px;
+  color: var(--cw-muted);
+  background: var(--cw-bg);
+}
+.happier-sidebar .happier-search input {
+  padding: 10px 0;
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+}
+.happier-sidebar .happier-project > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  background: var(--cw-bg);
+}
+.happier-project > button > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.happier-project small {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.happier-project-icon {
+  color: var(--cw-muted);
+}
+.happier-session-list {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.happier-section-label {
+  color: var(--cw-muted);
+  font-size: 11px;
+  padding: 0 8px;
+  margin: 4px 0 10px;
+  letter-spacing: 0.8px;
+}
+.happier-session-list .history-row {
+  margin: 1px 0;
+  gap: 2px;
+}
+.happier-session-list .session-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px;
+  text-align: left;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+}
+.happier-session-list .session.active {
+  background: var(--cw-bg);
+}
+.happier-session-list .session > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.happier-session-list .session time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--cw-muted);
+}
+.happier-session-list .history-row > button:not(.session) {
+  font-size: 10px;
+  padding: 4px;
+}
+.happier-session-list .empty-hint {
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.happier-history {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--cw-bg) !important;
+  border: 0;
+  font-size: 13px;
+}
+.happier-attribution {
+  order: 6;
+  font-size: 9px;
+  text-align: center;
+  text-decoration: none;
+  color: var(--cw-muted) !important;
+}
+.happier-session-heading {
+  height: 58px;
+  min-height: 58px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 96px 8px 30px;
+}
+.happier-session-title {
+  min-width: 0;
+  flex: 1;
+}
+.happier-session-heading h1 {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.happier-session-heading .workspace-context {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
+  height: 18px;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cw-muted);
+  font-size: 10px;
+  line-height: 18px;
+}
+.happier-session-heading .workspace-context span:first-child {
+  flex: 0 1 auto;
+}
+.happier-session-heading .workspace-context span:last-child {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+.happier-session-heading small {
+  font-size: 11px;
+}
+.happier-session-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.happier-session-actions button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.cw-workbench .happier-cw .messages {
+  padding: 24px max(28px, calc((100% - 818px) / 2));
+}
+.cw-workbench .happier-cw .message {
+  font-size: 15px;
+  line-height: 1.75;
+  margin-bottom: 24px;
+}
+.cw-workbench .happier-cw .assistant-message > .message-role {
+  display: none;
+}
+.cw-workbench .happier-cw .user-message {
+  max-width: 100%;
+  width: auto;
+  margin-left: 0;
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: var(--cw-surface);
+}
+.cw-workbench .happier-cw .user-message > .message-role {
+  font-size: 10px;
+  color: var(--cw-muted);
+}
+.cw-workbench .happier-cw :is(.tool-group, .tool-output) {
+  border: 0;
+  border-radius: 12px;
+  padding: 6px 12px;
+  background: var(--cw-surface);
+  margin: 10px 0 20px;
+}
+.cw-workbench .happier-cw .tool-group > .tool-output {
+  border-radius: 0;
+  border-left: 1px solid var(--cw-border);
+  margin: 0 0 0 5px;
+  padding: 0 0 0 12px;
+}
+.cw-workbench .happier-cw .tool-group > summary {
+  font-size: 12px;
+  padding: 8px 0;
+}
+.cw-workbench .happier-cw .tool-output > summary {
+  font-size: 12px;
+  padding: 6px 0;
+}
+.cw-workbench .happier-cw .tool-output pre {
+  max-height: 340px;
+  overflow: auto;
+  font-size: 12px;
+}
+.cw-workbench .happier-cw .composer {
+  width: min(calc(100% - 48px), 850px);
+  max-width: 850px;
+  border: 1px solid var(--cw-border);
+  border-radius: 18px;
+  padding: 12px 14px;
+  margin: 6px auto 0;
+  box-shadow: 0 5px 28px var(--shadow);
+  background: var(--cw-bg);
+  gap: 4px 8px;
+  min-height: 0;
+  flex-shrink: 1;
+  overflow-y: auto;
+}
+.composer-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.cw-workbench .happier-cw .composer textarea {
+  background: transparent;
+  border: 0;
+  min-height: 44px;
+  padding: 4px 2px 8px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.cw-workbench .happier-cw .composer .model-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--cw-muted);
+  border: 0;
+  max-width: 40%;
+}
+.cw-workbench .happier-cw .model-toggle span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cw-workbench .happier-cw .composer .composer-send {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  background: var(--cw-text);
+  color: var(--cw-bg);
+  border: 0;
+}
+.cw-workbench .happier-cw .composer .auto-approval {
+  font-size: 11px;
+  max-width: calc(60% - 64px);
+  gap: 4px;
+}
+.cw-workbench .happier-cw .composer .auto-approval label {
+  font-size: 11px;
+  white-space: nowrap;
+  gap: 4px;
+}
+.cw-workbench .happier-cw .auto-approval summary {
+  font-size: 10px;
+}
+.cw-workbench .happier-cw .composer-help {
+  display: none;
+}
+.cw-workbench .happier-cw .chat-welcome {
+  max-width: 620px;
+  margin: auto;
+  padding: 32px;
+}
+.cw-workbench .happier-cw .chat-welcome h2 {
+  font-size: clamp(24px, 3vw, 34px);
+  letter-spacing: -1px;
+  font-weight: 550;
+}
+.happier-navigation-toggle {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent !important;
+  border: 0;
+}
+.happier-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 88vw;
+  border: 0;
+  border-radius: 0;
+  z-index: 30;
+}
+.happier-drawer:not([open]) {
+  display: none;
+}
+.happier-drawer::backdrop {
+  background: #0008;
+}
+@media (max-width: 900px) {
+  .cw-workbench .happier-cw .conversation {
+    border-radius: 0;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .cw-workbench .happier-cw .happier-session-heading {
+    padding-left: 52px;
+    padding-right: 82px;
+    gap: 4px;
+  }
+  .happier-session-actions {
+    gap: 0;
+  }
+  .happier-session-actions button {
+    width: 28px;
+  }
+  .happier-site.happier-chat-shell > .topbar {
+    right: 8px;
+  }
+  .cw-workbench .happier-cw .messages {
+    padding: 16px;
+  }
+  .cw-workbench .happier-cw .composer {
+    width: calc(100% - 24px);
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+  .cw-workbench .happier-cw .composer textarea {
+    font-size: 16px;
+  }
+  .cw-workbench .happier-cw .composer .model-toggle {
+    max-width: 36%;
+    font-size: 10px;
+  }
+  .cw-workbench .happier-cw .composer .auto-approval {
+    max-width: calc(64% - 60px);
+  }
+  .cw-workbench .happier-cw .composer .auto-approval label {
+    font-size: 10px;
+    white-space: normal;
+  }
+  .happier-session-list .session-compact {
+    min-height: 42px;
+  }
+}
+@media (max-height: 520px) {
+  .cw-workbench .happier-cw .composer textarea {
+    min-height: 28px;
+  }
+  .cw-workbench .happier-cw .composer {
+    padding: 6px 10px;
+  }
+}
+
+/* Rich content has one surface, with quiet controls in its own toolbar. */
+.cw-workbench .happier-cw .rich-code {
+  border: 1px solid var(--cw-border);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+.cw-workbench .happier-cw .rich-code pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 16px;
+  background: transparent;
+  font-size: 13px;
+}
+.cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) {
+  gap: 5px;
+  padding: 8px 10px;
+  min-height: 36px;
+  color: var(--cw-muted);
+  font-size: 10px;
+}
+.cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cw-muted);
+  font-size: 11px;
+}
+.cw-workbench .happier-cw .table-scroll {
+  border: 1px solid var(--cw-border);
+  border-radius: 10px;
+}
+.cw-workbench .happier-cw .table-scroll .element-toolbar {
+  border-bottom: 1px solid var(--cw-border);
+}
+.cw-workbench .happier-cw .table-scroll th {
+  font-weight: 500;
+  background: var(--cw-surface);
+}
+.cw-workbench .happier-cw .table-scroll :is(th, td) {
+  font-size: 13px;
+  padding: 10px 14px;
+}
+@media (pointer: coarse) {
+  .cw-workbench .happier-cw :is(.code-toolbar, .element-toolbar) button {
+    min-height: 44px;
+    min-width: 40px;
+  }
+}
+
+/* A closed tool disclosure occupies at most one summary line. */
+.cw-workbench .happier-cw :is(.tool-group, .tool-output):not([open]) > summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 20px;
+}
+/* Preserve keyboard/touch access without permanent copy icons in the chat. */
+.cw-workbench .conversation .copy-action {
+  opacity: 0;
+  pointer-events: none;
+}
+.cw-workbench
+  .conversation
+  :is(.message, .tool-output):is(:hover, :focus-within)
+  .copy-action,
+.cw-workbench .conversation .copy-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Zero net height: copy actions float within their own message while scrolling. */
+.cw-workbench .conversation :is(.message, .tool-output) {
+  position: relative;
+}
+.cw-workbench .conversation .floating-copy {
+  position: sticky;
+  top: 8px;
+  z-index: 6;
+  display: block;
+  height: 36px;
+  margin-bottom: -36px;
+  width: 100%;
+  pointer-events: none;
+}
+.cw-workbench .conversation .floating-copy > button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--cw-surface);
+  box-shadow: 0 2px 8px #0001;
+}
+.cw-workbench .conversation .floating-copy > .copy-feedback {
+  top: 40px;
+}
+.cw-workbench .conversation :is(.code-toolbar, .element-toolbar) {
+  position: relative;
+  padding-right: 50px;
+}
+.cw-workbench .conversation .code-toolbar .copy-control,
+.cw-workbench .conversation .element-toolbar > .copy-action {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+.cw-workbench .conversation .copy-action:disabled {
+  opacity: 1;
+}
+.cw-workbench
+  .conversation
+  .element-fullscreen
+  > :is(.code-toolbar, .element-toolbar) {
+  position: sticky;
+  top: 0;
+}

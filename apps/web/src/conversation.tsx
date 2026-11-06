@@ -1,6 +1,6 @@
 import { t, useLanguage } from './i18n.ts';
 import { memo, useState, useEffect, useRef } from 'react';
-import { MarkdownRenderer } from './markdown/renderer.tsx';
+import { MarkdownRenderer, Copy } from './markdown/renderer.tsx';
 import { FileText } from './file-links.tsx';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
@@ -107,6 +107,74 @@ const EventView = memo(
         : event.contentSeq === undefined
           ? eventText(event)
           : chunk?.text;
+    const pendingCopy = useRef<
+      | {
+          revision: number;
+          requestedOffset?: number;
+          resolve: (text: string) => void;
+          reject: (error: Error) => void;
+          timer: ReturnType<typeof setTimeout>;
+        }
+      | undefined
+    >(undefined);
+    const [copyRequest, setCopyRequest] = useState(0);
+    useEffect(
+      () => () => {
+        if (pendingCopy.current) {
+          clearTimeout(pendingCopy.current.timer);
+          pendingCopy.current.reject(new Error(t('消息读取失败，请重试')));
+          pendingCopy.current = undefined;
+        }
+      },
+      [],
+    );
+    useEffect(() => {
+      const request = pendingCopy.current;
+      if (!request) return;
+      const finish = (text?: string) => {
+        clearTimeout(request.timer);
+        pendingCopy.current = undefined;
+        if (text === undefined)
+          request.reject(new Error(t('消息读取失败，请重试')));
+        else request.resolve(text);
+      };
+      if (request.revision !== (event.revision ?? 0)) {
+        clearTimeout(request.timer);
+        pendingCopy.current = undefined;
+        request.reject(new Error(t('消息已更新，请重新复制')));
+        return;
+      }
+      if (chunk && !chunk.more) {
+        finish(chunk.text);
+        return;
+      }
+      if (reading) return;
+      const offset = chunk?.nextOffset || 0;
+      if (request.requestedOffset === offset) {
+        finish();
+        return;
+      }
+      request.requestedOffset = offset;
+      onRead(event.contentSeq!, offset, event.revision ?? 0);
+    }, [copyRequest, chunk, reading, event.revision, event.contentSeq, onRead]);
+    const readMessage = () =>
+      new Promise<string>((resolve, reject) => {
+        if (pendingCopy.current) {
+          reject(new Error(t('正在读取完整消息…')));
+          return;
+        }
+        const timer = setTimeout(() => {
+          pendingCopy.current = undefined;
+          reject(new Error(t('消息读取失败，请重试')));
+        }, 60000);
+        pendingCopy.current = {
+          revision: event.revision ?? 0,
+          resolve,
+          reject,
+          timer,
+        };
+        setCopyRequest((value) => value + 1);
+      });
     const body = (
       <>
         {chat ? (
@@ -122,7 +190,7 @@ const EventView = memo(
           </div>
         ) : (
           <>
-            <CopyText text={content || ''} />
+            <Copy value={content || ''} floating />
             {event.type === 'turn/diff/updated' ? (
               <Diff text={content || ''} />
             ) : (
@@ -160,19 +228,31 @@ const EventView = memo(
       <article
         key={event.seq}
         data-event-seq={event.seq}
+        tabIndex={0}
         className={`message ${event.type === 'user' ? 'user-message' : 'assistant-message'}`}
       >
+        <Copy
+          value={content || ''}
+          label={t('复制消息')}
+          floating
+          read={
+            event.contentSeq !== undefined && (!chunk || chunk.more)
+              ? readMessage
+              : undefined
+          }
+        />
         <strong className="message-role">{eventTitle(event)}</strong>
         {body}
       </article>
     ) : (
       <details
+        tabIndex={0}
         className="tool-output"
         data-event-seq={event.seq}
         key={event.seq}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
       >
-        <summary>{eventTitle(event)}</summary>
+        <summary title={eventTitle(event)}>{eventTitle(event)}</summary>
         {expanded ? body : null}
       </details>
     );

@@ -121,7 +121,7 @@ with tempfile.TemporaryDirectory(prefix='coc-release-') as temporary:
             'Fully static musl binaries: no shared libraries or musl installation required. '
             'Install system CA certificates for TLS verification. '
             if args.platform == 'musl' or args.static_linux else
-            'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, '
+            'Dynamically linked binaries: install compatible OpenSSL, Boost.System, SQLite3, libsodium, '
             'libstdc++ and CA certificates. Check dependencies with ldd. '
         )
         (root / 'README.txt').write_text(

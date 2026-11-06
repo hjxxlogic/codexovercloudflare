@@ -15,9 +15,15 @@
 | 远程读取配置、替换与重启   | [远程配置](REMOTE_CONFIGURATION.md)                   |
 | 构建、开发和本机测试       | [开发说明](DEVELOPMENT.md)                            |
 | 选择测试入口和了解验证边界 | [测试说明](TEST_REPORT.md)                            |
+| 查看 r2 当前部署和线上验证 | [r2 部署记录](R2_DEPLOYMENT.md)                       |
+| 集成范围及迁移准备 | [不透明中继合并计划](OPAQUE_RELAY_MERGE_PLAN.md) |
 | 发布、部署与回退           | [发布操作](RELEASE.md)                                |
 
 [protocol.generated.json](protocol.generated.json) 由 `packages/protocol` 的 schema 生成，修改协议后运行 `npm run protocol:generate`，不要手工编辑。
+
+[不透明中继架构](OPAQUE_RELAY_DESIGN.md) 说明本次职责迁移：Agent / Client 承担业务路由、控制权和可靠传输，Worker 保留权限管理、连接准入与密文转发。实施用例、运行入口与本机证据见 [设计测试与验收](OPAQUE_RELAY_TEST_PLAN.md)。
+
+[CW Happier 界面计划与实施记录](CW_HAPPIER_UI_PLAN.md) 记录会话视图的上游来源、移植范围、步骤及浏览器验证。
 
 ## 维护约定
 
@@ -26,3 +32,5 @@
 - 测试说明描述覆盖范围和复现入口，检查结果以相应提交的运行日志和 CI 为准。
 - 部署时记录准确提交、Actions URL/结果、制品摘要、目标、验证及限制；公开部署证据按仓库要求记录，私有信息与本机日志放在忽略的 `.local/`。文档整理时不把旧部署流水作为当前状态说明。
 - 历史变更由 Git 提交记录查询，不在文档目录保留阶段审计、实施流水和过时截图。
+
+[Happier 官方 Web 实测对照](HAPPIER_WEB_COMPARISON_2026-11-05.md) 记录真实单 / 多会话、工具审批、长输出和手机富文本场景。
