@@ -18,4 +18,4 @@
 
 ## 状态
 
-本次为当前分支的源码修复，未升级版本或部署。r2 已发布状态继续以 [部署记录](R2_DEPLOYMENT.md) 为准。
+源码修复 `fcfb6e1` 已随网页来源 `4b08796d25194b176dce02613aea2b528d225568` 仅部署至 r2，版本号保持 `0.6.13`。Worker 执行代码沿用原制品，前后摘要核对一致；线上资源字节与 Web 验收通过，旧站 / 两个现有 Agent 隔离复核通过。见 [发布记录](R2_DEPLOYMENT.md) 和 [公开证据](assets/cw-observer-web/verified-preview.json)。

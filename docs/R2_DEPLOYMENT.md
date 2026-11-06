@@ -1,5 +1,15 @@
 # r2 当前部署
 
+## 2026-11-06：0.6.13 网页补丁（只读历史恢复）
+
+当前 https://r2.xlogic.cc 的网页来源为 [`4b08796d25194b176dce02613aea2b528d225568`](https://github.com/hjxxlogic/codexovercloudflare/commit/4b08796d25194b176dce02613aea2b528d225568)，包含只读历史恢复修复 `fcfb6e1`，网页版本号保持 `0.6.13`。网页源码摘要 `6a4d670eb2f01b40e53fa1d302d419d78b6285c81ae662dbf338e9fc284b358a`。本次仅更新网页，使用 `scripts/deploy-cloud.py --local-build --target r2 --web-only-from <已验证的 0.6.13 deployment.json> --apply`，没有编译 Worker。
+
+Cloudflare 代码与静态资源以同一版本部署，新 Version ID `993f12d9-0670-45b6-a4e6-d0ae013fa154`；Worker 执行代码仍来自 `d3c69e2d3f59b287fb439423660b51eca7d1fc45`，发布前后实际读取线上 `index.js`，SHA256 均为 `996509bd0fd931a352bffec62ba673d0b7545c3c65710f8507b37f93abdea5b9`。原配置复用，变量使用 `--keep-vars` 保留，Secret 不变；source map 会由 Wrangler 规范化，不计入执行代码一致性。原生下载、下载说明与下载页主题保留。
+
+网页构建 / 类型检查、部署保护测试 5/5、健康与全部公开资源字节核对通过；历史修复此前的 Web 导航与历史单测 20/20 已通过。线上桌面 / 手机 / 管理 Web 验收无浏览器异常，临时凭据撤销通过，不创建或 attach 真实会话，不调用模型 / Shell。
+
+以本次发布前基线核对，旧站 Worker `a103c4dd-f5b8-4a82-a19d-3329129339b5`、r2 路由 / DO namespaces / Access audience 和两个 Agent 身份保持不变；原 Agent PID `846124`、r2 测试 Agent PID `2527593` 未重启或替换。原生下载保持 `0.6.7`。本地预览 `ciVerified=false`，提交含 `[skip ci]`，完整 CI 未运行。见 [发布证据](assets/cw-observer-web/verified-preview.json) 与 [历史恢复实施记录](CW_OBSERVER_HISTORY_FIX.md)。
+
 ## 2026-11-06：0.6.13 继续对话与连接提示
 
 当前 https://r2.xlogic.cc 已部署源码 [`d3c69e2d3f59b287fb439423660b51eca7d1fc45`](https://github.com/hjxxlogic/codexovercloudflare/commit/d3c69e2d3f59b287fb439423660b51eca7d1fc45)，Web / Worker `0.6.13`，Worker Version ID `5df20399-ff4f-404e-8fd7-508c14cbf3fe`。源码摘要 `bb684cc5db84a42c340e262f441b6dee4f5e448550b3747f14856213e5eb74b2`。按用户仅 Web UI 验证要求发布本地预览，`ciVerified=false`、提交含 `[skip ci]`，完整 Actions / 原生 / 仓库测试未运行。

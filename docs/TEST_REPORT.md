@@ -2,11 +2,11 @@
 
 ## 2026-11-06：r2 仅网页发布工具
 
-`python3 tests/deploy-web.py` 覆盖原 Worker 执行代码完全匹配、代码不一致拒绝、额外执行模块拒绝、缺失入口拒绝，以及变量 / 原生变更选项拒绝。调试 source map 规范化不参与执行代码摘要比较。发布前后还会从 Cloudflare 实际读取执行模块核对，网页资源逐字节校验；具体上线证据补充于 [r2 部署记录](R2_DEPLOYMENT.md)。
+`python3 tests/deploy-web.py` 覆盖原 Worker 执行代码完全匹配、代码不一致拒绝、额外执行模块拒绝、缺失入口拒绝，以及变量 / 原生变更选项拒绝。调试 source map 规范化不参与执行代码摘要比较。发布前后还会从 Cloudflare 实际读取执行模块核对，网页资源逐字节校验；5/5 检查通过，线上模块摘要、资源字节、Web 验收、临时凭据清理和隔离核对通过，见 [发布证据](assets/cw-observer-web/verified-preview.json)。
 
 ## 2026-11-06：CW 只读历史恢复
 
-适配 master `9580dcb` 的修复与当前“继续对话”界面，新增首次只读、控制连接被 4009 替换后只读两项浏览器回归；检查返回页面补回新消息且不增加 attach / takeover 请求。修复前新增回归按预期失败，修复后导航专项通过，无浏览器异常；历史同步 / 订阅单元测试 20/20、Web 构建、TypeScript、受影响文件 ESLint / Prettier 通过。结果与边界见 [实施记录](CW_OBSERVER_HISTORY_FIX.md)。本次未部署。
+适配 master `9580dcb` 的修复与当前“继续对话”界面，新增首次只读、控制连接被 4009 替换后只读两项浏览器回归；检查返回页面补回新消息且不增加 attach / takeover 请求。修复前新增回归按预期失败，修复后导航专项通过，无浏览器异常；历史同步 / 订阅单元测试 20/20、Web 构建、TypeScript、受影响文件 ESLint / Prettier 通过。结果与边界见 [实施记录](CW_OBSERVER_HISTORY_FIX.md)。之后按用户“仅部署网页”要求已发布 r2，Worker 执行代码保持，见 [发布证据](assets/cw-observer-web/verified-preview.json)。
 
 ## 2026-11-06：0.6.13 继续对话
 
