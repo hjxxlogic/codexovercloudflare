@@ -167,3 +167,11 @@ Linux Agent 候选程序已构建并验证准确提交与摘要。既有 systemd
 机器证据与私有备份位于忽略的 `.local/deployment-589c26b/`；部署脚本证据位于 `.local/deploy-cloud/local-589c26b45ed62c74c8610b26fbc48f9b1c42f4e5-38fe9b59d0e6/` 和同名 `.local/deploy-agent/` 子目录。
 
 本机 Agent 与 CLI 同步部署可在 `scripts/deploy-agent.py --push --push-remote github --local --binary /absolute/path/coc-agent --apply` 增加 `--client-binary /absolute/path/coc-client`。该选项仅接受 CI 产物及已有本机 CLI：先完成 Agent 空闲等待、安装和连接验证，再从同一份已校验摘要的 CI 归档提取 CLI，核对源码身份，备份并原子替换；现有 CLI 进程继续使用原 inode，新命令使用新版。CLI 验证失败尝试恢复备份；若 Agent 已成功而 CLI 失败，命令返回错误，需按部署证据分别核实，不将两者视为原子事务。
+
+## 2026-11-06 CW 只读历史恢复本地部署
+
+用户明确授权跳过 GitHub Actions，使用 `scripts/deploy-cloud.py --commit HEAD --local-build --apply` 从干净提交 `a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5` 构建并部署 Worker / 网页到 `https://r.xlogic.cc`，包含 `9580dcb` 的跨设备接管后只读历史恢复修复。未触发 Actions，无 Actions URL，`ciVerified=false`，不作为 CI 验证发行制品。既有原生下载保留，未更新 Agent 或发布更新通知。
+
+Cloudflare 版本 ID：`a103c4dd-f5b8-4a82-a19d-3329129339b5`。源码摘要：`a232fb336e093df79a27e7e51ce86e678c8e67ab05f8412101b88ca8d923b9bb`；网页入口 SHA256：`bec7a9c07bf9f37868e6b3f2b0ec1b2bac0ba1c6ff08ea3660310f816b4d35bf`；Worker 构建文件 SHA256：`646c78d341437ca9e1931925e252c53bf2cc75a50cc7a6a4a778892a1a0ffeee`。
+
+本地网页构建、类型检查及 Worker dry-run 通过。部署脚本核对线上网页、静态资源、在线手册、下载清单与校验和字节一致；健康接口 `ok=true`、版本 `0.6.7`、协议 `1`。跨设备恢复的模拟浏览器回归已通过，未进行线上真实手机/电脑长稳测试。机器证据位于 `.local/deploy-cloud/local-a4e2b2b11548bf684bd96102bbffbcf7c1daf9e5-a232fb336e09/deployment.json`，日志位于 `.local/cw-observer-deploy.log`。
