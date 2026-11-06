@@ -16,6 +16,18 @@ spec.loader.exec_module(deploy)
 
 
 class WebOnlyDeployment(unittest.TestCase):
+    def test_preserved_source_must_match_the_explicit_target(self):
+        for target, origin, worker in [('production', 'https://r.xlogic.cc', 'codex-over-cloudflare'),
+                                       ('r2', 'https://r2.xlogic.cc', 'codex-over-cloudflare-r2')]:
+            source = {'applied': True, 'verification': {'publicAssetBytesMatch': True},
+                      'target': origin, 'worker': worker}
+            deploy.validate_web_source(source, target)
+            for changed in [{'applied': False}, {'verification': {}}, {'worker': 'other'}, {'target': 'https://other.test'}]:
+                with self.assertRaisesRegex(RuntimeError, 'verified'):
+                    deploy.validate_web_source({**source, **changed}, target)
+            with self.assertRaisesRegex(RuntimeError, 'verified'):
+                deploy.validate_web_source(source, 'r2' if target == 'production' else 'production')
+
     def verify(self, modules):
         parts = []
         for name, body in modules.items():

@@ -11,6 +11,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSettings: () => void;
+  modeAction?: ReactNode;
 };
 export function SessionNavigation({
   children,
@@ -18,6 +19,7 @@ export function SessionNavigation({
   open,
   onOpenChange,
   onSettings,
+  modeAction,
 }: Props) {
   useLanguage();
   const [mobile, setMobile] = useState(
@@ -62,6 +64,7 @@ export function SessionNavigation({
       <div className="navigation-content">{children}</div>
       <div className="navigation-footer">
         <IconButton icon="settings" label={t('设置')} onClick={onSettings} />
+        {modeAction}
       </div>
     </>
   );

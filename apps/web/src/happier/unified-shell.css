@@ -57,6 +57,9 @@
   scrollbar-width: thin;
 }
 .navigation-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding-top: 8px;

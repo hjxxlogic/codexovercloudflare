@@ -2668,6 +2668,7 @@ function App() {
     const next = mode === 'cw' ? 'admin' : 'cw';
     setMode(next);
     setMenuOpen(false);
+    if (matchMedia('(max-width: 900px)').matches) setNavigationOpen(false);
     setView(next === 'admin' ? 'devices' : 'chat');
     setPanel(null);
     setSecret('');
@@ -2848,6 +2849,16 @@ function App() {
         email={emailIdentity.email}
         open={navigationOpen}
         onOpenChange={setNavigationOpen}
+        modeAction={
+          (admin || mode === 'admin') && (
+            <IconButton
+              icon="devices"
+              label={t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
+              disabled={fileBusy}
+              onClick={switchMode}
+            />
+          )
+        }
         onSettings={() => {
           setMenuOpen(true);
           if (matchMedia('(max-width: 900px)').matches)
@@ -3206,13 +3217,6 @@ function App() {
                 <option value="en">English</option>
               </select>
             </label>
-            <IconButton
-              showLabel
-              icon="devices"
-              label={t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
-              disabled={fileBusy}
-              onClick={switchMode}
-            />
             <small className="site-version">
               {t('网站版本')} {webVersion}
             </small>

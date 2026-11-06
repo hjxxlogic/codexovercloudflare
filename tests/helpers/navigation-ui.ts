@@ -165,6 +165,27 @@ export async function navigationUI(
   await expect(page.locator('.navigation-username')).toHaveText('alice.smith');
   await expect(page.locator('.navigation-footer a')).toHaveCount(0);
   await expect(page.locator('.navigation-footer button')).toHaveCount(1);
+  await expect(
+    page.getByRole('button', { name: '切换到管理员模式', exact: true }),
+  ).toHaveCount(0);
+  await context.request.post(origin + '/api/v1/auth/login', {
+    data: { kind: 'cli', secret: 'synthetic-owner-secret' },
+  });
+  await page.reload();
+  const modeSwitch = page
+    .locator('.navigation-footer')
+    .getByRole('button', { name: '切换到管理员模式', exact: true });
+  await expect(modeSwitch).toBeVisible();
+  await expect(page.locator('.navigation-footer button')).toHaveCount(2);
+  const settingsBox = (await page
+    .locator('.navigation-footer')
+    .getByRole('button', { name: '设置', exact: true })
+    .boundingBox())!;
+  const modeBox = (await modeSwitch.boundingBox())!;
+  assert(
+    modeBox.x > settingsBox.x && Math.abs(modeBox.y - settingsBox.y) < 2,
+    'mode switch sits to the right of settings',
+  );
   const chooseHost = page.getByRole('button', {
     name: '选择主机',
     exact: true,
@@ -544,7 +565,6 @@ export async function navigationUI(
     '启用页面通知',
     '快捷操作',
     '导出已加载对话',
-    '切换到管理员模式',
   ]) {
     const action = page
       .getByRole('region', { name: '设置', exact: true })
@@ -552,6 +572,11 @@ export async function navigationUI(
     await expect(action.locator('svg')).toHaveCount(1);
     await expect(action).toContainText(label);
   }
+  await expect(
+    page
+      .getByRole('region', { name: '设置', exact: true })
+      .getByRole('button', { name: '切换到管理员模式', exact: true }),
+  ).toHaveCount(0);
   await page.getByLabel('密度', { exact: true }).selectOption('compact');
   await page.getByLabel('工作面板宽度', { exact: true }).fill('520');
   await page.getByLabel('Terminal 高度', { exact: true }).fill('300');
@@ -850,12 +875,16 @@ export async function navigationUI(
   await expect(
     page.getByRole('button', { name: '设置', exact: true }),
   ).toBeVisible();
-  await openSettings();
+  await expect(
+    page.locator('.history-row button[aria-label^="继续对话"]'),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: join(artifacts, 'cw-sidebar-admin-desktop.png'),
+    animations: 'disabled',
+  });
   await page
     .getByRole('button', { name: '切换到管理员模式', exact: true })
     .click();
-  await page.getByLabel('所有者密钥').fill('synthetic-owner-secret');
-  await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '待授权请求', exact: true }),
   ).toBeVisible();
@@ -870,7 +899,24 @@ export async function navigationUI(
     fullPage: true,
     animations: 'disabled',
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '打开会话导航', exact: true }).click();
+  await page.getByRole('button', { name: '切换到CW模式', exact: true }).click();
+  await expect(page.locator('dialog.unified-navigation')).not.toBeVisible();
+  await page.getByRole('button', { name: '打开会话导航', exact: true }).click();
+  await page.screenshot({
+    path: join(artifacts, 'cw-sidebar-admin-mobile.png'),
+    animations: 'disabled',
+  });
+  await page
+    .getByRole('button', { name: '切换到管理员模式', exact: true })
+    .click();
+  await expect(page.locator('dialog.unified-navigation')).not.toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '待授权请求', exact: true }),
+  ).toBeVisible();
   assert.deepEqual(failures, []);
+  await context.request.post(origin + '/api/v1/auth/logout', { data: {} });
   await context.close();
   fixtureRoutes.unroute('**/api/v1/sessions/sample~session/attach');
   fixtureRoutes.unroute('**/api/v1/sessions/sample~session/takeover');

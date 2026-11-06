@@ -312,6 +312,15 @@ def verify_existing_worker(config, worker):
     return hashes
 
 
+def validate_web_source(previous, target):
+    expected_origin = 'https://r2.xlogic.cc' if target == 'r2' else 'https://r.xlogic.cc'
+    expected_worker = 'codex-over-cloudflare-r2' if target == 'r2' else 'codex-over-cloudflare'
+    if (not previous.get('applied') or
+            previous.get('verification', {}).get('publicAssetBytesMatch') is not True or
+            previous.get('target') != expected_origin or previous.get('worker') != expected_worker):
+        raise RuntimeError('Expected a verified ' + target + ' deployment for Worker preservation')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hjxxlogic/codexovercloudflare')
@@ -325,7 +334,7 @@ def main():
     parser.add_argument('--local-build', action='store_true',
                         help='Explicit local Worker/web deployment without CI verification; preserves native downloads')
     parser.add_argument('--web-only-from', type=pathlib.Path,
-                        help='Reuse the exact live Worker from a previously verified local deployment.json; r2 local builds only')
+                        help='Reuse the exact live Worker from a verified deployment.json; local web builds only')
     parser.add_argument('--allow-uncommitted', action='store_true',
                         help='Explicitly deploy uncommitted local source, retaining its dirty identity; requires --local-build')
     parser.add_argument('--local-native-build-dir', type=pathlib.Path, help='Explicit local static Linux release; requires --local-build; preserves previous Windows')
@@ -346,17 +355,13 @@ def main():
     args = parser.parse_args()
     previous_web_worker = None
     if args.web_only_from:
-        if (not args.local_build or args.target != 'r2' or args.replace_vars or
+        if (not args.local_build or args.replace_vars or
                 args.delete_secret or args.initialize_owner_secret_file or args.initialize_downloads or
                 args.local_native_build_dir or args.publish_downloads or args.notify_release):
-            parser.error('--web-only-from requires r2 --local-build and forbids Worker/config/native changes')
+            parser.error('--web-only-from requires --local-build and forbids Worker/config/native changes')
         args.web_only_from = args.web_only_from.resolve()
         previous_web_worker = json.loads(args.web_only_from.read_text())
-        if (not previous_web_worker.get('applied') or
-                previous_web_worker.get('verification', {}).get('publicAssetBytesMatch') is not True or
-                previous_web_worker.get('target') != 'https://r2.xlogic.cc' or
-                previous_web_worker.get('worker') != 'codex-over-cloudflare-r2'):
-            raise RuntimeError('Expected a verified r2 deployment for Worker preservation')
+        validate_web_source(previous_web_worker, args.target)
         old_worker = args.web_only_from.parent / 'worker'
         for artifact in previous_web_worker['artifacts']:
             if artifact['name'].startswith('worker/'):
@@ -461,8 +466,11 @@ def main():
     # The deployment configuration is archived by CI along with the Worker.
     if args.web_only_from:
         config = json.loads((args.web_only_from.parent / 'deploy.json').read_text())
-        if (config['vars'].get('ACCESS_AUD', previous_web_worker.get('preservedAccessAudience')) != args.r2_access_aud or args.r2_without_access):
+        if args.target == 'r2' and (config['vars'].get('ACCESS_AUD', previous_web_worker.get('preservedAccessAudience')) != args.r2_access_aud or args.r2_without_access):
             raise RuntimeError('Web-only deployment must preserve the existing Access audience')
+        if (config['name'] != previous_web_worker['worker'] or
+                config['routes'] != [{'pattern': previous_web_worker['target'][len('https://'):], 'custom_domain': True}]):
+            raise RuntimeError('Web-only configuration does not match the verified target')
     config = deployment_target(config, args.target, args.r2_access_aud, args.r2_without_access)
     preserved_code = verify_existing_worker(config, output / 'worker') if args.web_only_from else None
     if args.web_only_from:

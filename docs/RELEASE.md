@@ -112,7 +112,7 @@ COC_ACCESS_CONFIG=/private/r2-access.json python3 scripts/deploy-cloud.py \
   --web-only-from .local/deploy-cloud/PREVIOUS-r2/deployment.json --apply
 ```
 
-Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式复用原 Worker 制品和配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后回读可执行模块并核对 SHA256；规范化的 source map 不计入执行代码校验。仅允许 r2 `--local-build`，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；分别记录 Web 与 Worker 来源，`ciVerified=false`。前后端接口必须兼容。
+Cloudflare 将代码和静态资源绑定为一个版本，因此仍产生新部署版本。此模式复用原 Worker 制品和配置，保留线上变量、Secret、原生下载及下载说明 / 主题。发布前后回读可执行模块并核对 SHA256；规范化的 source map 不计入执行代码校验。支持主站和 r2 `--local-build`，要求历史部署证据与显式目标一致，拒绝变量替换、Secret 删除、首次初始化、原生发布与更新通知；分别记录 Web 与 Worker 来源，`ciVerified=false`。前后端接口必须兼容。
 
 ## 历史发布证据与当前边界
 
@@ -155,3 +155,5 @@ HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多
 用户明确授权在 Actions 后台运行期间，用干净源码 `fd53702` 本地构建并发布 r2；`ciVerified=false`，保留已有下载 / 独立 Access / Secret / DO。线上健康、静态资源字节和隔离加密业务验收通过，原站及两既有 Agent 未变，见 [r2 发布记录](R2_DEPLOYMENT.md)。功能验收源码 `d4a3f4e` 的 [六项必需 Actions](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42171580611) 随后全部成功；这不改变 r2 部署的本地制品来源。制品摘要与 CI Agent 隔离验收见 [证据](assets/opaque-integration/ci-artifacts.json)。
 
 用户允许 Agent 重新登录，仅要求数据库可迁移，因此不复制生产 DO 或旧 Token。真实数据库通过在线备份 API 生成副本，另复制后用真实 Store 离线完成 0→2 升级并核对所有原表；不替换原数据库或重启服务。新站登录和数据库目录必须使用独立配置 / 副本，不能让两个 Agent 共享 dataDir，也不能将原生产 Agent 的 relayUrl 改成测试站。
+
+主站仅更新网页使用 `python3 scripts/deploy-cloud.py --local-build --target production --web-only-from .local/deploy-cloud/PREVIOUS/deployment.json --apply`。必须使用此前已验证且当前执行模块仍一致的主站证据；不能使用 r2 证据。原生下载从主站读取并保留，不安装或重启 Agent。

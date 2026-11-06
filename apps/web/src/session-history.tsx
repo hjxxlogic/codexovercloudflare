@@ -125,17 +125,6 @@ export function SessionHistory({
                 </>
               )}
             </button>
-            {session &&
-              ['closed', 'failed'].includes(session.state) &&
-              thread && (
-                <button
-                  disabled={creating || !online}
-                  onClick={() => onResume(key)}
-                  aria-label={t('继续对话：{0}', title)}
-                >
-                  {t('继续对话')}
-                </button>
-              )}
           </div>
         );
       })}
