@@ -251,6 +251,7 @@ function App() {
     [pending, setPending] = useState(false),
     [busy, setBusy] = useState(false),
     [takeover, setTakeover] = useState(false);
+  const [controlElsewhere, setControlElsewhere] = useState(false);
   const [createOperation, setCreateOperation] = useState<{
     requestId: string;
     threadId?: string;
@@ -1019,8 +1020,12 @@ function App() {
   }, [events]);
   useEffect(() => {
     setReady(false);
+    setControlElsewhere(false);
     setError((current) =>
-      current.startsWith('SESSION_CLOSED:') ? '' : current,
+      current.startsWith('SESSION_CLOSED:') ||
+      current === '此会话正在其他页面使用。'
+        ? ''
+        : current,
     );
     setEvents([]);
     setHasOlder(false);
@@ -1231,6 +1236,7 @@ function App() {
     const controller = new AbortController();
     let terminal = false;
     let connecting = false;
+    let takeoverPending = takeover;
     const retry = () => {
       if (disposed || terminal) return;
       clearTimeout(timer);
@@ -1269,10 +1275,11 @@ function App() {
         if (disposed) return;
         const claim = await commandDelivery?.claim();
         const ticket = await api(
-          `/sessions/${selected.id}/${takeover ? 'takeover' : 'attach'}`,
+          `/sessions/${selected.id}/${takeoverPending ? 'takeover' : 'attach'}`,
           claim || {},
           controller.signal,
         );
+        takeoverPending = false;
         if (disposed) return;
         const ws = businessSocket(
           location.origin.replace(/^http/, 'ws') +
@@ -1349,7 +1356,12 @@ function App() {
               return;
             if (d.type === 'delivery-rejected') {
               commandDelivery?.disconnect();
-              setError(d.error.code + ': ' + d.error.message);
+              setReady(false);
+              if (['SESSION_BUSY', 'STALE_CONTROLLER'].includes(d.error.code)) {
+                setReady(false);
+                setControlElsewhere(true);
+                setError('此会话正在其他页面使用。');
+              } else setError(d.error.code + ': ' + d.error.message);
               return;
             }
             if (
@@ -1424,6 +1436,10 @@ function App() {
                 );
               else {
                 setReady(true);
+                setControlElsewhere(false);
+                setError((current) =>
+                  current === '此会话正在其他页面使用。' ? '' : current,
+                );
                 setStatus('已连接');
                 attempt = 0;
                 terminal = false;
@@ -1489,7 +1505,11 @@ function App() {
                 ].includes(d.error.code)
               )
                 terminal = true;
-              setError(d.error.code + ': ' + d.error.message);
+              if (['SESSION_BUSY', 'STALE_CONTROLLER'].includes(d.error.code)) {
+                setReady(false);
+                setControlElsewhere(true);
+                setError('此会话正在其他页面使用。');
+              } else setError(d.error.code + ': ' + d.error.message);
             }
           } catch (e) {
             report(e);
@@ -1520,7 +1540,8 @@ function App() {
           if (code === 4009) {
             terminal = true;
             setStatus('只读观察 · 其他设备控制');
-            setError('控制权已被其他设备接管');
+            setControlElsewhere(true);
+            setError('此会话正在其他页面使用。');
             return;
           }
           if (code === 4001) {
@@ -1542,7 +1563,13 @@ function App() {
             setStatus('只读会话 · 同项目已有写会话');
             return;
           }
-          report(e);
+          if (
+            e instanceof ApiError &&
+            ['SESSION_BUSY', 'STALE_CONTROLLER'].includes(e.code)
+          ) {
+            setControlElsewhere(true);
+            setError('此会话正在其他页面使用。');
+          } else if (!retryable(e)) report(e);
           setStatus(
             retryable(e)
               ? '连接中断，正在等待恢复；远程任务可能仍在执行'
@@ -2197,7 +2224,16 @@ function App() {
     document.addEventListener('visibilitychange', recoverControl);
     void connectHistory();
     if (selected.state === 'ready') void connect();
-    else setStatus('查看已结束会话的历史');
+    else
+      setStatus(
+        selected.state === 'starting'
+          ? '会话启动中，请稍候。'
+          : selected.state === 'closing'
+            ? '会话正在结束，请稍候。'
+            : selected.state === 'failed'
+              ? '会话运行中断，可沿用历史继续对话。'
+              : '当前为历史记录，可沿用原对话继续。',
+      );
     return () => {
       disposed = true;
       window.removeEventListener('online', recoverControl);
@@ -2448,6 +2484,24 @@ function App() {
     } finally {
       setGenerating(false);
     }
+  }
+  function continueConversation() {
+    if (!selected || !online || creating) return;
+    if (selected.state === 'closed' || selected.state === 'failed') {
+      if (selected.threadId) void create(selected.threadId);
+      return;
+    }
+    if (selected.state !== 'ready' || projectReadOnly) return;
+    if (
+      controlElsewhere &&
+      !confirm(
+        t('此会话正在其他页面使用。是否转到当前页面？原页面将无法继续操作。'),
+      )
+    )
+      return;
+    setError('');
+    setTakeover(controlElsewhere);
+    setReconnect((value) => value + 1);
   }
   async function create(threadId?: string) {
     if (creating || !online) return;
@@ -3762,19 +3816,26 @@ function App() {
                       </details>
                     </div>
                     <footer className="session-detail-actions">
-                      {selected.state !== 'ready' && selected.threadId && (
+                      {((['closed', 'failed'].includes(selected.state) &&
+                        selected.threadId) ||
+                        (selected.state === 'ready' &&
+                          !ready &&
+                          !projectReadOnly)) && (
                         <IconButton
-                          icon="history"
-                          label={t('恢复并继续')}
+                          icon={
+                            controlElsewhere
+                              ? 'chat'
+                              : selected.state === 'ready'
+                                ? 'refresh'
+                                : 'history'
+                          }
+                          label={t(
+                            controlElsewhere || selected.state !== 'ready'
+                              ? '继续对话'
+                              : '重试连接',
+                          )}
                           disabled={!online || creating}
-                          onClick={() => {
-                            if (
-                              confirm(
-                                t('在 {0} 恢复并继续此线程？', remoteTarget),
-                              )
-                            )
-                              void create(selected.threadId);
-                          }}
+                          onClick={continueConversation}
                         />
                       )}
 
@@ -3818,29 +3879,6 @@ function App() {
                                 );
                               })
                               .catch(report);
-                        }}
-                      />
-                      <IconButton
-                        icon="refresh"
-                        label={t('重新连接')}
-                        onClick={() => {
-                          setTakeover(false);
-                          setReconnect((n) => n + 1);
-                        }}
-                      />
-                      <IconButton
-                        icon="shield"
-                        label={t('接管控制权')}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                '接管 {0} 的当前会话会断开其他控制端，继续？',
-                                remoteTarget,
-                              ),
-                            )
-                          )
-                            setTakeover((v) => !v);
                         }}
                       />
                     </footer>
@@ -3944,18 +3982,26 @@ function App() {
                       notice={
                         !error &&
                         host &&
-                        (!online || (selected?.state === 'ready' && !ready)) ? (
+                        (!online ||
+                          (selected?.state === 'ready' &&
+                            !ready &&
+                            !projectReadOnly)) ? (
                           <div className="connection-notice" role="status">
                             <Icon name="activity" />
                             <span>
-                              {!online ? t('服务器离线 · 只读缓存') : t(status)}
+                              {!online
+                                ? t('服务器离线 · 只读缓存')
+                                : controlElsewhere
+                                  ? t('此会话正在其他页面使用。')
+                                  : t('连接中…')}
                             </span>
                             <IconButton
                               icon="refresh"
-                              label={t('重新连接')}
+                              label={t(
+                                controlElsewhere ? '继续对话' : '重试连接',
+                              )}
                               onClick={() => {
-                                if (selected && online)
-                                  setReconnect((value) => value + 1);
+                                if (selected && online) continueConversation();
                                 else void refreshView();
                               }}
                             />
@@ -4123,11 +4169,14 @@ function App() {
                           <p>{unconfirmed.text}</p>
                           <button
                             onClick={() => {
-                              setTakeover(false);
-                              setReconnect((n) => n + 1);
+                              if (controlElsewhere) continueConversation();
+                              else {
+                                setTakeover(false);
+                                setReconnect((value) => value + 1);
+                              }
                             }}
                           >
-                            {t('重新连接并查询结果')}
+                            {t('重试连接并核对结果')}
                           </button>
                           <small>
                             {t('请求')} {unconfirmed.requestId}
@@ -4152,12 +4201,39 @@ function App() {
                             {t('获取写权限')}
                           </button>
                         </div>
+                      ) : controlElsewhere ? (
+                        <div className="readonly-hint" role="status">
+                          <p>{t('此会话正在其他页面使用。')}</p>
+                          <button
+                            disabled={!online}
+                            onClick={continueConversation}
+                          >
+                            {t('继续对话')}
+                          </button>
+                        </div>
                       ) : selected.state !== 'ready' ? (
-                        <p className="readonly-hint">
-                          {t(
-                            '会话已结束 · 历史只读，请从历史记录显式恢复并继续。',
-                          )}
-                        </p>
+                        <div className="readonly-hint" role="status">
+                          <p>
+                            {t(
+                              selected.state === 'starting'
+                                ? '会话启动中，请稍候。'
+                                : selected.state === 'closing'
+                                  ? '会话正在结束，请稍候。'
+                                  : selected.state === 'failed'
+                                    ? '会话运行中断，可沿用历史继续对话。'
+                                    : '当前为历史记录，可沿用原对话继续。',
+                            )}
+                          </p>
+                          {['closed', 'failed'].includes(selected.state) &&
+                            selected.threadId && (
+                              <button
+                                disabled={!online || creating}
+                                onClick={continueConversation}
+                              >
+                                {t('继续对话')}
+                              </button>
+                            )}
+                        </div>
                       ) : (
                         <form
                           className="composer"

@@ -3474,9 +3474,34 @@ async function legacyUI() {
     'PASS: manual refresh recovers missed history and stalled OPEN channels; all admin headers toggle sorting, Agent/client groups retain independent authorization IDs after sorting, timestamp order and unknown values; Chinese/English switching, persistence, unchanged conversation content and drafts without reconnecting, English mobile/desktop menus, login and admin pages, automatic host/project/session/draft restoration after refresh, offline restoration, removed-project fallback, credential isolation, desktop/mobile chat file downloads with binary integrity, missing-file errors and external-path isolation, full expanded content beyond 128 Ki characters, ticket retry, collapsed consecutive tools, persistent drafts, 0/1/3/10 approvals at mobile/short viewport, CW/admin mode isolation, mode switch layout/focus/login/logout/deep links without reconnecting CW, dialog padding/focus, offline catalog, session connection settings, automatic and manual paged history with cached reload and first visit',
   );
 }
+let navigationSeq = 10000;
 try {
   if (process.argv.includes('--navigation'))
-    await navigationUI(browser, origin, artifacts, () => attachCalls);
+    await navigationUI(
+      browser,
+      origin,
+      artifacts,
+      () => attachCalls,
+      (state) => {
+        if (state === 'disconnect') {
+          for (const ws of controls) ws.close(1012);
+          return;
+        }
+        session.state = state;
+        for (const ws of controls)
+          ws.send(
+            JSON.stringify({
+              type: 'event',
+              event: {
+                seq: ++navigationSeq,
+                type: 'sessionClosed',
+                data: { state },
+                time: Date.now(),
+              },
+            }),
+          );
+      },
+    );
   else await legacyUI();
 } finally {
   await browser.close();

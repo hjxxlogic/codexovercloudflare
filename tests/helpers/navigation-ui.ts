@@ -8,6 +8,7 @@ export async function navigationUI(
   origin: string,
   artifacts: string,
   calls: () => number,
+  emitState: (state: string) => void,
 ) {
   const bytes = Buffer.from(
     '# Unified files\n\n| Name | Result |\n| --- | --- |\n| preview | ready |\n\n```ts\nconst value = 42;\n```\n' +
@@ -39,6 +40,31 @@ export async function navigationUI(
         },
       });
     return route.continue();
+  });
+  let attachMode: 'normal' | 'conflict' = 'normal';
+  let takeoverCalls = 0;
+  let transientFailures = 0;
+  fixtureRoutes.route('**/api/v1/sessions/sample~session/attach', (route) => {
+    if (transientFailures > 0) {
+      transientFailures--;
+      return route.fulfill({
+        status: 503,
+        json: { error: { code: 'HOST_OFFLINE', message: 'Temporary loss' } },
+      });
+    }
+    return attachMode === 'conflict'
+      ? route.fulfill({
+          status: 409,
+          json: {
+            error: { code: 'SESSION_BUSY', message: 'Already controlled' },
+          },
+        })
+      : route.continue();
+  });
+  fixtureRoutes.route('**/api/v1/sessions/sample~session/takeover', (route) => {
+    takeoverCalls++;
+    attachMode = 'normal';
+    return route.fulfill({ json: { ticket: 'synthetic-ticket' } });
   });
   let canManage = true;
   fixtureRoutes.route(
@@ -484,7 +510,7 @@ export async function navigationUI(
     information.getByRole('button', { name: '关闭信息', exact: true }),
   );
   await insideViewport(
-    information.getByRole('button', { name: '重新连接', exact: true }),
+    information.getByRole('button', { name: '结束会话', exact: true }),
   );
   await page.screenshot({
     path: join(artifacts, 'information-dialog-long.png'),
@@ -565,6 +591,7 @@ export async function navigationUI(
     .getByRole('button', { name: /第二项目对话/ })
     .click();
   await expect(page.getByLabel('任务内容')).toHaveValue('');
+  attachMode = 'conflict';
   await chooseProject.click();
   await page
     .locator('#navigation-projects .navigation-option')
@@ -574,6 +601,35 @@ export async function navigationUI(
     .locator('#navigation-sessions')
     .getByRole('button', { name: /进行中的对话/ })
     .click();
+  const continuation = page
+    .locator('.readonly-hint')
+    .getByRole('button', { name: '继续对话', exact: true });
+  await expect(continuation).toBeVisible();
+  await expect(page.locator('.readonly-hint')).toContainText('其他页面');
+  assert.equal(takeoverCalls, 0, 'never take over automatically');
+  page.once('dialog', (dialog) => {
+    assert(dialog.message().includes('原页面将无法继续操作'));
+    void dialog.dismiss();
+  });
+  await continuation.click();
+  assert.equal(takeoverCalls, 0, 'cancel preserves original controller');
+  await page.screenshot({
+    path: join(artifacts, 'continue-elsewhere.png'),
+    animations: 'disabled',
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await continuation.click();
+  await expect(page.locator('.readonly-hint')).toHaveCount(0);
+  await expect.poll(() => takeoverCalls).toBe(1);
+  await expect(page.locator('.connection-notice')).toHaveCount(0);
+  await page.getByRole('button', { name: '信息', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '重试连接', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '接管控制权', exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(page.getByLabel('任务内容')).toHaveValue('统一导航保留草稿');
   const beforeHeight = (await page.locator('.conversation').boundingBox())!
     .height;
@@ -598,6 +654,39 @@ export async function navigationUI(
     .getByRole('button', { name: '刷新状态', exact: true })
     .click();
   await expect(page.locator('.connection-notice')).toHaveCount(0);
+  const beforeRetry = calls();
+  transientFailures = 1;
+  emitState('disconnect');
+  await expect(page.locator('.connection-notice')).toContainText('连接中');
+  await expect(
+    page
+      .locator('.connection-notice')
+      .getByRole('button', { name: '重试连接', exact: true }),
+  ).toBeVisible();
+  await expect.poll(calls, { timeout: 15000 }).toBeGreaterThan(beforeRetry);
+  await expect(page.locator('.connection-notice')).toHaveCount(0);
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'HOST_OFFLINE' }),
+  ).toHaveCount(0);
+  for (const state of ['closed', 'failed', 'starting', 'closing']) {
+    emitState(state);
+    const hint = page.locator('.readonly-hint');
+    await expect(hint).toBeVisible();
+    await expect(
+      hint.getByRole('button', { name: '继续对话', exact: true }),
+    ).toHaveCount(['closed', 'failed'].includes(state) ? 1 : 0);
+    await expect(hint).not.toContainText('显式恢复');
+    if (state === 'closed') {
+      await expect(hint).toContainText('历史记录');
+      await page.screenshot({
+        path: join(artifacts, 'continue-history.png'),
+        animations: 'disabled',
+      });
+    }
+    if (state === 'starting') await expect(hint).toContainText('启动中');
+    if (state === 'closing') await expect(hint).toContainText('正在结束');
+  }
+  emitState('ready');
   await chooseHost.click();
   await page.getByRole('button', { name: /另一台服务器.*离线/ }).click();
   await expect(chooseProject).toBeEnabled();
@@ -652,7 +741,7 @@ export async function navigationUI(
     await insideViewport(
       page
         .getByRole('dialog', { name: '会话详情', exact: true })
-        .getByRole('button', { name: '重新连接', exact: true }),
+        .getByRole('button', { name: '结束会话', exact: true }),
     );
     await page.keyboard.press('Escape');
     await noOverflow();
@@ -726,6 +815,8 @@ export async function navigationUI(
   });
   assert.deepEqual(failures, []);
   await context.close();
+  fixtureRoutes.unroute('**/api/v1/sessions/sample~session/attach');
+  fixtureRoutes.unroute('**/api/v1/sessions/sample~session/takeover');
   fixtureRoutes.unroute('**/api/v1/hosts/sample/files');
   fixtureRoutes.unroute('**/api/v1/hosts/sample/project-management');
   console.log(

@@ -318,6 +318,20 @@ export const english: Record<string, string> = {
   请手动选择文本复制: 'Select the text and copy it manually',
   复制: 'Copy',
   复制消息: 'Copy message',
+  继续对话: 'Continue conversation',
+  '继续对话：{0}': 'Continue conversation: {0}',
+  重试连接: 'Retry connection',
+  重试连接并核对结果: 'Retry connection and check result',
+  '连接中…': 'Connecting…',
+  '此会话正在其他页面使用。': 'This conversation is in use on another page.',
+  '此会话正在其他页面使用。是否转到当前页面？原页面将无法继续操作。':
+    'This conversation is in use on another page. Continue here? The original page will no longer be able to control it.',
+  '会话启动中，请稍候。': 'Conversation is starting. Please wait.',
+  '会话正在结束，请稍候。': 'Conversation is ending. Please wait.',
+  '会话运行中断，可沿用历史继续对话。':
+    'Conversation was interrupted. Continue with the existing history.',
+  '当前为历史记录，可沿用原对话继续。':
+    'Viewing history. You can continue the original conversation.',
   '[图片：': '[Image: ',
   '正在读取…': 'Reading…',
   展开更多: 'Show more',

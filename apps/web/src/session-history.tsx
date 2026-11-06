@@ -115,7 +115,7 @@ export function SessionHistory({
                       ? t('进行中 · 查看对话')
                       : session
                         ? t('已结束 · 查看历史')
-                        : t('恢复并继续')}
+                        : t('继续对话')}
                     {!online ? t(' · 本机目录') : ''}
                   </small>
                   <small>
@@ -125,15 +125,17 @@ export function SessionHistory({
                 </>
               )}
             </button>
-            {session && !active && thread && (
-              <button
-                disabled={creating || !online}
-                onClick={() => onResume(key)}
-                aria-label={t('恢复并继续：{0}', title)}
-              >
-                {t('恢复并继续')}
-              </button>
-            )}
+            {session &&
+              ['closed', 'failed'].includes(session.state) &&
+              thread && (
+                <button
+                  disabled={creating || !online}
+                  onClick={() => onResume(key)}
+                  aria-label={t('继续对话：{0}', title)}
+                >
+                  {t('继续对话')}
+                </button>
+              )}
           </div>
         );
       })}
