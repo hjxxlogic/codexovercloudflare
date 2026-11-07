@@ -8,12 +8,15 @@ export async function expireAt(storage: StateStorage, key: string, at: number) {
   if (alarm === null || alarm > at) await storage.setAlarm(at);
 }
 export async function nextExpiry(storage: StateStorage) {
+  const alarm = await storage.getAlarm();
   const first = await storage.list<{ at: number }>({
     prefix: 'due:',
     limit: 1,
   });
-  const at = first.values().next().value?.at;
-  if (at !== undefined) await storage.setAlarm(Math.max(Date.now(), at));
+  const firstAt = first.values().next().value?.at;
+  const at = firstAt === undefined ? null : Math.max(Date.now(), firstAt);
+  if (at === alarm) return;
+  if (at !== null) await storage.setAlarm(at);
   else await storage.deleteAlarm();
 }
 export async function requireCurrentExpiry(storage: StateStorage) {

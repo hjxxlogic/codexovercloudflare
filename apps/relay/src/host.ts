@@ -133,8 +133,15 @@ export class HostRelayDO extends DurableObject<Env> {
     retire(ws, code, 'Connection closed');
     if (a.kind === 'client') {
       const peer = this.byId(a.peer);
-      if (peer && a.link)
-        this.send(peer, { type: 'channel-close', link: a.link });
+      if (peer && a.link) {
+        try {
+          this.send(peer, { type: 'channel-close', link: a.link });
+        } catch {
+          // The endpoint cannot observe this link's retirement. Retire all its
+          // routes so clients reconnect instead of retaining orphaned links.
+          this.close(peer, 1011);
+        }
+      }
     } else {
       for (const client of this.sockets())
         if (this.a(client).peer === a.id && !this.a(client).retired)
@@ -172,11 +179,16 @@ export class HostRelayDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   private async schedule() {
+    const alarm = await this.ctx.storage.getAlarm();
+    // Read attachments after the await: another callback may have changed the
+    // live connections while the stored alarm was being read.
     const finite = this.sockets()
       .filter(live)
       .map((ws) => this.a(ws).deadline)
       .filter((at) => at < Number.MAX_SAFE_INTEGER);
-    if (finite.length) await this.ctx.storage.setAlarm(Math.min(...finite));
+    const at = finite.length ? Math.min(...finite) : null;
+    if (at === alarm) return;
+    if (at !== null) await this.ctx.storage.setAlarm(at);
     else await this.ctx.storage.deleteAlarm();
   }
   private async retirements() {

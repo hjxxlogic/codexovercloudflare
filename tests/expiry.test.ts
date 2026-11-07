@@ -26,6 +26,22 @@ describe('current expiry storage', () => {
     expect(storage.alarm).toBe(expires);
     expect((await storage.list({ prefix: 'due:' })).size).toBe(1);
   });
+  it('preserves an unchanged alarm across reconstruction and removes it once the queue drains', async () => {
+    const storage = new MemoryStorage();
+    const at = Date.now() + 60000;
+    await expireAt(storage, 'device:pending', at);
+    const set = vi.spyOn(storage, 'setAlarm');
+    const remove = vi.spyOn(storage, 'deleteAlarm');
+    await nextExpiry(storage);
+    await nextExpiry(storage);
+    expect(set).not.toHaveBeenCalled();
+    expect(storage.alarm).toBe(at);
+    await storage.delete([...storage.values.keys()]);
+    await nextExpiry(storage);
+    await nextExpiry(storage);
+    expect(storage.alarm).toBeNull();
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
   it('uses completed indexes without rewriting their metadata', async () => {
     const storage = new MemoryStorage();
     await storage.put('expiryMigration', { prefix: 3, pending: false });

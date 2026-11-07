@@ -41,6 +41,10 @@
 
 Worker 授权专项：`npx vitest run tests/relay-order.test.ts tests/device-auth.test.ts`。覆盖握手后的双向零授权查询、DO 重建、退休连接、授权变更、到期及持久失效事件重试。稳定数据转发不能依赖短时缓存命中；控制面授权仍需完整检查。
 
+DO 清理与调度专项：`npx vitest run tests/relay-order.test.ts tests/expiry.test.ts tests/do-state.test.ts`。覆盖关闭通知发送失败时退休上行及全部关联客户端、关闭握手抛错仍完成清理、重复生命周期回调不重写未变化的 alarm、调度等待期间附件期限变化及到期队列清空后的 alarm 取消。断连故障和重复 alarm 用例在修改前失败、修改后通过；本地回归不代表已部署或已核对线上节费。
+
+2026-11-07 DO 生命周期优化本地验证：安装 libsodium 开发依赖后，CMake 配置和完整原生构建通过；`npm test` 全部通过（15 项 CTest、36 个 Vitest 文件 / 398 项测试），包含真实 C++ / TypeScript 加密通道互通，CTest 没有跳过项。上述专项加 `tests/device-auth.test.ts` 共 4 个文件 / 79 项通过。TypeScript、受影响文件 ESLint / Prettier、网页构建与 Wrangler Worker dry-run 通过。完整测试日志为 `.local/coc-do-optimization-full-tests.log`，原生构建日志为 `.local/coc-do-optimization-native-build.log`；没有发布线上 Worker。
+
 Agent 重试专项使用真实原生进程、Socket 与实际计时，不加速重试定时器。`test:retry` 覆盖连续 HTTP 401 / 403、协议不匹配、4001、非法配置、Codex 不可用、状态锁占用、配置修复和锁释放后的自动恢复，以及在重连 / 初始化等待中明确停止后不再尝试。`test:billing` 同时验证空闲零业务轮询、Pong 超时后固定延迟与连续连接失败后的恢复，并包含该重试专项。
 
 Linux PTY 可单独运行 `ctest --test-dir build -R native-terminal --output-on-failure`。需要 Bash、bubblewrap、prlimit 和可用 namespace；工具存在但启动失败不能当作通过。原生测试入口与实际跳过项以 CTest 输出为准。

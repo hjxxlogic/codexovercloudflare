@@ -358,6 +358,80 @@ describe('opaque relay connection routing', () => {
     await h.frame(h.client, { type: 'channel-data', data: 'late' });
     expect(h.frames().at(-1)).toEqual({ type: 'channel-close', link });
   });
+  it('retires a failed endpoint and all its clients when close notification cannot be sent', async () => {
+    const h = harness();
+    await h.bind();
+    const other = socket({
+      ...h.client.deserializeAttachment(),
+      id: 'other',
+      link: 'other-link',
+    });
+    h.sockets.push(other);
+    h.agent.send.mockImplementation(() => {
+      throw new Error('WebSocket transport closed');
+    });
+    await expect(
+      h.relay().webSocketClose(h.client as any),
+    ).resolves.toBeUndefined();
+    for (const ws of h.sockets)
+      expect(ws.deserializeAttachment().retired).toBe(true);
+    const sent = h.agent.send.mock.calls.length;
+    await h.frame(other, { type: 'channel-data', data: 'late' });
+    expect(h.agent.send).toHaveBeenCalledTimes(sent);
+  });
+  it('finishes endpoint cleanup even when the WebSocket close handshake throws', async () => {
+    const h = harness();
+    await h.bind();
+    h.agent.close.mockImplementation(() => {
+      throw new Error('WebSocket already closed');
+    });
+    await expect(
+      h.relay().webSocketClose(h.agent as any),
+    ).resolves.toBeUndefined();
+    expect(h.agent.deserializeAttachment().retired).toBe(true);
+    expect(h.client.deserializeAttachment().retired).toBe(true);
+  });
+  it('only changes an alarm when the earliest live connection deadline changes', async () => {
+    const h = harness();
+    const set = vi.spyOn(h.storage, 'setAlarm');
+    const remove = vi.spyOn(h.storage, 'deleteAlarm');
+    await h.bind();
+    expect(set).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    const expires = Date.now() + 60000;
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      deadline: expires,
+    });
+    await h.relay().alarm();
+    await h.relay().alarm();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(h.storage.alarm).toBe(expires);
+    await h.relay().webSocketClose(h.agent as any);
+    expect(h.storage.alarm).toBeNull();
+    await h.relay().webSocketClose(h.agent as any);
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  it('schedules the latest connection deadline when attachments change during the alarm read', async () => {
+    const h = harness();
+    await h.bind();
+    let release!: (alarm: number | null) => void;
+    vi.spyOn(h.storage, 'getAlarm').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const closing = h.relay().webSocketClose(h.client as any);
+    const expires = Date.now() + 30000;
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      deadline: expires,
+    });
+    release(null);
+    await closing;
+    expect(h.storage.alarm).toBe(expires);
+  });
   it('rejects expiry and frame-byte budget overflow before forwarding', async () => {
     const h = harness();
     await h.bind();

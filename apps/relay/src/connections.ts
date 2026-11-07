@@ -8,5 +8,10 @@ export function live(ws: WebSocket | undefined) {
 export function retire(ws: WebSocket, code: number, reason: string) {
   const attachment = ws.deserializeAttachment();
   ws.serializeAttachment({ ...attachment, retired: true });
-  ws.close(code, reason);
+  try {
+    ws.close(code, reason);
+  } catch {
+    // A transport that already failed may reject the closing handshake. The
+    // attachment fence still applies; callers must finish retiring its peers.
+  }
 }

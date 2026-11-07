@@ -16,7 +16,7 @@ flowchart LR
 
 Agent / CLI 使用 C++17、Boost.Asio/Beast、OpenSSL、libsodium、SQLite 和 nlohmann/json；Relay 使用 Worker 与 SQLite-backed Durable Objects；网页使用 React、IndexedDB 和 Web Locks。协议 schema 位于 `packages/protocol`，C++ 接收端独立校验相同约束。
 
-RegistryDO 保存身份、邮箱、授权、主机目录与失效事件；HostRelayDO 仅保存身份绑定、在线连接、权限失效确认和唤醒冷却，不保存业务状态。租约、控制代际、项目单写与 ticket 由 Agent 的 SQLite 管理。当前唯一云端存储为 DO 原生存储，没有 D1 运行依赖、后端选择或跨库归档路径。保留既有 namespace 和 class migration；临时记录使用有界到期索引与一次性 alarm，没有到期工作时不新增周期维护。Agent SQLite 将已支持的版本 0/1 升为版本 2，保留原请求、历史及拒绝屏障；旧二进制拒绝新版本。首次进入新 HostRelayDO 会关闭旧连接，以可续跑事务分页备份旧记录、退休旧控制状态并保留唤醒冷却；未决权限操作会阻止迁移。备份暂存于原对象的隔离键，须在发布窗口导出、核对后处理，不能作为新业务日志。升级与回退边界见用户手册。
+RegistryDO 保存身份、邮箱、授权、主机目录与失效事件；HostRelayDO 仅保存身份绑定、在线连接、权限失效确认和唤醒冷却，不保存业务状态。租约、控制代际、项目单写与 ticket 由 Agent 的 SQLite 管理。当前唯一云端存储为 DO 原生存储，没有 D1 运行依赖、后端选择或跨库归档路径。保留既有 namespace 和 class migration；临时记录使用有界到期索引与一次性 alarm，没有到期工作时不新增周期维护。到期调度比较现有 alarm，仅在目标时间变化时写入或取消，避免连接关闭和 DO 重建反复写同一 alarm。Agent SQLite 将已支持的版本 0/1 升为版本 2，保留原请求、历史及拒绝屏障；旧二进制拒绝新版本。首次进入新 HostRelayDO 会关闭旧连接，以可续跑事务分页备份旧记录、退休旧控制状态并保留唤醒冷却；未决权限操作会阻止迁移。备份暂存于原对象的隔离键，须在发布窗口导出、核对后处理，不能作为新业务日志。升级与回退边界见用户手册。
 
 ## 业务可靠性与控制
 
