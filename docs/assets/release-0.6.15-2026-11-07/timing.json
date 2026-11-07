@@ -1,0 +1,9 @@
+{
+  "serialBillingCiSeconds": 514.2,
+  "parallelBillingLocalSeconds": 330.3,
+  "differenceSeconds": 183.9,
+  "billingReductionPercent": 35.8,
+  "successfulRegressionCiSeconds": 2074,
+  "estimatedOverallReductionPercent": 8.9,
+  "limitation": "Parallel billing was measured locally; the deployed source CI used serial billing. Overall reduction is an estimate, not a completed optimized full CI measurement."
+}

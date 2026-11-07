@@ -1,0 +1,42 @@
+{
+  "time": "2026-11-07T04:52:39.136Z",
+  "target": "https://r.xlogic.cc",
+  "scope": "Health, admission boundaries and optional authenticated read-only browser/Agent checks; no model, PTY, takeover, task mutation or credential revocation",
+  "checks": [
+    {
+      "name": "/hosts",
+      "status": 403
+    },
+    {
+      "name": "/sessions?hostId=verification",
+      "status": 401
+    },
+    {
+      "name": "/admin/hosts",
+      "status": 401
+    },
+    {
+      "name": "/auth/me",
+      "status": 401
+    },
+    {
+      "name": "/ws/v1/admin",
+      "status": 401
+    },
+    {
+      "name": "/ws/v1/hosts/verification",
+      "status": 401
+    },
+    {
+      "name": "/ws/v1/hosts/verification/terminal",
+      "status": 401
+    }
+  ],
+  "health": {
+    "ok": true,
+    "version": "0.6.14",
+    "demand": 1,
+    "protocol": 1
+  },
+  "passed": true
+}

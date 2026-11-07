@@ -1,0 +1,174 @@
+{
+  "commit": "54e210ce04b686b818283d629bb0a8f1e6d8180f",
+  "deploymentToolCommit": "1712cf9be65821ddbcd74ff42ebc637681d2e880",
+  "localBuild": false,
+  "ciVerified": true,
+  "ghProxy": true,
+  "sourceIdentity": {
+    "version": "0.6.15",
+    "commit": "54e210ce04b686b818283d629bb0a8f1e6d8180f",
+    "target": "linux-x86_64",
+    "sourceDigest": "fac08869fd38fbc9fa3be861ee1564d23fb3d56b6e43f6cca5f17eeda83fa1c2",
+    "protocol": 1,
+    "dirty": false,
+    "capabilities": [
+      "demand-v1",
+      "session-pages",
+      "request-status",
+      "upload-status",
+      "content-revision",
+      "external-session-queue",
+      "external-approvals",
+      "delivery-v2",
+      "configuration-v1"
+    ]
+  },
+  "allowUncommitted": false,
+  "replaceVariables": false,
+  "cloudOnlyAfterWindowsFailure": false,
+  "skippedNativePlatform": null,
+  "run": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541",
+  "jobs": [
+    {
+      "name": "windows-x64",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315629995",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T05:47:06Z"
+    },
+    {
+      "name": "sanitizers",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315630117",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T05:45:15Z"
+    },
+    {
+      "name": "linux-musl",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315630147",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T05:40:55Z"
+    },
+    {
+      "name": "linux-release (debian12, debian:12)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315630187",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T05:39:29Z"
+    },
+    {
+      "name": "regression",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315630188",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T06:09:34Z"
+    },
+    {
+      "name": "linux-release (ubuntu20.04, ubuntu:20.04)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128315630337",
+      "started_at": "2026-11-07T05:35:00Z",
+      "completed_at": "2026-11-07T05:38:54Z"
+    },
+    {
+      "name": "publish-release",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541/job/128322988608",
+      "started_at": "2026-11-07T06:09:35Z",
+      "completed_at": "2026-11-07T06:09:34Z"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "verified-web",
+      "id": 13563682142,
+      "digest": "sha256:9046078b78b522dd689c12b20a8441152729ee1f6ac687fce35aae4c74bc9379"
+    },
+    {
+      "name": "verified-worker",
+      "id": 13563157005,
+      "digest": "sha256:6581ca2b36a73043b0215baf238ec263ee59c8b9e0981a030b44e54ef62c011d"
+    },
+    {
+      "name": "linux-ubuntu20.04",
+      "id": 13562178718,
+      "digest": "sha256:27fb41f9be095c57bd715c77f7350baf9c1dd877b4efeec350f9d754ca5eadc0"
+    },
+    {
+      "name": "linux-debian12",
+      "id": 13562698203,
+      "digest": "sha256:e131b9c181db3c7947f549ff105adeb13de9c27469cf43a893acd0302d4d1009"
+    },
+    {
+      "name": "linux-musl",
+      "id": 13561669864,
+      "digest": "sha256:a61f2ae127dabe09afe7bdaf642c3d31d35093076b69b68fdcd890d41d80b69e"
+    },
+    {
+      "name": "windows-x64",
+      "id": 13562602768,
+      "digest": "sha256:2c9fbec1d2db1dcffe747b5762ee15816b5a4f5bce21a316d55cc54cc1abdf97"
+    }
+  ],
+  "sourceDigest": "fac08869fd38fbc9fa3be861ee1564d23fb3d56b6e43f6cca5f17eeda83fa1c2",
+  "worker": "codex-over-cloudflare",
+  "initializeDownloads": false,
+  "target": "https://r.xlogic.cc",
+  "preservedDownloads": {
+    "version": "0.6.14",
+    "commit": "4a9d4414b734f0060d72b4854c729b4d67dbdbd7",
+    "sourceDigest": "9cfbb1670a291be33f5a9948e06c62562413d7910fcdab89a3513b99d878017c",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.14-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.14-linux-x86_64-musl.tar.gz",
+      "coc-0.6.14-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.14-windows-x64.zip",
+      "codex-over-cloudflare-0.6.14-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "publishedDownloads": {
+    "version": "0.6.15",
+    "commit": "54e210ce04b686b818283d629bb0a8f1e6d8180f",
+    "sourceDigest": "fac08869fd38fbc9fa3be861ee1564d23fb3d56b6e43f6cca5f17eeda83fa1c2",
+    "protocol": 1,
+    "files": [
+      "coc-0.6.15-linux-x86_64-debian12.tar.gz",
+      "coc-0.6.15-linux-x86_64-musl.tar.gz",
+      "coc-0.6.15-linux-x86_64-ubuntu20.04.tar.gz",
+      "coc-0.6.15-windows-x64.zip",
+      "codex-over-cloudflare-0.6.15-source.tar.gz"
+    ],
+    "checksums": "SHA256SUMS",
+    "manual": "USER_GUIDE.md"
+  },
+  "applied": true,
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.15",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "nativeChecksums": {
+    "coc-0.6.15-linux-x86_64-debian12.tar.gz": "0e9b70dd2c017f1ebcef90fd845d71819108dae95211f617bbe8696a5cb159cd",
+    "coc-0.6.15-linux-x86_64-musl.tar.gz": "dd4f7d860c8f34c76ace5e25e8b0e219c1e4e24a02da8e4d0e487ff5fd9c3eea",
+    "coc-0.6.15-linux-x86_64-ubuntu20.04.tar.gz": "488d6395c57f5f08fb634f3f172316779869d54a633dded08aa80ad3c385135c",
+    "coc-0.6.15-windows-x64.zip": "36bab4133b6566eabec40003fed7795d6330e77d5179d4a3cec03b6d2a362f74",
+    "codex-over-cloudflare-0.6.15-source.tar.gz": "73cb64717aba65f39ca7b3fb979a9a0435a3b22fee110883b42dc82815fbefb0"
+  },
+  "workerVersionId": "58c24e00-9db1-4b3d-a274-2f51800d254d",
+  "verificationRecordedAt": "2026-11-07T06:32:41.366657+00:00"
+}
