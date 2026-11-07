@@ -1,4 +1,4 @@
-import { openNavigation } from './helpers/workspace-ui.ts';
+import { openNavigation, openSettings } from './helpers/workspace-ui.ts';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
@@ -454,7 +454,13 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel('任务内容').fill('hold browser queue');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
+  try {
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+  } catch (error) {
+    console.error(await page.locator('body').innerText());
+    console.error('Draft:', await page.getByLabel('任务内容').inputValue());
+    throw error;
+  }
   await page.getByLabel('任务内容').fill('browser queued body');
   await page.getByRole('button', { name: '排队消息', exact: true }).click();
   const panel = page.getByRole('region', { name: '排队消息', exact: true });
@@ -499,23 +505,11 @@ try {
     );
     const adminPage = await adminContext.newPage();
     adminPage.on('pageerror', (error) => errors.push(error.message));
-    const openAdminSettings = async () => {
-      const settings = adminPage.getByRole('button', {
-        name: '设置',
-        exact: true,
-      });
-      if (!(await settings.isVisible()))
-        await adminPage
-          .getByRole('button', { name: '打开会话导航', exact: true })
-          .click();
-      await settings.click();
-    };
+    const openAdminSettings = () => openSettings(adminPage);
 
-    await adminPage.goto(origin);
-    await openAdminSettings();
-    await adminPage
-      .getByRole('button', { name: '切换到管理员模式', exact: true })
-      .click();
+    await adminPage.goto(
+      origin + '/?browser-admin-login#authorize=browser-admin-login',
+    );
     await adminPage.getByLabel('所有者密钥', { exact: true }).fill(secret);
     await adminPage.getByRole('button', { name: '登录', exact: true }).click();
     await expect(

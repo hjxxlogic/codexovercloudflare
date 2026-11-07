@@ -1935,11 +1935,9 @@ try {
   });
   const page = await browser.newPage();
   await page.goto(origin);
-  await openSettings(page);
-  await page
-    .getByRole('button', { name: '切换到管理员模式', exact: true })
-    .click();
-  await page.keyboard.press('Escape');
+  await page.goto(
+    origin + '/?browser-admin-login#authorize=browser-admin-login',
+  );
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page

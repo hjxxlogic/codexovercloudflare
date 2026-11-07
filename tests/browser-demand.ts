@@ -1,6 +1,5 @@
 import {
   openNavigation,
-  openSettings,
   selectHostId,
   selectProjectId,
 } from './helpers/workspace-ui.ts';
@@ -151,11 +150,9 @@ try {
     path: join(artifacts, 'cw-refresh-390.png'),
     fullPage: true,
   });
-  await openSettings(page);
-  await page
-    .getByRole('button', { name: '切换到管理员模式', exact: true })
-    .click();
-  await page.keyboard.press('Escape');
+  await page.goto(
+    origin + '/?browser-admin-login#authorize=browser-admin-login',
+  );
   await page.getByLabel('所有者密钥').fill('billing-fixture-owner');
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(

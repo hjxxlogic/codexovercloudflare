@@ -1,4 +1,3 @@
-import { openSettings } from './helpers/workspace-ui.ts';
 import { endpointFetch } from './helpers/endpoint-peer.ts';
 // Real Worker, native Agent/CC and Chromium. Temporary state; no model or production calls.
 import assert from 'node:assert/strict';
@@ -244,11 +243,9 @@ try {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(origin);
-  await openSettings(page);
-  await page
-    .getByRole('button', { name: '切换到管理员模式', exact: true })
-    .click();
-  await page.keyboard.press('Escape');
+  await page.goto(
+    origin + '/?browser-admin-login#authorize=browser-admin-login',
+  );
   await page.getByLabel('所有者密钥').fill(secret);
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('tab', { name: '项目管理', exact: true }).click();
