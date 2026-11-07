@@ -828,3 +828,5 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 下载已完成的公开 Actions 制品时可给 `scripts/deploy-downloads.py` 添加 `--gh-proxy`，通过 `gh-proxy.org` 并行下载四个平台制品。代理仅接收公开资源 URL，不接收 GitHub Token、Cookie 或签名链接；GitHub 原始制品摘要仍从可信 API 获取并逐项验证。
 
 2026-11-06 主站已部署 `0.6.14`。四个平台安装包来自成功 Actions `42178474355`，云端迁移修复和本机 Agent 为另行记录的本地构建；同版本 CI 包不会自动覆盖本地 Agent。实际组件身份、数据库 / DO 迁移和限制见 [主站部署记录](PRODUCTION_OPAQUE_DEPLOYMENT.md)。
+
+运维发布公开 Actions 制品时，`scripts/deploy-cloud.py --gh-proxy` 可加速制品下载；仅适用于确认公开的仓库，仍保留完整 CI、源码身份与 SHA256 校验。步骤见 [发布操作](RELEASE.md)。

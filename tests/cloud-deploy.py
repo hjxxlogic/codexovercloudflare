@@ -18,6 +18,22 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_public_artifact_download_routes_preserve_identity(self):
+        self.assertEqual(cloud.artifact_url('owner/repo', 12, 34),
+                         'https://nightly.link/owner/repo/actions/artifacts/34.zip')
+        self.assertEqual(cloud.artifact_url('owner/repo', 12, 34, True),
+                         'https://gh-proxy.org/https://github.com/owner/repo/actions/runs/12/artifacts/34')
+
+    def test_proxy_refuses_private_or_unconfirmed_repositories(self):
+        for metadata in ({'private': True}, {}):
+            with patch('sys.argv', ['deploy-cloud.py', '--repository', 'owner/repo', '--gh-proxy']), \
+                    patch.object(cloud.agent, 'curl', return_value=json.dumps(metadata).encode()) as fetch, \
+                    patch.object(cloud.agent, 'api') as authenticated:
+                with self.assertRaisesRegex(RuntimeError, 'limited to public'):
+                    cloud.main()
+                fetch.assert_called_once_with('https://api.github.com/repos/owner/repo')
+                authenticated.assert_not_called()
+
     def test_uncommitted_mode_requires_local_build(self):
         with patch('sys.argv', ['deploy-cloud.py', '--allow-uncommitted']):
             with self.assertRaises(SystemExit) as error:

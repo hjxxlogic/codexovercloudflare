@@ -27,6 +27,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def artifact_url(repository, run_id, artifact_id, gh_proxy=False):
+    if gh_proxy:
+        return ('https://gh-proxy.org/https://github.com/' + repository +
+                '/actions/runs/' + str(run_id) + '/artifacts/' + str(artifact_id))
+    return ('https://nightly.link/' + repository + '/actions/artifacts/' +
+            str(artifact_id) + '.zip')
+
+
 def release_post(base, path, data, token):
     # Credentials stay in memory, never in subprocess arguments or evidence.
     headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token}
@@ -340,6 +348,8 @@ def main():
     parser.add_argument('--local-native-build-dir', type=pathlib.Path, help='Explicit local static Linux release; requires --local-build; preserves previous Windows')
     parser.add_argument('--timeout', type=int, default=2400)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--gh-proxy', action='store_true',
+                        help='Accelerate public Actions artifacts via gh-proxy.org; never send credentials')
     parser.add_argument('--replace-vars', action='store_true',
                         help='Replace plain-text/JSON variables with the verified configuration; Worker secrets are preserved')
     parser.add_argument('--cloud-only-after-windows-failure', action='store_true',
@@ -399,6 +409,10 @@ def main():
         parser.error('Invalid secret name')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
         parser.error('Invalid repository')
+    if args.gh_proxy:
+        public = json.loads(agent.curl('https://api.github.com/repos/' + args.repository))
+        if public.get('private') is not False:
+            raise RuntimeError('GH-Proxy is limited to public repositories')
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', '--end-of-options',
                                       args.commit + '^{commit}'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT) and not args.allow_uncommitted:
@@ -452,7 +466,7 @@ def main():
             artifact = matches[0]
             archive = output / (name + '.zip')
             if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
-                agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+                agent.curl(artifact_url(args.repository, run['id'], artifact['id'], args.gh_proxy), archive)
             destination = output / folder
             if destination.exists():
                 shutil.rmtree(destination)
@@ -505,7 +519,7 @@ def main():
             artifact = matches[0]
             archive = output / (name + '.zip')
             if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
-                agent.curl('https://nightly.link/' + args.repository + '/actions/artifacts/' + str(artifact['id']) + '.zip', archive)
+                agent.curl(artifact_url(args.repository, run['id'], artifact['id'], args.gh_proxy), archive)
             bundles[name] = (archive, artifact['digest'])
             selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
         published = publish_downloads(bundles, identities[0], output / 'site', bool(args.skip_native_platform))
@@ -517,7 +531,7 @@ def main():
     config_path = output / 'deploy.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     evidence = {'commit': commit, 'deploymentToolCommit': tool_commit,
-                'localBuild': args.local_build, 'ciVerified': not args.local_build,
+                'localBuild': args.local_build, 'ciVerified': not args.local_build, 'ghProxy': args.gh_proxy,
                 'sourceIdentity': identities[0], 'allowUncommitted': args.allow_uncommitted,
                 'replaceVariables': args.replace_vars,
                 'cloudOnlyAfterWindowsFailure': args.cloud_only_after_windows_failure,

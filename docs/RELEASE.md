@@ -23,6 +23,8 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --apply
 python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID --publish-downloads --apply
 ```
 
+公开仓库下载较慢时可追加 `--gh-proxy`，通过 GH-Proxy 下载公开 Actions 制品；先匿名确认仓库公开，不向代理发送 GitHub / Cloudflare 凭据，仍以可信 GitHub API 返回的 SHA256 验证。私有或无法确认公开的仓库拒绝使用代理。
+
 脚本校验完整 Actions 门禁、GitHub artifact 摘要和干净来源，以 CI 保存的配置上传 Worker / 网页；发布前后保全并逐包校验下载站。线上网页、脚本、样式、手册、清单、校验和及健康接口需要核对。
 
 只支持 RegistryDO / HostRelayDO 原生存储，保留现有 namespace、class migration 和数据；不提供数据库后端切换或迁移接口。默认保留线上普通变量；确需让配置替换普通变量时使用 `--replace-vars`，先确保配置列全仍需变量，Secret 保留。不要因默认域名而推断获准部署。
