@@ -148,3 +148,13 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 ## 2026-11-07 0.6.15 发布完成
 
 准确源码 `54e210c` 的 [Actions 42343337541](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42343337541) 六项必需作业全部成功，regression 为 34 分 34 秒。主站 Worker / 网页与四平台下载已发布，版本 ID `58c24e00-9db1-4b3d-a274-2f51800d254d`。线上 0.6.15 健康、未授权 HTTP / WebSocket 拒绝、静态资源逐字节及五个归档摘要核验通过；没有安装或重启已有 Agent。后续测试提速和下载工具改动独立于已验证制品来源，实际范围、完整摘要与限制见 [发布记录](RELEASE_0.6.15_2026-11-07.md)。
+
+## 原生代理 DNS 修复（2026-11-07）
+
+原生代理回归使用 `relay.invalid`，本地代理直接终止隧道，验证目标无需本机 DNS 即可完成 HTTP / SOCKS5、无认证 / 用户密码认证、HTTP / WebSocket 的 16 种 IP / 域名组合；带认证的 WebSocket 路径同时验证本地 TUI 桥接及可靠传输。检查 CONNECT / SOCKS5 请求保留目标域名、应用 Host 保留原目标、代理认证不泄漏到目标，并保留拒绝 / 超时及本机地址绕过检查。
+
+`npm run test:tls` 增加 `relay.invalid` 的 HTTPS / WSS 用例，使用临时 CA，覆盖可信证书成功、未知 CA 拒绝和主机名不匹配拒绝；同时检查 localhost 绕过及公网 IP 隧道。此验证使用本地测试服务，不代表故障电脑已升级或已完成注册。
+
+本次本地验证通过：`cmake --build build -j 2`；`npm test`（15 项 CTest、37 个 Vitest 文件 / 400 项测试）；`npm run test:tls`（9 组 HTTPS / WSS 场景与 Access 回归）；`npm run typecheck`、`npm run lint:cpp`，以及修改的 TypeScript 文件 ESLint、该文件与用户手册 Prettier 和 `git diff --check`。TLS 专项因沙箱禁止监听本机 socket，在获准的沙箱外执行。尚未运行对应源码提交的 GitHub Actions、构建发布制品或部署到故障电脑。
+
+下载单独发布脚本增加显式本地 Linux 构建入口；回归检查不访问 Actions、复用原 Worker / 网页、记录 CI 未验证并拒绝脏源码。发布包将使用 0.6.16，Windows 按用户要求保留原下载。

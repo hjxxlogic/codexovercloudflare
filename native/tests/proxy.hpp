@@ -47,20 +47,24 @@ inline void proxy_tests() {
           "ws://localhost:8787/test");
   Url target{"http://203.0.113.10", "203.0.113.10", "203.0.113.10", "443", false};
   // A deterministic proxy peer terminates the tunnel locally; no external traffic.
-  for (bool socks : {false, true})
+  for (unsigned scenario : {0, 1, 2, 3})
     for (bool auth : {false, true})
       for (bool ws : {false, true}) {
-        std::cout << "RUN: proxy " << (socks ? "SOCKS5" : "HTTP") << " auth=" << auth
-                  << " ws=" << ws << std::endl;
+        const bool domain = scenario >= 2, socks = scenario % 2;
+        // Construct a plain transport target directly, as in the original IP test.
+        const std::string host = domain ? "relay.invalid" : "203.0.113.10";
+        const Url target{"http://" + host, host, host, "443", false};
+        std::cout << "RUN: proxy domain=" << domain << " " << (socks ? "SOCKS5" : "HTTP")
+                  << " auth=" << auth << " ws=" << ws << std::endl;
         asio::io_context server_io;
         tcp::acceptor acceptor(server_io, {asio::ip::address_v4::loopback(), 0});
         auto credentials = auth ? "user:p%40ss@" : "";
         configure_proxy(std::string(socks ? "socks5://" : "http://") + credentials +
                         "127.0.0.1:" + std::to_string(acceptor.local_endpoint().port()));
-        require(proxy_route(target, {{asio::ip::make_address(target.host), 443}}).has_value());
-        require(!proxy_route(target, {{asio::ip::make_address("10.1.2.3"), 443}}));
-        require(
-            !proxy_route(relay_url("http://localhost"), {{asio::ip::address_v4::loopback(), 80}}));
+        require(proxy_route(target).has_value());
+        for (const auto &host :
+             {"10.1.2.3", "127.0.0.1", "[::1]", "[fd01::1]", "localhost", "LOCALHOST."})
+          require(!proxy_route(relay_url(std::string("https://") + host)));
         struct Journals {
           std::string path =
               (std::filesystem::temp_directory_path() / ("coc-proxy-" + uuid())).u8string();
@@ -97,14 +101,20 @@ inline void proxy_tests() {
                 require(std::string(pass.begin(), pass.end()) == "p@ss");
                 send({1, 0});
               }
-              require(read(10) ==
-                      std::vector<unsigned char>({5, 1, 0, 1, 203, 0, 113, 10, 1, 187}));
+              if (domain) {
+                require(read(5) == std::vector<unsigned char>({5, 1, 0, 3, 13}));
+                const auto host = read(13);
+                require(std::string(host.begin(), host.end()) == "relay.invalid");
+                require(read(2) == std::vector<unsigned char>({1, 187}));
+              } else
+                require(read(10) ==
+                        std::vector<unsigned char>({5, 1, 0, 1, 203, 0, 113, 10, 1, 187}));
               send({5, 0, 0, 1, 127, 0, 0, 1, 0, 0});
             } else {
               http::request<http::empty_body> request;
               http::read(socket, buffer, request);
               require(request.method() == http::verb::connect &&
-                      request.target() == "203.0.113.10:443");
+                      request.target() == target.host + ":443");
               require(request[http::field::authorization].empty());
               require(request[http::field::proxy_authorization] ==
                       (auth ? "Basic dXNlcjpwQHNz" : ""));
@@ -113,6 +123,7 @@ inline void proxy_tests() {
             }
             http::request<http::string_body> request;
             http::read(socket, buffer, request);
+            require(request[http::field::host] == target.authority);
             require(request[http::field::authorization] == "Bearer target-token");
             require(request[http::field::proxy_authorization].empty());
             if (ws) {
@@ -306,5 +317,6 @@ inline void proxy_tests() {
       require(rejected);
     }
   configure_proxy("");
+  require(!proxy_route(relay_url("https://relay.invalid")));
 }
 } // namespace coc

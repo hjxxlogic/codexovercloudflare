@@ -102,7 +102,7 @@ Agent 的 Codex 代理由 `codexProxyMode` 控制：
 
 代理覆盖登录、状态、更新下载、业务 HTTP、Agent/客户端 WebSocket、历史流及 `connect` / `attach` 的远程 TUI。TUI 通过仅监听 `127.0.0.1` 随机端口、凭票据鉴权的本地 WebSocket 转接外部流量；TLS 校验在 coc-client 访问目标服务器时完成，不修改 Codex 子进程的代理环境。未启用代理的 TUI 地址始终显式包含 `:443` / `:80`，避免 Codex 的 `invalid remote address` 错误。遇到该错误时可用 `coc-client attach <Remote session 中的完整 ID>` 重连已有会话。
 
-本机、局域网地址自动直连：IPv4 loopback、10/8、172.16/12、192.168/16、169.254/16、100.64/10、未指定地址，以及 IPv6 loopback、link-local、site-local、ULA 和映射的 IPv4 本地地址。域名先在本机解析；任一结果属于上述范围则对本次解析结果直连，包含 `localhost`。即使选择 `socks5h://`，也需要本地 DNS 完成绕过判断；仅公网目标交给代理。DNS、隧道和 TLS 均纳入 HTTP 总超时；代理失败不会回退公网直连。Codex app-server 的本机 WebSocket、私有 Unix socket 和 stdio 通道始终直连，不受此配置影响。
+本机、局域网的 IP 字面量自动直连：IPv4 loopback、10/8、172.16/12、192.168/16、169.254/16、100.64/10、未指定地址，以及 IPv6 loopback、link-local、site-local、ULA 和映射的 IPv4 本地地址。`localhost`（不区分大小写，允许末尾点）也直连。其他域名不在本机解析，直接以原域名发送 HTTP CONNECT 或 SOCKS5 域名请求，由代理解析；`socks5://`、`socks5h://` 和 `socks://` 行为一致。因此目标域名无法在本机解析时仍可通过代理登录、注册和连接，只需本机能够解析并连接代理地址。内网域名同样交给代理；需要直连时请使用内网 IP 或关闭代理。DNS、隧道和 TLS 均纳入 HTTP 总超时；代理失败不会回退公网直连。Codex app-server 的本机 WebSocket、私有 Unix socket 和 stdio 通道始终直连，不受此配置影响。
 
 ## 安装与前置条件
 
@@ -830,3 +830,5 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 2026-11-06 主站已部署 `0.6.14`。四个平台安装包来自成功 Actions `42178474355`，云端迁移修复和本机 Agent 为另行记录的本地构建；同版本 CI 包不会自动覆盖本地 Agent。实际组件身份、数据库 / DO 迁移和限制见 [主站部署记录](PRODUCTION_OPAQUE_DEPLOYMENT.md)。
 
 运维发布公开 Actions 制品时，`scripts/deploy-cloud.py --gh-proxy` 可加速制品下载；仅适用于确认公开的仓库，仍保留完整 CI、源码身份与 SHA256 校验。步骤见 [发布操作](RELEASE.md)。
+
+运维在明确跳过 CI 时，可用 `scripts/deploy-downloads.py --deployment ... --local-build-dir ... --apply` 仅发布本地 Linux 静态下载包；网页与 Worker 复用线上版本，Windows 保留旧包，下载清单明确标注本地构建与未验证 CI。详见 [发布操作](RELEASE.md)。

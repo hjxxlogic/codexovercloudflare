@@ -71,3 +71,5 @@ Client 将启动标记保持到认证的 TUI 在传输握手完成后发出 `ini
 队列使用独立历史预算 reservation，最多 16 条 / 96 KiB 编码内容，不依赖浏览器存活。调度只在会话 ready、当前轮空闲且命令处理空闲时启动队首；开始前持久化 starting，再通过既有 history_turn_admit 保存原任务身份和用户消息后调用 turn/start。成功移除队列条目，明确失败保留 failed，未知结果保留 unknown 并阻塞后续条目。
 
 立即执行验证点击时的原 activeTask 身份，将指定条目提升至队首并保存 stopping，提交 turn/interrupt 后等待匹配的 turn/completed；中断 ACK 不释放执行条件。陈旧任务身份不能中断新轮次。已有队列在控制权转移后继续属于原会话，新控制端可管理它。运行时关闭及 Agent 重启沿用现有会话失败语义，不重建 Codex runtime、不搬运旧队列、不重放未知任务；原队列保留供用户核对。
+
+原生 HTTP 与 WebSocket 在目标 DNS 解析前选择代理路由：除 localhost 和本机 / 内网 IP 字面量外，配置代理时只解析代理地址，将原目标域名交给 HTTP CONNECT / SOCKS5。TLS SNI、证书主机名校验及应用 Host 保留原目标，代理失败不回退直连；内网域名也由代理解析。

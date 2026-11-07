@@ -46,7 +46,7 @@ try {
   for (const name of ['localhost', 'wrong.example']) {
     writeFileSync(
       join(dir, 'leaf.ext'),
-      `basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:${name}${name === 'localhost' ? ',IP:203.0.113.10' : ''}\n`,
+      `basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:${name}${name === 'localhost' ? ',IP:203.0.113.10,DNS:relay.invalid' : ''}\n`,
     );
     openssl([
       'x509',
@@ -81,7 +81,8 @@ try {
       accept: false,
     },
   ])
-    for (const proxied of [false, true]) {
+    for (const target of ['localhost', '203.0.113.10', 'relay.invalid']) {
+      const proxied = target !== 'localhost';
       let httpRequests = 0,
         approvalRequests = 0,
         wsRequests = 0,
@@ -149,7 +150,7 @@ try {
       proxy.on('connect', (request, client, head) => {
         assert.equal(
           request.url,
-          '203.0.113.10:' + (server.address() as any).port,
+          target + ':' + (server.address() as any).port,
         );
         assert.equal(request.headers.authorization, undefined);
         assert.equal(request.headers['cf-access-client-secret'], undefined);
@@ -171,11 +172,7 @@ try {
       });
       await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r));
       const proxyUrl = 'http://127.0.0.1:' + (proxy.address() as any).port;
-      const origin =
-        'https://' +
-        (proxied ? '203.0.113.10' : 'localhost') +
-        ':' +
-        (server.address() as any).port;
+      const origin = 'https://' + target + ':' + (server.address() as any).port;
       save('access.json', {
         origins: [origin],
         clientId: 'tls-test-client',
@@ -262,7 +259,9 @@ try {
         console.log(
           'PASS: native HTTPS + WSS ' +
             scenario.name +
-            (proxied ? ' via HTTP CONNECT' : ' bypasses proxy for loopback'),
+            (proxied
+              ? ' via HTTP CONNECT for ' + target
+              : ' bypasses proxy for loopback'),
         );
       } finally {
         await new Promise<void>((r) => {

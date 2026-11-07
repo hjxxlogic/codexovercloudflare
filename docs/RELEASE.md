@@ -161,3 +161,16 @@ HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多
 用户允许 Agent 重新登录，仅要求数据库可迁移，因此不复制生产 DO 或旧 Token。真实数据库通过在线备份 API 生成副本，另复制后用真实 Store 离线完成 0→2 升级并核对所有原表；不替换原数据库或重启服务。新站登录和数据库目录必须使用独立配置 / 副本，不能让两个 Agent 共享 dataDir，也不能将原生产 Agent 的 relayUrl 改成测试站。
 
 主站仅更新网页使用 `python3 scripts/deploy-cloud.py --local-build --target production --web-only-from .local/deploy-cloud/PREVIOUS/deployment.json --apply`。必须使用此前已验证且当前执行模块仍一致的主站证据；不能使用 r2 证据。原生下载从主站读取并保留，不安装或重启 Agent。
+
+## 显式跳过 CI，仅发布本地 Linux 下载
+
+仅在用户明确要求时使用；需要干净源码提交与相同身份的静态 musl 构建。不会触发 Actions，不会安装或重启 Agent，也不发送更新通知：
+
+```bash
+python3 scripts/deploy-downloads.py \
+  --deployment .local/deploy-cloud/PREVIOUS/deployment.json \
+  --local-build-dir build-musl-release
+# 检查生成的 deployment.json 和下载包后，使用相同参数追加 --apply
+```
+
+脚本复用已验证的线上 Worker / 网页，前后核对 Worker 模块摘要，只更新下载资源。Linux 三个入口使用同一份完全静态 musl 二进制，保留原 Windows 包；下载清单标记 `localBuild=true`、`ciVerified=false` 和 Windows 的旧版本 / 来源。制品仍校验源码身份、静态 ELF、SHA256 与发布后的在线字节，不能称为 Actions 验证发行。

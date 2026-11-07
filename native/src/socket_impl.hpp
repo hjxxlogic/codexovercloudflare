@@ -75,32 +75,21 @@ public:
       ws_.next_layer().set_verify_mode(ssl::verify_peer);
       verify_tls_hostname(ws_.next_layer().native_handle(), url_.host);
 #endif
-      resolver_.async_resolve(url_.host, url_.port, [self](auto ec, auto results) {
-        if (self->ended_)
-          return;
-        if (ec) {
-          self->finish();
-          return;
-        }
-        std::vector<tcp::endpoint> addresses;
-        for (const auto &r : results)
-          addresses.push_back(r.endpoint());
-        if (auto proxy = proxy_route(self->url_, addresses)) {
-          self->resolver_.async_resolve(proxy->host, proxy->port, [self](auto ec, auto endpoints) {
-            if (self->ended_)
-              return;
-            if (ec) {
-              self->finish();
-              return;
-            }
-            std::vector<tcp::endpoint> addresses;
-            for (const auto &r : endpoints)
-              addresses.push_back(r.endpoint());
-            self->connect(addresses, true);
-          });
-        } else
-          self->connect(addresses, false);
-      });
+      const auto proxy = proxy_route(url_);
+      const auto &destination = proxy ? *proxy : url_;
+      resolver_.async_resolve(destination.host, destination.port,
+                              [self, proxied = proxy.has_value()](auto ec, auto results) {
+                                if (self->ended_)
+                                  return;
+                                if (ec) {
+                                  self->finish();
+                                  return;
+                                }
+                                std::vector<tcp::endpoint> addresses;
+                                for (const auto &r : results)
+                                  addresses.push_back(r.endpoint());
+                                self->connect(addresses, proxied);
+                              });
     } catch (...) {
       finish();
     }

@@ -271,24 +271,14 @@ std::string exchange(asio::io_context &io, Stream &stream, const Url &u, const s
         handshake({});
     });
   };
-  resolver.resolve(u, [&](auto ec, auto addresses) {
+  const auto proxy = proxy_route(u);
+  resolver.resolve(proxy ? *proxy : u, [&, proxied = proxy.has_value()](auto ec, auto addresses) {
     if (completed)
       return;
-    if (ec) {
+    if (ec)
       finish(ec);
-      return;
-    }
-    if (auto proxy = proxy_route(u, addresses))
-      resolver.resolve(*proxy, [&](auto ec, auto endpoints) {
-        if (completed)
-          return;
-        if (ec)
-          finish(ec);
-        else
-          connect(endpoints, true);
-      });
     else
-      connect(addresses, false);
+      connect(addresses, proxied);
   });
   io.run();
   if (timed_out)

@@ -215,13 +215,16 @@ bool local_address(const asio::ip::address &a) {
   return (n >> 24) == 0 || (n >> 24) == 10 || (n >> 24) == 127 || (n >> 20) == 0xac1 ||
          (n >> 16) == 0xc0a8 || (n >> 16) == 0xa9fe || (n >> 22) == 0x191;
 }
-std::optional<Url> proxy_route(const Url &target,
-                               const std::vector<asio::ip::tcp::endpoint> &addresses) {
-  if (!configured || target.host == "localhost")
+std::optional<Url> proxy_route(const Url &target) {
+  std::string host = target.host;
+  for (auto &c : host)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (!configured || host == "localhost" || host == "localhost.")
     return {};
-  for (const auto &endpoint : addresses)
-    if (local_address(endpoint.address()))
-      return {};
+  boost::system::error_code ec;
+  auto address = asio::ip::make_address(host, ec);
+  if (!ec && local_address(address))
+    return {};
   return configured->url;
 }
 void proxy_tunnel(beast::tcp_stream &stream, const Url &target,
