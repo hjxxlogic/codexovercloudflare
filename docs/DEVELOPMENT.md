@@ -126,3 +126,5 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 浏览器流程定位可用 `npm run test:e2e -- --skip-tui` 跳过两段原生 TUI 专项，仅用于加快重现；其余初始化和浏览器检查照常执行。最终本机与 CI 门禁仍必须使用不带该参数的完整 E2E，并设置 `COC_TEST_TERMINAL=1` 验证真实 PTY。
 
 部署回归还包括 `python3 tests/deploy-agent-recovery.py`（SQLite 升级后禁止单独回退旧二进制、停止恢复拒绝活动会话）及 `python3 tests/deploy-downloads.py`（已完成 CI 下载与当前原生构建输入的一致性）。两者已加入 regression 作业。
+
+`npm run test:billing` 并行运行三个独立的原生空闲、读取和重试场景；每组使用独立端口、临时状态及进程，保留生产 30 秒重连 / 90 秒 Pong 时限和全部断言。等待全部场景完成后，任何一组失败均返回非零状态，并输出每组耗时。单独排查仍可使用 `npx tsx tests/native-demand.ts`、`npx tsx tests/native-refresh.ts` 或 `npm run test:retry`。
