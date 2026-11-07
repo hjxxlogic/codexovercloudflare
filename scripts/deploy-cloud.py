@@ -234,10 +234,14 @@ def publish_local_native(build_dir, identity, output, site, previous):
     (target / 'index.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (target / 'SHA256SUMS').write_text(''.join(hashlib.sha256((target / name).read_bytes()).hexdigest()
                                              + '  ' + name + '\n' for name in sorted(manifest['files'])))
-    html = (target / 'index.html').read_text()
-    html += '<p>Local static Linux build; GitHub Actions skipped by explicit request. Windows remains at the previous release.</p>'
-    html += '<a href="' + name + '">Windows ' + previous['version'] + '</a>'
-    (target / 'index.html').write_text(html)
+    links = ''.join('<li><a href="' + name + '">' + name + '</a></li>' for name in sorted(manifest['files']))
+    (target / 'index.html').write_text(
+        '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<title>Codex Downloads</title><link rel="stylesheet" href="./happier-theme.css"><script src="./happier-theme.js"></script>'
+        '<main class="happier-document"><h1>Codex over Cloudflare ' + identity['version'] + '</h1>'
+        '<p>Linux x86_64：本地静态 musl 构建，按用户要求跳过 GitHub Actions；Ubuntu / Debian 下载使用同一静态程序。</p>'
+        '<p>Windows 保留 ' + previous['version'] + '，尚未包含本次 Linux 修复。</p><ul>' + links +
+        '<li><a href="SHA256SUMS">SHA256SUMS</a></li><li><a href="USER_GUIDE.md">用户手册</a></li></ul></main></html>', encoding='utf-8')
     return manifest
 
 

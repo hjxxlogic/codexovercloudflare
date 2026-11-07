@@ -173,4 +173,4 @@ python3 scripts/deploy-downloads.py \
 # 检查生成的 deployment.json 和下载包后，使用相同参数追加 --apply
 ```
 
-脚本复用已验证的线上 Worker / 网页，前后核对 Worker 模块摘要，只更新下载资源。Linux 三个入口使用同一份完全静态 musl 二进制，保留原 Windows 包；下载清单标记 `localBuild=true`、`ciVerified=false` 和 Windows 的旧版本 / 来源。制品仍校验源码身份、静态 ELF、SHA256 与发布后的在线字节，不能称为 Actions 验证发行。
+脚本复用已验证的线上 Worker / 网页，前后核对 Worker 模块摘要，只更新下载资源；下载页沿用现有主题，并明确说明 Linux 构建来源和 Windows 版本。Linux 三个入口使用同一份完全静态 musl 二进制，保留原 Windows 包；下载清单标记 `localBuild=true`、`ciVerified=false` 和 Windows 的旧版本 / 来源。制品仍校验源码身份、静态 ELF、SHA256 与发布后的在线字节，不能称为 Actions 验证发行。
