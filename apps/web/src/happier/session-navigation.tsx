@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './icon.tsx';
 import { IconButton } from './icon-button.tsx';
 import { t, useLanguage } from '../i18n.ts';
+import { version as webVersion } from '../../../../package.json';
 import './session-workspace.css';
 
 type Props = {
@@ -66,6 +67,9 @@ export function SessionNavigation({
         <IconButton icon="settings" label={t('设置')} onClick={onSettings} />
         {modeAction}
       </div>
+      <small className="navigation-version" aria-label={t('网站版本')}>
+        v{webVersion}
+      </small>
     </>
   );
   return (
