@@ -13,6 +13,7 @@ import os
 import sys
 import email
 import email.policy
+from concurrent.futures import ThreadPoolExecutor
 import urllib.error
 import urllib.request
 
@@ -510,9 +511,9 @@ def main():
         published = publish_local_native(args.local_native_build_dir.resolve(), identities[0], output, output / 'site', manifest)
     if args.publish_downloads:
         bundles = {}
-        for name in ('linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64'):
-            if name == args.skip_native_platform:
-                continue
+        platforms = [name for name in ('linux-ubuntu20.04', 'linux-debian12', 'linux-musl', 'windows-x64')
+                     if name != args.skip_native_platform]
+        def download_platform(name):
             matches = [artifact for artifact in artifacts if artifact['name'] == name and not artifact['expired']]
             if len(matches) != 1:
                 raise RuntimeError('Expected exactly one ' + name + ' artifact')
@@ -520,8 +521,14 @@ def main():
             archive = output / (name + '.zip')
             if not archive.exists() or 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
                 agent.curl(artifact_url(args.repository, run['id'], artifact['id'], args.gh_proxy), archive)
-            bundles[name] = (archive, artifact['digest'])
-            selected.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest']})
+            if 'sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest() != artifact['digest']:
+                raise RuntimeError('Native artifact SHA256 mismatch: ' + name)
+            print('Downloaded and digest-verified ' + name, flush=True)
+            return name, (archive, artifact['digest']), {'name': name, 'id': artifact['id'], 'digest': artifact['digest']}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for name, bundle, artifact in pool.map(download_platform, platforms):
+                bundles[name] = bundle
+                selected.append(artifact)
         published = publish_downloads(bundles, identities[0], output / 'site', bool(args.skip_native_platform))
     # Downloads are public, while root assets can require Access admission.
     for name in ('happier-theme.css', 'happier-theme.js'):
