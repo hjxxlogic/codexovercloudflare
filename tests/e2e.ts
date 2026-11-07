@@ -2633,7 +2633,8 @@ try {
     .getByRole('button', { name: '刷新会话', exact: true })
     .click();
   await visitorPage
-    .getByRole('button', { name: '继续对话：外部运行会话', exact: true })
+    .locator('button.session')
+    .filter({ hasText: '外部运行会话' })
     .click();
   // Creating the resumed session clears the previous panel asynchronously.
   // Wait for its composer before opening information on the new session.
@@ -2641,6 +2642,11 @@ try {
     name: '加入队列',
     exact: true,
   });
+  const continueButton = visitorPage
+    .locator('.readonly-hint')
+    .getByRole('button', { name: '继续对话', exact: true });
+  await expect(queuedButton.or(continueButton)).toBeVisible();
+  if (await continueButton.isVisible()) await continueButton.click();
   await expect(queuedButton).toBeVisible();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await feature(visitorPage, /^会话详情/);
