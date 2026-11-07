@@ -158,3 +158,5 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 本次本地验证通过：`cmake --build build -j 2`；`npm test`（15 项 CTest、37 个 Vitest 文件 / 400 项测试）；`npm run test:tls`（9 组 HTTPS / WSS 场景与 Access 回归）；`npm run typecheck`、`npm run lint:cpp`，以及修改的 TypeScript 文件 ESLint、该文件与用户手册 Prettier 和 `git diff --check`。TLS 专项因沙箱禁止监听本机 socket，在获准的沙箱外执行。尚未运行对应源码提交的 GitHub Actions、构建发布制品或部署到故障电脑。
 
 下载单独发布脚本增加显式本地 Linux 构建入口；回归检查不访问 Actions、复用原 Worker / 网页、记录 CI 未验证并拒绝脏源码。发布包将使用 0.6.16，Windows 按用户要求保留原下载。
+
+0.6.16 Linux 已按用户要求跳过 Actions 构建并发布，musl 专项、宿主 PTY 补测及线上归档校验通过；Windows 保持 0.6.15。源码、检查范围、摘要与限制见 [发布记录](RELEASE_0.6.16.md)。
