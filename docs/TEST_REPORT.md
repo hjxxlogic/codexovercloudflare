@@ -170,3 +170,5 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 完整 `npm test` 通过（15 项 CTest、37 个 Vitest 文件 / 403 项测试）；默认 `npm run test:ui` 的导航、既有行为与新增配额故障用例全部通过。网页构建、修改代码的 ESLint / Prettier、`git diff --check` 通过。新增配额 UI 用例也纳入默认 UI 测试入口。
 
 这是本机 Chromium 的配额故障模拟，未在真实 iPhone / Safari 上验证，未提交或发布网页，也未变更 Agent 或远程任务。
+
+后续已按用户明确要求跳过 Actions，以提交 `8fc8289` 本地构建发布主站网页；线上静态资源和 Worker 保留摘要核对通过，见 [缓存背压修复发布记录](BROWSER_CACHE_FIX_20261108.md)。
