@@ -345,6 +345,10 @@ button.primary:hover:enabled,
   flex: 0 0 auto;
   overflow: visible;
 }
+.session-status-icon {
+  width: 15px;
+  height: 15px;
+}
 .cw-workbench .happier-cw .chat-welcome {
   width: 100%;
   box-sizing: border-box;

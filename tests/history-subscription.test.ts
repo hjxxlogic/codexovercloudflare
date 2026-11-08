@@ -67,30 +67,39 @@ describe('persistent history subscriber', () => {
       ),
     ).toBe(false);
   });
-  it('replaces an expired subscription without discarding local history or freezing', async () => {
-    const h = harness(),
-      c = await h.create();
-    h.cache.durableRevision = 10;
-    await c.connect(h.send);
-    const previous = h.sent.at(-1);
-    await c.handle({
-      type: 'error',
-      requestId: previous.requestId,
-      error: {
-        code: 'HISTORY_SUBSCRIPTION_EXPIRED',
-        message: 'retention deadline',
-      },
-    });
-    const replacement = h.sent.at(-1);
-    expect(replacement.stream).not.toBe(previous.stream);
-    expect(replacement.acknowledgedRevision).toBe(0);
-    expect(replacement.receivedRevision).toBe(10);
-    expect(h.cache.durableRevision).toBe(10);
-    await c.handle(h.window(replacement, 0, 10));
-    expect(h.failure).not.toHaveBeenCalled();
-    expect(h.ready).toHaveBeenCalledOnce();
-    c.stop();
-  });
+  it.each(['response', 'notice'])(
+    'replaces an expired subscription from a %s without discarding local history or freezing',
+    async (kind) => {
+      const h = harness(),
+        c = await h.create();
+      h.cache.durableRevision = 10;
+      await c.connect(h.send);
+      const previous = h.sent.at(-1);
+      await c.handle({
+        type: 'error',
+        ...(kind === 'response'
+          ? { requestId: previous.requestId }
+          : {
+              stream: previous.stream,
+              instance: previous.instance,
+              exchangeId: previous.exchangeId,
+            }),
+        error: {
+          code: 'HISTORY_SUBSCRIPTION_EXPIRED',
+          message: 'retention deadline',
+        },
+      });
+      const replacement = h.sent.at(-1);
+      expect(replacement.stream).not.toBe(previous.stream);
+      expect(replacement.acknowledgedRevision).toBe(0);
+      expect(replacement.receivedRevision).toBe(10);
+      expect(h.cache.durableRevision).toBe(10);
+      await c.handle(h.window(replacement, 0, 10));
+      expect(h.failure).not.toHaveBeenCalled();
+      expect(h.ready).toHaveBeenCalledOnce();
+      c.stop();
+    },
+  );
   it('releases only durable history and reconciles a previous ACK without adding a request identity', async () => {
     const h = harness(),
       c = await h.create();

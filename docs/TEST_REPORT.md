@@ -2,6 +2,14 @@
 
 本文列出当前入口与验证边界；本次集成结果见文末。历史预览不代表当前提交或线上部署，准确来源见 [r2 历史发布记录](R2_DEPLOYMENT.md)。
 
+## 2026-11-08 历史订阅失效与侧栏状态修复
+
+新增 `tests/native-history-subscription.ts`，纳入 `npm run test:delivery`。使用真实原生 Agent、加密端点、模拟 Codex 及临时 SQLite，在任务运行时删除测试订阅行，分别验证定时重试与新事件发布的失效通知、同一逻辑流重新订阅、每路仅通知一次、任务及 turn 身份保留、控制命令继续工作，最后显式中断任务。修复前该用例复现 `history_retry_failure` 与全局关闭；修复后通过。故障注入仅修改测试数据库，不操作用户会话。
+
+`npm run test:delivery` 的可靠交付、历史保留恢复及新增订阅失效回归全部通过。CTest 全部 16 项通过；补充直接响应与无 requestId 异步通知两种客户端恢复场景后，最终 Vitest 全部 37 个文件 / 409 项测试通过。原生 Agent / 组件与网页构建、TypeScript、完整 ESLint / Prettier、C++ 格式检查通过。
+
+`npx tsx tests/ui-stability.ts --active-sessions` 通过：侧栏无状态圆点或可见状态文字，会话图标颜色区分状态，图标和会话行提供悬停说明，保留读屏标签；活动会话排序、跨项目选择、桌面及手机明暗主题继续通过。截图位于忽略路径 `.local/ui-stability/active-sidebar-mobile.png` 和 `active-sidebar-dark-mobile.png`。未在真实 iPhone / Safari 验证，未执行 GitHub Actions 或部署；本机运行中的 Agent 未替换。
+
 2026-11-08 归档 / 删除功能的完整本机复测见 [本机完整测试记录](LOCAL_ALL_TESTS_20261108.md)，包含真实模型、sanitizer、三个 Linux 发行版、跳过项及首次失败与重跑结果。
 
 2026-11-08 欢迎页及左侧活动会话优先显示的本机检查、浏览器场景和截图见 [活动会话验证](ACTIVE_SESSIONS_20261108.md)。

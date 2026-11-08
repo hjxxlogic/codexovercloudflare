@@ -4050,14 +4050,39 @@ async function activeSessionsUI() {
     const rows = page.locator('.history-row');
     await expect(rows).toHaveCount(101);
     await expect(rows.first()).toContainText(runningTitle);
-    await expect(rows.first().locator('.session-status')).toHaveText('已打开');
+    await expect(rows.first().locator('.session-status-icon')).toHaveAttribute(
+      'title',
+      '会话仍打开，当前没有运行中的任务',
+    );
     await expect(rows.nth(1)).toContainText('较新的历史会话');
+    await expect(rows.locator('.session-status i')).toHaveCount(0);
+    await expect(rows.first().locator('.session-status-icon')).toHaveText('');
+    await expect(rows.first().locator('.session-status-icon svg')).toHaveCount(
+      1,
+    );
+    await expect(rows.first().getByRole('button').first()).toHaveAttribute(
+      'title',
+      /会话仍打开，当前没有运行中的任务/,
+    );
+    assert.notEqual(
+      await rows
+        .first()
+        .locator('.session-status-icon')
+        .evaluate((el) => getComputedStyle(el).color),
+      await rows
+        .nth(1)
+        .locator('.session-status-icon')
+        .evaluate((el) => getComputedStyle(el).color),
+    );
     // The current session's live snapshot supersedes the initial running flag.
     // The other project retains its open runtime even though it is outside page one.
     await selectProjectId(page, 'other-project');
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText(openTitle);
-    await expect(rows.first().locator('.session-status')).toHaveText('已打开');
+    await expect(rows.first().locator('.session-status-icon')).toHaveAttribute(
+      'title',
+      '会话仍打开，当前没有运行中的任务',
+    );
     await selectProjectId(page, 'project');
     await page.setViewportSize({ width: 390, height: 844 });
     await openNavigation(page);

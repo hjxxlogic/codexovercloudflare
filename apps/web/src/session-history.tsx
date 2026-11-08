@@ -1,8 +1,11 @@
 import { IconButton } from './happier/icon-button.tsx';
-import { Icon } from './happier/icon.tsx';
 import { t, localeTag } from './i18n.ts';
 import type { Session } from '../../../packages/protocol/src/index.ts';
-import { sessionPriority, SessionStatus } from './session-status.tsx';
+import {
+  sessionPriority,
+  sessionStatusDetails,
+  SessionStatus,
+} from './session-status.tsx';
 
 export type Thread = {
   id: string;
@@ -122,11 +125,15 @@ export function SessionHistory({
               className={`session ${compact ? 'session-compact' : ''} ${current ? 'active' : ''}`}
               disabled={archived ? !session : !session && (creating || !online)}
               onClick={() => (session ? onSelect(session) : onResume(key))}
-              title={thread?.preview || title}
+              title={
+                compact
+                  ? `${thread?.preview || title}\n${sessionStatusDetails(session).description}`
+                  : thread?.preview || title
+              }
             >
-              {compact && <Icon name="chat" size={15} />}
+              {compact && <SessionStatus session={session} iconOnly />}
               <span>{title}</span>
-              <SessionStatus session={session} />
+              {!compact && <SessionStatus session={session} />}
               {compact ? (
                 <time
                   dateTime={new Date(activity(row)).toISOString()}

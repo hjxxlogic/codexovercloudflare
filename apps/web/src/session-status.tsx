@@ -1,5 +1,6 @@
 import type { Session } from '../../../packages/protocol/src/index.ts';
 import { t } from './i18n.ts';
+import { Icon } from './happier/icon.tsx';
 
 export const openSessionStates = ['ready', 'starting', 'closing'] as const;
 
@@ -15,7 +16,7 @@ export function sessionPriority(session?: Session) {
   return activeSession(session) ? (session?.running ? 0 : 1) : 2;
 }
 
-export function SessionStatus({ session }: { session?: Session }) {
+export function sessionStatusDetails(session?: Session) {
   const [state, label] = !session
     ? ['history', '历史']
     : session.state === 'ready'
@@ -29,16 +30,37 @@ export function SessionStatus({ session }: { session?: Session }) {
           : session.state === 'failed'
             ? ['failed', '已中断']
             : ['ended', '已结束'];
+  return {
+    state,
+    label: t(label),
+    description:
+      state === 'open' ? t('会话仍打开，当前没有运行中的任务') : t(label),
+  };
+}
+
+export function SessionStatus({
+  session,
+  iconOnly = false,
+}: {
+  session?: Session;
+  iconOnly?: boolean;
+}) {
+  const { state, label, description } = sessionStatusDetails(session);
   return (
     <span
-      className={`session-status session-status-${state}`}
-      aria-label={t('会话状态：{0}', t(label))}
-      title={
-        state === 'open' ? t('会话仍打开，当前没有运行中的任务') : t(label)
-      }
+      className={`session-status session-status-${state}${iconOnly ? ' session-status-icon' : ''}`}
+      role={iconOnly ? 'img' : undefined}
+      aria-label={t('会话状态：{0}', label)}
+      title={description}
     >
-      <i aria-hidden="true" />
-      {t(label)}
+      {iconOnly ? (
+        <Icon name="chat" size={15} />
+      ) : (
+        <>
+          <i aria-hidden="true" />
+          {label}
+        </>
+      )}
     </span>
   );
 }

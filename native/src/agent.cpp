@@ -413,7 +413,7 @@ public:
     });
   }
   void history_notify(Json &route) {
-    if (route.value("retryAt", int64_t(0)) > now())
+    if (route.value("expired", false) || route.value("retryAt", int64_t(0)) > now())
       return;
     Json state;
     try {
@@ -428,9 +428,11 @@ public:
             {"route", route.at("route")},
             {"payload",
              {{"type", "error"},
-              {"requestId", route.at("requestId")},
+              // Asynchronous notices identify the subscription, not a request.
+              // EndpointService keeps request IDs only for direct responses.
               {"stream", route.at("stream")},
               {"instance", route.at("instance")},
+              {"exchangeId", route.at("exchangeId")},
               {"error",
                {{"code", "HISTORY_SUBSCRIPTION_EXPIRED"},
                 {"message", "History subscription exceeded its retention window"}}}}}});
