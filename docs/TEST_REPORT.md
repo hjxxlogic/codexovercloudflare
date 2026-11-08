@@ -10,6 +10,8 @@
 
 `npx tsx tests/ui-stability.ts --active-sessions` 通过：侧栏无状态圆点或可见状态文字，会话图标颜色区分状态，图标和会话行提供悬停说明，保留读屏标签；活动会话排序、跨项目选择、桌面及手机明暗主题继续通过。截图位于忽略路径 `.local/ui-stability/active-sidebar-mobile.png` 和 `active-sidebar-dark-mobile.png`。未在真实 iPhone / Safari 验证，未执行 GitHub Actions 或部署；本机运行中的 Agent 未替换。
 
+后续已按用户明确要求提交、跳过 Actions 并部署本机 Agent / CLI 与主站 CW，稳定性及资源校验通过，见 [发布记录](HISTORY_SUBSCRIPTION_FIX_RELEASE_20261108.md)。
+
 2026-11-08 归档 / 删除功能的完整本机复测见 [本机完整测试记录](LOCAL_ALL_TESTS_20261108.md)，包含真实模型、sanitizer、三个 Linux 发行版、跳过项及首次失败与重跑结果。
 
 2026-11-08 欢迎页及左侧活动会话优先显示的本机检查、浏览器场景和截图见 [活动会话验证](ACTIVE_SESSIONS_20261108.md)。
