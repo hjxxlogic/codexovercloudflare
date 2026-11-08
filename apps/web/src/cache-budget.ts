@@ -9,7 +9,26 @@ export const cacheLimits = {
   scopes: 1024,
   commandReservation: 32 * MiB,
   commandBytes: 512 * MiB,
+  recoveryBytes: 4 * MiB,
+  scopeRecoveryBytes: MiB,
+  recoveryRecords: 4096,
+  scopeRecoveryRecords: 128,
 };
+// History must not consume the headroom needed to reconnect or save an intent.
+// Existing ledgers include these records already; no accounting migration needed.
+const recoveryRecord = (store: string, key: IDBValidKey) =>
+  store === 'pages' &&
+  Array.isArray(key) &&
+  (['workspace', 'draft', 'pending', 'model'].includes(String(key[1])) ||
+    String(key[1]).startsWith('history-subscription:'));
+
+export function cacheCapacityError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'QuotaExceededError' ||
+      error.message.startsWith('BACKPRESSURE: 当前浏览器的本地历史缓存'))
+  );
+}
 const ledgerKey = ['$coc-transport2-budget', 'ledger'];
 type Usage = { bytes: number; records: number };
 type Ledger = Usage & {
@@ -166,6 +185,7 @@ export class CacheBudget {
           ledger.commands[identity] = required;
         } else {
           const delta = size - previous;
+          const recovery = recoveryRecord(store, key);
           if (value !== undefined && size > cacheLimits.scopeBytes) {
             this.fail();
             return;
@@ -173,10 +193,17 @@ export class CacheBudget {
           const fits = () =>
             value === undefined ||
             (delta <= 0 && records <= 0) ||
-            (ledger.bytes + delta <= cacheLimits.bytes &&
-              own.bytes + delta <= cacheLimits.scopeBytes &&
-              ledger.records + records <= cacheLimits.records &&
-              own.records + records <= cacheLimits.scopeRecords &&
+            (ledger.bytes + delta <=
+              cacheLimits.bytes + (recovery ? cacheLimits.recoveryBytes : 0) &&
+              own.bytes + delta <=
+                cacheLimits.scopeBytes +
+                  (recovery ? cacheLimits.scopeRecoveryBytes : 0) &&
+              ledger.records + records <=
+                cacheLimits.records +
+                  (recovery ? cacheLimits.recoveryRecords : 0) &&
+              own.records + records <=
+                cacheLimits.scopeRecords +
+                  (recovery ? cacheLimits.scopeRecoveryRecords : 0) &&
               (ledger.scopes[scopeKey] ||
                 Object.keys(ledger.scopes).length < cacheLimits.scopes));
           const persist = () => {

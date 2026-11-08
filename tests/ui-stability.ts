@@ -3905,8 +3905,109 @@ async function currentBehaviorUI() {
 }
 let navigationSeq = 10000;
 let takeoverSync = 0;
+async function cacheQuotaUI() {
+  session.state = 'ready';
+  session.promptQueue = [];
+  approvals = [];
+  online = true;
+  logged = true;
+  admin = false;
+  stallHistory = false;
+  events.splice(0, events.length, ...structuredClone(originalUIEvents));
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  await context.addInitScript({
+    content: 'globalThis.__name = (value) => value;',
+  });
+  await context.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      const request = put.call(this, value, key);
+      if (
+        this.name === 'pages' &&
+        Array.isArray(key) &&
+        String(key[1]).startsWith('history-subscription:') &&
+        value.agentInstance
+      ) {
+        // Model Safari aborting the allocation checkpoint under site quota.
+        Object.defineProperty(this.transaction, 'error', {
+          get: () => new DOMException('Site quota full', 'QuotaExceededError'),
+        });
+        const state = globalThis as any;
+        state.quotaAborts = (state.quotaAborts ?? 0) + 1;
+        const transaction = this.transaction;
+        queueMicrotask(() => transaction.abort());
+      }
+      return request;
+    };
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    const initialPages = historyPages;
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await expect
+      .poll(() => page.evaluate(() => (globalThis as any).quotaAborts ?? 0))
+      .toBeGreaterThan(0);
+    const connections = historyConnections;
+    await expect.poll(() => historyPages).toBeGreaterThan(initialPages);
+    for (const ws of histories)
+      ws.send(
+        JSON.stringify({
+          type: 'event',
+          event: {
+            seq: 9900000,
+            revision: 9900000,
+            type: 'user',
+            time: Date.now(),
+            data: { text: '缓存已满后仍能接收消息' },
+          },
+        }),
+      );
+    await expect(
+      page.getByText('缓存已满后仍能接收消息', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: '刷新状态', exact: true }),
+    ).toBeEnabled();
+    assert.equal(
+      historyConnections,
+      connections,
+      'Quota failure keeps the existing history socket',
+    );
+    await page.getByLabel('任务内容').fill('缓存错误后保留的草稿');
+    await expect(
+      page.getByRole('button', { name: '发送', exact: true }),
+    ).toBeEnabled();
+    await page.screenshot({
+      path: join(artifacts, 'cache-quota-mobile.png'),
+      fullPage: true,
+    });
+    const submittedBefore = promptCommands.length;
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => promptCommands.length).toBe(submittedBefore + 1);
+    assert.equal(promptCommands.at(-1)?.text, '缓存错误后保留的草稿');
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: mobile quota abort keeps history connected, renders new events and preserves command availability',
+    );
+  } finally {
+    await context.close();
+  }
+}
 try {
-  if (process.argv.includes('--behavior')) await currentBehaviorUI();
+  if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
+  else if (process.argv.includes('--behavior')) await currentBehaviorUI();
   else if (!process.argv.includes('--legacy-layout')) {
     await navigationUI(
       browser,
@@ -3953,6 +4054,11 @@ try {
     );
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
+  if (
+    !process.argv.includes('--cache-quota') &&
+    !process.argv.includes('--navigation')
+  )
+    await cacheQuotaUI();
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();

@@ -86,9 +86,9 @@ export class HistorySubscription {
     this.stopped = true;
     this.disconnect();
   }
-  private freeze(message: string) {
+  private freeze(error: string | Error) {
     this.stop();
-    this.failure(new Error(message));
+    this.failure(typeof error === 'string' ? new Error(error) : error);
   }
   private checkpoint<T>(action: () => Promise<T>) {
     const result = this.checkpointTail.then(action);
@@ -141,7 +141,7 @@ export class HistorySubscription {
         this.timer = setTimeout(() => void this.transmit(), delay);
       });
     } catch (error) {
-      this.freeze(error instanceof Error ? error.message : String(error));
+      this.freeze(error instanceof Error ? error : String(error));
     }
   }
   commit() {
@@ -309,7 +309,7 @@ export class HistorySubscription {
         await this.commit();
       })
       .catch((error: unknown) =>
-        this.freeze(error instanceof Error ? error.message : String(error)),
+        this.freeze(error instanceof Error ? error : String(error)),
       )
       .finally(() => {
         this.queued--;

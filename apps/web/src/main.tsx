@@ -69,6 +69,7 @@ import {
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { HistorySync } from './history-sync.ts';
 import { HistorySubscription } from './history-subscription.ts';
+import { cacheCapacityError } from './cache-budget.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
@@ -1603,6 +1604,7 @@ function App() {
     let historyFrozen = false;
     let cache: HistoryCache | undefined;
     let historySubscription: HistorySubscription | undefined;
+    let historyStorageFull = false;
     const historySync = new HistorySync();
     let syncRequest: string | undefined;
     let historyReplyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1892,7 +1894,7 @@ function App() {
           }
         }
         deliveryLoadReady!();
-        if (cache && !historySubscription) {
+        if (cache && !historySubscription && !historyStorageFull) {
           historySubscription = await HistorySubscription.create(
             cache,
             'history-subscription:' + (await deliveryIdentity()),
@@ -1907,12 +1909,24 @@ function App() {
               historySubscriberSync?.();
             },
             (error) => {
+              if (cacheCapacityError(error)) {
+                // The reader already stopped before this callback. Keep the
+                // socket and RAM cursor, but never ACK unpersisted history.
+                historyStorageFull = true;
+                historySubscription = undefined;
+                clearTimeout(historyReplyTimer);
+                historyReady = true;
+                cacheError();
+                historySubscriberSync?.();
+                return;
+              }
               historyFrozen = true;
               clearTimeout(historyReplyTimer);
               report(error);
               historySocket.current?.close();
             },
           ).catch((error: unknown) => {
+            historyStorageFull = cacheCapacityError(error);
             cacheError();
             report(error);
             return undefined; // Read-only pagination still works without a durable subscription.
@@ -1923,6 +1937,7 @@ function App() {
             historySubscription = undefined;
             historySync.reset();
             historyFrozen = false;
+            historyStorageFull = false;
             if (historySocket.current) historySocket.current.close();
             else void connectHistory();
           };

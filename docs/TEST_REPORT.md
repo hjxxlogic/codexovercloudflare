@@ -160,3 +160,13 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 下载单独发布脚本增加显式本地 Linux 构建入口；回归检查不访问 Actions、复用原 Worker / 网页、记录 CI 未验证并拒绝脏源码。发布包将使用 0.6.16，Windows 按用户要求保留原下载。
 
 0.6.16 Linux 已按用户要求跳过 Actions 构建并发布，musl 专项、宿主 PTY 补测及线上归档校验通过；Windows 保持 0.6.15。源码、检查范围、摘要与限制见 [发布记录](RELEASE_0.6.16.md)。
+
+## 2026-11-08 CW 本地缓存背压修复
+
+`npm run test:cache` 使用真实 Chromium IndexedDB 事务，在缩小的全局 / 单作用域预算下填满不可回收记录，验证草稿、待确认输入、浏览位置与订阅状态仍可使用恢复预留，普通历史不能侵占预留；原有两页签原子记账、检查点回滚及命令保留回归同时通过。
+
+构建网页后执行 `node node_modules/tsx/dist/cli.mjs tests/ui-stability.ts --cache-quota`，在 390 × 844 手机视口注入订阅分配检查点的 `QuotaExceededError` 事务中止，验证历史连接保持、在线分页及新消息渲染继续、输入可用。截图保存在忽略路径 `.local/ui-stability/cache-quota-mobile.png`。订阅、历史同步及命令交付 53 项单元测试和 TypeScript 检查通过；错误分类仍区分配额不足与订阅证明损坏，不确认未持久化内容。
+
+完整 `npm test` 通过（15 项 CTest、37 个 Vitest 文件 / 403 项测试）；默认 `npm run test:ui` 的导航、既有行为与新增配额故障用例全部通过。网页构建、修改代码的 ESLint / Prettier、`git diff --check` 通过。新增配额 UI 用例也纳入默认 UI 测试入口。
+
+这是本机 Chromium 的配额故障模拟，未在真实 iPhone / Safari 上验证，未提交或发布网页，也未变更 Agent 或远程任务。

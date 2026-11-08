@@ -362,7 +362,6 @@ export class HistoryCache {
             tx.error ||
             new Error('Local history write aborted'),
         );
-      tx.onerror = () => reject(tx.error);
     });
   }
   async writeSnapshot(
@@ -501,7 +500,10 @@ export class HistoryCache {
       if (value !== undefined) budget!.put('pages', key, value, this.scope);
       tx.oncomplete = () => resolve(value ?? request?.result);
       tx.onabort = () => reject(budget?.error || tx.error);
-      tx.onerror = () => reject(tx.error);
+      // Write failures settle on abort, when tx.error contains the quota cause.
+      tx.onerror = () => {
+        if (value === undefined) reject(tx.error);
+      };
     });
     return result;
   }
@@ -556,7 +558,6 @@ export class HistoryCache {
       };
       tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(failure || budget.error || tx.error);
-      tx.onerror = () => reject(failure || tx.error);
     });
   }
   private async recordValue(key: string, value?: unknown): Promise<any> {
@@ -583,7 +584,9 @@ export class HistoryCache {
         budget!.put('pages', [this.scope, key], value, this.scope);
       tx.oncomplete = () => resolve(value ?? request?.result);
       tx.onabort = () => reject(budget?.error || tx.error);
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => {
+        if (value === undefined) reject(tx.error);
+      };
     });
   }
   async clear() {
@@ -628,7 +631,6 @@ export class HistoryCache {
         resolve();
       };
       tx.onabort = () => reject(budget.error || tx.error);
-      tx.onerror = () => reject(tx.error);
     });
   }
 }

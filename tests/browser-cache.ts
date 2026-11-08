@@ -9,7 +9,8 @@ const bundle = await build({
   stdin: {
     contents: `import { HistoryCache } from './apps/web/src/history.ts';
 import { HistorySubscription } from './apps/web/src/history-subscription.ts';
-Object.assign(globalThis, { HistoryCache, HistorySubscription });`,
+import { cacheLimits } from './apps/web/src/cache-budget.ts';
+Object.assign(globalThis, { HistoryCache, HistorySubscription, cacheLimits });`,
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -64,6 +65,83 @@ try {
   );
   await blocker.evaluate(() => (globalThis as any).blockingDatabase.close());
   await blocker.close();
+  const fullPage = await context.newPage();
+  await fullPage.route('https://full-cache.invalid/**', (route) =>
+    route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
+  );
+  await fullPage.goto('https://full-cache.invalid/');
+  await fullPage.addScriptTag({ content: source });
+  await fullPage.evaluate(async () => {
+    const {
+      HistoryCache: Cache,
+      HistorySubscription: Subscription,
+      cacheLimits: limits,
+    } = globalThis as any;
+    // Real transactions, with scaled quotas to reach both limits cheaply.
+    limits.bytes = 32 * 1024;
+    limits.scopeBytes = 16 * 1024;
+    const caches = [
+      new Cache('full:0'),
+      new Cache('full:1'),
+      new Cache('full:2'),
+    ];
+    for (const cache of caches) {
+      for (let i = 0; i < 20; i++) {
+        try {
+          await cache.record('filler:' + i, 'x'.repeat(1024));
+        } catch (error) {
+          if (!String(error).includes('BACKPRESSURE')) throw error;
+          break;
+        }
+      }
+    }
+    const cache = caches[0];
+    await cache.record('draft', 'protected draft'.repeat(300));
+    await cache.record('pending', {
+      requestId: 'original',
+      text: 'p'.repeat(2048),
+    });
+    await caches[2].record('workspace', {
+      session: 'restorable',
+      text: 'w'.repeat(2048),
+    });
+    const sent: any[] = [];
+    const subscription = await Subscription.create(
+      cache,
+      'history-subscription:reader',
+      () => {},
+      () => {},
+      (error: Error) => {
+        throw error;
+      },
+    );
+    await subscription.connect((frame: unknown) => sent.push(frame));
+    const opening = sent[0];
+    await subscription.handle({
+      ...opening,
+      type: 'history-window',
+      agentInstance: 'agent',
+      streamSerial: 1,
+      creditGeneration: 'credit',
+      receivedRevision: 0,
+      maxRevision: 0,
+    });
+    let refused = false;
+    try {
+      await caches[2].record('more-history', 'x'.repeat(2048));
+    } catch (error) {
+      refused = String(error).includes('BACKPRESSURE');
+    }
+    if (!refused) throw new Error('History consumed recovery headroom');
+    if (
+      (await cache.record('pending')).requestId !== 'original' ||
+      !(await cache.record('draft')).startsWith('protected')
+    )
+      throw new Error('Quota pressure lost drafts or originals');
+    subscription.stop();
+    for (const item of caches) item.close();
+  });
+  await fullPage.close();
   const gapPage = await context.newPage();
   await gapPage.route('https://gap-cache.invalid/**', (route) =>
     route.fulfill({ body: '<html></html>', contentType: 'text/html' }),

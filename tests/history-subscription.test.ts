@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistorySubscription } from '../apps/web/src/history-subscription.ts';
+import { cacheCapacityError } from '../apps/web/src/cache-budget.ts';
 function harness() {
   const records = new Map<string, any>();
   const cache = {
@@ -36,6 +37,36 @@ function harness() {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 describe('persistent history subscriber', () => {
+  it.each([
+    new DOMException('Storage quota exceeded', 'QuotaExceededError'),
+    new Error('BACKPRESSURE: 当前浏览器的本地历史缓存额度已满'),
+  ])(
+    'preserves storage failure identity for online fallback: %s',
+    async (error) => {
+      const h = harness(),
+        c = await h.create();
+      await c.connect(h.send);
+      h.cache.updateRecord.mockRejectedValueOnce(error);
+      await c.handle(h.window(h.sent.at(-1)));
+      expect(h.failure).toHaveBeenCalledWith(error);
+      expect(cacheCapacityError(h.failure.mock.calls[0][0])).toBe(true);
+      expect(h.records.get('subscription').acknowledgedRevision).toBe(0);
+      h.cache.durableRevision = 10;
+      await c.commit();
+      await vi.advanceTimersByTimeAsync(120000);
+      expect(h.sent).toHaveLength(1);
+    },
+  );
+  it('does not classify lost subscription proofs or command backpressure as cache capacity', () => {
+    expect(
+      cacheCapacityError(new Error('历史订阅已被其他页面清除或修改')),
+    ).toBe(false);
+    expect(
+      cacheCapacityError(
+        new Error('BACKPRESSURE: 当前浏览器的未决命令存储预算已满'),
+      ),
+    ).toBe(false);
+  });
   it('replaces an expired subscription without discarding local history or freezing', async () => {
     const h = harness(),
       c = await h.create();
