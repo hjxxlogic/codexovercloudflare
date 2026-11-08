@@ -1,0 +1,61 @@
+{
+  "target": "https://r.xlogic.cc",
+  "cloudflareVersion": "0cc84833-3b65-4e67-8ce1-5f94b5996f53",
+  "webOnly": true,
+  "actionsSkipped": true,
+  "web": {
+    "commit": "a5e5719e333af36a24402d53f69d3e4b5487aa6c",
+    "sourceDigest": "fa99c387de6574ba9aa35155ce1d8514b0b2f14cd6883ec5b1d65e0270f166de",
+    "localBuild": true,
+    "ciVerified": false,
+    "checksums": {
+      "index.html": "fd4d1a9dd71c1d19138d00278eb12a6a0fca8ffd64a9a450c037b612ee20e648",
+      "assets/index-DzdGyoD1.js": "2e921e9245640c992314a9caedce918ade1f41ac70ab19dbf59762febbae798c",
+      "assets/rolldown-runtime-XKyaHtl9.js": "548d1dbf321e7d2ae804fcc158b588706a7c52f8ca175de1490c6ccb4dbe55b7",
+      "assets/index-ue4FoO8J.css": "d22eb03bc2d012aa1fbfc3d8e97c904a776ce6ac0a13e1e9d8c8beb71a0c99a9"
+    }
+  },
+  "preservedWorker": {
+    "sourceIdentity": {
+      "version": "0.6.17",
+      "commit": "91d3093217162db95168d3565cc9d92411fa2bda",
+      "target": "linux-x86_64",
+      "sourceDigest": "81fa083da86fc61a16668d96c31c7d95761fbec8da60a485a3c4ea400388fb12",
+      "protocol": 1,
+      "dirty": false,
+      "capabilities": [
+        "demand-v1",
+        "session-pages",
+        "request-status",
+        "upload-status",
+        "content-revision",
+        "external-session-queue",
+        "external-approvals",
+        "delivery-v2",
+        "configuration-v1"
+      ]
+    },
+    "moduleHashes": {
+      "index.js": "910b488cbf0173e1dc6b41f4f9f120d3f6406edf12968b64ffa7b789f2ce7e62"
+    },
+    "verifiedAfterDeploy": true
+  },
+  "preservedDownloads": {
+    "version": "0.6.17",
+    "commit": "91d3093217162db95168d3565cc9d92411fa2bda",
+    "metadataBytesMatchBefore": true
+  },
+  "agent": {
+    "restarted": false,
+    "version": "0.6.17"
+  },
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.17",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  }
+}
