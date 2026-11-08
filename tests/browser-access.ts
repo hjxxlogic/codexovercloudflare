@@ -148,6 +148,8 @@ const server = createServer(async (req, res) => {
         },
       ],
     };
+  else if (path === '/sessions') result = { data: [], nextCursor: null };
+  else if (path.endsWith('/projects')) result = [];
   else if (path === '/admin/hosts') result = hosts;
   else if (path === '/admin/api-keys') result = [];
   else if (path === '/auth/logout')
@@ -185,15 +187,16 @@ try {
     await expect(
       page.getByLabel('主机列表', { exact: true }).getByRole('button'),
     ).toHaveCount(2);
+    await expect.poll(() => restored).toBe((i + 1) * hosts.length);
     await selectHost(page, /服务器 A/);
-    await expect.poll(() => restored).toBe(i * hosts.length + 1);
+    await expect.poll(() => restored).toBe((i + 1) * hosts.length);
     await selectHost(page, /服务器 B/);
     await expect.poll(() => restored).toBe((i + 1) * hosts.length);
     await selectHost(page, /服务器 A/);
     assert.deepEqual(
       restoredHosts.slice(i * hosts.length).sort(),
       ['a', 'b'],
-      'Each selected host restores its authorization once; revisiting reuses its credential',
+      'Welcome reads restore each authorized host once; selecting and revisiting reuse its credential',
     );
     if (i === 1)
       await page.screenshot({

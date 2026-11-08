@@ -1,5 +1,16 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  运行中: 'Running',
+  已打开: 'Open',
+  启动中: 'Starting',
+  结束中: 'Closing',
+  已中断: 'Interrupted',
+  已结束: 'Ended',
+  '会话状态：{0}': 'Session status: {0}',
+  '会话仍打开，当前没有运行中的任务':
+    'The session is open with no task running',
+  '当前没有活动会话。': 'There are no active sessions.',
+  会话目录返回重复分页标记: 'The session catalog returned a repeated cursor',
   排队消息: 'Queue message',
   已排队: 'Queued',
   归档会话: 'Archive conversation',

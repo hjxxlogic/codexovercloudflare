@@ -89,3 +89,73 @@ it('separates archived rows, fences tombstones and disables active/offline manag
       expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(2);
   }
 });
+
+it('puts running and open sessions before newer history and exposes compact status labels', () => {
+  const base = {
+    projectId: 'project',
+    mode: 'web',
+    createdAt: 1,
+    running: false,
+  } as Session;
+  const html = renderToStaticMarkup(
+    <SessionHistory
+      compact
+      sessions={[
+        {
+          ...base,
+          id: 'closed',
+          threadId: 'closed-thread',
+          title: 'Recent closed',
+          state: 'closed',
+          updatedAt: 100,
+        },
+        {
+          ...base,
+          id: 'open',
+          threadId: 'open-thread',
+          title: 'Older open',
+          state: 'ready',
+          updatedAt: 2,
+        },
+        {
+          ...base,
+          id: 'running',
+          threadId: 'running-thread',
+          title: 'Oldest running',
+          state: 'ready',
+          running: true,
+          updatedAt: 1,
+        },
+        {
+          ...base,
+          id: 'newer-idle-runtime-same-thread',
+          threadId: 'running-thread',
+          title: 'Idle duplicate must not hide a running task',
+          state: 'ready',
+          updatedAt: 100,
+        },
+      ]}
+      threads={[
+        { id: 'history-thread', preview: 'Newest history', updatedAt: 1000 },
+      ]}
+      project="project"
+      projectName="Project"
+      search=""
+      online
+      loading={false}
+      error=""
+      creating={false}
+      onSelect={() => {}}
+      onResume={() => {}}
+    />,
+  );
+  expect(html.indexOf('Oldest running')).toBeLessThan(
+    html.indexOf('Older open'),
+  );
+  expect(html.indexOf('Older open')).toBeLessThan(
+    html.indexOf('Newest history'),
+  );
+  for (const label of ['运行中', '已打开', '已结束', '历史'])
+    expect(html).toContain(`会话状态：${label}`);
+  expect(html).not.toContain('Idle duplicate');
+});

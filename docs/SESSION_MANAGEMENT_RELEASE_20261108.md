@@ -1,6 +1,6 @@
 # 0.6.17 会话归档与删除发布（2026-11-08）
 
-已将网页、Worker 与四个平台的 0.6.17 下载包发布至 [主站](https://r.xlogic.cc)。本机 Agent / 配套 CLI 已准备好经验证的 CI 制品，按用户选择等待现有会话结束后再更新；记录时仍运行 0.6.16。
+已将网页、Worker 与四个平台的 0.6.17 下载包发布至 [主站](https://r.xlogic.cc)。本机 Agent / 配套 CLI 也已使用同一成功 CI 的制品升级至 0.6.17，并通过 120 秒稳定性验证。
 
 ## 来源与门禁
 
@@ -24,20 +24,13 @@ Cloudflare 版本 ID 为 `049710d0-b247-425e-9c9a-2ee31dd0d3ed`。发布后健�
 
 公开 Actions ZIP 使用 GH-Proxy 下载，摘要来自可信 GitHub API；部署过程中同时核对 ZIP 摘要、包内校验和与各平台的源码身份。
 
-## 本机 Agent 等待更新
+## 本机 Agent 更新完成
 
-用户明确选择“等待会话结束后再更新 Agent”。本机 `coc-agent.service` 当时仍有两条打开的会话，其中一条任务运行中；服务进程未重启，配置及项目登记摘要与备份一致。已用仓库备份脚本生成 SQLite 一致性备份，配置、凭据与数据库副本只保存在忽略的私有目录。
+最初按用户要求等待会话结束，未重启运行任务。随后核对两条后台 Web 会话均无任务运行；用户明确同意升级本机 Agent，停止等待服务后通过仓库部署脚本安装同一提交 / Actions 的 musl Agent 和配套 CLI。该次安装显式使用 `--allow-restart-active`，结束两条空闲 runtime，保留会话历史；安装前再次创建 SQLite 一致性备份。
 
-后台用户服务 `coc-agent-deploy-0.6.17.service` 已启动，调用 `scripts/deploy-agent.py`，固定上述提交及 Actions run，使用同一经验证的 musl Agent / CLI。未启用 `--allow-restart-active`，日志已确认正在等待；每 20 秒检查空闲，等待上限 24 小时。空闲要求所有会话 runtime、读取器、审批、队列、文件请求和缓冲均清空，仅当前模型轮次结束不足以触发安装。
+部署脚本核对 GitHub ZIP 摘要、包校验和、干净源码身份后安装并备份原二进制。新进程版本 `0.6.17`、提交 `91d3093217162db95168d3565cc9d92411fa2bda`，源码摘要与上述 CI 一致；连续验证 120 秒通过，`connected=true`。配套 CLI 版本相同，配置和项目登记文件摘要未变，SQLite `quick_check=ok`。凭据、配置、数据库副本及机器路径仅保存在忽略的私有证据目录。
 
-安装发生时脚本会再次检查目标、备份旧二进制、安装 Agent 与配套 CLI，并验证新服务 120 秒；失败尝试回滚。上述安装仍待会话结束，因此当前主机上的归档 / 删除能力需等 Agent 更新后可用。可查看等待状态：
-
-```sh
-systemctl --user status coc-agent-deploy-0.6.17.service
-journalctl --user -u coc-agent-deploy-0.6.17.service -n 20 --no-pager
-```
-
-待装 Agent 可执行文件 SHA256：`c2c3248490cd8dce38c113e6a44e2c08135a3c5a3b91449623b336d606a5c16c`，与额外接口验收使用的二进制完全相同。
+已装 Agent 可执行文件 SHA256：`c2c3248490cd8dce38c113e6a44e2c08135a3c5a3b91449623b336d606a5c16c`；配套 CLI SHA256：`d558d920c27d0bea8f4204d2bdca16ad286ae0eb92d0b0209eba27de471c7e30`。
 
 ## 已核对摘要
 
@@ -62,4 +55,4 @@ journalctl --user -u coc-agent-deploy-0.6.17.service -n 20 --no-pager
 
 使用 CI 网页、模拟身份与历史生成的 390 × 844 手机截图：[已归档列表](assets/session-management-20261108/threads-archived-mobile.png)、[删除后列表](assets/session-management-20261108/threads-deleted-mobile.png)。未在真实 iPhone / Safari 上验证。
 
-云端完整证据位于忽略目录 `.local/deploy-cloud/42437371362/deployment.json`；Agent 等待 / 安装结果由 `.local/session-management-0.6.17/agent-queued/42437371362/deployment.json` 自动记录。原始日志、CI 各作业日志、备份和截图保存在 `.local/session-management-0.6.17/`；不提交机器凭据或用户数据库。
+云端完整证据位于忽略目录 `.local/deploy-cloud/42437371362/deployment.json`；Agent 安装结果由 `.local/session-management-0.6.17/agent-queued/42437371362/deployment.json` 自动记录。原始日志、CI 各作业日志、备份和截图保存在 `.local/session-management-0.6.17/`；不提交机器凭据或用户数据库。

@@ -294,3 +294,85 @@ button.primary:hover:enabled,
   width: auto;
   margin: 0;
 }
+
+.session-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.session .session-status {
+  display: inline-flex;
+}
+.session-status i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+.session-status-running {
+  color: #187b42;
+}
+.session-status-open {
+  color: #245bce;
+}
+.session-status-starting,
+.session-status-closing {
+  color: #916000;
+}
+.session-status-failed {
+  color: #b83a36;
+}
+[data-theme='dark'] .session-status-running {
+  color: #73d69b;
+}
+[data-theme='dark'] .session-status-open {
+  color: #8db8ff;
+}
+[data-theme='dark'] .session-status-starting,
+[data-theme='dark'] .session-status-closing {
+  color: #ebc465;
+}
+[data-theme='dark'] .session-status-failed {
+  color: #ff9b95;
+}
+.unified-session-list .session-compact > .session-status {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.cw-workbench .happier-cw .chat-welcome {
+  width: 100%;
+  box-sizing: border-box;
+}
+.welcome-sessions {
+  margin: 0 auto 28px;
+}
+.welcome-sessions h3 {
+  color: var(--text);
+}
+.welcome-active-session {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.welcome-active-session .welcome-session-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  color: var(--text);
+}
+.welcome-session-title > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.welcome-session-title > .session-status {
+  flex-shrink: 0;
+}

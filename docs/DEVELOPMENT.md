@@ -119,6 +119,8 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 旧库升级演练使用 `python3 tests/legacy-upgrade.py --legacy-source <独立旧源码目录> --agent build/coc-agent`。CI 固定旧源码为 `666d1af`，编译其原 Store 创建 SQLite 0/1，再验证备份、写入失败后的重试、旧程序拒绝版本 2、新 Agent 沿用配置和项目连续启动两次。POSIX 文件大小限制仅施加于隔离子进程，不耗尽宿主磁盘。该演练不安装 Agent，也不连接线上目标；正式安装仍需同一准确提交的成功 CI 制品。自动更新演练、默认 E2E 入口与公共原生 Agent 测试 harness 固定 `COC_NO_STARTUP_REPAIR=1`，避免测试启动失败触发修复模型；专门的启动修复测试使用自己的隔离模拟程序。
 
+活动会话专项：`npm run build:web && npx tsx tests/ui-stability.ts --active-sessions` 使用 100 条较新的历史记录及分页活动目录，验证欢迎页优先显示、直接进入对应主机 / 项目、左侧活动记录补齐、项目切换、状态颜色与手机布局；也纳入默认 `test:ui`。单元测试 `tests/web-active-sessions.test.ts` 覆盖全部活动状态分页、游标异常、历史游标保留及迟到状态 / 删除屏障合并；`tests/session-history.test.tsx` 覆盖排序与文字状态。
+
 ### 统一导航专项验证
 
 `npm run build:web && npm run test:ui:navigation` 使用本地模拟接收端检查新版左栏、设置、工作面板、文件预览和管理界面，无原生 Agent 或模型调用。`npm run test:markdown` 检查富文本。r2 上线可运行 `node node_modules/tsx/dist/cli.mjs scripts/verify-web-navigation.ts --access-config <0600 文件> --owner-secret-file <0600 文件> --host <现有隔离测试主机> --output .local/<目录>`；仅检查 Web，不创建会话或启动 Terminal，临时网页授权在结束时撤销。不要将它解释为完整发布门禁通过。

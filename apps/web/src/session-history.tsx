@@ -2,6 +2,7 @@ import { IconButton } from './happier/icon-button.tsx';
 import { Icon } from './happier/icon.tsx';
 import { t, localeTag } from './i18n.ts';
 import type { Session } from '../../../packages/protocol/src/index.ts';
+import { sessionPriority, SessionStatus } from './session-status.tsx';
 
 export type Thread = {
   id: string;
@@ -62,8 +63,8 @@ export function SessionHistory({
     const previous = row.session;
     if (
       !previous ||
-      (session.state === 'ready' && previous.state !== 'ready') ||
-      ((session.state === 'ready') === (previous.state === 'ready') &&
+      sessionPriority(session) < sessionPriority(previous) ||
+      (sessionPriority(session) === sessionPriority(previous) &&
         (session.updatedAt || session.createdAt) >
           (previous.updatedAt || previous.createdAt))
     )
@@ -89,7 +90,11 @@ export function SessionHistory({
         .toLowerCase()
         .includes(search.toLowerCase()),
     )
-    .sort((a, b) => activity(b[1]) - activity(a[1]));
+    .sort(
+      (a, b) =>
+        sessionPriority(a[1].session) - sessionPriority(b[1].session) ||
+        activity(b[1]) - activity(a[1]),
+    );
   return (
     <>
       {error && (
@@ -121,6 +126,7 @@ export function SessionHistory({
             >
               {compact && <Icon name="chat" size={15} />}
               <span>{title}</span>
+              <SessionStatus session={session} />
               {compact ? (
                 <time
                   dateTime={new Date(activity(row)).toISOString()}

@@ -71,6 +71,11 @@ import { HistorySync } from './history-sync.ts';
 import { HistorySubscription } from './history-subscription.ts';
 import { cacheCapacityError } from './cache-budget.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
+import {
+  ActiveSessions,
+  loadSessionCatalog,
+  mergeSessionCatalog,
+} from './active-sessions.tsx';
 import { HostWakeSettings } from './host-wake.tsx';
 import { AdminTable } from './admin-table.tsx';
 import {
@@ -635,7 +640,7 @@ function App() {
     const controller = new AbortController();
     void Promise.all([
       api(`/hosts/${host}/projects`, undefined, controller.signal),
-      api(`/sessions?paged=true&hostId=${host}`, undefined, controller.signal),
+      loadSessionCatalog(host, controller.signal),
     ])
       .then(([available, result]) => {
         if (controller.signal.aborted) return;
@@ -3144,7 +3149,7 @@ function App() {
                 disabled={!host || loadingThreads}
                 onClick={() => {
                   void loadThreads();
-                  void api('/sessions?paged=true&hostId=' + host)
+                  void loadSessionCatalog(host, new AbortController().signal)
                     .then((page) => {
                       setSessions(page.data);
                       setSessionCursor(page.nextCursor);
@@ -3168,7 +3173,11 @@ function App() {
                 archived={archivedThreads}
                 managing={managingThread}
                 onManage={(id, operation) => void manageThread(id, operation)}
-                sessions={sessions}
+                sessions={sessions.map((session) =>
+                  session.id === selected?.id
+                    ? { ...session, running: busy }
+                    : session,
+                )}
                 threads={threads}
                 project={project}
                 projectName={
@@ -3206,12 +3215,9 @@ function App() {
                       `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
                     )
                       .then((page) => {
-                        setSessions((old) => [
-                          ...old,
-                          ...page.data.filter(
-                            (s: Session) => !old.some((o) => o.id === s.id),
-                          ),
-                        ]);
+                        setSessions((old) =>
+                          mergeSessionCatalog(old, page.data),
+                        );
                         setSessionCursor(page.nextCursor);
                       })
                       .catch(report)
@@ -4618,6 +4624,31 @@ function App() {
                     </>
                   ) : (
                     <div className="chat-welcome">
+                      <ActiveSessions
+                        mine={emailIdentity.enabled}
+                        hosts={hosts}
+                        revision={revision}
+                        onContinue={(hostId, session) => {
+                          manualHostSelection.current = undefined;
+                          setTakeover(false);
+                          setMenuOpen(false);
+                          if (matchMedia('(max-width: 900px)').matches)
+                            setNavigationOpen(false);
+                          if (hostId === host && catalogHost === host) {
+                            welcomeSelection.current = undefined;
+                            setProject(session.projectId);
+                            setSessions((rows) =>
+                              mergeSessionCatalog(rows, [session]),
+                            );
+                            setSelected(session);
+                          } else {
+                            welcomeSelection.current = { hostId, session };
+                            setHost(hostId);
+                            if (hostId === host)
+                              void recoverCatalog.current?.().catch(report);
+                          }
+                        }}
+                      />
                       <div className="welcome-icon">
                         <CodexMark />
                       </div>

@@ -3953,6 +3953,148 @@ async function currentBehaviorUI() {
 }
 let navigationSeq = 10000;
 let takeoverSync = 0;
+async function activeSessionsUI() {
+  const savedSession = structuredClone(session);
+  const savedOther = structuredClone(otherSession);
+  online = true;
+  logged = true;
+  admin = false;
+  session.state = 'ready';
+  session.running = true;
+  session.updatedAt = 2;
+  otherSession.state = 'ready';
+  otherSession.running = false;
+  otherSession.updatedAt = 3;
+  const runningTitle = '首页之外的运行会话';
+  const openTitle = '首页之外的空闲会话';
+  const history = Array.from({ length: 100 }, (_, index) => ({
+    ...session,
+    id: `sample~history-${index}`,
+    threadId: `history-${index}`,
+    state: 'closed',
+    running: false,
+    title: `较新的历史会话 ${index}`,
+    updatedAt: Date.now() - index,
+  }));
+  const requests: string[] = [];
+  await fixtureRoutes.route('**/api/v1/sessions?*', async (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url.search);
+    const state = url.searchParams.get('state');
+    const cursor = url.searchParams.get('cursor');
+    let data: unknown[] = [];
+    let nextCursor: string | null = null;
+    if (url.searchParams.get('hostId') === 'sample') {
+      if (!state) {
+        data = cursor ? [] : history;
+        nextCursor = cursor ? null : 'history-99';
+      } else if (state === 'ready') {
+        data = cursor
+          ? [{ ...otherSession, title: openTitle }]
+          : [{ ...session, title: runningTitle }];
+        nextCursor = cursor ? null : 'active-more';
+      }
+    }
+    await route.fulfill({ json: { data, nextCursor } });
+  });
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    await page.goto(origin);
+    const welcome = page.getByRole('region', { name: '进行中的会话' });
+    await expect(
+      welcome.getByRole('button', { name: new RegExp(runningTitle) }),
+    ).toBeVisible();
+    await expect(welcome.locator('.welcome-active-session')).toHaveCount(2);
+    await expect(
+      welcome.locator('.welcome-active-session').first(),
+    ).toContainText(runningTitle);
+    await expect(
+      welcome.locator('.welcome-active-session').last(),
+    ).toContainText('第二项目');
+    await expect(
+      page.getByRole('heading', { name: '今天要一起完成什么？' }),
+    ).toBeVisible();
+    const welcomeBox = await welcome.boundingBox();
+    const greetingBox = await page
+      .getByRole('heading', { name: '今天要一起完成什么？' })
+      .boundingBox();
+    assert(welcomeBox && greetingBox && welcomeBox.y < greetingBox.y);
+    assert.notEqual(
+      await welcome
+        .locator('.session-status-running')
+        .evaluate((el) => getComputedStyle(el).color),
+      await welcome
+        .locator('.session-status-open')
+        .evaluate((el) => getComputedStyle(el).color),
+    );
+    await page.screenshot({
+      path: join(artifacts, 'active-welcome-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({
+      path: join(artifacts, 'active-welcome-desktop.png'),
+      fullPage: true,
+    });
+    // Continue directly from the welcome page, before choosing a host/project.
+    await welcome
+      .getByRole('button', { name: new RegExp(runningTitle) })
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await openNavigation(page);
+    const rows = page.locator('.history-row');
+    await expect(rows).toHaveCount(101);
+    await expect(rows.first()).toContainText(runningTitle);
+    await expect(rows.first().locator('.session-status')).toHaveText('已打开');
+    await expect(rows.nth(1)).toContainText('较新的历史会话');
+    // The current session's live snapshot supersedes the initial running flag.
+    // The other project retains its open runtime even though it is outside page one.
+    await selectProjectId(page, 'other-project');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText(openTitle);
+    await expect(rows.first().locator('.session-status')).toHaveText('已打开');
+    await selectProjectId(page, 'project');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openNavigation(page);
+    const sessionPicker = page.getByRole('button', {
+      name: '选择会话',
+      exact: true,
+    });
+    if ((await sessionPicker.getAttribute('aria-expanded')) !== 'true')
+      await sessionPicker.click();
+    await expect(rows.first()).toContainText(runningTitle);
+    await expect(rows.first().locator('.session-status')).toBeVisible();
+    assert(
+      await rows.first().evaluate((el) => el.scrollWidth <= el.clientWidth),
+    );
+    await page.screenshot({
+      path: join(artifacts, 'active-sidebar-mobile.png'),
+      fullPage: true,
+    });
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'dark';
+    });
+    await page.screenshot({
+      path: join(artifacts, 'active-sidebar-dark-mobile.png'),
+      fullPage: true,
+    });
+    assert(requests.some((query) => query.includes('cursor=active-more')));
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: welcome and sidebar include active runtimes beyond 100 newer history rows, status colors, project switching and direct continuation on mobile/desktop',
+    );
+  } finally {
+    await context.close();
+    await fixtureRoutes.unroute('**/api/v1/sessions?*');
+    Object.assign(session, savedSession);
+    Object.assign(otherSession, savedOther);
+  }
+}
 async function threadManagementUI() {
   session.state = 'closed';
   session.promptQueue = [];
@@ -4128,7 +4270,8 @@ async function cacheQuotaUI() {
   }
 }
 try {
-  if (process.argv.includes('--threads')) await threadManagementUI();
+  if (process.argv.includes('--active-sessions')) await activeSessionsUI();
+  else if (process.argv.includes('--threads')) await threadManagementUI();
   else if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
   else if (process.argv.includes('--behavior')) await currentBehaviorUI();
   else if (!process.argv.includes('--legacy-layout')) {
@@ -4179,12 +4322,15 @@ try {
   } else await legacyUI();
   if (
     !process.argv.includes('--threads') &&
+    !process.argv.includes('--active-sessions') &&
     !process.argv.includes('--cache-quota') &&
     !process.argv.includes('--navigation')
   )
     await cacheQuotaUI();
-  if (!process.argv.some((arg) => arg.startsWith('--')))
+  if (!process.argv.some((arg) => arg.startsWith('--'))) {
+    await activeSessionsUI();
     await threadManagementUI();
+  }
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();
