@@ -16,6 +16,7 @@
 #include "coc/startup_repair.hpp"
 #include "coc/store.hpp"
 #include "coc/terminal.hpp"
+#include "coc/thread_management.hpp"
 #include "coc/update.hpp"
 #include <atomic>
 #include <boost/asio/thread_pool.hpp>
@@ -97,7 +98,7 @@ class Agent {
   asio::signal_set signals_;
   std::atomic<bool> stopped_{false};
   std::atomic<bool> exit_requested_{false};
-  bool listing_threads_ = false, negotiated_ = false;
+  bool listing_threads_ = false, negotiated_ = false, managing_thread_ = false;
   std::set<std::string> archive_loading_;
   size_t history_readers_ = 0;
   bool queue_recovery_web_ = false;
@@ -747,18 +748,31 @@ public:
             return;
           }
           const auto original = store_.operation_begin(intent, action, args);
-          if (original.contains("result")) {
+          const bool reconcile_thread =
+              action == "threadManage" && !store_.thread_job(original.at("key")).is_null();
+          if (original.contains("result") && !reconcile_thread) {
             respond(original.at("result"), intent);
             return;
           }
-          if (original.at("state") != "new")
+          if (original.at("state") != "new" && !reconcile_thread)
             throw Error("RESULT_PENDING", "Original operation is still executing");
+          if (reconcile_thread && managing_thread_)
+            throw Error("RESULT_PENDING", "Thread management original request is still executing");
           operation_key = original.at("key");
         }
         control(
             action, args,
-            [this, operation_key, intent, respond](Json data, Json error) {
+            [this, operation_key, intent, respond, action](Json data, Json error) {
               Json envelope = error.is_null() ? Json{{"data", data}} : Json{{"error", error}};
+              if (action == "threadManage" && !error.is_null() &&
+                  !store_.thread_job(operation_key).is_null()) {
+                respond({{"error",
+                          {{"code", "RESULT_UNKNOWN"},
+                           {"message", "Codex thread mutation is unconfirmed; retry the same "
+                                       "original request to reconcile"}}}},
+                        nullptr);
+                return;
+              }
               if (!operation_key.empty()) {
                 try {
                   envelope = store_.operation_finish(operation_key, envelope);
@@ -774,6 +788,14 @@ public:
       } catch (const std::exception &e) {
         auto error = error_data(e);
         Json envelope = {{"error", error}};
+        if (!operation_key.empty() && action == "threadManage" &&
+            !store_.thread_job(operation_key).is_null()) {
+          respond({{"error",
+                    {{"code", "RESULT_UNKNOWN"},
+                     {"message", "Resume the same original thread management request"}}}},
+                  nullptr);
+          return;
+        }
         if (!operation_key.empty()) {
           try {
             envelope = store_.operation_finish(operation_key, envelope);
@@ -1126,6 +1148,8 @@ public:
       return;
     }
     if (action == "history") {
+      if (managing_thread_)
+        throw Error("RESULT_PENDING", "Thread management is in progress");
       auto id = d.at("sessionId").get<std::string>();
       auto s = store_.get(id);
       const auto operation = d.value("operation", "page");
@@ -1248,9 +1272,52 @@ public:
       done(projects_.list().at("projects"), nullptr);
       return;
     }
+    if (action == "threadManage") {
+      const auto op = d.value("operation", "");
+      if ((op != "archive" && op != "unarchive" && op != "delete") || !d.contains("threadId") ||
+          !d.at("threadId").is_string() || !valid_id(d.at("threadId")) || operation_key.empty() ||
+          (d.value("mode", "") != "web" && d.value("mode", "") != "cli"))
+        throw Error("INVALID_REQUEST", "Invalid thread management request");
+      if (op == "delete" && !d.value("confirm", false))
+        throw Error("CONFIRMATION_REQUIRED", "Permanent deletion requires explicit confirmation");
+      if (managing_thread_ || listing_threads_ || history_readers_ || !archive_loading_.empty())
+        throw Error("RESULT_PENDING", "Another history operation is in progress");
+      const auto p = project(d.at("projectId"));
+      managing_thread_ = true;
+      try {
+        manage_thread(
+            io_, config_, p.at("path"), store_, d, operation_key,
+            [this, d](const Json &thread) {
+              for (const auto &session : store_.sessions()) {
+                if (session.value("threadId", "") != thread.at("id"))
+                  continue;
+                if (session.at("projectId") != d.at("projectId") ||
+                    session.at("mode") != d.at("mode"))
+                  throw Error("FORBIDDEN",
+                              "Thread has an association outside this credential scope");
+                if (runtimes_.count(session.at("id")) || session.value("running", false) ||
+                    session.at("state") == "ready" || session.at("state") == "starting" ||
+                    session.at("state") == "closing" ||
+                    !session.value("promptQueue", Json::array()).empty())
+                  throw Error("SESSION_BUSY",
+                              "End all associated sessions and resolve queued tasks first");
+              }
+            },
+            [this, done](Json result, Json error) {
+              managing_thread_ = false;
+              if (error.is_null())
+                send({{"type", "sessions-changed"}});
+              done(std::move(result), std::move(error));
+            });
+      } catch (...) {
+        managing_thread_ = false;
+        throw;
+      }
+      return;
+    }
     if (action == "threads") {
       auto p = project(d.at("projectId"));
-      if (listing_threads_)
+      if (listing_threads_ || managing_thread_)
         throw Error("BACKPRESSURE", "History query already in progress");
       auto ignore_message = [](Json) {};
       auto process = std::make_shared<CodexProcess>(
@@ -1273,10 +1340,11 @@ public:
         process->request(
             "thread/list",
             {{"cwd", p["path"]},
+             {"archived", d.value("archived", false)},
              {"limit", 50},
              {"sortKey", "updated_at"},
              {"cursor", d.value("cursor", Json())}},
-            [this, process, p, done](Json result, Json error) {
+            [this, process, p, d, done](Json result, Json error) {
               listing_threads_ = false;
               process->close();
               if (!error.is_null()) {
@@ -1296,7 +1364,8 @@ public:
                   data.push_back({{"id", t.at("id")},
                                   {"preview", preview},
                                   {"name", t.value("name", Json())},
-                                  {"updatedAt", t.value("updatedAt", int64_t(0))}});
+                                  {"updatedAt", t.value("updatedAt", int64_t(0))},
+                                  {"archived", d.value("archived", false)}});
                 }
               done({{"data", data}, {"nextCursor", result.value("nextCursor", Json())}}, nullptr);
             });
@@ -1306,7 +1375,8 @@ public:
     if (action == "list") {
       auto page = store_.session_page(d);
       for (auto &session : page["data"])
-        session["heads"] = store_.delivery_heads(session.at("id"));
+        if (!session.value("deleted", false))
+          session["heads"] = store_.delivery_heads(session.at("id"));
       done(d.value("paged", false) ? page : page["data"], nullptr);
       return;
     }
@@ -1386,12 +1456,20 @@ public:
       done({{"ok", true}}, nullptr);
       return;
     }
+    if (action == "create" && managing_thread_)
+      throw Error("RESULT_PENDING", "Thread management is in progress");
     if (action != "create")
       throw Error("UNSUPPORTED_ACTION", "Unknown control action");
     auto p = project(d.at("projectId"));
     if (d.at("mode") != "cli" && d.at("mode") != "web")
       throw Error("INVALID_REQUEST", "Invalid session mode");
     if (d.contains("threadId")) {
+      const auto state = store_.thread_state(d.at("threadId"));
+      if (store_.thread_pending(d.at("threadId")))
+        throw Error("RESULT_PENDING", "Thread mutation is unconfirmed");
+      if (!state.is_null() && (state.value("deleted", false) || state.value("archived", false)))
+        throw Error(state.value("deleted", false) ? "SESSION_DELETED" : "THREAD_ARCHIVED",
+                    "Thread must be available and unarchived before resuming");
       if ((d.at("mode") != "web" && !d.value("external", false)) || !d.at("threadId").is_string() ||
           !valid_id(d.at("threadId").get<std::string>()))
         throw Error("INVALID_REQUEST", "Invalid history thread");

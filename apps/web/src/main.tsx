@@ -139,6 +139,8 @@ function App() {
     useState<HTMLDivElement | null>(null);
   const [workbenchMenuTarget, setWorkbenchMenuTarget] =
     useState<HTMLDivElement | null>(null);
+  const [archivedThreads, setArchivedThreads] = useState(false);
+  const [managingThread, setManagingThread] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(false);
@@ -640,6 +642,28 @@ function App() {
         setError((current) =>
           current.startsWith('HOST_OFFLINE:') ? '' : current,
         );
+        const deletedSessions = result.data.filter((s: Session) => s.deleted);
+        if (deletedSessions.length) {
+          void (async () => {
+            const { identity } = await api(
+              `/client/identity?hostId=${encodeURIComponent(host)}`,
+              undefined,
+              controller.signal,
+            );
+            for (const session of deletedSessions) {
+              const cache = new HistoryCache(
+                JSON.stringify([location.origin, identity, host, session.id]),
+              );
+              try {
+                await cache.purge();
+              } finally {
+                cache.close();
+              }
+            }
+          })().catch((error) => {
+            if (!controller.signal.aborted) report(error);
+          });
+        }
         const restored = restoreWorkspace(
           savedWorkspace.current,
           host,
@@ -660,9 +684,14 @@ function App() {
           if (current) {
             if (!available.some((p: any) => p.id === current.projectId))
               return undefined;
-            return (
-              result.data.find((s: Session) => s.id === current.id) || current
-            );
+            return (() => {
+              const updated = result.data.find(
+                (s: Session) => s.id === current.id,
+              );
+              return updated?.deleted || updated?.archived
+                ? undefined
+                : updated || current;
+            })();
           }
           // Restore once if the local catalog was empty. A deliberate project
           // selection or closing a conversation must not reopen the old session.
@@ -945,7 +974,7 @@ function App() {
       for (let attempt = 0; ; attempt++) {
         try {
           result = await api(
-            `/hosts/${host}/threads?projectId=${encodeURIComponent(project)}${append && cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`,
+            `/hosts/${host}/threads?projectId=${encodeURIComponent(project)}&archived=${archivedThreads}${append && cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`,
           );
           break;
         } catch (e) {
@@ -991,7 +1020,7 @@ function App() {
     return () => {
       historyRequest.current++;
     };
-  }, [host, project, online]);
+  }, [host, project, online, archivedThreads, revision]);
   useEffect(() => {
     if (followMessages.current && messageList.current)
       messageList.current.scrollTop = messageList.current.scrollHeight;
@@ -2616,6 +2645,106 @@ function App() {
       setCreating(false);
     }
   }
+  async function manageThread(
+    threadId: string,
+    operation: 'archive' | 'unarchive' | 'delete',
+  ) {
+    if (!operations.current || !catalog.current || managingThread) return;
+    if (
+      operation === 'delete' &&
+      !confirm(
+        t(
+          '永久删除此 Codex 会话及其子会话？将删除远程记录和本机历史、草稿，无法撤销。请确认原 Codex 客户端已停止使用。',
+        ),
+      )
+    )
+      return;
+    const targetHost = host,
+      targetProject = project,
+      journal = catalog.current;
+    const path = `/hosts/${host}/thread-management`;
+    setManagingThread(true);
+    let remoteDeleted = false;
+    let retainedRequests = false;
+    try {
+      const previous = (await operations.current.records()).find(
+        (r) =>
+          r.path === path &&
+          r.body?.threadId === threadId &&
+          r.body?.projectId === targetProject &&
+          r.body?.operation === operation &&
+          r.state !== 'confirmed',
+      );
+      const result = await operations.current.submit(
+        path,
+        {
+          projectId: project,
+          threadId,
+          operation,
+          confirm: operation === 'delete',
+        },
+        previous?.requestId || crypto.randomUUID(),
+        { kind: 'threadManage', threadId, operation },
+      );
+      if (
+        targetHost !== projectContext.current.host ||
+        targetProject !== projectContext.current.project
+      )
+        return;
+      remoteDeleted = result.deleted;
+      const ids = new Set<string>(result.threadIds);
+      if (selected?.threadId && ids.has(selected.threadId)) {
+        setSelected(undefined);
+        setPanel(null);
+      }
+      setSessions((rows) =>
+        rows.map((s) =>
+          s.threadId && ids.has(s.threadId)
+            ? { ...s, archived: result.archived, deleted: result.deleted }
+            : s,
+        ),
+      );
+      if (result.deleted) {
+        savedWorkspace.current = { projectId: targetProject };
+        const { identity } = await api(
+          `/client/identity?hostId=${encodeURIComponent(targetHost)}`,
+        );
+        for (const id of result.sessionIds) {
+          const cache = new HistoryCache(
+            JSON.stringify([location.origin, identity, targetHost, id]),
+          );
+          try {
+            retainedRequests =
+              (await cache.purge()).retainedRequests || retainedRequests;
+          } finally {
+            cache.close();
+          }
+        }
+        await journal.record('workspace', { projectId: targetProject });
+      }
+      setNotice(
+        result.partial
+          ? '主会话已归档，部分子会话未归档，请刷新后检查'
+          : operation === 'delete'
+            ? retainedRequests
+              ? '会话已删除，未确认请求的恢复记录已保留'
+              : '会话已永久删除'
+            : operation === 'archive'
+              ? '会话已归档'
+              : '会话已取消归档',
+      );
+      setRevision((value) => value + 1);
+      await loadThreads();
+    } catch (error) {
+      if (remoteDeleted) {
+        setNotice('远程会话已删除，本机缓存清理失败，请刷新重试');
+        setRevision((value) => value + 1);
+      }
+      report(error);
+    } finally {
+      setManagingThread(false);
+    }
+  }
   async function endSession(session: Session) {
     const client = operations.current;
     if (!client) throw new Error('本机存储尚未就绪，请稍后重试');
@@ -3023,11 +3152,22 @@ function App() {
                     .catch(report);
                 }}
               />
+              <label className="archive-filter">
+                <input
+                  type="checkbox"
+                  checked={archivedThreads}
+                  onChange={(event) => setArchivedThreads(event.target.checked)}
+                />
+                {t('已归档会话')}
+              </label>
               <p className="sidebar-caption">
                 {t('与远程 Codex 共用历史 · 当前项目')}
               </p>
               <SessionHistory
                 compact
+                archived={archivedThreads}
+                managing={managingThread}
+                onManage={(id, operation) => void manageThread(id, operation)}
                 sessions={sessions}
                 threads={threads}
                 project={project}

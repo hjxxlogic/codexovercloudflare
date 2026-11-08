@@ -50,7 +50,9 @@ export function restoreWorkspace(
     session:
       session?.id.startsWith(host + '~') &&
       session.projectId === projectId &&
-      session.mode === 'web'
+      session.mode === 'web' &&
+      !session.deleted &&
+      !session.archived
         ? session
         : undefined,
   };

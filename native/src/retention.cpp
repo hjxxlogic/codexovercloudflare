@@ -155,7 +155,8 @@ Json Store::retention_cleanup(int64_t time) {
     };
     const bool operations_full = operation_pressure(threshold) || storage_full;
     for (const auto &row : query("SELECT key,instance,retained_at FROM transport2_operations "
-                                 "WHERE retained_at<=? OR (phase!='started' AND ?) "
+                                 "WHERE key NOT IN(SELECT key FROM transport2_thread_jobs) AND "
+                                 "(retained_at<=? OR (phase!='started' AND ?)) "
                                  "ORDER BY retained_at,key LIMIT 128",
                                  {cutoff, operations_full ? 1 : 0})) {
       if (row.at("retained_at") > cutoff && !operation_pressure(target) &&

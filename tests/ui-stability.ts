@@ -16,6 +16,7 @@ import type { Event } from '../packages/protocol/src/index.ts';
 import { version as webVersion } from '../package.json';
 import { navigationUI } from './helpers/navigation-ui.ts';
 import {
+  openNavigation,
   openSettings,
   selectHostId,
   selectProjectId,
@@ -185,6 +186,8 @@ const events: Event[] = [
     time: 6,
   },
 ];
+const threadOperations = new Map<string, any>();
+const threadMutations: string[] = [];
 const server = createServer((req, res) => {
   const url = new URL(req.url!, 'http://localhost');
   if (url.pathname.startsWith('/api/v1')) {
@@ -313,7 +316,12 @@ const server = createServer((req, res) => {
       body = { identity };
     } else if (path === '/hosts/sample/probe') {
       probeCalls++;
-      body = { online, confirmedAt: Date.now() };
+      body = {
+        online,
+        confirmedAt: Date.now(),
+        deliveryInstance: 'ui-agent',
+        operationInstance: 'ui-agent',
+      };
     } else if (path === '/hosts/sample/terminal') {
       terminalInfoCalls++;
       body = { enabled: false, streaming: 2, deliveryInstance: 'ui-instance' };
@@ -324,6 +332,46 @@ const server = createServer((req, res) => {
       path === '/hosts/second/projects'
     )
       body = availableProjects;
+    else if (path === '/hosts/sample/thread-management') {
+      let text = '';
+      req.on('data', (chunk) => {
+        text += chunk;
+      });
+      req.on('end', () => {
+        const data = JSON.parse(text);
+        const requestId = String(req.headers['idempotency-key']);
+        const ack = req.headers['x-coc-operation-ack'] === '1';
+        if (!ack && !threadOperations.has(requestId)) {
+          threadMutations.push(data.operation);
+          (session as any).archived = data.operation === 'archive';
+          (session as any).deleted = data.operation === 'delete';
+          threadOperations.set(requestId, {
+            operation: data.operation,
+            archived: data.operation === 'archive',
+            deleted: data.operation === 'delete',
+            partial: false,
+            threadIds: ['thread'],
+            sessionIds: [session.id],
+          });
+        }
+        const operationId = requestId + (ack ? '-ack' : '');
+        threadOperations.set('result:' + operationId, {
+          state: 'completed',
+          result: ack ? { confirmed: true } : threadOperations.get(requestId),
+          intent: {
+            owner: identity,
+            instance: String(req.headers['x-coc-operation-instance']),
+            requestId,
+            ...(ack ? { ack: true } : {}),
+          },
+        });
+        res
+          .writeHead(202)
+          .end(JSON.stringify({ hostId: 'sample', operationId }));
+      });
+      return;
+    } else if (path.startsWith('/hosts/sample/operations/'))
+      body = threadOperations.get('result:' + path.split('/').at(-1));
     else if (path === '/sessions')
       body =
         url.searchParams.get('paged') === 'true'
@@ -3905,6 +3953,80 @@ async function currentBehaviorUI() {
 }
 let navigationSeq = 10000;
 let takeoverSync = 0;
+async function threadManagementUI() {
+  session.state = 'closed';
+  session.promptQueue = [];
+  online = true;
+  logged = true;
+  admin = false;
+  (session as any).archived = false;
+  (session as any).deleted = false;
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    const row = page.locator('.history-row').filter({
+      has: page.getByRole('button', { name: '归档会话', exact: true }),
+    });
+    await expect(row).toHaveCount(1);
+    await row.getByRole('button', { name: '归档会话', exact: true }).click();
+    await expect.poll(() => threadMutations.length).toBe(1);
+    await expect(row).toHaveCount(0);
+    await page.getByLabel('已归档会话', { exact: true }).check();
+    await expect(
+      page.getByRole('button', { name: '取消归档', exact: true }),
+    ).toBeEnabled();
+    await page.screenshot({
+      path: join(artifacts, 'threads-archived-mobile.png'),
+      fullPage: true,
+    });
+    await page.getByRole('button', { name: '取消归档', exact: true }).click();
+    await expect.poll(() => threadMutations.length).toBe(2);
+    await page.getByLabel('已归档会话', { exact: true }).uncheck();
+    const trash = page.getByRole('button', {
+      name: '永久删除会话',
+      exact: true,
+    });
+    await expect(trash).toBeEnabled();
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await trash.click();
+    await expect(trash).toBeEnabled();
+    assert.equal(threadMutations.length, 2, 'Cancel must not send a delete');
+    page.once('dialog', async (dialog) => {
+      assert(dialog.message().includes('子会话'));
+      await dialog.accept();
+    });
+    await trash.click();
+    await expect.poll(() => threadMutations.length).toBe(3);
+    await expect(trash).toHaveCount(0);
+    await page.reload();
+    await openNavigation(page);
+    await expect(
+      page.getByRole('button', { name: '永久删除会话', exact: true }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: join(artifacts, 'threads-deleted-mobile.png'),
+      fullPage: true,
+    });
+    assert.deepEqual(threadMutations, ['archive', 'unarchive', 'delete']);
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: mobile archive list, unarchive, delete confirmation/cancel and refresh without resurrection',
+    );
+  } finally {
+    await context.close();
+    (session as any).archived = false;
+    (session as any).deleted = false;
+    session.state = 'ready';
+  }
+}
+
 async function cacheQuotaUI() {
   session.state = 'ready';
   session.promptQueue = [];
@@ -4006,7 +4128,8 @@ async function cacheQuotaUI() {
   }
 }
 try {
-  if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
+  if (process.argv.includes('--threads')) await threadManagementUI();
+  else if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
   else if (process.argv.includes('--behavior')) await currentBehaviorUI();
   else if (!process.argv.includes('--legacy-layout')) {
     await navigationUI(
@@ -4055,10 +4178,13 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--threads') &&
     !process.argv.includes('--cache-quota') &&
     !process.argv.includes('--navigation')
   )
     await cacheQuotaUI();
+  if (!process.argv.some((arg) => arg.startsWith('--')))
+    await threadManagementUI();
 } finally {
   await browser.close();
   for (const ws of sockets) ws.terminate();

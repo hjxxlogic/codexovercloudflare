@@ -3,11 +3,10 @@
 namespace coc {
 std::string business_host(const std::string &path, const Json &body) {
   std::smatch match;
-  if (std::regex_search(
-          path, match,
-          std::regex(
-              "/(?:api/v1/)?(?:admin/)?hosts/([\\w-]+)/"
-              "(projects|project-management|probe|threads|files|terminal|configuration|build)")))
+  if (std::regex_search(path, match,
+                        std::regex("/(?:api/v1/)?(?:admin/)?hosts/([\\w-]+)/"
+                                   "(projects|project-management|thread-management|probe|threads|"
+                                   "files|terminal|configuration|build)")))
     return match[1];
   if (std::regex_search(path, match, std::regex("/(?:api/v1/)?sessions/([\\w-]+)~")))
     return match[1];

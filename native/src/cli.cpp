@@ -84,6 +84,7 @@ class Cli {
           ((p.size() >= 5 && p.substr(p.size() - 5) == "/stop") ||
            (p.size() >= 6 && p.substr(p.size() - 6) == "/queue") ||
            (p.size() >= 9 && p.substr(p.size() - 9) == "/approval"))) ||
+         (p.find("/thread-management") != std::string::npos) ||
          (p.find("/project-management") != std::string::npos &&
           body.value("operation", "list") != "list" && body.value("operation", "") != "browse"));
     if (original_write)
@@ -880,8 +881,27 @@ public:
     else if (command == "threads") {
       if (!valid_id(option("project")))
         throw Error("USAGE", "threads --project ID");
-      std::cout << api("/hosts/" + host().at("id").get<std::string>() +
-                       "/threads?projectId=" + option("project"))
+      std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/threads?projectId=" +
+                       option("project") + "&archived=" + option("archived", "false"))
+                       .dump(2)
+                << '\n';
+    } else if (command == "archive" || command == "unarchive" || command == "delete") {
+      if (!valid_id(id) || !valid_id(option("project")))
+        throw Error(
+            "USAGE",
+            "archive|unarchive|delete THREAD_ID --project ID [--confirm true] [--request-id ID]");
+      if (command == "delete" && option("confirm") != "true")
+        throw Error(
+            "CONFIRMATION_REQUIRED",
+            "delete permanently removes the Codex thread and descendants; pass --confirm true");
+      const auto request = option("request-id", uuid());
+      std::cerr << "Thread operation request ID: " << request << '\n';
+      std::cout << api("/hosts/" + host().at("id").get<std::string>() + "/thread-management",
+                       {{"projectId", option("project")},
+                        {"threadId", id},
+                        {"operation", command},
+                        {"confirm", command == "delete"}},
+                       request)
                        .dump(2)
                 << '\n';
     } else if (command == "observe") {
@@ -988,7 +1008,8 @@ public:
              "browser.\n"
           << "Usage: coc-client (project list|browse PATH|add PATH [--mkdir]|rename ID NAME|remove "
              "ID) or "
-             "<login|logout|name|proxy|status|use|hosts|projects|threads|observe|queue|approvals|"
+             "<login|logout|name|proxy|status|use|hosts|projects|threads|archive|unarchive|delete|"
+             "observe|queue|approvals|"
              "approve|"
              "reject|sessions|connect|"
              "attach|stop|history|cache-"
@@ -999,7 +1020,7 @@ public:
              "--takeover "
              "--api-key --before SEQ --seq SEQ --offset N --revision N --cursor ID --request-id ID "
              "--session ID --approval-id ID --runtime-id ID --approval-version ID "
-             "--offline true --cache-dir PATH\n"
+             "--archived true --confirm true --offline true --cache-dir PATH\n"
              "login: send optional --message TEXT; --host ID explicitly targets that Agent "
              "for approval. Without --host the administrator selects the server. "
              "login --api-key: requires --host ID; read COC_API_KEY or prompt securely. "

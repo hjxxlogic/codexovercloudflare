@@ -75,3 +75,11 @@ Client 将启动标记保持到认证的 TUI 在传输握手完成后发出 `ini
 立即执行验证点击时的原 activeTask 身份，将指定条目提升至队首并保存 stopping，提交 turn/interrupt 后等待匹配的 turn/completed；中断 ACK 不释放执行条件。陈旧任务身份不能中断新轮次。已有队列在控制权转移后继续属于原会话，新控制端可管理它。运行时关闭及 Agent 重启沿用现有会话失败语义，不重建 Codex runtime、不搬运旧队列、不重放未知任务；原队列保留供用户核对。
 
 原生 HTTP 与 WebSocket 在目标 DNS 解析前选择代理路由：除 localhost 和本机 / 内网 IP 字面量外，配置代理时只解析代理地址，将原目标域名交给 HTTP CONNECT / SOCKS5。TLS SNI、证书主机名校验及应用 Host 保留原目标，代理失败不回退直连；内网域名也由代理解析。
+
+## Codex 会话归档与删除
+
+加密端点 `POST /hosts/:host/thread-management` 接受 `projectId`、`threadId`、`operation=archive|unarchive|delete`，删除另需 `confirm=true`；角色由端点身份注入，沿原操作协议保存与确认结果。`GET /hosts/:host/threads?projectId=...&archived=true` 查询归档。云端仅转发密文。Agent 用独立 reader 遍历普通/归档目录及所有来源，按 `parentThreadId` 或 `source.subAgent.thread_spawn.parent_thread_id` 追踪派生子树，不使用 `forkedFromId` 级联。调用 Codex `thread/archive`、`thread/unarchive`、`thread/delete` 前检查项目 cwd、临时/运行状态、CoC runtime/角色、排队任务及未决命令预留；全局串行管理并阻止新建/历史导入竞争。
+
+SQLite 新增有界 `transport2_thread_jobs` 与 `transport2_thread_state`。扫描最多 64 页 / 4096 线程，单计划最多 128 线程 / 64 KiB，管理身份最多 4096；超限拒绝而非截断处理。原 RPC 前落盘计划，成功后重新扫描验证，CoC 状态、历史清理、终态原结果在同一事务提交。归档根成功但子会话部分失败时只标记实际已归档项并返回 `partial`。未知结果保留原计划；重启后重复原请求只读核对，不重新调用变更 RPC。计划与对应原操作不被常规保留期清理，仍受操作总预算限制；无法证明的请求会占用容量并阻止该线程再次操作，需要保全状态排查，不能删除计划来绕过。目录扫描无法给独立 Codex 客户端提供事务锁，外部并发变化是明确边界。
+
+删除保留最小会话 tombstone 供目录同步及旧请求拒绝，移除 Agent 中的事件、历史、正文、来源映射、订阅及已确认命令/结果正文，保留闭合流身份。浏览器按身份/主机/会话事务清理缓存；`deleted` 标记参与缓存预算并阻止其他标签页的迟到写入。未确认原请求仍保留恢复证据；归档不清理历史缓存。其他离线客户端和备份不由远程操作擦除。

@@ -2,6 +2,23 @@
 export const english: Record<string, string> = {
   排队消息: 'Queue message',
   已排队: 'Queued',
+  归档会话: 'Archive conversation',
+  取消归档: 'Unarchive',
+  永久删除会话: 'Permanently delete conversation',
+  已归档会话: 'Archived conversations',
+  请先结束会话并处理待确认任务:
+    'End the conversation and resolve pending tasks first',
+  '会话已删除，未确认请求的恢复记录已保留':
+    'Conversation deleted; recovery records for unconfirmed requests were retained',
+  '远程会话已删除，本机缓存清理失败，请刷新重试':
+    'Remote conversation deleted. Local cache cleanup failed; refresh to retry.',
+  会话已永久删除: 'Conversation permanently deleted',
+  '主会话已归档，部分子会话未归档，请刷新后检查':
+    'The parent conversation was archived. Some child conversations could not be archived; refresh to check.',
+  会话已归档: 'Conversation archived',
+  会话已取消归档: 'Conversation unarchived',
+  '永久删除此 Codex 会话及其子会话？将删除远程记录和本机历史、草稿，无法撤销。请确认原 Codex 客户端已停止使用。':
+    'Permanently delete this Codex conversation and its descendants? Remote records, local history and drafts will be removed. This cannot be undone. Confirm that the original Codex client has stopped using it.',
   '正在停止，随后执行': 'Stopping, then starting',
   正在开始: 'Starting',
   '执行失败 · 队列暂停': 'Execution failed · queue paused',

@@ -453,7 +453,7 @@ export default {
       // Old business transports are authenticated only to return a clear
       // upgrade error. Their bodies never enter the relay or endpoint.
       const legacyHost = p.match(
-        /^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/(?:projects|project-management|probe|files|terminal|threads|configuration|operations)(?:[/?]|$)/,
+        /^\/api\/v1\/(admin\/)?hosts\/([\w-]+)\/(?:projects|project-management|thread-management|probe|files|terminal|threads|configuration|operations)(?:[/?]|$)/,
       );
       const legacySession = p.match(/^\/api\/v1\/sessions\/([\w-]+)~/);
       const legacySocket =

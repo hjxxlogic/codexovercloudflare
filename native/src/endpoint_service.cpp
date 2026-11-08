@@ -38,7 +38,7 @@ Json parameters(const std::string &path) {
         if (number > 9007199254740991LL)
           throw Error("INVALID_REQUEST", "Query counter too large");
         args[key] = number;
-      } else if (key == "paged" || key == "mine")
+      } else if (key == "paged" || key == "mine" || key == "archived")
         args[key] = value == "true";
       else
         args[key] = value;
@@ -358,15 +358,21 @@ void EndpointService::request(const std::string &link, const Json &d) {
   const auto own = owner(link);
   std::string action, session;
   std::smatch match;
-  if (std::regex_match(
-          path, match,
-          std::regex(
-              "/(?:admin/)?hosts/([\\w-]+)/"
-              "(projects|project-management|probe|threads|files|terminal|configuration|build)"))) {
+  if (std::regex_match(path, match,
+                       std::regex("/(?:admin/)?hosts/([\\w-]+)/"
+                                  "(projects|project-management|thread-management|probe|threads|"
+                                  "files|terminal|configuration|build)"))) {
     if (match[1] != host_)
       throw Error("FORBIDDEN", "Wrong host");
     const auto name = match[2].str();
-    action = name == "project-management" ? "projectManage" : name;
+    action = name == "project-management"  ? "projectManage"
+             : name == "thread-management" ? "threadManage"
+                                           : name;
+    if (action == "threadManage") {
+      if (body.is_null())
+        throw Error("INVALID_REQUEST", "Thread management requires a mutation body");
+      args["mode"] = identity.at("role");
+    }
     if (action == "projectManage") {
       if (!args.contains("operation"))
         args["operation"] = "list";
@@ -739,8 +745,8 @@ bool EndpointService::outgoing(const Json &d) {
     emit(d.at("endpointLink"), out);
     return true;
   }
-  if (type == "projects-changed" || type == "event" || type == "rpc" || type == "notice" ||
-      type == "history-notice" || type == "terminal-stream") {
+  if (type == "sessions-changed" || type == "projects-changed" || type == "event" ||
+      type == "rpc" || type == "notice" || type == "history-notice" || type == "terminal-stream") {
     // Snapshot recipient IDs first; emit can fail and retire a physical link.
     for (auto &[link, peer] : links_) {
       if (peer.identity.value("expires", int64_t(0)) <= now())
@@ -748,7 +754,7 @@ bool EndpointService::outgoing(const Json &d) {
       for (const auto &[id, s] : peer.streams) {
         Json payload;
         if (s.kind == "notification" &&
-            (type == "projects-changed" ||
+            (type == "sessions-changed" || type == "projects-changed" ||
              (type == "event" &&
               (d.at("payload").at("event").value("type", "") == "sessionClosed" ||
                d.at("payload").at("event").value("type", "") == "externalState" ||

@@ -348,7 +348,7 @@ export class AgentEndpoint extends EventEmitter {
           if (c) data.controller = c.controller;
         }
       } else
-        path = `/hosts/${this.host}/${d.action === 'projectManage' ? 'project-management' : d.action}`;
+        path = `/hosts/${this.host}/${d.action === 'projectManage' ? 'project-management' : d.action === 'threadManage' ? 'thread-management' : d.action}`;
       const response = await this.request(
         p,
         path,

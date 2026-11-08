@@ -1,3 +1,4 @@
+import { IconButton } from './happier/icon-button.tsx';
 import { Icon } from './happier/icon.tsx';
 import { t, localeTag } from './i18n.ts';
 import type { Session } from '../../../packages/protocol/src/index.ts';
@@ -7,6 +8,7 @@ export type Thread = {
   preview: string;
   name?: string;
   updatedAt: number;
+  archived?: boolean;
 };
 export function SessionHistory({
   sessions,
@@ -22,8 +24,17 @@ export function SessionHistory({
   onSelect,
   onResume,
   compact = false,
+  archived = false,
+  managing = false,
+  onManage,
 }: {
   compact?: boolean;
+  archived?: boolean;
+  managing?: boolean;
+  onManage?: (
+    threadId: string,
+    operation: 'archive' | 'unarchive' | 'delete',
+  ) => void;
   sessions: Session[];
   threads: Thread[];
   project: string;
@@ -40,7 +51,12 @@ export function SessionHistory({
   const rows = new Map<string, { session?: Session; thread?: Thread }>();
   for (const thread of threads) rows.set(thread.id, { thread });
   for (const session of sessions) {
-    if (session.projectId !== project || session.mode !== 'web') continue;
+    if (
+      session.projectId !== project ||
+      session.mode !== 'web' ||
+      session.deleted
+    )
+      continue;
     const key = session.threadId || session.id;
     const row = rows.get(key) || {};
     const previous = row.session;
@@ -59,7 +75,15 @@ export function SessionHistory({
       row.session?.updatedAt || row.session?.createdAt || 0,
       (row.thread?.updatedAt || 0) * 1000,
     );
+  const deleted = new Set(
+    sessions.filter((s) => s.deleted).map((s) => s.threadId),
+  );
   const visible = [...rows]
+    .filter(
+      ([id, { session, thread }]) =>
+        !deleted.has(id) &&
+        (thread?.archived ?? session?.archived ?? false) === archived,
+    )
     .filter(([, { session, thread }]) =>
       `${session?.title || ''} ${thread?.name || ''} ${thread?.preview || ''} ${session?.id || ''} ${thread?.id || ''} ${projectName}`
         .toLowerCase()
@@ -91,7 +115,7 @@ export function SessionHistory({
           <div className="history-row" key={key}>
             <button
               className={`session ${compact ? 'session-compact' : ''} ${current ? 'active' : ''}`}
-              disabled={!session && (creating || !online)}
+              disabled={archived ? !session : !session && (creating || !online)}
               onClick={() => (session ? onSelect(session) : onResume(key))}
               title={thread?.preview || title}
             >
@@ -125,6 +149,36 @@ export function SessionHistory({
                 </>
               )}
             </button>
+            {onManage && (thread?.id || session?.threadId) && (
+              <div className="history-actions">
+                <IconButton
+                  icon={archived ? 'back' : 'folder'}
+                  label={t(archived ? '取消归档' : '归档会话')}
+                  disabled={
+                    !online ||
+                    managing ||
+                    (!!session &&
+                      ['ready', 'starting', 'closing'].includes(session.state))
+                  }
+                  title={t('请先结束会话并处理待确认任务')}
+                  onClick={() =>
+                    onManage(key, archived ? 'unarchive' : 'archive')
+                  }
+                />
+                <IconButton
+                  icon="trash"
+                  label={t('永久删除会话')}
+                  disabled={
+                    !online ||
+                    managing ||
+                    (!!session &&
+                      ['ready', 'starting', 'closing'].includes(session.state))
+                  }
+                  title={t('请先结束会话并处理待确认任务')}
+                  onClick={() => onManage(key, 'delete')}
+                />
+              </div>
+            )}
           </div>
         );
       })}

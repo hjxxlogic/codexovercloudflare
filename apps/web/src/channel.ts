@@ -14,7 +14,7 @@ export class ChannelError extends Error {
 export function endpointHost(path: string, data?: unknown) {
   return (
     path.match(
-      /^\/(?:admin\/)?hosts\/([\w-]+)\/(?:projects|project-management|probe|threads|files|terminal|configuration|build)(?:[/?]|$)/,
+      /^\/(?:admin\/)?hosts\/([\w-]+)\/(?:projects|project-management|thread-management|probe|threads|files|terminal|configuration|build)(?:[/?]|$)/,
     )?.[1] ||
     path.match(/^\/sessions\/([\w-]+)~/)?.[1] ||
     (/^\/sessions(?:[/?]|$)/.test(path)

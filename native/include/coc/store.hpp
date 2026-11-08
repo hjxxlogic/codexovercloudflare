@@ -69,6 +69,12 @@ public:
   Store(const Store &) = delete;
   Store &operator=(const Store &) = delete;
   void on_failure(std::function<void()> callback) { storage_failure_ = std::move(callback); }
+  Json thread_state(const std::string &thread);
+  Json thread_job(const std::string &key);
+  bool thread_pending(const std::string &thread);
+  void thread_plan(const std::string &key, const Json &plan);
+  void thread_abandon(const std::string &key);
+  Json thread_apply(const std::string &key, const Json &threads);
   void save(const Json &session);
   Json sessions(bool active_only = false);
   Json session_page(const Json &filters);

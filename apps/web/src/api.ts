@@ -146,7 +146,7 @@ export async function api(
   }
   if (
     /^\/sessions(?:[/?]|$)/.test(path) ||
-    /^\/(?:admin\/)?hosts\/[^/]+\/(?:projects|project-management|probe|threads|files|terminal|configuration|build|operations)(?:[/?]|$)/.test(
+    /^\/(?:admin\/)?hosts\/[^/]+\/(?:projects|project-management|thread-management|probe|threads|files|terminal|configuration|build|operations)(?:[/?]|$)/.test(
       path,
     )
   )

@@ -2,6 +2,8 @@
 
 本文列出当前入口与验证边界；本次集成结果见文末。历史预览不代表当前提交或线上部署，准确来源见 [r2 历史发布记录](R2_DEPLOYMENT.md)。
 
+2026-11-08 归档 / 删除功能的完整本机复测见 [本机完整测试记录](LOCAL_ALL_TESTS_20261108.md)，包含真实模型、sanitizer、三个 Linux 发行版、跳过项及首次失败与重跑结果。
+
 ## 基础检查
 
 | 命令                                | 覆盖                                             |
@@ -172,3 +174,11 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 这是本机 Chromium 的配额故障模拟，未在真实 iPhone / Safari 上验证，未提交或发布网页，也未变更 Agent 或远程任务。
 
 后续已按用户明确要求跳过 Actions，以提交 `8fc8289` 本地构建发布主站网页；线上静态资源和 Worker 保留摘要核对通过，见 [缓存背压修复发布记录](BROWSER_CACHE_FIX_20261108.md)。
+
+## 2026-11-08 会话归档与永久删除
+
+新增 `npm run test:threads`（构建后运行），覆盖 CTest 的计划、分页目录、父子级联/独立 fork、项目边界、运行/未决状态、缺失接口、响应丢失、Agent 重启只读恢复、归档部分成功、SQLite 清理失败回滚；真实 Agent 的加密端点检查确认要求、角色/项目隔离、原请求回执、防重复执行和删除后拒绝续接。网页检查在 390 × 844 视口验证归档列表、取消归档、删除确认/取消、刷新不复现；截图位于忽略路径 `.local/ui-stability/threads-archived-mobile.png`、`threads-deleted-mobile.png`。
+
+`npm run test:cache` 通过真实 Chromium IndexedDB 验证草稿/历史订阅/已确认原请求清理、未确认恢复证据保留、其他会话隔离和旧标签页写入拒绝；清理历史不会移除删除屏障。`npm test` 通过 16 项 CTest 与 37 个 Vitest 文件 / 404 项测试。`npm run test:threads:codex` 在独立临时 CODEX_HOME 用真实 Codex 0.166.0 验证归档移动 JSONL、恢复路径、永久删除文件和目录项，项目标记文件保留，并核对混合模型提供商目录；没有模型调用，也没有使用用户会话。
+
+类型检查、协议生成一致性、原生/网页构建、格式检查和完整 `npm run test:ui` 均通过。未在真实 iPhone / Safari 验证，未执行 GitHub Actions 或生产部署。独立 Codex 客户端不受 CoC 锁控制，离线设备与备份不自动擦除；未知变更计划保留并占用有界容量。

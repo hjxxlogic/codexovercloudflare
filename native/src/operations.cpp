@@ -15,7 +15,8 @@ std::string operation_digest(const std::string &action, const Json &data) {
 } // namespace
 bool operation_write(const std::string &action, const Json &data) {
   const auto operation = data.is_object() ? data.value("operation", "") : "";
-  return action == "create" || action == "stop" || action == "queue" || action == "answer" ||
+  return action == "threadManage" || action == "create" || action == "stop" || action == "queue" ||
+         action == "answer" ||
          (action == "projectManage" && operation != "list" && operation != "browse") ||
          (action == "files" && (operation == "begin" || operation == "finish")) ||
          (action == "terminal" && (operation == "open" || operation == "close"));
@@ -57,7 +58,8 @@ Json Store::operation_begin(const Json &intent, const std::string &action, const
     if (!existing.empty()) {
       const auto &record = existing.at(0);
       if (record.at("retained_at").get<int64_t>() <=
-          now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000)
+              now() - history_policy_.at("retentionSeconds").get<int64_t>() * 1000 &&
+          thread_job(key).is_null())
         throw Error("REQUEST_EXPIRED", "Original operation exceeded its retention deadline");
       if (record.at("instance") != intent.at("instance"))
         throw Error("REQUEST_EXPIRED", "Original operation admission generation has expired");

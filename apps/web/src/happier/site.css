@@ -263,3 +263,34 @@ button.primary:hover:enabled,
     display: none;
   }
 }
+
+.history-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.history-row:has(.history-actions) {
+  display: flex;
+  align-items: center;
+}
+.history-row:has(.history-actions) > .session {
+  min-width: 0;
+  flex: 1;
+}
+.history-actions .icon-button {
+  width: 30px;
+  height: 32px;
+}
+.archive-filter {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.unified-navigation .archive-filter input {
+  width: auto;
+  margin: 0;
+}

@@ -520,6 +520,27 @@ Linux Agent 配置 `sandbox: "workspace-write"`、`"terminal": { "enabled": true
 
 终端输入和完整日志不持久化到浏览器；输出只在 Agent 内存保留最近 256 KiB，落后会提示截断。单次输入最多 4 KiB，全 Agent 最多 4 个 runtime（含短期退出记录），每项目最多一个活跃终端。隔离进程有 CPU、内存、进程、文件大小和描述符限制，详见架构说明；这些为进程级限制，不是整个项目的 cgroup 总量限制。终端能修改项目文件；结束终端不会撤销已经发生的修改。
 
+## 归档与永久删除会话
+
+在左侧当前项目的历史列表中，点击“归档会话”可将 Codex 记录移入归档，同时标记关联的 CoC 会话。勾选“已归档会话”查看归档列表，点击“取消归档”恢复到普通列表；需要继续任务时先取消归档。归档保留远程历史及浏览器草稿。归档会尝试处理 Codex 派生的子会话；部分子会话失败会单独提示。取消归档只恢复选中的会话，子会话需要分别恢复。
+
+“永久删除会话”需要确认，会调用 Codex 的 `thread/delete`，删除选中会话及其派生子会话的持久记录，并清理对应的 Agent 历史、正文、会话关联和当前浏览器的已读历史、草稿与待确认输入缓存。独立 fork 的会话不随父会话删除。此操作不可撤销；项目文件、Codex 配置与凭据保留。Agent 只留下最小删除标记与防止旧请求重放所需的身份信息。它不是磁盘安全擦除，也不会删除备份或其他离线设备的副本；其他网页收到删除目录记录后清理当前身份下的会话缓存，旧标签页后续写入被拒绝。未确认原请求的恢复证据会保留，不能把它当作删除成功证明。
+
+先结束所有关联的 CoC 会话并处理排队任务、未确认命令；运行中、跨项目子会话或其他角色关联会被拒绝。也应先退出原生 Codex / IDE 中正在使用该记录的客户端。Agent 不能锁定独立运行的 Codex 客户端；仅能检查本机 CoC runtime 和 Codex 返回的状态，外部客户端并发写入仍可能影响结果。只允许在当前已登记项目下操作。
+
+CLI 使用 Codex thread ID（不是 `host~session`）：
+
+```bash
+coc-client threads --project PROJECT_ID
+coc-client archive THREAD_ID --project PROJECT_ID
+coc-client threads --project PROJECT_ID --archived true
+coc-client unarchive THREAD_ID --project PROJECT_ID
+coc-client delete THREAD_ID --project PROJECT_ID --confirm true --request-id REQUEST_ID
+coc-client request REQUEST_ID
+```
+
+网页和 CLI 均先保存原请求。连接中断或 Agent 重启后沿相同请求核对 Codex 状态，不重新发送归档或删除 RPC；未能证明结果时保持 `RESULT_UNKNOWN`，不要换编号重做。CLI 会打印请求 ID，可用 `request` 恢复。已删除记录不能再次通过 CoC 续接。CLI 的离线历史副本需另用 `cache-clear` 清理。Codex 不支持对应接口时显示 `UPGRADE_REQUIRED`，不会通过直接改动 Codex 文件或 SQLite 绕过；本功能已用 Codex 0.166.0 实测。
+
 ## 刷新、续接与断开清理
 
 CW 历史保存在浏览器 IndexedDB，已缓存的旧页再次打开优先本地读取。首次读取、缓存被清理或历史代际变化仍需请求 Agent；不预先下载全部历史正文。

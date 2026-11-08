@@ -21,7 +21,7 @@ export type OperationIntent = z.infer<typeof operationIntentSchema>;
 // identity. Beginning/publishing an upload requires the HTTP original ledger.
 export function operationWrite(action: string, data: { operation?: string }) {
   return (
-    ['create', 'stop', 'queue', 'answer'].includes(action) ||
+    ['create', 'stop', 'queue', 'answer', 'threadManage'].includes(action) ||
     (action === 'projectManage' &&
       !['list', 'browse'].includes(data.operation || '')) ||
     (action === 'files' &&
@@ -283,6 +283,8 @@ export const sessionSchema = z.object({
   mode: z.enum(['web', 'cli']),
   state: z.enum(['starting', 'ready', 'closing', 'closed', 'failed']),
   threadId: idSchema.optional(),
+  archived: z.boolean().optional(),
+  deleted: z.boolean().optional(),
   external: z.boolean().optional(),
   queueEnabled: z.boolean().optional(),
   promptQueue: z.array(promptQueueEntrySchema).max(16).optional(),
@@ -652,6 +654,16 @@ export const controlCommandSchema = z.discriminatedUnion('action', [
       projectId: idSchema.optional(),
       mode: z.enum(['web', 'cli']).optional(),
       state: sessionSchema.shape.state.optional(),
+    }),
+  ),
+  control(
+    'threadManage',
+    z.object({
+      projectId: idSchema,
+      threadId: idSchema,
+      mode: z.enum(['web', 'cli']),
+      operation: z.enum(['archive', 'unarchive', 'delete']),
+      confirm: z.boolean().optional(),
     }),
   ),
   control('get', z.object({ sessionId: sessionIdSchema })),

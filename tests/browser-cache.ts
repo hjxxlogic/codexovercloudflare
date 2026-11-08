@@ -749,6 +749,77 @@ try {
     quota.globalRefused,
     'Many cache scopes cannot multiply the global cache quota',
   );
+  const purgePage = await context.newPage();
+  await purgePage.route('https://purge-cache.invalid/**', (route) =>
+    route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
+  );
+  await purgePage.goto('https://purge-cache.invalid/');
+  await purgePage.addScriptTag({ content: source });
+  const purged = await purgePage.evaluate(async () => {
+    const Cache = (globalThis as any).HistoryCache as typeof HistoryCache;
+    const original = new Cache('deleted-session');
+    const staleTab = new Cache('deleted-session');
+    const other = new Cache('another-session');
+    const unresolved = new Cache('unresolved-session');
+    await original.record('draft', 'private draft');
+    await original.record('pending', ['private pending message']);
+    await original.record('history-subscription:test', { received: 42 });
+    await other.record('draft', 'keep other session');
+    await original.record('delivery-outbox-http:v2:test', {
+      version: 2,
+      order: ['done'],
+      records: {
+        done: { state: 'confirmed', body: { text: 'private confirmed input' } },
+      },
+    });
+    await unresolved.record('delivery-outbox-http:v2:test', {
+      version: 2,
+      order: ['pending'],
+      records: {
+        pending: {
+          state: 'pending',
+          body: { text: 'recover original request' },
+        },
+      },
+    });
+    const cleaned = await original.purge();
+    await staleTab.clear();
+    let resurrected = false;
+    try {
+      await staleTab.record('draft', 'stale writer');
+      resurrected = true;
+    } catch (error) {
+      if (!String(error).includes('SESSION_DELETED')) throw error;
+    }
+    const preserved = await unresolved.purge();
+    const values = {
+      cleaned,
+      preserved,
+      resurrected,
+      draft: (await staleTab.record('draft')) ?? null,
+      pending: (await staleTab.record('pending')) ?? null,
+      subscription:
+        (await staleTab.record('history-subscription:test')) ?? null,
+      confirmed:
+        (await staleTab.record('delivery-outbox-http:v2:test')) ?? null,
+      unresolved: await unresolved.record('delivery-outbox-http:v2:test'),
+      other: await other.record('draft'),
+    };
+    await original.purge(); // idempotent cleanup retains its deletion fence
+    for (const cache of [original, staleTab, other, unresolved]) cache.close();
+    return values;
+  });
+  assert.deepEqual(purged.cleaned, { retainedRequests: false });
+  assert.deepEqual(purged.preserved, { retainedRequests: true });
+  assert.equal(purged.resurrected, false);
+  for (const key of ['draft', 'pending', 'subscription', 'confirmed'] as const)
+    assert.equal(purged[key], null, `Delete clears ${key}`);
+  assert.equal(purged.other, 'keep other session');
+  assert.equal(
+    purged.unresolved.records.pending.body.text,
+    'recover original request',
+  );
+  await purgePage.close();
   await secondTab.close();
   await browserCacheRecovery(context, source);
   console.log(

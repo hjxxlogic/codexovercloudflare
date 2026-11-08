@@ -1,6 +1,6 @@
 {
   "name": "codex-over-cloudflare",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "private": true,
   "type": "module",
   "engines": {
@@ -51,7 +51,9 @@
     "test:markdown": "tsx tests/workbench-rendering.ts",
     "test:terminal": "tsx tests/native-terminal.ts",
     "test:terminal:e2e": "COC_TEST_TERMINAL=1 tsx tests/e2e.ts",
-    "test:queue": "tsx tests/native-prompt-queue.ts"
+    "test:queue": "tsx tests/native-prompt-queue.ts",
+    "test:threads": "ctest --test-dir build -R native-thread-management --output-on-failure && tsx tests/native-thread-management.ts && tsx tests/ui-stability.ts --threads",
+    "test:threads:codex": "python3 tests/real-thread-management.py"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

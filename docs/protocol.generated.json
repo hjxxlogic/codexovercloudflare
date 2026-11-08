@@ -1630,6 +1630,12 @@
         "type": "string",
         "pattern": "^[a-zA-Z0-9_-]{1,100}$"
       },
+      "archived": {
+        "type": "boolean"
+      },
+      "deleted": {
+        "type": "boolean"
+      },
       "external": {
         "type": "boolean"
       },
@@ -2467,6 +2473,58 @@
             "required": [
               "paged",
               "cursor"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "threadManage"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "threadId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "cli"
+                ]
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "archive",
+                  "unarchive",
+                  "delete"
+                ]
+              },
+              "confirm": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "projectId",
+              "threadId",
+              "mode",
+              "operation"
             ],
             "additionalProperties": false
           }

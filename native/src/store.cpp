@@ -249,6 +249,10 @@ Store::Store(const std::string &dir, bool authoritative, const std::string &cach
         "NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,"
         "reserved INTEGER NOT NULL,instance TEXT NOT NULL DEFAULT '',retained_at INTEGER NOT NULL "
         "DEFAULT 0,UNIQUE(owner,request_id))");
+    run("CREATE TABLE IF NOT EXISTS transport2_thread_jobs(key TEXT PRIMARY KEY,value TEXT NOT "
+        "NULL)");
+    run("CREATE TABLE IF NOT EXISTS transport2_thread_state(thread TEXT PRIMARY KEY,value TEXT NOT "
+        "NULL)");
     run("CREATE TABLE IF NOT EXISTS transport2_uploads(key TEXT PRIMARY KEY,owner TEXT NOT NULL,"
         "digest TEXT NOT NULL,phase TEXT NOT NULL,result TEXT,reserved INTEGER NOT NULL,"
         "active INTEGER NOT NULL,retained_at INTEGER NOT NULL DEFAULT 0)");
@@ -447,10 +451,11 @@ void Store::save(const Json &s) {
 }
 Json Store::sessions(bool active_only) {
   Json result = Json::array();
-  for (auto &r :
-       query(active_only ? "SELECT value FROM sessions WHERE json_extract(value,'$.state') IN "
-                           "('ready','starting','closing')"
-                         : "SELECT value FROM sessions"))
+  for (auto &r : query(
+           active_only
+               ? "SELECT value FROM sessions WHERE json_extract(value,'$.state') IN "
+                 "('ready','starting','closing')"
+               : "SELECT value FROM sessions WHERE COALESCE(json_extract(value,'$.deleted'),0)=0"))
     result.push_back(Json::parse(r["value"].get<std::string>()));
   return result;
 }
@@ -484,7 +489,10 @@ Json Store::get(const std::string &id) {
   auto r = query("SELECT value FROM sessions WHERE id=?", {id});
   if (r.empty())
     throw Error("SESSION_NOT_FOUND", "Unknown session");
-  return Json::parse(r[0]["value"].get<std::string>());
+  auto result = Json::parse(r[0]["value"].get<std::string>());
+  if (result.value("deleted", false))
+    throw Error("SESSION_DELETED", "Session was permanently deleted");
+  return result;
 }
 Json Store::observation_event(const std::string &id, const std::string &type, const Json &data) {
   HistoryImport admission(history_import_);

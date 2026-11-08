@@ -81,6 +81,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+`npm run test:threads` 在构建后运行会话归档/删除的 CTest、真实 Agent 加密端点与手机 UI 回归；`npm run test:cache` 另验证删除缓存与旧标签页写入隔离。`npm run test:threads:codex` 需安装支持对应接口的 Codex（已验证 0.166.0），创建独立临时 CODEX_HOME，核对真实 JSONL 归档/恢复/删除，不调用模型、不读取用户会话。空的新 Codex 会话不会出现在普通目录，该测试只向自己的临时 rollout 加入合成用户消息，并覆盖不同模型提供商的目录记录。
+
 `npm test` 是 CTest 加 Vitest，不调用模型。其它测试入口、依赖与覆盖见 [测试说明](TEST_REPORT.md)。需要真实模型的 `test:task` 和 `test:native -- --task` 应单独运行。
 
 经授权读取真实用户数据库时，先用 `scripts/state-backup.py backup` 保存私有一致性快照，再运行 `tests/user-database-upgrade.py --snapshot <快照> --output <不存在的私有目录>`。原生辅助程序 `coc-database-upgrade` 只打开 Store；不启动 Agent、Codex 或连接生产中继。脚本核对全部原有表的行数与逐行摘要、升级备份和重复打开，输入快照始终保持原样。不要将用户数据库作为仓库 fixture 提交。

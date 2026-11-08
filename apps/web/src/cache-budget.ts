@@ -19,7 +19,9 @@ export const cacheLimits = {
 const recoveryRecord = (store: string, key: IDBValidKey) =>
   store === 'pages' &&
   Array.isArray(key) &&
-  (['workspace', 'draft', 'pending', 'model'].includes(String(key[1])) ||
+  (['workspace', 'draft', 'pending', 'model', 'deleted'].includes(
+    String(key[1]),
+  ) ||
     String(key[1]).startsWith('history-subscription:'));
 
 export function cacheCapacityError(error: unknown): boolean {
@@ -130,100 +132,124 @@ export class CacheBudget {
   put(store: string, key: IDBValidKey, value: unknown, scope: string) {
     this.change(store, key, scope, value);
   }
-  remove(store: string, key: IDBValidKey, scope: string) {
-    this.change(store, key, scope);
+  remove(store: string, key: IDBValidKey, scope: string, purge = false) {
+    this.change(store, key, scope, undefined, purge);
   }
   private change(
     store: string,
     key: IDBValidKey,
     scope: string,
     value?: unknown,
+    purge = false,
   ) {
     this.queue.push(() => {
       const data = this.tx.objectStore(store);
       const read = data.get(key);
       read.onsuccess = () => {
-        const ledger = this.ledger!;
-        const old = read.result;
-        if (
-          store === 'events' &&
-          old !== undefined &&
-          value !== undefined &&
-          (old.event?.revision ?? old.event?.seq) >
-            ((value as any).event?.revision ?? (value as any).event?.seq)
-        ) {
-          this.busy = false;
-          this.next();
-          return;
-        }
-        const command =
-          store === 'pages' &&
-          Array.isArray(key) &&
-          String(key[1]).startsWith('delivery-outbox');
-        const identity = JSON.stringify([scope, key]);
-        const size = value === undefined ? 0 : charge(key, value);
-        const previous = old === undefined ? 0 : charge(key, old);
-        const scopeKey = JSON.stringify(scope);
-        const own = ledger.scopes[scopeKey] ?? { bytes: 0, records: 0 };
-        const records = Number(value !== undefined) - Number(old !== undefined);
-        if (command) {
-          const reserved = ledger.commands[identity] ?? 0;
-          const required = commandReservation(value, size, key);
+        const apply = () => {
+          const ledger = this.ledger!;
+          const old = read.result;
           if (
-            value === undefined ||
-            size > cacheLimits.commandReservation ||
-            (!reserved &&
-              Object.keys(ledger.commands).length >= cacheLimits.scopes) ||
-            Object.values(ledger.commands).reduce((a, b) => a + b, 0) -
-              reserved +
-              required >
-              cacheLimits.commandBytes
+            store === 'events' &&
+            old !== undefined &&
+            value !== undefined &&
+            (old.event?.revision ?? old.event?.seq) >
+              ((value as any).event?.revision ?? (value as any).event?.seq)
           ) {
-            this.fail('command');
+            this.busy = false;
+            this.next();
             return;
           }
-          ledger.commands[identity] = required;
-        } else {
-          const delta = size - previous;
-          const recovery = recoveryRecord(store, key);
-          if (value !== undefined && size > cacheLimits.scopeBytes) {
-            this.fail();
-            return;
-          }
-          const fits = () =>
-            value === undefined ||
-            (delta <= 0 && records <= 0) ||
-            (ledger.bytes + delta <=
-              cacheLimits.bytes + (recovery ? cacheLimits.recoveryBytes : 0) &&
-              own.bytes + delta <=
-                cacheLimits.scopeBytes +
-                  (recovery ? cacheLimits.scopeRecoveryBytes : 0) &&
-              ledger.records + records <=
-                cacheLimits.records +
-                  (recovery ? cacheLimits.recoveryRecords : 0) &&
-              own.records + records <=
-                cacheLimits.scopeRecords +
-                  (recovery ? cacheLimits.scopeRecoveryRecords : 0) &&
-              (ledger.scopes[scopeKey] ||
-                Object.keys(ledger.scopes).length < cacheLimits.scopes));
-          const persist = () => {
-            if (!fits()) {
+          const command =
+            store === 'pages' &&
+            Array.isArray(key) &&
+            String(key[1]).startsWith('delivery-outbox');
+          const identity = JSON.stringify([scope, key]);
+          const size = value === undefined ? 0 : charge(key, value);
+          const previous = old === undefined ? 0 : charge(key, old);
+          const scopeKey = JSON.stringify(scope);
+          const own = ledger.scopes[scopeKey] ?? { bytes: 0, records: 0 };
+          const records =
+            Number(value !== undefined) - Number(old !== undefined);
+          if (
+            command &&
+            value === undefined &&
+            purge &&
+            commandReservation(old, 0, key) === 0
+          ) {
+            delete ledger.commands[identity];
+          } else if (command) {
+            const reserved = ledger.commands[identity] ?? 0;
+            const required = commandReservation(value, size, key);
+            if (
+              value === undefined ||
+              size > cacheLimits.commandReservation ||
+              (!reserved &&
+                Object.keys(ledger.commands).length >= cacheLimits.scopes) ||
+              Object.values(ledger.commands).reduce((a, b) => a + b, 0) -
+                reserved +
+                required >
+                cacheLimits.commandBytes
+            ) {
+              this.fail('command');
+              return;
+            }
+            ledger.commands[identity] = required;
+          } else {
+            const delta = size - previous;
+            const recovery = recoveryRecord(store, key);
+            if (value !== undefined && size > cacheLimits.scopeBytes) {
               this.fail();
               return;
             }
-            ledger.bytes += delta;
-            ledger.records += records;
-            own.bytes += delta;
-            own.records += records;
-            if (own.records) ledger.scopes[scopeKey] = own;
-            else delete ledger.scopes[scopeKey];
-            this.write(data, key, value);
+            const fits = () =>
+              value === undefined ||
+              (delta <= 0 && records <= 0) ||
+              (ledger.bytes + delta <=
+                cacheLimits.bytes +
+                  (recovery ? cacheLimits.recoveryBytes : 0) &&
+                own.bytes + delta <=
+                  cacheLimits.scopeBytes +
+                    (recovery ? cacheLimits.scopeRecoveryBytes : 0) &&
+                ledger.records + records <=
+                  cacheLimits.records +
+                    (recovery ? cacheLimits.recoveryRecords : 0) &&
+                own.records + records <=
+                  cacheLimits.scopeRecords +
+                    (recovery ? cacheLimits.scopeRecoveryRecords : 0) &&
+                (ledger.scopes[scopeKey] ||
+                  Object.keys(ledger.scopes).length < cacheLimits.scopes));
+            const persist = () => {
+              if (!fits()) {
+                this.fail();
+                return;
+              }
+              ledger.bytes += delta;
+              ledger.records += records;
+              own.bytes += delta;
+              own.records += records;
+              if (own.records) ledger.scopes[scopeKey] = own;
+              else delete ledger.scopes[scopeKey];
+              this.write(data, key, value);
+            };
+            if (!fits()) this.reclaim(scope, key, fits, persist);
+            else persist();
+            return;
+          }
+          this.write(data, key, value);
+        };
+        if (
+          value !== undefined &&
+          !(store === 'pages' && Array.isArray(key) && key[1] === 'deleted')
+        ) {
+          const marker = this.tx.objectStore('pages').get([scope, 'deleted']);
+          marker.onsuccess = () => {
+            if (marker.result) {
+              this.error = new Error('SESSION_DELETED: 本机会话副本已删除');
+              this.tx.abort();
+            } else apply();
           };
-          if (!fits()) this.reclaim(scope, key, fits, persist);
-          else persist();
-          return;
-        }
-        this.write(data, key, value);
+        } else apply();
       };
     });
     this.next();

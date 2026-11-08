@@ -1,5 +1,9 @@
 import { eventBytes, eventWindow } from './events.ts';
-import { CacheBudget, cacheLimits } from './cache-budget.ts';
+import {
+  CacheBudget,
+  cacheLimits,
+  commandReservation,
+} from './cache-budget.ts';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
 export type HistoryPage = {
@@ -589,6 +593,49 @@ export class HistoryCache {
       };
     });
   }
+  async purge(): Promise<{ retainedRequests: boolean }> {
+    this.generation++;
+    this.closed = true;
+    clearTimeout(this.liveTimer);
+    clearTimeout(this.draftTimer);
+    this.live.clear();
+    this.liveBytes = 0;
+    this.liveCheckpoint = undefined;
+    this.draftValue = undefined;
+    this.draftWait?.reject(new Error('SESSION_DELETED'));
+    this.draftWait = undefined;
+    if (this.liveJob) await this.liveJob;
+    const db = await this.db;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['events', 'pages'], 'readwrite');
+      const budget = new CacheBudget(tx);
+      let retainedRequests = false;
+      let remaining = 2;
+      for (const name of ['events', 'pages']) {
+        const read = tx.objectStore(name).openCursor(this.range());
+        read.onsuccess = () => {
+          const row = read.result;
+          if (!row) {
+            if (!--remaining)
+              budget.put('pages', [this.scope, 'deleted'], true, this.scope);
+            return;
+          }
+          const key = (row.key as IDBValidKey[])[1];
+          if (
+            name === 'pages' &&
+            String(key).startsWith('delivery-outbox') &&
+            commandReservation(row.value, 0, row.key) !== 0
+          )
+            retainedRequests = true;
+          else if (key !== 'deleted')
+            budget.remove(name, row.key, this.scope, true);
+          row.continue();
+        };
+      }
+      tx.oncomplete = () => resolve({ retainedRequests });
+      tx.onabort = () => reject(budget.error || tx.error);
+    });
+  }
   async clear() {
     this.generation++;
     this.durableRevision = undefined;
@@ -615,7 +662,7 @@ export class HistoryCache {
           )
             if (
               name === 'events' ||
-              (!['draft', 'pending'].includes(
+              (!['draft', 'pending', 'deleted'].includes(
                 String((row.key as IDBValidKey[])[1]),
               ) &&
                 !String((row.key as IDBValidKey[])[1]).startsWith(
