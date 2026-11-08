@@ -438,8 +438,11 @@ void EndpointService::request(const std::string &link, const Json &d) {
       if (info.at("state") != "ready")
         throw Error("SESSION_CLOSED", "Session is not ready");
       const auto claim = args.value("claimId", d.value("requestId", uuid()));
+      const auto previous = info.value("endpointLease", Json());
+      const bool connected =
+          !previous.is_null() && can_dispatch(session, previous.at("connectionGeneration"));
       const auto lease = store_.endpoint_claim(session, own, claim, name == "takeover",
-                                               args.value("resume", Json()));
+                                               args.value("resume", Json()), connected);
       fence(session, lease);
       emit(link, {{"type", "response"},
                   {"id", id},

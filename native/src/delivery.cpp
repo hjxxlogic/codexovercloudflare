@@ -807,7 +807,8 @@ Json Store::output_page(const std::string &stream, int64_t after) {
 
 namespace coc {
 Json Store::endpoint_claim(const std::string &id, const std::string &owner,
-                           const std::string &claim, bool takeover, const Json &resume) {
+                           const std::string &claim, bool takeover, const Json &resume,
+                           bool connected) {
   if (!valid_id(owner) || !valid_id(claim))
     throw Error("INVALID_REQUEST", "Invalid control claim");
   run("BEGIN IMMEDIATE");
@@ -839,8 +840,10 @@ Json Store::endpoint_claim(const std::string &id, const std::string &owner,
         run("COMMIT");
         return lease;
       }
-      if (!takeover && (lease.value("connectionGeneration", int64_t(0)) > 0 ||
-                        lease.value("reservedUntil", int64_t(0)) > now()))
+      // A persisted generation fences old commands; it is not a live connection.
+      // Consumed tickets no longer reserve control, even before their deadline.
+      if (!takeover && (connected || (!lease.value("ticketUsed", false) &&
+                                      lease.value("reservedUntil", int64_t(0)) > now())))
         throw Error("SESSION_BUSY", "Session requires explicit takeover");
     }
     const auto generation =

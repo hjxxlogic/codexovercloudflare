@@ -233,6 +233,44 @@ void project_handoff() {
   check(b.claim("host~two").contains("data"),
         "Disconnect releases the project immediately after the one-use ticket was consumed");
 }
+void browser_handoff() {
+  Fixture f;
+  Peer desktop(f), phone(f), reopened(f);
+  auto first = desktop.claim("host~one", false, "desktop");
+  auto old = desktop.controller(first.at("data").at("ticket"));
+  check(phone.claim("host~one", false, "phone").at("error").at("code") == "SESSION_BUSY",
+        "A live desktop requires explicit takeover");
+  auto taken = phone.claim("host~one", true, "phone");
+  auto active = phone.controller(taken.at("data").at("ticket"));
+  check(!f.endpoint.can_dispatch("host~one", old.at("epoch")), "Phone takeover fences the desktop");
+  f.endpoint.receive({{"type", "channel-close"}, {"link", desktop.link}});
+  check(reopened.claim("host~one", false, "reopened").at("error").at("code") == "SESSION_BUSY",
+        "Closing a fenced desktop does not release the phone");
+  f.endpoint.receive({{"type", "channel-close"}, {"link", phone.link}});
+  auto next = reopened.claim("host~one", false, "reopened");
+  check(next.contains("data"), "A new browser can attach immediately after the phone closes");
+  Peer rival(f);
+  check(rival.claim("host~one", false, "rival").at("error").at("code") == "SESSION_BUSY",
+        "An unused ticket reserves control before the browser connects");
+  auto resumed = reopened.controller(next.at("data").at("ticket"));
+  check(resumed.at("control").at("controlEpoch").get<int64_t>() >
+            active.at("control").at("controlEpoch").get<int64_t>(),
+        "Reopening advances the control epoch and fences old commands");
+  reopened.send({{"type", "close"}, {"id", reopened.controller_id}});
+  check(rival.claim("host~one", false, "rival").contains("data"),
+        "Closing only the control stream also releases control");
+  auto reserved = f.store.get("host~one");
+  reserved["endpointLease"]["reservedUntil"] = now() - 1;
+  f.store.save(reserved);
+  check(reopened.claim("host~one", false, "new-tab").contains("data"),
+        "An expired unused reservation does not block a new page");
+  auto attached = reopened.controller(reopened.packets.back().at("data").at("ticket"));
+  check(attached.at("type") == "attached", "New page attaches after reservation expiry");
+  f.endpoint.disconnected();
+  Peer after_restart(f);
+  check(after_restart.claim("host~one", false, "after-restart").contains("data"),
+        "Persisted connection generations do not block a fresh browser after disconnection");
+}
 } // namespace
 int main() {
   try {
@@ -242,6 +280,7 @@ int main() {
     takeover_and_restart();
     persisted_claim();
     project_handoff();
+    browser_handoff();
     // Resume requires a stream that has actually been allocated.
     {
       Fixture f;

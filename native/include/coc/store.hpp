@@ -148,7 +148,8 @@ public:
   const std::string &delivery_instance() const { return delivery_instance_; }
   Json control_state(const std::string &session);
   Json endpoint_claim(const std::string &session, const std::string &owner,
-                      const std::string &claim, bool takeover, const Json &resume);
+                      const std::string &claim, bool takeover, const Json &resume,
+                      bool connected = true);
   Json endpoint_attach(const std::string &session, const std::string &owner,
                        const std::string &ticket);
   void endpoint_stream(const std::string &session, const std::string &owner,
