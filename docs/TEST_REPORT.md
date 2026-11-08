@@ -182,3 +182,5 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 `npm run test:cache` 通过真实 Chromium IndexedDB 验证草稿/历史订阅/已确认原请求清理、未确认恢复证据保留、其他会话隔离和旧标签页写入拒绝；清理历史不会移除删除屏障。`npm test` 通过 16 项 CTest 与 37 个 Vitest 文件 / 404 项测试。`npm run test:threads:codex` 在独立临时 CODEX_HOME 用真实 Codex 0.166.0 验证归档移动 JSONL、恢复路径、永久删除文件和目录项，项目标记文件保留，并核对混合模型提供商目录；没有模型调用，也没有使用用户会话。
 
 类型检查、协议生成一致性、原生/网页构建、格式检查和完整 `npm run test:ui` 均通过。未在真实 iPhone / Safari 验证，未执行 GitHub Actions 或生产部署。独立 Codex 客户端不受 CoC 锁控制，离线设备与备份不自动擦除；未知变更计划保留并占用有界容量。
+
+后续功能源码 `91d3093` 的六项 Actions 门禁全部成功，CI 制品专项复测通过；主站网页 / Worker 和四平台 0.6.17 下载已发布并核对，Agent 按用户选择等待会话结束后更新，见 [会话管理发布记录](SESSION_MANAGEMENT_RELEASE_20261108.md)。
