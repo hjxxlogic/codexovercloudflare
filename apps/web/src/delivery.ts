@@ -644,6 +644,31 @@ export class CommandDelivery {
       await this.flush();
     });
   }
+  replayResult(requestId: string): Promise<boolean> {
+    return this.enqueue(async () => {
+      // The journal is committed before the UI is notified. A page can close
+      // between those steps, leaving its separate pending marker behind.
+      for (const flow of [this.state, ...(this.state.retired ?? [])]) {
+        for (const lane of ['normal', 'priority'] as const) {
+          const journal = flow[lane].results;
+          for (const record of [
+            ...journal.cache,
+            ...Object.values(journal.buffer),
+          ]) {
+            const payload = JSON.parse(record.content ?? record.body);
+            if (
+              payload?.requestId === requestId &&
+              ['ack', 'error'].includes(payload.type)
+            ) {
+              this.result(payload);
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    });
+  }
   refresh(): Promise<void> {
     if (!this.refreshing)
       this.refreshing = this.refreshOnce().finally(() => {

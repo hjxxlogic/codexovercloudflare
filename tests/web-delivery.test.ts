@@ -820,3 +820,34 @@ it('persists the receiver allocation and freezes a changed serial or credit gene
     expect(restored.frames('delivery-command')).toHaveLength(0);
   }
 });
+
+it.each(['ack', 'error'])(
+  'recovers a persisted %s after reload before the UI clears its pending marker',
+  async (type) => {
+    const h = harness();
+    await h.connect();
+    await h.sender.submit(command('reload-window'));
+    const payload =
+      type === 'ack'
+        ? { type, requestId: 'reload-window', result: { turnId: 'turn' } }
+        : {
+            type,
+            requestId: 'reload-window',
+            error: { code: 'TURN_BUSY', message: 'Busy' },
+          };
+    await h.sender.receive({
+      type: 'delivery-result',
+      lane: 'normal',
+      window: window(1, 2, h.saved().normal.bytes),
+      ...resultFields(payload),
+    });
+    h.sender.disconnect();
+    const restored = harness(h.saved());
+    expect(await restored.sender.replayResult('different-request')).toBe(false);
+    expect(restored.result).not.toHaveBeenCalled();
+    expect(await restored.sender.replayResult('reload-window')).toBe(true);
+    expect(restored.result).toHaveBeenCalledExactlyOnceWith(payload);
+    expect(restored.frames('delivery-command')).toHaveLength(0);
+    expect(restored.saved().normal.entries).toHaveLength(0);
+  },
+);

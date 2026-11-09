@@ -1292,8 +1292,20 @@ function App() {
       attempt = Math.min(attempt + 1, 3);
     };
     const checkPending = async () => {
-      // Recovery belongs to the durable command journal, including saved results.
-      await commandDelivery?.refresh().catch(report);
+      // A result can be durable even if the previous page closed before its UI
+      // callback cleared the separate pending marker.
+      const pending = pendingCommand.current;
+      try {
+        if (
+          pending &&
+          socket.current?.readyState === WebSocket.OPEN &&
+          (await commandDelivery?.replayResult(pending.requestId))
+        )
+          return;
+        await commandDelivery?.refresh();
+      } catch (error) {
+        report(error);
+      }
     };
     const observeHeads = (heads: any) => {
       if (typeof heads?.agent !== 'number') return;
