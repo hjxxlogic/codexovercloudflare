@@ -69,16 +69,32 @@ export class HistoryCache {
     checkpoint?: number,
   ) {
     if (this.closed) return;
-    const old = this.live.get(event.seq);
+    let old = this.live.get(event.seq);
     if (old && (old.revision ?? old.seq) >= (event.revision ?? event.seq))
       return;
-    const bytes =
+    let bytes =
       this.liveBytes - (old ? eventBytes(old) : 0) + eventBytes(event);
+    // Start a full batch now instead of dropping the next event while the
+    // debounce timer is waiting. Keep at most one batch in flight and one in RAM.
+    if (
+      !this.liveJob &&
+      this.live.size &&
+      (bytes > 192 * 1024 || (!old && this.live.size >= 400))
+    ) {
+      clearTimeout(this.liveTimer);
+      this.liveTimer = undefined;
+      void this.flushLive();
+      old = this.live.get(event.seq);
+      bytes = this.liveBytes - (old ? eventBytes(old) : 0) + eventBytes(event);
+    }
     if (bytes > 192 * 1024 || (!old && this.live.size >= 400)) {
       this.checkpointSafe = false;
       onError(
-        new Error(
-          'Local cache write budget exhausted; replay remains available',
+        Object.assign(
+          new Error(
+            'Local cache write budget exhausted; replay remains available',
+          ),
+          { name: 'HistoryCacheBufferFullError' },
         ),
       );
       return;

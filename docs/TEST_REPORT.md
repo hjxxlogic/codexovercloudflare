@@ -198,3 +198,9 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 类型检查、协议生成一致性、原生/网页构建、格式检查和完整 `npm run test:ui` 均通过。未在真实 iPhone / Safari 验证，未执行 GitHub Actions 或生产部署。独立 Codex 客户端不受 CoC 锁控制，离线设备与备份不自动擦除；未知变更计划保留并占用有界容量。
 
 后续功能源码 `91d3093` 的六项 Actions 门禁全部成功，CI 制品专项复测通过；主站网页 / Worker 和四平台 0.6.17 下载已发布并核对，Agent 按用户选择等待会话结束后更新，见 [会话管理发布记录](SESSION_MANAGEMENT_RELEASE_20261108.md)。
+
+## 2026-11-09 CW 运行中缓存告警
+
+`npm run test:cache` 通过真实 Chromium IndexedDB 回归，包括同一轮连续收到 650 条不同事件时全部落盘、检查点为 650，以及原有配额、事务原子性、跨标签页隔离和清理保留测试。`tests/ui-stability.ts --cache-quota` 分别注入打开会话时订阅检查点配额失败和对话进行中事件写入配额失败；验证明确满额提示、停止后续历史写入、继续在线刷新和显示事件、保持连接及任务发送。截图位于忽略路径 `.local/ui-stability/cache-quota-subscription-mobile.png` 与 `cache-quota-events-mobile.png`。
+
+完整 `npm test` 通过（16 项 CTest、37 个 Vitest 文件 / 412 项测试）；类型检查、修改代码 ESLint / Prettier 与网页构建通过。未在真实 Safari 或用户浏览器上复现；实际故障原因由新的分类提示和具体存储错误进一步辨认。按用户要求跳过 GitHub Actions，发布结果另记。

@@ -4195,6 +4195,10 @@ async function threadManagementUI() {
 }
 
 async function cacheQuotaUI() {
+  await cacheQuotaScenario('subscription');
+  await cacheQuotaScenario('events');
+}
+async function cacheQuotaScenario(failure: 'subscription' | 'events') {
   session.state = 'ready';
   session.promptQueue = [];
   approvals = [];
@@ -4212,12 +4216,23 @@ async function cacheQuotaUI() {
   await context.addInitScript(() => {
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (value, key) {
+      const state = globalThis as any;
+      if (
+        this.name === 'events' ||
+        (this.name === 'pages' &&
+          Array.isArray(key) &&
+          (typeof key[1] === 'number' || String(key[1]).startsWith('content:')))
+      )
+        state.historyWrites = (state.historyWrites ?? 0) + 1;
       const request = put.call(this, value, key);
       if (
-        this.name === 'pages' &&
-        Array.isArray(key) &&
-        String(key[1]).startsWith('history-subscription:') &&
-        value.agentInstance
+        (state.failHistoryWrites && this.name === 'events') ||
+        (!state.failHistoryWrites &&
+          state.failSubscription &&
+          this.name === 'pages' &&
+          Array.isArray(key) &&
+          String(key[1]).startsWith('history-subscription:') &&
+          value.agentInstance)
       ) {
         // Model Safari aborting the allocation checkpoint under site quota.
         Object.defineProperty(this.transaction, 'error', {
@@ -4235,6 +4250,9 @@ async function cacheQuotaUI() {
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   try {
+    await context.addInitScript((failure) => {
+      (globalThis as any).failSubscription = failure === 'subscription';
+    }, failure);
     const initialPages = historyPages;
     await page.goto(origin);
     await selectHostId(page, 'sample');
@@ -4244,9 +4262,32 @@ async function cacheQuotaUI() {
       .first()
       .click();
     await expect(page.getByLabel('任务内容')).toBeEnabled();
+    if (failure === 'events') {
+      await expect.poll(() => historyPages).toBeGreaterThan(initialPages);
+      await page.evaluate(() => {
+        (globalThis as any).failHistoryWrites = true;
+      });
+      for (const ws of histories)
+        ws.send(
+          JSON.stringify({
+            type: 'event',
+            event: {
+              seq: 9800000,
+              revision: 9800000,
+              type: 'user',
+              time: Date.now(),
+              data: { text: '对话中缓存写入配额耗尽' },
+            },
+          }),
+        );
+    }
     await expect
       .poll(() => page.evaluate(() => (globalThis as any).quotaAborts ?? 0))
       .toBeGreaterThan(0);
+    await expect(page.getByRole('alert')).toContainText('本地历史缓存额度已满');
+    const writes = await page.evaluate(
+      () => (globalThis as any).historyWrites ?? 0,
+    );
     const connections = historyConnections;
     await expect.poll(() => historyPages).toBeGreaterThan(initialPages);
     for (const ws of histories)
@@ -4274,12 +4315,17 @@ async function cacheQuotaUI() {
       connections,
       'Quota failure keeps the existing history socket',
     );
+    assert.equal(
+      await page.evaluate(() => (globalThis as any).historyWrites ?? 0),
+      writes,
+      'Full history cache stops retrying history writes while online reads continue',
+    );
     await page.getByLabel('任务内容').fill('缓存错误后保留的草稿');
     await expect(
       page.getByRole('button', { name: '发送', exact: true }),
     ).toBeEnabled();
     await page.screenshot({
-      path: join(artifacts, 'cache-quota-mobile.png'),
+      path: join(artifacts, `cache-quota-${failure}-mobile.png`),
       fullPage: true,
     });
     const submittedBefore = promptCommands.length;

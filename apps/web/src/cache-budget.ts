@@ -31,6 +31,16 @@ export function cacheCapacityError(error: unknown): boolean {
       error.message.startsWith('BACKPRESSURE: 当前浏览器的本地历史缓存'))
   );
 }
+export function historyCacheErrorMessage(error: unknown): string {
+  if (cacheCapacityError(error))
+    return '本地历史缓存额度已满，已暂停历史缓存写入；仍可从 Agent 在线读取。可在“信息”中清理本机会话缓存后重试。';
+  if (error instanceof Error && error.name === 'HistoryCacheBufferFullError')
+    return '本地历史缓存写入积压；仍可从 Agent 读取历史，未保存的内容不会被持久确认。';
+  return (
+    '本地历史缓存不可用；仍可从 Agent 读取历史。' +
+    (error instanceof Error ? ` (${error.name}: ${error.message})` : '')
+  );
+}
 const ledgerKey = ['$coc-transport2-budget', 'ledger'];
 type Usage = { bytes: number; records: number };
 type Ledger = Usage & {

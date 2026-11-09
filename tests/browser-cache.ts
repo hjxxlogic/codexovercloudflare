@@ -65,6 +65,36 @@ try {
   );
   await blocker.evaluate(() => (globalThis as any).blockingDatabase.close());
   await blocker.close();
+  // More than one debounce batch can arrive synchronously during catch-up.
+  const burst = await page.evaluate(async () => {
+    const Cache = (globalThis as any).HistoryCache;
+    const cache = new Cache('burst');
+    const errors: string[] = [];
+    for (let seq = 1; seq <= 650; seq++)
+      cache.writeLive(
+        { seq, type: 'user', time: seq, data: { text: `burst:${seq}` } },
+        (error: unknown) => errors.push(String(error)),
+        seq,
+      );
+    const latest = await cache.latest();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coc-history-v3', 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const count = await new Promise<number>((resolve, reject) => {
+      const tx = db.transaction('events');
+      const request = tx
+        .objectStore('events')
+        .count(IDBKeyRange.bound(['burst'], ['burst', []], false, true));
+      tx.oncomplete = () => resolve(request.result);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    cache.close();
+    return { errors, checkpoint: latest.checkpoint, count };
+  });
+  assert.deepEqual(burst, { errors: [], checkpoint: 650, count: 650 });
   const fullPage = await context.newPage();
   await fullPage.route('https://full-cache.invalid/**', (route) =>
     route.fulfill({ body: '<html></html>', contentType: 'text/html' }),

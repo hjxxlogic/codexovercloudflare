@@ -69,7 +69,10 @@ import {
 import { HistoryCache, type HistoryPage } from './history.ts';
 import { HistorySync } from './history-sync.ts';
 import { HistorySubscription } from './history-subscription.ts';
-import { cacheCapacityError } from './cache-budget.ts';
+import {
+  cacheCapacityError,
+  historyCacheErrorMessage,
+} from './cache-budget.ts';
 import { SessionHistory, type Thread } from './session-history.tsx';
 import {
   ActiveSessions,
@@ -1674,8 +1677,19 @@ function App() {
       contentReads.delete(seq);
       if (!disposed) setReadingContent((state) => ({ ...state, [seq]: false }));
     };
-    const cacheError = () => {
-      if (!disposed) setError('本地历史缓存不可用；仍可从 Agent 读取历史。');
+    const cacheError = (error: unknown) => {
+      if (disposed) return;
+      if (cacheCapacityError(error)) {
+        if (historyStorageFull) return;
+        historyStorageFull = true;
+        historySubscription?.stop();
+        historySubscription = undefined;
+        clearTimeout(historyReplyTimer);
+        historyReady = true;
+        historySubscriberSync?.();
+      }
+      console.warn('Local history cache failure', error);
+      setError(historyCacheErrorMessage(error));
     };
     const applyHistoryGap = (page: HistoryPage) => {
       if (!page.gap) return;
@@ -1735,7 +1749,7 @@ function App() {
         if (!disposed) setError('历史读取超时，可重试加载更早内容。');
       }, 15000);
       void (async () => {
-        if (cache && !bypassCache) {
+        if (cache && !bypassCache && (!historyStorageFull || before)) {
           const stored = before
             ? await cache.page(before).catch(() => undefined)
             : await cache.recent().catch(() => undefined);
@@ -1754,7 +1768,7 @@ function App() {
             if (disposed || generation !== pageGeneration) return;
             showPage(snapshot.history);
             historySync.snapshot(snapshot.history);
-            void cache
+            void (historyStorageFull ? undefined : cache)
               ?.writeSnapshot(
                 snapshot.history.events,
                 historySync.received,
@@ -1927,8 +1941,8 @@ function App() {
           setDraftReady(true);
           deliveryLoadReady!();
           openDelivery();
-          const stored = await cache.latest().catch(() => {
-            cacheError();
+          const stored = await cache.latest().catch((error: unknown) => {
+            cacheError(error);
             return undefined;
           });
           if (disposed) return;
@@ -1958,12 +1972,7 @@ function App() {
               if (cacheCapacityError(error)) {
                 // The reader already stopped before this callback. Keep the
                 // socket and RAM cursor, but never ACK unpersisted history.
-                historyStorageFull = true;
-                historySubscription = undefined;
-                clearTimeout(historyReplyTimer);
-                historyReady = true;
-                cacheError();
-                historySubscriberSync?.();
+                cacheError(error);
                 return;
               }
               historyFrozen = true;
@@ -1972,9 +1981,8 @@ function App() {
               historySocket.current?.close();
             },
           ).catch((error: unknown) => {
-            historyStorageFull = cacheCapacityError(error);
-            cacheError();
-            report(error);
+            cacheError(error);
+            if (!cacheCapacityError(error)) report(error);
             return undefined; // Read-only pagination still works without a durable subscription.
           });
           cache.onCommit = () => historySubscription?.commit();
@@ -2063,7 +2071,8 @@ function App() {
               if (!historyReady) return;
               add(d.event);
               historySync.observe(d.maxRevision, d.previousRevision);
-              cache?.writeLive(d.event, cacheError, historySync.received);
+              if (!historyStorageFull)
+                cache?.writeLive(d.event, cacheError, historySync.received);
               if (historySync.missing && !syncRequest && !syncTimer)
                 syncTimer = setTimeout(() => {
                   syncTimer = undefined;
@@ -2117,7 +2126,7 @@ function App() {
             if (d.text !== undefined) {
               if (contentReads.get(d.seq)?.requestId !== d.requestId) return;
               finishRead(d.seq);
-              void cache
+              void (historyStorageFull ? undefined : cache)
                 ?.content(d.seq, d.offset, d.revision, d)
                 .catch(cacheError);
               setContentChunks((v) => ({
@@ -2143,7 +2152,9 @@ function App() {
               applyHistoryGap(d);
               historySync.snapshot(d);
               for (const e of d.events) add(e, false);
-              const committed = cache?.writeSnapshot(
+              const committed = (
+                historyStorageFull ? undefined : cache
+              )?.writeSnapshot(
                 d.events,
                 historySync.received,
                 d.direction === 'before' ? 0 : undefined,
@@ -2169,7 +2180,7 @@ function App() {
                 .catch(cacheError);
             } else if (typeof request === 'number') {
               showPage(d);
-              void cache
+              void (historyStorageFull ? undefined : cache)
                 ?.write(d.events, undefined, request, d)
                 .catch(cacheError);
             }
@@ -2253,7 +2264,7 @@ function App() {
             applyHistoryGap(page);
             historySync.snapshot(page);
             for (const event of page.events) add(event, false);
-            await cache
+            await (historyStorageFull ? undefined : cache)
               ?.writeSnapshot(
                 page.events,
                 historySync.received,

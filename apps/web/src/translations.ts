@@ -513,6 +513,12 @@ export const english: Record<string, string> = {
   '只读观察 · 无法取得控制权': 'Read-only observer · Unable to acquire control',
   '本地历史缓存不可用；仍可从 Agent 读取历史。':
     'Local history cache is unavailable. History can still be read from the Agent.',
+  '本地历史缓存不可用；仍可从 Agent 读取历史。 ({0})':
+    'Local history cache is unavailable. History can still be read from the Agent. ({0})',
+  '本地历史缓存额度已满，已暂停历史缓存写入；仍可从 Agent 在线读取。可在“信息”中清理本机会话缓存后重试。':
+    'Local history cache is full. History caching is paused; online history remains available. Clear this session’s local cache in Info to retry.',
+  '本地历史缓存写入积压；仍可从 Agent 读取历史，未保存的内容不会被持久确认。':
+    'Local history cache writes are backed up. History remains available from the Agent; unsaved content will not be acknowledged as persisted.',
   '历史读取超时，可重试加载更早内容。':
     'History request timed out. Retry loading earlier content.',
   '较早内容尚未缓存，连接恢复后可重试。':

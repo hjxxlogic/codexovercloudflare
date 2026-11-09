@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import {
   cacheLimits,
   commandReservation,
+  historyCacheErrorMessage,
 } from '../apps/web/src/cache-budget.ts';
 const lane = () => ({ entries: [], results: { buffer: {}, cache: [] } });
 const idle = () => ({
@@ -60,4 +61,20 @@ it('releases only confirmed HTTP operations and uploads without retained file ch
     expect(
       commandReservation({ version: 2, records: [record] }, 2000, upload),
     ).toBe(cacheLimits.commandReservation);
+});
+
+it('distinguishes storage capacity, live backlog and cache access failures', () => {
+  expect(
+    historyCacheErrorMessage(new DOMException('full', 'QuotaExceededError')),
+  ).toContain('额度已满');
+  expect(
+    historyCacheErrorMessage(
+      Object.assign(new Error('busy'), {
+        name: 'HistoryCacheBufferFullError',
+      }),
+    ),
+  ).toContain('写入积压');
+  expect(
+    historyCacheErrorMessage(new DOMException('denied', 'SecurityError')),
+  ).toContain('SecurityError: denied');
 });
