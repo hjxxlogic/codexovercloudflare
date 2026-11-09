@@ -3192,7 +3192,7 @@ try {
       createHash('sha256').update(clientCredentials.token).digest('hex'),
   );
   assert(cc, 'paired CC credential remains independent of API keys');
-  // A live CW writer keeps another session in this project read-only.
+  // A live CW writer permits another session in the same project.
   token = clientCredentials.token;
   const blockedCli = await api('/sessions', {
     hostId: enrolled.hostId,
@@ -3200,12 +3200,12 @@ try {
     mode: 'cli',
   });
   const blockedAttach = await request(`/sessions/${blockedCli.id}/attach`, {});
-  assert.equal(blockedAttach.r.status, 409);
-  assert.equal(blockedAttach.b.error.code, 'PROJECT_READ_ONLY');
+  assert.equal(blockedAttach.r.status, 200);
+  assert.equal(typeof blockedAttach.b.ticket, 'string');
   await api(`/sessions/${blockedCli.id}/stop`, {});
   assert.equal(restored.ws.readyState, WebSocket.OPEN);
-  pass('live project writer rejects another CLI writer without disrupting CW');
-  // Revocation isolation needs two legitimate writers, hence distinct projects.
+  pass('same project permits a CLI control claim without disrupting CW');
+  // Also exercise revocation isolation across distinct projects.
   const projectEndpoint = `/admin/hosts/${enrolled.hostId}/project-management`;
   const projectState = await api(projectEndpoint, undefined, { admin: true });
   await api(

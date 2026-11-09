@@ -26,11 +26,8 @@ export async function browserSessionStress(options: {
       context: BrowserContext;
       page: Page;
       index: number;
-      reader?: boolean;
       plaintextCommands: number;
-      refreshMs?: number;
       closed?: boolean;
-      acquired?: boolean;
       errors: string[];
     }[] = [];
     let durationMs: number | undefined;
@@ -86,109 +83,60 @@ export async function browserSessionStress(options: {
           await selectProjectId(page, projectId);
           await button(page, '＋ 新建对话').click();
           await expect(page.getByRole('dialog')).toHaveCount(0);
-          // The hidden context header can repeat this text. The composer hint
-          // identifies the actual reader state without a strict-locator race.
-          const readonly = page
-            .locator('.readonly-hint')
-            .getByText('只读会话 · 同项目已有写会话', { exact: true });
-          // Drafts can be edited before CONTROL_READY; only the enabled send
-          // action proves the actual write handshake has completed.
-          await expect
-            .poll(
-              async () => {
-                try {
-                  if (await readonly.isVisible()) return true;
-                  const composer = page.getByRole('textbox', {
-                    name: '任务内容',
-                    exact: true,
-                  });
-                  if (!(await composer.isVisible())) return false;
-                  // A reader transition can remove the composer between queries.
-                  // Keep every individual query shorter than the outer barrier.
-                  if (
-                    (await composer.inputValue({ timeout: 1000 })) !==
-                    'CW_STRESS_BARRIER'
-                  )
-                    await composer.fill('CW_STRESS_BARRIER', { timeout: 1000 });
-                  return await button(page, '发送').isEnabled({
-                    timeout: 1000,
-                  });
-                } catch {
-                  return false;
-                }
-              },
-              { timeout: 30000 },
-            )
-            .toBe(true);
-          entry.reader = await readonly.isVisible();
+          const composer = page.getByRole('textbox', {
+            name: '任务内容',
+            exact: true,
+          });
+          await composer.fill('CW_STRESS_BARRIER');
+          await expect(button(page, '发送')).toBeEnabled();
         }),
       );
       const rejected = opened.find((result) => result.status === 'rejected');
       if (rejected?.status === 'rejected') throw rejected.reason;
-      const writers = entries.filter((entry) => !entry.reader);
-      const readers = entries.filter((entry) => entry.reader);
-      assert.equal(
-        writers.length,
-        1,
-        `${size} simultaneous browsers must have one writer`,
-      );
-      assert.equal(readers.length, size - 1);
-      const writer = writers[0];
-      assert.equal(writer.plaintextCommands, 0);
-
-      await writer.page
-        .getByRole('textbox', { name: '任务内容', exact: true })
-        .fill(`CW_STRESS_${size} approval`);
       const start = Date.now();
-      await button(writer.page, '发送').click();
-      await button(writer.page, '拒绝').click();
+      // All sessions must admit a turn before any approval is answered.
       await Promise.all(
-        readers.map(async (reader) => {
+        entries.map(async (entry) => {
+          await entry.page
+            .getByRole('textbox', { name: '任务内容', exact: true })
+            .fill(`CW_STRESS_${size}_${entry.index} approval`);
+          await button(entry.page, '发送').click();
+          await expect(button(entry.page, '拒绝')).toBeVisible();
+        }),
+      );
+      const first = entries[0];
+      await button(first.page, '拒绝').click();
+      await expect(
+        first.page.getByRole('log', { name: '对话消息' }),
+      ).toContainText('denied');
+      await expect(first.page.locator('.thinking')).toHaveCount(0);
+      await end(first);
+      await Promise.all(
+        entries.slice(1).map(async (entry) => {
+          // Closing the first session must leave all other approvals actionable.
+          await expect(button(entry.page, '拒绝')).toBeVisible();
+          await button(entry.page, '拒绝').click();
           await expect(
-            reader.page.getByRole('textbox', { name: '任务内容', exact: true }),
-          ).toHaveCount(0);
-          const refreshStart = Date.now();
-          await button(reader.page, '刷新状态').click();
-          await expect(button(reader.page, '刷新状态')).toBeEnabled({
-            timeout: 20000,
-          });
-          await expect(reader.page.locator('body')).not.toContainText(
-            '刷新超时',
-          );
-          reader.refreshMs = Date.now() - refreshStart;
+            entry.page.getByRole('log', { name: '对话消息' }),
+          ).toContainText('denied');
+          await expect(entry.page.locator('.thinking')).toHaveCount(0);
+          await entry.page
+            .getByRole('textbox', { name: '任务内容', exact: true })
+            .fill(`CW_STRESS_CONTINUE_${size}_${entry.index}`);
+          await button(entry.page, '发送').click();
+          await expect(
+            entry.page.getByRole('log', { name: '对话消息' }),
+          ).toContainText(`echo: CW_STRESS_CONTINUE_${size}_${entry.index}`);
+          await expect(entry.page.locator('.thinking')).toHaveCount(0);
           assert.equal(
-            reader.plaintextCommands,
+            entry.plaintextCommands,
             0,
-            'business commands must stay inside encrypted records',
+            'business commands stay encrypted',
           );
         }),
       );
-      await expect(
-        writer.page.getByRole('log', { name: '对话消息' }),
-      ).toContainText('denied');
-      await expect(writer.page.locator('.thinking')).toHaveCount(0);
       durationMs = Date.now() - start;
-      await end(writer);
-      const successor = readers[0];
-      await button(successor.page, '获取写权限').click();
-      await expect(successor.page.getByLabel('任务内容')).toBeEnabled();
-      await successor.page
-        .getByRole('textbox', { name: '任务内容', exact: true })
-        .fill(`CW_STRESS_HANDOFF_${size}`);
-      await button(successor.page, '发送').click();
-      await expect(
-        successor.page.getByRole('log', { name: '对话消息' }),
-      ).toContainText(`echo: CW_STRESS_HANDOFF_${size}`);
-      await expect(successor.page.locator('.thinking')).toHaveCount(0);
-      successor.acquired = true;
-      assert.equal(successor.plaintextCommands, 0);
-
-      for (const reader of readers.slice(1)) {
-        await expect(
-          reader.page.getByRole('textbox', { name: '任务内容', exact: true }),
-        ).toHaveCount(0);
-        assert.equal(reader.plaintextCommands, 0);
-      }
+      assert.equal(first.plaintextCommands, 0);
       assert(
         entries.every((entry) => !entry.errors.length),
         'browser stress has no page errors',
@@ -231,21 +179,10 @@ export async function browserSessionStress(options: {
         failure,
         cleanupErrors,
         browsers: entries.map(
-          ({
+          ({ index, plaintextCommands, closed, errors }) => ({
             index,
-            reader,
             plaintextCommands,
-            refreshMs,
             closed,
-            acquired,
-            errors,
-          }) => ({
-            index,
-            reader,
-            plaintextCommands,
-            refreshMs,
-            closed,
-            acquired,
             errors,
           }),
         ),
@@ -262,7 +199,7 @@ export async function browserSessionStress(options: {
         );
     }
     console.log(
-      `PASS: ${size} independent browsers: one writer, read-only refresh, command approval, write handoff and final closure`,
+      `PASS: ${size} independent browsers: concurrent same-project sessions, independent approvals and final closure`,
     );
   }
 }

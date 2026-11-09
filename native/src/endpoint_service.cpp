@@ -431,16 +431,6 @@ void EndpointService::request(const std::string &link, const Json &d) {
       if (args.value("delivery", 0) != 2)
         throw Error("UPGRADE_REQUIRED", "delivery:2 required");
       const auto info = store_.get(session);
-      // Project ownership stays local; another live controller cannot be bypassed.
-      for (const auto &other : store_.sessions(true)) {
-        if (other.at("id") == session || other.at("projectId") != info.at("projectId"))
-          continue;
-        const auto lease = other.value("endpointLease", Json());
-        if (!lease.is_null() && ((!lease.value("ticketUsed", false) &&
-                                  lease.value("reservedUntil", int64_t(0)) > now()) ||
-                                 can_dispatch(other.at("id"), lease.at("connectionGeneration"))))
-          throw Error("PROJECT_READ_ONLY", "Another session controls this project");
-      }
       if (info.at("state") != "ready")
         throw Error("SESSION_CLOSED", "Session is not ready");
       const auto claim = args.value("claimId", d.value("requestId", uuid()));

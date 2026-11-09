@@ -222,16 +222,28 @@ void persisted_claim() {
           "Reopened database advances the connection generation");
   }
 }
-void project_handoff() {
+void project_sessions() {
   Fixture f;
   Peer a(f), b(f, "other");
   auto first = a.claim();
-  a.controller(first.at("data").at("ticket"));
-  check(b.claim("host~two").at("error").at("code") == "PROJECT_READ_ONLY",
-        "A live controller excludes other writers in the project");
-  f.endpoint.receive({{"type", "channel-close"}, {"link", a.link}});
-  check(b.claim("host~two").contains("data"),
-        "Disconnect releases the project immediately after the one-use ticket was consumed");
+  auto active_a = a.controller(first.at("data").at("ticket"));
+  auto second = b.claim("host~two");
+  check(second.contains("data"), "Same project sessions claim independent controls");
+  auto active_b = b.controller(second.at("data").at("ticket"), "host~two");
+  check(f.endpoint.can_dispatch("host~one", active_a.at("epoch")) &&
+            f.endpoint.can_dispatch("host~two", active_b.at("epoch")),
+        "Both sessions remain writable in the same project");
+  Peer rival(f, "rival");
+  check(rival.claim().at("error").at("code") == "SESSION_BUSY",
+        "Each session still requires explicit takeover");
+  auto taken = rival.claim("host~one", true);
+  rival.controller(taken.at("data").at("ticket"));
+  check(!f.endpoint.can_dispatch("host~one", active_a.at("epoch")) &&
+            f.endpoint.can_dispatch("host~two", active_b.at("epoch")),
+        "Taking over one session does not fence another in the same project");
+  f.endpoint.receive({{"type", "channel-close"}, {"link", rival.link}});
+  check(f.endpoint.can_dispatch("host~two", active_b.at("epoch")),
+        "Closing one controller preserves the other session");
 }
 void browser_handoff() {
   Fixture f;
@@ -279,7 +291,7 @@ int main() {
     fencing();
     takeover_and_restart();
     persisted_claim();
-    project_handoff();
+    project_sessions();
     browser_handoff();
     // Resume requires a stream that has actually been allocated.
     {
@@ -316,8 +328,10 @@ int main() {
       auto first = a.claim();
       auto original = f.store.get("host~one").at("endpointLease");
       check(a.claim().at("data") == first.at("data"), "Lost claim reply is stable");
-      check(b.claim("host~two").at("error").at("code") == "PROJECT_READ_ONLY",
-            "Pending project claims are exclusive");
+      check(b.claim("host~two").contains("data"),
+            "Pending claims for different sessions in one project are independent");
+      check(b.claim().at("error").at("code") == "SESSION_BUSY",
+            "Pending claims for the same session remain exclusive");
       auto ready = a.controller(first.at("data").at("ticket"));
       auto replay = a.controller(first.at("data").at("ticket"));
       check(replay.at("error").at("code") == "STALE_CONTROLLER",

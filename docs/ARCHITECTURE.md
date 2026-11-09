@@ -22,7 +22,7 @@ RegistryDO 保存身份、邮箱、授权、主机目录与失效事件；HostRe
 
 Agent 和客户端保存业务身份、命令、结果、信用及历史订阅进度；Worker 只做加密通道的有界转发，不承担业务持久 ACK。网络、HTTP 或 WebSocket 成功不代表副作用已持久完成。加密使用 libsodium 的 X25519 `crypto_kx` 和双向 XChaCha20-Poly1305 secretstream，绑定本次可信身份。具体封装与信任边界见 [不透明中继设计](OPAQUE_RELAY_DESIGN.md)。协议见 [可靠传输](RELIABLE_TRANSPORT.md)。
 
-会话以持久 controlEpoch / controlId / owner 绑定控制权，连接代次单独变化。接管先拒绝旧端新写入，Agent 确认新代际后新端才能发布命令。同一项目只能有一个 Web 写会话，其他会话可读；已开始任务不会因连接关闭或接管回执自动变成停止状态。
+会话以持久 controlEpoch / controlId / owner 绑定控制权，连接代次单独变化。接管先拒绝旧端新写入，Agent 确认新代际后新端才能发布命令。控制权按 session 隔离，同一项目的多个 session 可同时连接及执行轮次；同一 session 仍要求显式接管，项目 Terminal 仍与模型任务互斥；已开始任务不会因连接关闭或接管回执自动变成停止状态。
 
 普通 attach 的冲突判定由 EndpointService 提供当前可派发的控制连接状态；持久 connectionGeneration 仅用于隔离旧连接，不表示连接仍在线。不同 claim 在旧连接已断开且无未消费的有效票据时可建立新控制代际。同 claim / 已验证 stream 恢复保持原代际；在线连接或未消费票据仍要求显式 takeover。
 

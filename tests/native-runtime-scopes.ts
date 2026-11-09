@@ -274,6 +274,37 @@ try {
     log += value;
   });
   await until(() => peer);
+  // Keep two turns active in the same directory and verify stopping one is isolated.
+  const parallel = [await session(), await session()];
+  for (const [index, item] of parallel.entries()) {
+    const stream = streamId(item);
+    await open(item, stream);
+    command(item, stream, {
+      action: 'prompt',
+      requestId: 'parallel-' + index,
+      text: 'parallel hold ' + index,
+    });
+    await until(() =>
+      results(stream).some(
+        (entry) => entry.result.requestId === 'parallel-' + index,
+      ),
+    );
+    assert.equal(results(stream).at(-1)!.result.type, 'ack');
+  }
+  for (const item of parallel)
+    assert.equal(
+      (await control('snapshot', { sessionId: item.id, mode: 'web' })).session
+        .running,
+      true,
+    );
+  await control('stop', { sessionId: parallel[0].id });
+  assert.equal(
+    (await control('snapshot', { sessionId: parallel[1].id, mode: 'web' }))
+      .session.running,
+    true,
+  );
+  await stopped([parallel[1]]);
+  console.log('PASS: same project concurrent turns and isolated session stop');
   // Fill local queues, then the actual shared 512-record limit using six runtimes.
   const queues = [];
   for (let n = 0; n < 6; n++) queues.push(await session(n));

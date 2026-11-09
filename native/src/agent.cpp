@@ -580,6 +580,10 @@ public:
       if (session.value("running", false) || rt->second->busy)
         throw Error("PROJECT_BUSY", "Assistant is executing in this project");
       check_busy(session);
+      for (const auto &other : store_.sessions(true))
+        if (other["id"] != session["id"] && other["projectId"] == session["projectId"] &&
+            other["state"] == "ready" && other.value("running", false))
+          throw Error("PROJECT_BUSY", "Another session is executing in this project");
     }
   }
   void terminal_stream(const Json &d) {
@@ -2230,10 +2234,6 @@ public:
   void check_busy(const Json &s) {
     if (terminals_.busy(s.at("projectId")))
       throw Error("PROJECT_BUSY", "Close project terminal before executing an assistant task");
-    for (auto &o : store_.sessions(true))
-      if (o["id"] != s["id"] && o["projectId"] == s["projectId"] && o["state"] == "ready" &&
-          o["running"] == true)
-        throw Error("PROJECT_BUSY", "Another session is executing in this project");
   }
   void flush_rpc_output(const std::string &id, const std::shared_ptr<Runtime> &runtime) {
     if (!runtime->rpc_delivery)
