@@ -55,7 +55,7 @@ class Channel {
           `/ws/v1/channel/${host}?admin=${admin ? '1' : '0'}&target=${encodeURIComponent(target)}`,
         ),
     );
-    this.opening = setTimeout(() => this.close(), 15000);
+    this.opening = setTimeout(() => this.close(), 30000);
     this.socket.onmessage = (event) => {
       this.tail = this.tail
         .then(() => this.frame(JSON.parse(event.data)))
@@ -186,7 +186,7 @@ class Channel {
               ),
         );
       };
-      const timer = setTimeout(cancel, 30000);
+      const timer = setTimeout(cancel, 45000);
       this.pending.set(id, {
         resolve,
         reject,

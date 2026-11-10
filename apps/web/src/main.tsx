@@ -1,3 +1,4 @@
+import './zod-config.ts';
 import {
   AgentSetup,
   DeviceAuthorization,
@@ -1363,7 +1364,7 @@ function App() {
             relaySocketPath('/ws/v1/web/' + selected.id),
         );
         socket.current = ws;
-        handshake = setTimeout(() => disconnect(4000), 15000);
+        handshake = setTimeout(() => disconnect(4000), 30000);
         ws.onopen = () => {
           if (!disposed && socket.current === ws)
             ws.send(

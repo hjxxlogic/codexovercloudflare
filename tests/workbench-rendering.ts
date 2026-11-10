@@ -123,6 +123,16 @@ try {
   const page = await browser.newPage({
     viewport: { width: 1280, height: 900 },
   });
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    (window as any).evalCspViolations = violations;
+    document.addEventListener('securitypolicyviolation', (event) => {
+      if (event.blockedURI === 'eval')
+        violations.push(
+          `${event.effectiveDirective}: ${event.sourceFile}:${event.lineNumber}`,
+        );
+    });
+  });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const external: string[] = [];
@@ -140,6 +150,11 @@ try {
   await expect(
     page.getByRole('heading', { name: '高级 Markdown' }),
   ).toBeVisible();
+  assert.deepEqual(
+    await page.evaluate(() => (window as any).evalCspViolations),
+    [],
+    'built web initializes and opens the encrypted channel without eval CSP violations',
+  );
   await expect(page.locator('.callout-warning')).toContainText('注意事项');
   await expect(page.locator('table')).toHaveCount(2);
   async function enterElementFullscreen(element: Locator) {
@@ -416,6 +431,11 @@ try {
   await expect(diagram).not.toHaveClass(/element-fullscreen/);
   assert.deepEqual(external, [], 'rendering never fetches external content');
   assert.deepEqual(errors, []);
+  assert.deepEqual(
+    await page.evaluate(() => (window as any).evalCspViolations),
+    [],
+    'web interactions never attempt JavaScript string evaluation',
+  );
   console.log('Advanced Markdown browser checks passed');
 } finally {
   await browser.close();

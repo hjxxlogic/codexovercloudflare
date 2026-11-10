@@ -216,3 +216,23 @@ TypeScript、变更文件 ESLint、网页生产构建和 Worker dry-run 通过�
 ### 同日 r2 实际部署
 
 用户随后明确要求跳过 Actions 直接部署。`a41a0a8` 已通过本地构建发布至 `r2.xlogic.cc`，独立 KV、健康、静态资源字节及权限拒绝检查通过，自助授权保持关闭；原生下载复用已验证的 0.6.18 快照。发布前旧 r2 Worker 已不存在，本轮新建独立授权存储，未恢复删除前的授权；主站及本机 Agent 保持。部署脚本的本地快照恢复新增专项通过，cloud-deploy 共 21 项。详见 [r2 发布记录](R2_DEPLOYMENT.md#2026-11-10邮箱自助授权与独立测试站恢复)，本次 `ciVerified=false`。
+
+## 2026-11-10 网页 Zod CSP 告警
+
+原始源码构建得到用户报告的同名资源 `index-BHq4trrn.js`。在 Bookworm 测试容器的真实 Chromium 中，新增 `securitypolicyviolation` 监听捕获到该文件第 2 行的 `blockedURI=eval`，回归按预期失败；Zod 捕获探测异常后，页面仍能通过加密端点夹具读取文档，说明该告警本身不等于会话握手失败。
+
+网页入口先执行独立的 Zod `jitless` 配置模块，随后创建业务 schema。重新构建后，同一 `npm run test:markdown` 通过：启动及后续桌面 / 手机、公式与图表交互均无根页面 eval CSP 违规，加密端点读取正常。没有放宽 Worker CSP。类型检查、修改代码 ESLint / Prettier、`git diff --check` 与缓存预算 / 历史订阅 / 网页 API 的 39 项单元测试通过。
+
+本次为本地验证，未执行完整原生测试、GitHub Actions 或生产部署；尚未在用户浏览器中确认关闭代理后的 WebSocket 失败原因。Cloudflare beacon 被 CSP 拦截与历史缓存预算满额分别处理，未修改统计配置或删除用户缓存、草稿、未确认任务。
+
+## 2026-11-10 网页慢网络握手等待
+
+按用户要求，将网页通道加密握手、会话控制握手从 15 秒延长至 30 秒，将通道业务请求从排队起算的总等待从 30 秒延长至 45 秒。网页构建、类型检查、修改代码 ESLint / Prettier、`git diff --check`、网页 API 与恢复调度的 17 项单元测试通过；重新构建后的 `npm run test:markdown` 通过真实 Chromium 的加密通道与页面交互回归。
+
+这些检查验证正常连接未回归，没有模拟 15–30 秒网络延迟，不能据此确认用户直连链路已恢复稳定。本次未部署，线上网页仍须发布后才使用新时限。
+
+## 2026-11-10：合并 GitHub 网页连接修复
+
+将 GitHub `5f08ebe` 的慢网络握手与 Zod CSP 修复合入邮箱自助授权分支；保留双方更新日志、开发与用户说明及独立测试记录。网页入口首先导入 `zod-config.ts`，随后导入邮箱自助授权组件，确保 schema 创建之前启用无 JIT 配置；保留通道 / 控制握手 30 秒与业务请求总等待 45 秒。
+
+合并工作区的 TypeScript、完整 lint、网页生产构建、37 个 Vitest 文件 / 418 项测试及 `git diff --check` 全部通过。真实 Chromium 的 `test:markdown` 验证加密端点读取、桌面 / 手机交互和无 eval CSP 违规；`tests/browser-access.ts` 验证邮箱恢复、管理员开关、首次配置引导、配对完成、双语登出和访客前缀。原始日志保存在忽略目录 `.local/github-merge-20261110/`。本轮未模拟额外慢网络或修改线上部署，线上版本仍以部署记录为准。
