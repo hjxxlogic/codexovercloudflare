@@ -391,8 +391,9 @@ def main():
                     raise RuntimeError('Preserved Worker artifact checksum mismatch')
     if args.initialize_owner_secret_file:
         path = args.initialize_owner_secret_file
-        if args.target != 'r2' or not args.initialize_downloads:
-            parser.error('Owner initialization is only for a new r2 deployment')
+        snapshot_recovery = args.local_build and args.preserved_downloads is not None
+        if args.target != 'r2' or not (args.initialize_downloads or snapshot_recovery):
+            parser.error('Owner initialization requires a new r2 deployment or explicit local snapshot recovery')
         if os.name != 'nt' and (path.stat().st_mode & 0o077 or path.stat().st_uid != os.geteuid()):
             raise RuntimeError('r2 owner secret file must be private and owned by the current user')
         if not 32 <= len(path.read_text().strip()) <= 4096:

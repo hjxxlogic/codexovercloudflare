@@ -45,6 +45,8 @@ python3 scripts/deploy-cloud.py --commit HEAD --run-id ACTIONS_RUN_ID \
   --initialize-owner-secret-file /absolute/private/r2-owner --apply
 ```
 
+若旧 r2 Worker 已被删除，用户明确要求跳过 Actions 时，可以用 `--local-build --preserved-downloads /absolute/verified-snapshot/downloads --initialize-owner-secret-file /absolute/private/r2-owner` 恢复独立测试站。此组合允许从已保存且逐包校验 SHA256 的下载快照恢复原生下载，并初始化独立 owner secret；不使用 `--initialize-downloads`，不重新构建或冒充 CI 原生制品。记录 `ciVerified=false`、快照来源及新建 Worker / DO / KV 的事实，旧 Worker 已删除时不能声称保留了其在线授权数据。
+
 仅 Worker / 网页配置中的目标与 Access audience 按显式参数选择；业务代码和四平台包仍必须来自同一完整成功的 Actions。首次初始化只用于新站，后续省略两个 `--initialize-*` 参数以保全原有下载和 Secret；r2 的证据、缓存均与默认目标分开。
 
 线上测试复用本地加密端到端套件，固定请求 r2，启动一个临时独立 Agent，使用临时配置、SQLite 和项目，结束时只撤销测试授权并停止自己的子进程：

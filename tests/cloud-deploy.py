@@ -78,6 +78,24 @@ class CloudArtifactTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     cloud.main()
 
+    def test_local_r2_snapshot_recovery_can_initialize_its_independent_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secret = pathlib.Path(directory) / 'owner'
+            secret.write_text('x' * 64)
+            secret.chmod(0o600)
+            options = ['--target', 'r2', '--r2-access-aud', 'a' * 64,
+                       '--local-build', '--preserved-downloads', directory,
+                       '--initialize-owner-secret-file', str(secret)]
+            with patch('sys.argv', ['deploy-cloud.py', *options]), \
+                    patch.object(cloud.subprocess, 'check_output', side_effect=RuntimeError('source validation reached')):
+                with self.assertRaisesRegex(RuntimeError, 'source validation reached'):
+                    cloud.main()
+            for args in [[], ['--local-build'], ['--preserved-downloads', directory]]:
+                with patch('sys.argv', ['deploy-cloud.py', '--target', 'r2', '--r2-access-aud', 'a' * 64,
+                                       '--initialize-owner-secret-file', str(secret), *args]):
+                    with self.assertRaises(SystemExit):
+                        cloud.main()
+
     def test_production_config_uses_only_durable_objects(self):
         import re
         config = json.loads(re.sub(r',(\s*[}\]])', r'\1', (ROOT / 'wrangler.jsonc').read_text()))
