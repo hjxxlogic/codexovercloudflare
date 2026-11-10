@@ -273,6 +273,7 @@ def deployment_target(config, target, access_aud=None, without_access=False):
         raise RuntimeError('r2 requires exactly one explicit Access configuration')
     if access_aud and not re.fullmatch(r'[a-f0-9]{64}', access_aud):
         raise RuntimeError('Invalid r2 Access audience')
+    source_worker = config['name']
     config = json.loads(json.dumps(config))
     config['name'] = 'codex-over-cloudflare-r2'
     config['routes'] = [{'pattern': 'r2.xlogic.cc', 'custom_domain': True}]
@@ -282,6 +283,10 @@ def deployment_target(config, target, access_aud=None, without_access=False):
     for binding in config['durable_objects']['bindings']:
         if set(binding) != {'name', 'class_name'}:
             raise RuntimeError('r2 requires Worker-local Durable Object bindings')
+    for binding in config.get('kv_namespaces', []):
+        if (binding.get('binding') == 'SETTINGS' and ('id' in binding or 'preview_id' in binding)
+                and source_worker != 'codex-over-cloudflare-r2'):
+            raise RuntimeError('r2 SETTINGS must be provisioned for its own Worker')
     config['vars']['ACCESS_ENABLED'] = 'false' if without_access else 'true'
     config['vars'].pop('ACCESS_AUD', None)
     if access_aud:

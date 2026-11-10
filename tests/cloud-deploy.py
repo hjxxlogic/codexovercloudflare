@@ -59,6 +59,14 @@ class CloudArtifactTests(unittest.TestCase):
                      ('r2', None, False), ('r2', 'a' * 64, True), ('r2', 'bad', False)]:
             with self.assertRaises(RuntimeError):
                 cloud.deployment_target(config, *args)
+        shared = json.loads(json.dumps(config))
+        shared['kv_namespaces'] = [{'binding': 'SETTINGS', 'id': 'production-kv'}]
+        with self.assertRaisesRegex(RuntimeError, 'SETTINGS must be provisioned'):
+            cloud.deployment_target(shared, 'r2', 'a' * 64)
+        self.assertEqual(result['kv_namespaces'], [{'binding': 'SETTINGS'}])
+        own = json.loads(json.dumps(result))
+        own['kv_namespaces'][0]['id'] = 'r2-kv'
+        self.assertEqual(cloud.deployment_target(own, 'r2', 'a' * 64)['kv_namespaces'], own['kv_namespaces'])
         config['durable_objects']['bindings'][0]['script_name'] = original['name']
         with self.assertRaisesRegex(RuntimeError, 'Worker-local'):
             cloud.deployment_target(config, 'r2', 'a' * 64)

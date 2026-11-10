@@ -155,3 +155,11 @@ API（均在 `/api/v1` 下）：
 业务域名开启 Access 前，原生程序须配置匹配 origin 的 Service Token；下载域名也须满足原生更新请求的入口认证。共享 Token 轮换只需协调 Cloudflare Service Auth 与各原生程序；Worker 不保存或校验该 Token，轮换无需更新 Worker。撤销单个设备使用 CoC 凭据撤销，不撤销全项目 Token。
 
 发布仍遵循 [RELEASE.md](RELEASE.md)：使用同一提交全部必需 Actions 作业成功后的产物，Agent 等待空闲并保留配置 / 数据库，Worker 发布单独执行。实现和本地测试不等于已经上线或完成真实 Access 边缘联调。
+
+## 平台控制的邮箱自助授权
+
+平台管理员登录管理网页后，可在“待授权请求”开启“邮箱自助授权”；默认关闭，配置写入独立的 Cloudflare `SETTINGS` KV，不以 Worker 明文变量或浏览器本地状态代替。无 KV 或未启用 Access 时不能开启。r2 与生产分别创建 namespace，不共用开关。
+
+开启后，原生 Agent 的配对链接由已验证邮箱用户自行确认终端配对码。Relay 记录 `host.approvedAdminEmail`，管理邮箱以实际批准者为准，包括经管理页面批准的新 Agent；本地配置与旧管理员覆盖值不能替换该记录。原生请求填写的邮箱不可信，Service Token 也不能建立邮箱身份。只允许原申请进程凭秘密领取 Agent Token，不把 Token 交给审批网页。未记录批准邮箱的旧 Agent 保持原规则。
+
+同邮箱的 CW 自动恢复授权与项目管理，定向普通 CLI 可通过浏览器确认配对码自助批准；其他邮箱与 `--manager` 不走该免管理员路径。关闭开关只停止新的自助批准，已有授权继续由原撤销机制控制。没有自己的 Agent 时，CW 欢迎页提供配置步骤。完整流程见[用户手册](USER_GUIDE.md#邮箱自助注册与授权)。

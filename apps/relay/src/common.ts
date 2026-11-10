@@ -5,6 +5,7 @@ import {
 } from '../../../packages/protocol/src/admission.ts';
 export interface Env {
   OWNER_SECRET: string;
+  SETTINGS?: KVNamespace;
   ACCESS_ENABLED?: string;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;

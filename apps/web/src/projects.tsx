@@ -424,10 +424,15 @@ export function AgentAdminEmail({
     name: string;
     agentAdminEmail?: string;
     adminEmailOverride?: string;
+    approvedAdminEmail?: string;
   };
   saved: () => Promise<void>;
 }) {
-  const configured = host.adminEmailOverride ?? host.agentAdminEmail ?? '';
+  const configured =
+    host.approvedAdminEmail ??
+    host.adminEmailOverride ??
+    host.agentAdminEmail ??
+    '';
   const [value, setValue] = useState(configured);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -445,6 +450,13 @@ export function AgentAdminEmail({
       setBusy(false);
     }
   }
+  if (host.approvedAdminEmail)
+    return (
+      <p>
+        {t('Agent 管理员邮箱')} · {host.name}: {host.approvedAdminEmail} (
+        {t('以批准此 Agent 的邮箱为准')})
+      </p>
+    );
   return (
     <form
       onSubmit={(e) => {

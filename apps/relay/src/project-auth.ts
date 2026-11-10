@@ -2,7 +2,12 @@ import { AppError } from '../../../packages/protocol/src/admission.ts';
 import { adminEmailVersion, accessEnabled } from './access.ts';
 import { digest, type Auth, type Env } from './common.ts';
 export function effectiveAdminEmail(host: any): string {
-  return host.adminEmailOverride ?? host.agentAdminEmail ?? '';
+  return (
+    host.approvedAdminEmail ??
+    host.adminEmailOverride ??
+    host.agentAdminEmail ??
+    ''
+  );
 }
 export async function managesProjects(
   env: Env,

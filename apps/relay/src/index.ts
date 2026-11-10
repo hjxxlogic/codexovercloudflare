@@ -236,6 +236,7 @@ export default {
           email: identity.email,
           accountId: identity.accountId,
           autoAdmin: adminEmailMatches(env, identity),
+          selfService: (await registryCall(env, 'settingsGet')).enabled,
           legacy,
         });
       }
@@ -351,6 +352,29 @@ export default {
                 JSON.stringify({ hash: auth.hash }),
               ),
             },
+          }),
+        );
+      }
+      const selfPairing = p.match(
+        /^\/api\/v1\/auth\/device\/([\w-]+)\/authorize$/,
+      );
+      if (selfPairing && ['GET', 'POST'].includes(req.method)) {
+        let reviewer: Auth | undefined;
+        if (cookies(req).get('coc_admin')) {
+          try {
+            reviewer = await authenticate(req, env, undefined, true);
+          } catch (error) {
+            if (!authorizationFailed(error)) throw error;
+          }
+        }
+        const decision = req.method === 'POST' ? await body(req) : {};
+        return json(
+          await registryCall(env, 'selfDevice', {
+            id: selfPairing[1],
+            identity: accessUser(req),
+            reviewerHash: reviewer?.hash,
+            decision: decision.decision,
+            code: decision.code,
           }),
         );
       }
@@ -486,6 +510,20 @@ export default {
       }
       if (p.startsWith('/api/v1/admin/')) {
         const owner = await authenticate(req, env, undefined, true);
+        if (p === '/api/v1/admin/email-self-service') {
+          if (req.method === 'GET')
+            return json(await registryCall(env, 'settingsGet'));
+          if (req.method === 'POST') {
+            const settings = await body(req);
+            return json(
+              await registryCall(env, 'settingsSet', {
+                enabled: settings.enabled,
+                updatedBy: owner.hash,
+                email: accessUser(req)?.email,
+              }),
+            );
+          }
+        }
         if (p === '/api/v1/admin/hosts/restore' && req.method === 'POST')
           return json(await registryCall(env, 'hostRestore', await body(req)));
         const connections = p.match(
@@ -658,7 +696,11 @@ export default {
             await registryCall(
               env,
               action[1] === 'approve' ? 'deviceApprove' : 'deviceReject',
-              { ...d, approvedBy: owner.hash },
+              {
+                ...d,
+                approvedBy: owner.hash,
+                approvedIdentity: accessUser(req),
+              },
             );
           return json({ ok: true });
         }

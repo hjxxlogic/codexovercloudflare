@@ -132,3 +132,9 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 部署回归还包括 `python3 tests/deploy-agent-recovery.py`（SQLite 升级后禁止单独回退旧二进制、停止恢复拒绝活动会话）及 `python3 tests/deploy-downloads.py`（已完成 CI 下载与当前原生构建输入的一致性）。两者已加入 regression 作业。
 
 `npm run test:billing` 并行运行三个独立的原生空闲、读取和重试场景；每组使用独立端口、临时状态及进程，保留生产 30 秒重连 / 90 秒 Pong 时限和全部断言。等待全部场景完成后，任何一组失败均返回非零状态，并输出每组耗时。单独排查仍可使用 `npx tsx tests/native-demand.ts`、`npx tsx tests/native-refresh.ts` 或 `npm run test:retry`。
+
+## 邮箱自助授权设置
+
+`wrangler.jsonc` 声明 `SETTINGS` KV 绑定，不硬编码 namespace ID；Wrangler 部署按 Worker 创建或复用绑定，本地开发使用本地 KV。`scripts/deploy-cloud.py --target r2` 保持 r2 Worker 独立，并拒绝绑定固定生产 SETTINGS namespace 的配置。KV 仅保存开关；DO 授权与 Agent SQLite 不变。部署不会自动开启功能；需先配置测试域的 Access 邮箱入口与原生 Service Auth，再由已登录的平台管理员在网页开启。入口允许哪些邮箱由 Access 策略决定。
+
+测试入口：`vitest run tests/cloudflare-access.test.ts tests/device-auth.test.ts` 覆盖真实签名身份、管理员开关、持久化、配对、跨邮箱拒绝、撤销与批准邮箱；`tsx tests/browser-access.ts` 覆盖管理设置、首次配置引导与配对完成后的刷新，截图保存在忽略的 `.local/browser-access/`。`python3 tests/cloud-deploy.py` 检查 r2 不共享生产 KV。

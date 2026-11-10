@@ -1,5 +1,35 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  '测试站若需要专用 Access 配置，请使用站点提供的文件，并在登录命令后添加 --access-config /path/to/access.json。':
+    'If this test site requires an Access configuration, use the file provided by the site and append --access-config /path/to/access.json to the login command.',
+  '运行登录命令，将配对码交给管理员批准。':
+    'Run the login command and ask an administrator to approve the pairing code.',
+  邮箱自助授权: 'Email self-service',
+  '开启后，已验证邮箱可自行批准 Agent 注册及同邮箱客户端配对。Agent 管理邮箱固定为批准者邮箱。':
+    'Allow verified users to approve Agent registration and client pairing for their own email. The approving email becomes the Agent administrator.',
+  允许同邮箱免管理员审批: 'Allow self-service approval for the same email',
+  '请先配置 SETTINGS KV 绑定。': 'Configure the SETTINGS KV binding first.',
+  邮箱自助授权设置已保存: 'Email self-service settings saved',
+  '配置你的 coc-agent': 'Set up your coc-agent',
+  '当前邮箱尚未配置自己的 Agent。请在运行 Codex 的电脑上完成以下步骤。':
+    'This email has no Agent of its own. Complete these steps on the computer running Codex.',
+  '安装并登录 Codex，下载适合系统的 CoC 程序并加入 PATH。':
+    'Install and sign in to Codex, then download CoC for your system and add it to PATH.',
+  下载程序: 'Download CoC',
+  '运行登录命令，用当前邮箱打开终端中的链接，核对配对码并批准注册。':
+    'Run the login command, open the terminal link with your current email, verify the pairing code and approve registration.',
+  '在项目目录登记项目，然后启动 Agent。':
+    'Register the project from its directory, then start the Agent.',
+  '返回本页刷新，即可选择自己的服务器和项目。':
+    'Return here and refresh to select your server and project.',
+  确认设备配对: 'Confirm device pairing',
+  '仅批准你刚刚在自己电脑上发起的请求。请输入终端显示的配对码。':
+    'Only approve requests you just started on your own computer. Enter the pairing code shown in the terminal.',
+  '批准后，当前已验证邮箱将成为此 Agent 的管理邮箱。':
+    'Your verified email will become this Agent’s administrator email.',
+  设备配对已处理: 'Device pairing handled',
+  '以批准此 Agent 的邮箱为准': 'Set by the email that approved this Agent',
+
   运行中: 'Running',
   已打开: 'Open',
   启动中: 'Starting',

@@ -53,6 +53,7 @@ type Host = {
   accessEmailsOverride?: string[];
   agentAdminEmail?: string;
   adminEmailOverride?: string;
+  approvedAdminEmail?: string;
 };
 export class RegistryCore {
   constructor(
@@ -89,6 +90,8 @@ export class RegistryCore {
     const op = new URL(req.url).pathname.slice(1);
     if (
       [
+        'settingsSet',
+        'selfDevice',
         'logout',
         'logoutOthers',
         'credentialRevoke',
@@ -123,6 +126,7 @@ export class RegistryCore {
         'agentDeviceApprove',
         'agentDeviceReject',
         'managerDevice',
+        'selfDevice',
       ].includes(op)
         ? await this.storage.get<any>('device:' + d.id)
         : undefined;
@@ -166,6 +170,7 @@ export class RegistryCore {
         'agentDeviceApprove',
         'agentDeviceReject',
         'managerDevice',
+        'selfDevice',
         'credentialRevoke',
         'apiKeyCreate',
         'apiKeyLogin',
@@ -184,7 +189,10 @@ export class RegistryCore {
       if (
         response.ok &&
         mutations.includes(op) &&
-        !(op === 'managerDevice' && d.decision === undefined) &&
+        !(
+          ['managerDevice', 'selfDevice'].includes(op) &&
+          d.decision === undefined
+        ) &&
         !(
           op === 'releasePublish' &&
           release?.version === d.version &&
@@ -716,6 +724,109 @@ export class RegistryCore {
           );
         return json({ hostId: request.requestedHostId });
       }
+      if (op === 'settingsGet') return json(await this.selfServiceSettings());
+      if (op === 'settingsSet') {
+        if (!this.env.SETTINGS)
+          throw new AppError(
+            'SETTINGS_UNAVAILABLE',
+            'Settings KV is not configured',
+            503,
+          );
+        const enabled = z.boolean().parse(d.enabled);
+        if (enabled && !accessEnabled(this.env))
+          throw new AppError(
+            'ACCESS_USER_REQUIRED',
+            'Email authentication must be enabled',
+            403,
+          );
+        const settings = {
+          enabled,
+          updated: Date.now(),
+          updatedBy: d.updatedBy,
+          email: d.email,
+        };
+        await this.env.SETTINGS.put(
+          'email-self-service',
+          JSON.stringify(settings),
+        );
+        this.savedSelfService = enabled;
+        return json(await this.selfServiceSettings());
+      }
+      if (op === 'selfDevice') {
+        const settings = await this.selfServiceSettings();
+        const reviewer = d.reviewerHash
+          ? await this.checkedReviewer(d.reviewerHash)
+          : undefined;
+        const owner = reviewer?.role === 'owner';
+        if (!owner && (!settings.enabled || !d.identity))
+          throw new AppError(
+            'FORBIDDEN',
+            'Email self-service is disabled or email is unavailable',
+            403,
+          );
+        return json(
+          await s.transaction(async (tx) => {
+            const key = 'device:' + idSchema.parse(d.id);
+            const request = await tx.get<any>(key);
+            if (
+              !request ||
+              request.manager ||
+              request.state !== 'pending' ||
+              request.expires <= Date.now()
+            )
+              throw new AppError(
+                'NOT_FOUND',
+                'Pairing request expired or handled',
+                404,
+              );
+            if (!['agent', 'cli'].includes(request.role))
+              throw new AppError('FORBIDDEN', 'Native pairing required', 403);
+            if (request.role === 'cli') {
+              const host = await tx.get<Host>(
+                'host:' + request.requestedHostId,
+              );
+              if (!host || host.disabled)
+                throw new AppError(
+                  'HOST_NOT_FOUND',
+                  'Target Agent is required',
+                  404,
+                );
+              if (!owner && effectiveAdminEmail(host) !== d.identity.email)
+                throw new AppError(
+                  'FORBIDDEN',
+                  'Agent administrator email required',
+                  403,
+                );
+            }
+            if (d.decision === undefined)
+              return {
+                id: request.id,
+                name: request.name,
+                role: request.role,
+                hostId: request.requestedHostId,
+              };
+            if (!['approve', 'reject'].includes(d.decision))
+              throw new AppError('INVALID_REQUEST', 'Invalid decision', 400);
+            if (d.code !== request.code)
+              throw new AppError('FORBIDDEN', 'Pairing code mismatch', 403);
+            if (d.decision === 'reject') request.state = 'rejected';
+            else {
+              request.hostId =
+                request.role === 'agent'
+                  ? request.hostId
+                  : request.requestedHostId;
+              await this.approveDevice(
+                tx,
+                request,
+                reviewer?.hash ?? d.identity.accountId,
+                d.identity,
+              );
+            }
+            await tx.put(key, request);
+            return { ok: true };
+          }),
+        );
+      }
       if (op === 'deviceStart') {
         const role = z.enum(['agent', 'cli', 'web']).parse(d.role);
         const name = z.string().trim().min(1).max(100).parse(d.name);
@@ -967,32 +1078,12 @@ export class RegistryCore {
                 request.requestedHostId ??
                 idSchema.parse(d.hostId);
             }
-            if (request.role === 'agent') {
-              await this.createHost(tx, request.name, request.hostId);
-            } else {
-              const host = await tx.get<Host>('host:' + request.hostId);
-              if (!host || host.version !== 2 || host.disabled)
-                throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
-            }
-            const value = token(),
-              hash = await digest(value);
-            await tx.put('auth:' + hash, {
-              hash,
-              version: 2,
-              role: request.role,
-              name: request.name,
-              hostId: request.hostId,
-              created: Date.now(),
-              expires: Number.MAX_SAFE_INTEGER,
-            } satisfies Auth);
-            request.approvedBy = agent?.hash ?? d.approvedBy;
-            request.state = 'approved';
-            request.result = {
-              token: value,
-              hostId: request.hostId,
-              name: request.name,
-              role: request.role,
-            };
+            await this.approveDevice(
+              tx,
+              request,
+              agent?.hash ?? d.approvedBy,
+              d.approvedIdentity,
+            );
           }
           await tx.put(key, request);
         });
@@ -1243,6 +1334,15 @@ export class RegistryCore {
             const host = await tx.get<Host>('host:' + id);
             if (!host || host.disabled)
               throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+            if (host.approvedAdminEmail) {
+              if (!agent)
+                throw new AppError(
+                  'FORBIDDEN',
+                  'Administrator email is fixed to the Agent approver',
+                  403,
+                );
+              return { hostId: id, adminEmail: host.approvedAdminEmail };
+            }
             if (!agent && d.email === null) delete host.adminEmailOverride;
             else
               host[agent ? 'agentAdminEmail' : 'adminEmailOverride'] =
@@ -1343,6 +1443,72 @@ export class RegistryCore {
     if (!host || host.version !== 2 || host.disabled)
       throw new AppError('UNAUTHORIZED', 'Agent unavailable', 401);
     return agent;
+  }
+  private async checkedReviewer(hash: string): Promise<Auth> {
+    const response = await this.dispatch(
+      new Request('https://internal/authHash', {
+        method: 'POST',
+        body: JSON.stringify({ hash }),
+      }),
+    );
+    if (!response.ok)
+      throw new AppError('UNAUTHORIZED', 'Administrator login required', 401);
+    return response.json();
+  }
+  private savedSelfService?: boolean;
+  private async selfServiceSettings() {
+    const value =
+      this.savedSelfService ??
+      (
+        await this.env.SETTINGS?.get<{ enabled?: boolean }>(
+          'email-self-service',
+          'json',
+        )
+      )?.enabled;
+    return {
+      enabled: accessEnabled(this.env) && value === true,
+      configured: !!this.env.SETTINGS,
+    };
+  }
+  private async approveDevice(
+    tx: StateTransaction,
+    request: any,
+    approvedBy?: string,
+    identity?: AccessUser,
+  ) {
+    if (request.role === 'agent') {
+      await this.createHost(tx, request.name, request.hostId);
+      if (identity) {
+        const host = await tx.get<Host>('host:' + request.hostId);
+        await tx.put('host:' + request.hostId, {
+          ...host,
+          approvedAdminEmail: identity.email,
+        });
+      }
+    } else {
+      const host = await tx.get<Host>('host:' + request.hostId);
+      if (!host || host.version !== 2 || host.disabled)
+        throw new AppError('HOST_NOT_FOUND', 'Host unavailable', 404);
+    }
+    const value = token(),
+      hash = await digest(value);
+    await tx.put('auth:' + hash, {
+      hash,
+      version: 2,
+      role: request.role,
+      name: request.name,
+      hostId: request.hostId,
+      created: Date.now(),
+      expires: Number.MAX_SAFE_INTEGER,
+    } satisfies Auth);
+    request.approvedBy = approvedBy;
+    request.state = 'approved';
+    request.result = {
+      token: value,
+      hostId: request.hostId,
+      name: request.name,
+      role: request.role,
+    };
   }
   private async createHost(
     tx: StateTransaction,

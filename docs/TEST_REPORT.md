@@ -204,3 +204,11 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 `npm run test:cache` 通过真实 Chromium IndexedDB 回归，包括同一轮连续收到 650 条不同事件时全部落盘、检查点为 650，以及原有配额、事务原子性、跨标签页隔离和清理保留测试。`tests/ui-stability.ts --cache-quota` 分别注入打开会话时订阅检查点配额失败和对话进行中事件写入配额失败；验证明确满额提示、停止后续历史写入、继续在线刷新和显示事件、保持连接及任务发送。截图位于忽略路径 `.local/ui-stability/cache-quota-subscription-mobile.png` 与 `cache-quota-events-mobile.png`。
 
 完整 `npm test` 通过（16 项 CTest、37 个 Vitest 文件 / 412 项测试）；类型检查、修改代码 ESLint / Prettier 与网页构建通过。未在真实 Safari 或用户浏览器上复现；实际故障原因由新的分类提示和具体存储错误进一步辨认。按用户要求跳过 GitHub Actions，主站网页已发布并完成线上资源核对，见 [发布记录](CW_HISTORY_CACHE_RUNTIME_FIX_20261109.md)。
+
+## 2026-11-10：邮箱自助授权本地验证
+
+新增平台管理员开关、SETTINGS KV 持久化、浏览器邮箱配对及按批准者确定 Agent 管理邮箱；旧主机不追溯绑定。37 个 Vitest 文件 / 418 项测试通过，其中 Access / 设备授权专项共 83 项。新增测试验证默认关闭、普通用户修改被拒、KV 重建恢复、无 KV / 无邮箱验证拒绝开启、伪造请求体邮箱与无邮箱 Service Token 被拒、终端码、原进程重复领取同一结果、跨邮箱 CLI 拒绝、申请到期 / 拒绝 / 主机撤销、管理员批准邮箱及本地配置不可覆盖。
+
+TypeScript、变更文件 ESLint、网页生产构建和 Worker dry-run 通过，绑定包含 SETTINGS KV；20 项 cloud-deploy 测试通过，覆盖 r2 与生产 KV 隔离及仅更新 r2 网页时保留其原 namespace。真实 Chromium 的 `tests/browser-access.ts` 通过，覆盖管理员开关保存、首次配置引导、输入终端码配对、刷新后隐藏引导，同时保留邮箱恢复、管理员登录、中英登出与访客前缀回归。截图 `.local/browser-access/email-self-service-admin.png` 与 `email-self-service-setup.png` 保存在忽略目录；界面数据为合成身份。
+
+以上为当前工作区的本地验证，未执行 Actions、发布 Worker、创建线上 KV 或开启线上自助授权；不代表 r2 已更新。r2 目前的原生下载仍需独立 Access 配置文件，公开测试发布时须同时准备可用的入口配置与用户下载说明。没有调用模型、修改生产授权或重启现有 Agent。

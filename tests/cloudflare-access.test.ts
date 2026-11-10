@@ -1142,3 +1142,218 @@ describe('verified Agent administrator email', () => {
     expect((await request('/api/v1/hosts', email)).data).toEqual([]);
   });
 });
+
+describe('administrator-enabled email self-service', () => {
+  let values: Map<string, string>;
+  beforeEach(() => {
+    values = new Map();
+    env.SETTINGS = {
+      get: vi.fn(async (key: string) =>
+        values.has(key) ? JSON.parse(values.get(key)!) : null,
+      ),
+      put: vi.fn(async (key: string, value: string) => {
+        values.set(key, value);
+      }),
+    } as unknown as KVNamespace;
+  });
+  async function settings(enabled: boolean) {
+    const admin = await request(
+      '/api/v1/auth/email/admin',
+      'admin@test.com',
+      {},
+    );
+    return request(
+      '/api/v1/admin/email-self-service',
+      'admin@test.com',
+      { enabled },
+      admin.cookie,
+    );
+  }
+  async function native(role = 'agent', hostId?: string) {
+    const result = await request('/api/v1/auth/device/start', null, {
+      role,
+      name: 'My computer',
+      ...(hostId ? { requestedHostId: hostId } : {}),
+      identity: { email: 'forged@test.com' },
+      approvedIdentity: { email: 'forged@test.com' },
+    });
+    expect(result.status).toBe(200);
+    return result.data;
+  }
+  async function approve(start: any, email = 'alice@test.com') {
+    return request(`/api/v1/auth/device/${start.id}/authorize`, email, {
+      decision: 'approve',
+      code: start.code,
+      identity: { email: 'forged@test.com' },
+    });
+  }
+  async function poll(start: any) {
+    return request('/api/v1/auth/device/poll', null, {
+      id: start.id,
+      pollSecret: start.pollSecret,
+    });
+  }
+  it('defaults off, rejects ordinary users and persists only authenticated admin settings in KV', async () => {
+    const identity = await request('/api/v1/auth/email', 'alice@test.com');
+    expect(identity.data.selfService).toBe(false);
+    expect(
+      (
+        await request('/api/v1/admin/email-self-service', 'alice@test.com', {
+          enabled: true,
+        })
+      ).status,
+    ).toBe(401);
+    const start = await native();
+    expect((await approve(start)).status).toBe(403);
+    expect(values.size).toBe(0);
+    expect((await settings(true)).data).toEqual({
+      enabled: true,
+      configured: true,
+    });
+    expect(JSON.parse(values.get('email-self-service')!)).toMatchObject({
+      enabled: true,
+      email: 'admin@test.com',
+    });
+    registry = new RegistryDO(
+      { storage, getWebSockets: () => [] } as unknown as DurableObjectState,
+      env,
+    );
+    expect(
+      (await request('/api/v1/auth/email', 'alice@test.com')).data.selfService,
+    ).toBe(true);
+    expect((await settings(false)).data.enabled).toBe(false);
+    expect((await approve(start)).status).toBe(403);
+  });
+  it('requires KV and email authentication before enabling', async () => {
+    env.SETTINGS = undefined;
+    expect((await settings(true)).status).toBe(503);
+    env.SETTINGS = { put: vi.fn(), get: vi.fn() } as unknown as KVNamespace;
+    env.ACCESS_ENABLED = 'false';
+    expect((await op('settingsSet', { enabled: true })).status).toBe(403);
+  });
+  it('binds the verified approver email, restores its browsers and ignores local overrides', async () => {
+    await settings(true);
+    const start = await native();
+    const path = `/api/v1/auth/device/${start.id}/authorize`;
+    const preview = await request(path, 'alice@test.com');
+    expect(preview.data).toMatchObject({ name: 'My computer', role: 'agent' });
+    expect(preview.data.code).toBeUndefined();
+    expect(
+      (
+        await request(path, 'alice@test.com', {
+          decision: 'approve',
+          code: 'WRONG',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await request(path, null, { decision: 'approve', code: start.code }))
+        .status,
+    ).toBe(403);
+    expect((await approve(start)).status).toBe(200);
+    expect((await approve(start)).status).toBe(404);
+    const agent = (await poll(start)).data;
+    expect(agent.token).toBeTruthy();
+    expect((await poll(start)).data.token).toBe(agent.token);
+    expect(storage.values.get('host:' + agent.hostId)).toMatchObject({
+      approvedAdminEmail: 'alice@test.com',
+    });
+    const agentHash = await digest(agent.token);
+    expect(
+      (await op('agentSetAdminEmail', { agentHash, email: 'other@test.com' }))
+        .data.adminEmail,
+    ).toBe('alice@test.com');
+    expect(
+      (await op('setAdminEmail', { id: agent.hostId, email: 'other@test.com' }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await request('/api/v1/hosts', 'alice@test.com')).data,
+    ).toHaveLength(1);
+    expect((await request('/api/v1/hosts', 'other@test.com')).data).toEqual([]);
+    expect(
+      (
+        await request('/api/v1/auth/email/restore', 'alice@test.com', {
+          hostId: agent.hostId,
+        })
+      ).status,
+    ).toBe(200);
+    await settings(false);
+    expect(
+      (
+        await request('/api/v1/auth/email/restore', 'alice@test.com', {
+          hostId: agent.hostId,
+        })
+      ).status,
+    ).toBe(200);
+  });
+  it('allows only the Agent management email to self-approve a targeted CLI', async () => {
+    await settings(true);
+    const start = await native();
+    await approve(start);
+    const agent = (await poll(start)).data;
+    const cli = await native('cli', agent.hostId);
+    expect((await approve(cli, 'other@test.com')).status).toBe(403);
+    expect((await approve(cli)).status).toBe(200);
+    expect((await poll(cli)).data).toMatchObject({
+      hostId: agent.hostId,
+      role: 'cli',
+    });
+    expect((await approve(await native('cli'))).status).toBe(404);
+    const manager = (
+      await request('/api/v1/auth/device/start', null, {
+        role: 'cli',
+        name: 'manager',
+        requestedHostId: agent.hostId,
+        manager: true,
+      })
+    ).data;
+    expect((await approve(manager)).status).toBe(404);
+  });
+  it('rejects expired, rejected and revoked targets without granting credentials', async () => {
+    await settings(true);
+    const expired = await native();
+    storage.values.get('device:' + expired.id).expires = Date.now() - 1;
+    expect((await approve(expired)).status).toBe(404);
+    const rejected = await native();
+    expect(
+      (
+        await request(
+          `/api/v1/auth/device/${rejected.id}/authorize`,
+          'alice@test.com',
+          { decision: 'reject', code: rejected.code },
+        )
+      ).status,
+    ).toBe(200);
+    expect((await poll(rejected)).data.state).toBe('rejected');
+    const start = await native();
+    await approve(start);
+    const agent = (await poll(start)).data;
+    const cli = await native('cli', agent.hostId);
+    await op('credentialRevoke', { id: await digest(agent.token) });
+    expect((await approve(cli)).status).toBe(404);
+    expect((await request('/api/v1/hosts', 'alice@test.com')).data).toEqual([]);
+  });
+  it('uses the verified approving platform administrator email for manual Agent approval', async () => {
+    const admin = await request(
+      '/api/v1/auth/email/admin',
+      'admin@test.com',
+      {},
+    );
+    const start = await native();
+    const result = await request(
+      '/api/v1/admin/approve',
+      'admin@test.com',
+      {
+        id: start.id,
+        approvedIdentity: { email: 'forged@test.com' },
+      },
+      admin.cookie,
+    );
+    expect(result.status).toBe(200);
+    const agent = (await poll(start)).data;
+    expect(storage.values.get('host:' + agent.hostId)).toMatchObject({
+      approvedAdminEmail: 'admin@test.com',
+    });
+  });
+});

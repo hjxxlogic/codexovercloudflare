@@ -1,3 +1,8 @@
+import {
+  AgentSetup,
+  DeviceAuthorization,
+  EmailSelfServiceSettings,
+} from './email-self-service.tsx';
 import { PromptQueue } from './prompt-queue.tsx';
 import {
   SessionNavigation,
@@ -211,12 +216,14 @@ function App() {
     email?: string;
     accountId?: string;
     autoAdmin?: boolean;
+    selfService?: boolean;
     legacy?: { hostId: string; name: string }[];
   }>({ enabled: false });
   const welcomeSelection = useRef<
     { hostId: string; session: Session } | undefined
   >(undefined);
   const accountRef = useRef('');
+  const authorizationRequest = useRef('');
   const autoAdminAttempt = useRef('');
   const [logged, setLogged] = useState(false),
     [admin, setAdmin] = useState(false),
@@ -401,6 +408,13 @@ function App() {
       accountRef.current = nextAccount;
       setEmailAccount(nextAccount);
       setEmailIdentity(identity);
+      if (authorizationRequest.current) {
+        if (identity.selfService) {
+          setMode('cw');
+          setView('chat');
+        }
+        authorizationRequest.current = '';
+      }
       if (identity.autoAdmin && autoAdminAttempt.current !== nextAccount) {
         autoAdminAttempt.current = nextAccount;
         await api('/auth/email/admin', {});
@@ -455,6 +469,7 @@ function App() {
       'authorize',
     );
     if (request) {
+      authorizationRequest.current = request;
       setView('devices');
       setAdminTab('pending');
       setMode('admin');
@@ -3512,6 +3527,20 @@ function App() {
           />
         </section>
       )}
+      {!checking && managing && (emailIdentity.selfService || admin) && (
+        <DeviceAuthorization key={managing} id={managing} changed={refresh} />
+      )}
+      {!checking &&
+        mode === 'cw' &&
+        emailIdentity.enabled &&
+        view === 'chat' &&
+        !selected &&
+        !hosts.some(
+          (h) =>
+            (h.approvedAdminEmail ??
+              h.adminEmailOverride ??
+              h.agentAdminEmail) === emailIdentity.email,
+        ) && <AgentSetup selfService={!!emailIdentity.selfService} />}
       <ManagerPairing />
       {admin && view === 'devices' && adminTab !== 'misc' && (
         <section
@@ -3540,6 +3569,7 @@ function App() {
           {adminTab === 'versions' && <AgentVersions hosts={keyHosts} />}
           {adminTab === 'pending' && (
             <>
+              <EmailSelfServiceSettings />
               <p>
                 {t(
                   '批准前请与申请方核对配对码和角色；已指定目标的申请不可改绑，其他客户端申请需选择服务器。管理身份不能直接操作 Codex 会话。',

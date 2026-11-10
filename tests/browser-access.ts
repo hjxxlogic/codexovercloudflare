@@ -17,6 +17,8 @@ const hosts = [
   { id: 'b', name: '服务器 B', online: false },
 ];
 const restoredHosts: string[] = [];
+let selfService = false,
+  selfRegistered = false;
 let paired = 0,
   restored = 0,
   adminLogins = 0,
@@ -51,11 +53,13 @@ const server = createServer(async (req, res) => {
     return;
   }
   const cookie = req.headers.cookie || '';
-  const email = cookie.includes('access-test=admin')
-    ? 'admin@example.test'
-    : cookie.includes('access-test=other')
-      ? 'other@example.test'
-      : 'user@example.test';
+  const email = cookie.includes('access-test=self')
+    ? 'self@example.test'
+    : cookie.includes('access-test=admin')
+      ? 'admin@example.test'
+      : cookie.includes('access-test=other')
+        ? 'other@example.test'
+        : 'user@example.test';
   const unclaimedBrowser = cookie.includes('unclaimed=test');
   const isAdmin = cookie.includes('coc_admin=' + email);
   let raw = '';
@@ -75,6 +79,7 @@ const server = createServer(async (req, res) => {
             email,
             accountId: email,
             autoAdmin: email.startsWith('admin'),
+            selfService,
             legacy:
               unclaimedBrowser && !claimed
                 ? [{ hostId: 'a', name: '无邮箱授权' }]
@@ -90,18 +95,31 @@ const server = createServer(async (req, res) => {
       res.statusCode = 401;
       result = { error: { code: 'UNAUTHORIZED', message: 'Login required' } };
     } else result = { role: 'owner' };
+  } else if (path === '/admin/email-self-service') {
+    if (req.method === 'POST') selfService = data.enabled;
+    result = { enabled: selfService, configured: true };
+  } else if (path === '/auth/device/self-agent/authorize') {
+    if (req.method === 'POST') {
+      assert.equal(data.code, '1234ABCD');
+      selfRegistered = true;
+    } else result = { name: 'My laptop', role: 'agent' };
   } else if (path === '/hosts')
-    result = guest
-      ? cookie.includes('coc_guest_web_a=')
-        ? [hosts[0]]
-        : []
-      : unclaimedBrowser
-        ? claimed
-          ? [hosts[0]]
+    result =
+      email === 'self@example.test'
+        ? selfRegistered
+          ? [{ ...hosts[0], approvedAdminEmail: email }]
           : []
-        : email.startsWith('other')
-          ? []
-          : hosts;
+        : guest
+          ? cookie.includes('coc_guest_web_a=')
+            ? [hosts[0]]
+            : []
+          : unclaimedBrowser
+            ? claimed
+              ? [hosts[0]]
+              : []
+            : email.startsWith('other')
+              ? []
+              : hosts;
   else if (
     path === '/auth/email/migrate' &&
     unclaimedBrowser &&
@@ -356,8 +374,49 @@ try {
     fullPage: true,
   });
   await guestContext.close();
+  await adminPage.getByRole('tab', { name: '待授权请求', exact: true }).click();
+  const selfSwitch = adminPage.getByRole('checkbox', {
+    name: '允许同邮箱免管理员审批',
+  });
+  await expect(selfSwitch).not.toBeChecked();
+  await selfSwitch.check();
+  await expect(
+    adminPage.getByText('邮箱自助授权设置已保存', { exact: true }),
+  ).toBeVisible();
+  await adminPage.screenshot({
+    path: join(artifacts, 'email-self-service-admin.png'),
+    fullPage: true,
+  });
+  const selfContext = await browser.newContext();
+  await selfContext.addCookies([
+    { name: 'access-test', value: 'self', url: origin },
+  ]);
+  const selfPage = await selfContext.newPage();
+  await selfPage.goto(origin + '/#authorize=self-agent');
+  await expect(
+    selfPage.getByRole('heading', { name: '配置你的 coc-agent' }),
+  ).toBeVisible();
+  await expect(
+    selfPage.getByText('coc-agent login --relay ' + origin, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    selfPage.getByRole('heading', { name: '管理员登录', exact: true }),
+  ).toHaveCount(0);
+  await selfPage.getByRole('textbox', { name: '终端配对码' }).fill('1234ABCD');
+  await selfPage.screenshot({
+    path: join(artifacts, 'email-self-service-setup.png'),
+    fullPage: true,
+  });
+  await selfPage.getByRole('button', { name: '批准', exact: true }).click();
+  await expect(
+    selfPage.getByText('设备配对已处理', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    selfPage.getByRole('heading', { name: '配置你的 coc-agent' }),
+  ).toHaveCount(0);
+  await selfContext.close();
   console.log(
-    'PASS: email hosts restore; admin login; bilingual CW sign-out; guest assets, API and WS stay under the public prefix',
+    'PASS: email hosts restore; admin login and self-service settings; Agent setup and browser pairing; bilingual CW sign-out; guest assets, API and WS stay under the public prefix',
   );
 } finally {
   await browser.close();
