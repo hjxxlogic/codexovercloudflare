@@ -212,3 +212,7 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 TypeScript、变更文件 ESLint、网页生产构建和 Worker dry-run 通过，绑定包含 SETTINGS KV；20 项 cloud-deploy 测试通过，覆盖 r2 与生产 KV 隔离及仅更新 r2 网页时保留其原 namespace。真实 Chromium 的 `tests/browser-access.ts` 通过，覆盖管理员开关保存、首次配置引导、输入终端码配对、刷新后隐藏引导，同时保留邮箱恢复、管理员登录、中英登出与访客前缀回归。截图 `.local/browser-access/email-self-service-admin.png` 与 `email-self-service-setup.png` 保存在忽略目录；界面数据为合成身份。
 
 以上为当前工作区的本地验证，未执行 Actions、发布 Worker、创建线上 KV 或开启线上自助授权；不代表 r2 已更新。r2 目前的原生下载仍需独立 Access 配置文件，公开测试发布时须同时准备可用的入口配置与用户下载说明。没有调用模型、修改生产授权或重启现有 Agent。
+
+### 同日 r2 实际部署
+
+用户随后明确要求跳过 Actions 直接部署。`a41a0a8` 已通过本地构建发布至 `r2.xlogic.cc`，独立 KV、健康、静态资源字节及权限拒绝检查通过，自助授权保持关闭；原生下载复用已验证的 0.6.18 快照。发布前旧 r2 Worker 已不存在，本轮新建独立授权存储，未恢复删除前的授权；主站及本机 Agent 保持。部署脚本的本地快照恢复新增专项通过，cloud-deploy 共 21 项。详见 [r2 发布记录](R2_DEPLOYMENT.md#2026-11-10邮箱自助授权与独立测试站恢复)，本次 `ciVerified=false`。

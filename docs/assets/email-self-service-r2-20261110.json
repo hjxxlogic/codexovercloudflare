@@ -1,0 +1,67 @@
+{
+  "target": "https://r2.xlogic.cc",
+  "commit": "a41a0a86ade831ba6c9307ebfbd1d79750dec06a",
+  "sourceDigest": "68e9628c48c6d7007900bcd356eb36c5ae44e2c62e4c2f41662c1955463e62c8",
+  "localBuild": true,
+  "ciVerified": false,
+  "actions": null,
+  "worker": "codex-over-cloudflare-r2",
+  "workerVersion": "466ff270-0d71-4736-8d50-e784cfc5008b",
+  "createdWorker": true,
+  "createdIndependentKv": true,
+  "settings": {
+    "enabled": false,
+    "configured": true
+  },
+  "sourceChecksums": {
+    "worker/index.js": "827d6ee38af0cc80ccc202023e09b29943843b980f84ccf7f5dbb670de0326bb",
+    "site/index.html": "a8a9b6b3ede2c64cae29917d1139cb90b68c28873cacf3ad1603604344fcecfc",
+    "site/assets/index-AKvA2ZeK.css": "04a87d437cb7695cbcbcaee2e23dc011f3a606400b6cd7f90ab412c2a652cd83",
+    "site/assets/index-cnMzszQo.js": "d0502110e364e8d48aadf1f7e462c23a291601c82175a8c7a74cf81e218878b9"
+  },
+  "verification": {
+    "health": {
+      "ok": true,
+      "version": "0.6.18",
+      "demand": 1,
+      "protocol": 1
+    },
+    "publicAssetBytesMatch": true
+  },
+  "productionUnchanged": true,
+  "productionVersion": "e3946585-3e47-43c2-975e-60c215a72628",
+  "durableObjectsIndependent": true,
+  "entryServiceTokenCannotAdminister": true,
+  "nativeDownloads": {
+    "version": "0.6.18",
+    "commit": "76c7056d0589ea7a4345a2ce404e3f060d83e558",
+    "checksums": {
+      "coc-0.6.18-linux-x86_64-debian12.tar.gz": "197ae67c15a6f4dfc68110f29677a1f457cb9dff00443ec8d8e41b60f015ffac",
+      "coc-0.6.18-linux-x86_64-musl.tar.gz": "82def5bb6726c3c2c58cde448e3c61f53bf5211c5f9ac1335e15cf9fbe210f2f",
+      "coc-0.6.18-linux-x86_64-ubuntu20.04.tar.gz": "d341a5773b064d77b8a4f77a6ab205b2a9cb5b1e52491b3d1e0fd062b3ed4479",
+      "coc-0.6.18-windows-x64.zip": "7e632f197f68f82309631eaa24f349b77a15a85583526cf5afb636197e4ef4e3",
+      "codex-over-cloudflare-0.6.18-source.tar.gz": "f4794abd8ab1694c2db58c95084d0f02fa3d767d75d049dccebbf95bcc64d1f4"
+    },
+    "sourceActions": "https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42565345127"
+  },
+  "limitations": [
+    "Current Worker and web are locally built at explicit user request; no Actions verification for this source.",
+    "Previous r2 Worker was absent. New independent authorization storage was created; deleted historical grants were not restored.",
+    "Email registration and self-service approval were tested locally with signed synthetic identities; live email OTP was not automated.",
+    "Native downloads retain their previously verified version and require the separate r2 Access configuration.",
+    "Anonymous guest paths are still redirected by the existing Cloudflare Access policy; the ordinary email entry and public downloads are available. Access policies were not changed by this deployment."
+  ],
+  "anonymousEntryChecks": {
+    "/": {
+      "status": 302,
+      "redirectHost": "x1x3.cloudflareaccess.com"
+    },
+    "/downloads/index.json": {
+      "status": 200
+    },
+    "/guest/api/v1/healthz": {
+      "status": 302,
+      "redirectHost": "x1x3.cloudflareaccess.com"
+    }
+  }
+}

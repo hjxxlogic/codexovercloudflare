@@ -1,6 +1,18 @@
 # r2 发布记录
 
-以下为 2026-11-05 至 2026-11-06 源分支的历史证据，保留准确来源、摘要和验证边界。0.6.14 的最新本地预览与验证见下节。旧阶段文档与截图通过固定源提交访问。
+当前测试站为下述 2026-11-10 部署。后续章节保留 2026-11-05 至 2026-11-06 的历史来源、摘要和验证边界，不能作为当前在线授权或主机清单。
+
+## 2026-11-10：邮箱自助授权与独立测试站恢复
+
+按用户明确要求“无需等待 github action，直接部署”，通过 `scripts/deploy-cloud.py --local-build --target r2 --preserved-downloads … --initialize-owner-secret-file … --apply` 发布干净源码 `a41a0a86ade831ba6c9307ebfbd1d79750dec06a`，源码摘要 `68e9628c48c6d7007900bcd356eb36c5ae44e2c62e4c2f41662c1955463e62c8`。功能提交为 `a25701279ceea8fe11b281bda9195c3904f662bd`；后继提交增加已删除测试站的本地快照恢复能力。当前 Worker / Web 为 `0.6.18`；本次没有 Actions 运行与 CI 制品，明确记录 `localBuild=true`、`ciVerified=false`。最终 Worker Version ID（初始化独立管理密钥后）为 `466ff270-0d71-4736-8d50-e784cfc5008b`。
+
+发布前 Cloudflare 上已不存在 `codex-over-cloudflare-r2` Worker 与 `r2.xlogic.cc` 自定义域绑定，因此本轮新建独立 Worker、RegistryDO / HostRelayDO namespace 与 SETTINGS KV，并恢复原 r2 独立管理密钥。不导入生产 DO、旧 Agent 凭据或本机数据；删除前的 r2 设备授权没有恢复。Access 继续使用原 r2 audience 与团队入口；未修改生产路由或 Access 策略。原生下载从已保存、逐包 SHA256 重新核对的 `0.6.18` CI 快照恢复，来源为 [Actions 42565345127](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/42565345127)，源码 `76c7056d0589ea7a4345a2ce404e3f060d83e558`；本次未重新构建或通知原生更新。
+
+邮箱自助授权默认关闭。平台管理员在普通邮箱入口登录，进入管理员模式 → 待授权请求 → 邮箱自助授权，勾选“允许同邮箱免管理员审批”后保存到 KV。普通 Service Token 请求该设置的 GET / POST 均返回 `401`；无邮箱的原生自助批准返回 `403`。使用真实 CoC 管理凭据经既有访客管理路径读取确认 `{enabled:false, configured:true}`，验证会话已登出；没有模拟线上邮箱或替用户打开开关。匿名访问普通网页已核对为跳转 Cloudflare 邮箱登录，下载清单可匿名读取；既有边缘策略仍拦截匿名 `/guest/` 请求并跳转邮箱登录，本轮未改变该策略。正常网页邮箱登录与真实用户首次注册仍需人工验收。
+
+部署脚本的健康检查及公开静态资源字节核对通过；独立检查确认线上 SETTINGS KV 已绑定、r2 DO 与生产 namespace 分离。生产 Worker 版本发布前后均为 `e3946585-3e47-43c2-975e-60c215a72628`，配置与绑定一致；没有安装、停止或重启本机 Agent。源码完整 lint、418 项 Vitest、本地浏览器流程、构建及 Worker dry-run 已通过；部署恢复专项现为 21 项通过。
+
+Worker 执行文件 SHA256 为 `827d6ee38af0cc80ccc202023e09b29943843b980f84ccf7f5dbb670de0326bb`；网页入口 SHA256 为 `a8a9b6b3ede2c64cae29917d1139cb90b68c28873cacf3ad1603604344fcecfc`。完整公开摘要和原生下载校验和见[部署证据](assets/email-self-service-r2-20261110.json)。原始版本、配置、请求结果及部署日志仅存忽略目录 `.local/r2-email-self-service/` 与 `.local/deploy-cloud/local-a41a0a86ade831ba6c9307ebfbd1d79750dec06a-68e9628c48c6-r2/`；不提交入口 Token、管理密钥或会话凭据。
 
 ## 2026-11-06：真实用户数据库副本在线验证
 
