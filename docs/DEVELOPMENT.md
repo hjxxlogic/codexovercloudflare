@@ -38,6 +38,8 @@ ctest --test-dir build --output-on-failure
 
 `npm run build:web` 构建网页；`npm run build` 执行原生/网页构建、TypeScript 检查及 Worker dry-run，不发布。先完成构建再启动集成测试，不要在测试中重新链接同一目录里的运行程序。
 
+网页入口首先导入 `zod-config.ts`，在其他模块创建 schema 前设置 `jitless: true`；不要将配置移到静态 import 后的入口函数体中。`npm run test:markdown` 使用生产构建、真实 CSP 和加密端点夹具，监听 `securitypolicyviolation` 并拒绝 `blockedURI=eval`，避免 Zod 已捕获的能力探测异常漏过 `pageerror` 检查。
+
 ## 平台构建
 
 ### Ubuntu 20.04 容器

@@ -204,3 +204,17 @@ Cloud 发布工具补充 `--gh-proxy`，沿用下载发布工具的公开 Action
 `npm run test:cache` 通过真实 Chromium IndexedDB 回归，包括同一轮连续收到 650 条不同事件时全部落盘、检查点为 650，以及原有配额、事务原子性、跨标签页隔离和清理保留测试。`tests/ui-stability.ts --cache-quota` 分别注入打开会话时订阅检查点配额失败和对话进行中事件写入配额失败；验证明确满额提示、停止后续历史写入、继续在线刷新和显示事件、保持连接及任务发送。截图位于忽略路径 `.local/ui-stability/cache-quota-subscription-mobile.png` 与 `cache-quota-events-mobile.png`。
 
 完整 `npm test` 通过（16 项 CTest、37 个 Vitest 文件 / 412 项测试）；类型检查、修改代码 ESLint / Prettier 与网页构建通过。未在真实 Safari 或用户浏览器上复现；实际故障原因由新的分类提示和具体存储错误进一步辨认。按用户要求跳过 GitHub Actions，主站网页已发布并完成线上资源核对，见 [发布记录](CW_HISTORY_CACHE_RUNTIME_FIX_20261109.md)。
+
+## 2026-11-10 网页 Zod CSP 告警
+
+原始源码构建得到用户报告的同名资源 `index-BHq4trrn.js`。在 Bookworm 测试容器的真实 Chromium 中，新增 `securitypolicyviolation` 监听捕获到该文件第 2 行的 `blockedURI=eval`，回归按预期失败；Zod 捕获探测异常后，页面仍能通过加密端点夹具读取文档，说明该告警本身不等于会话握手失败。
+
+网页入口先执行独立的 Zod `jitless` 配置模块，随后创建业务 schema。重新构建后，同一 `npm run test:markdown` 通过：启动及后续桌面 / 手机、公式与图表交互均无根页面 eval CSP 违规，加密端点读取正常。没有放宽 Worker CSP。类型检查、修改代码 ESLint / Prettier、`git diff --check` 与缓存预算 / 历史订阅 / 网页 API 的 39 项单元测试通过。
+
+本次为本地验证，未执行完整原生测试、GitHub Actions 或生产部署；尚未在用户浏览器中确认关闭代理后的 WebSocket 失败原因。Cloudflare beacon 被 CSP 拦截与历史缓存预算满额分别处理，未修改统计配置或删除用户缓存、草稿、未确认任务。
+
+## 2026-11-10 网页慢网络握手等待
+
+按用户要求，将网页通道加密握手、会话控制握手从 15 秒延长至 30 秒，将通道业务请求从排队起算的总等待从 30 秒延长至 45 秒。网页构建、类型检查、修改代码 ESLint / Prettier、`git diff --check`、网页 API 与恢复调度的 17 项单元测试通过；重新构建后的 `npm run test:markdown` 通过真实 Chromium 的加密通道与页面交互回归。
+
+这些检查验证正常连接未回归，没有模拟 15–30 秒网络延迟，不能据此确认用户直连链路已恢复稳定。本次未部署，线上网页仍须发布后才使用新时限。
