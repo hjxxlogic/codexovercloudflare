@@ -189,7 +189,7 @@ Json Store::retention_cleanup(int64_t time) {
     };
     const bool flows_full = flow_pressure(threshold) || storage_full;
     for (const auto &row : query(
-             "SELECT c.stream,c.session,c.retained_at FROM transport2_credit c "
+             "SELECT c.stream,c.session,c.retained_at,c.closed FROM transport2_credit c "
              "LEFT JOIN sessions s ON s.id=c.session WHERE "
              "COALESCE(json_extract(s.value,'$.running'),0)=0 AND "
              "(c.retained_at<=? OR (? AND NOT EXISTS(SELECT 1 FROM transport2_commands q WHERE "
@@ -198,6 +198,12 @@ Json Store::retention_cleanup(int64_t time) {
       if (row.at("retained_at") > cutoff && !flow_pressure(target) && !storage_pressure(target))
         break;
       const auto stream = row.at("stream").get<std::string>();
+      // A ready session can still have an active command connection between turns.
+      // Give validated traffic a bounded grace period under capacity pressure.
+      const auto activity = delivery_activity_.find(stream);
+      if (row.at("closed") == 0 && row.at("retained_at") > cutoff &&
+          activity != delivery_activity_.end() && time - activity->second < 60000)
+        continue;
       for (const auto &command :
            query("SELECT seq FROM transport2_commands WHERE stream=?", {stream}))
         history_release(row.at("session"),
@@ -211,6 +217,7 @@ Json Store::retention_cleanup(int64_t time) {
             "transport2_result_heads", "transport2_streams", "transport2_flow_control",
             "transport2_flow_owner", "transport2_credit"})
         run(std::string("DELETE FROM ") + table + " WHERE stream=?", {stream});
+      delivery_activity_.erase(stream);
       ++removed;
     }
 

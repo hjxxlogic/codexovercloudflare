@@ -285,6 +285,7 @@ void Store::delivery_verify(const std::string &stream, const Json &allocation) {
       rows.at(0).at("serial") != proof.at("streamSerial") ||
       rows.at(0).at("generation") != proof.at("creditGeneration"))
     throw Error("DELIVERY_STATE_MISMATCH", "Receiver credit allocation changed");
+  delivery_activity_[stream] = now();
 }
 Json Store::delivery_window(const std::string &stream) {
   const bool transaction = sqlite3_get_autocommit(db_) != 0;
@@ -335,6 +336,7 @@ Json Store::delivery_window(const std::string &stream) {
                          {"byteCredit", closed ? received_bytes : byte_right}};
     if (transaction)
       run("COMMIT");
+    delivery_activity_[stream] = now();
     return window;
   } catch (...) {
     if (transaction)

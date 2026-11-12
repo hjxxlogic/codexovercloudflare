@@ -1,5 +1,11 @@
 # 测试说明
 
+## 2026-11-12 0.6.19 CW 交付分配回收恢复
+
+`tests/web-delivery.test.ts` 36 项通过，新增覆盖已完成通道分配丢失后的原 stream 重新申请、保留最近结果、忽略旧 exchange 的 reset、未发送 / 待确认命令和不连续结果禁止自动换分配、落盘失败回滚以及 HTTP 恢复错误。`native-retention` 新增 SQLite 压力下保护近期活动且尚未关闭的交付分配、60 秒闲置后仍可回收；`native-core` 验证关闭通道元数据仍可及时回收，两项均通过。原生构建、网页构建、TypeScript、改动文件 ESLint / Prettier 通过。首次沙箱原生回归因 socket 权限失败，已在沙箱外重跑，完整 CTest 16/16 通过。
+
+只读核对本机线上会话及 Agent 诊断日志：受影响会话处于 ready、无运行任务，交付分配记录缺失，日志出现多次交付状态不匹配；未读取或修改请求正文、凭据及数据库。版本号同步为 0.6.19（npm 清单、锁文件与 CMake）；本次未运行 GitHub Actions 或更新线上 Agent / CW；浏览器端恢复行为通过单元测试验证，未对受影响浏览器执行端到端恢复。
+
 ## 2026-11-12 流式代码差异与同名 Tab
 
 新增 `web-streaming-diff.test.ts`，逐字符截断 JSON 输入，验证原始 diff、完整或部分 `data.diff`、顶层 diff、换行 / 引号 / 反斜杠、Unicode 转义及代理对边界，不将无关嵌套 diff 或元数据当作差异。`web-session-tab-labels.test.ts` 覆盖忽略标题大小写、目录区分、同目录项目区分、目录缺失、关闭后去重和路径大小写。

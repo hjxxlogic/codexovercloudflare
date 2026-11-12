@@ -51,7 +51,7 @@ type State = {
     stream: string;
     normal: Lane;
     priority: Lane;
-    control: ControlProof;
+    control?: ControlProof;
   }[];
 };
 type Storage = { record(key: string, value?: unknown): Promise<any> };
@@ -208,6 +208,50 @@ export class CommandDelivery {
   }
   private save() {
     return this.storage.record('delivery-outbox-v2', this.state);
+  }
+  private async renewCompletedFlow(code: unknown, lane: DeliveryLane) {
+    if (
+      code !== 'DELIVERY_STATE_MISMATCH' ||
+      !this.state[lane].receiver ||
+      (['normal', 'priority'] as const).some(
+        (lane) =>
+          this.state[lane].entries.length ||
+          Object.keys(this.state[lane].results.buffer).length,
+      )
+    )
+      return false;
+    const retired = [
+      ...(this.state.retired ?? []),
+      structuredClone({
+        stream: this.state.stream,
+        normal: this.state.normal,
+        priority: this.state.priority,
+        control: this.state.control,
+      }),
+    ];
+    if (
+      retired.length > 4 ||
+      new TextEncoder().encode(JSON.stringify(retired)).length > 8 * 1024 * 1024
+    )
+      return false;
+    const previous = structuredClone(this.state);
+    this.state.retired = retired;
+    // The controller is bound to this stream. Reopen it without expired
+    // allocation proofs; the receiver must still validate zero checkpoints.
+    this.state[lane] = emptyLane();
+    try {
+      await this.save();
+    } catch (error) {
+      this.state = previous;
+      throw error;
+    }
+    // Fence HTTP reads and late frames from the old allocation. No command is replayed.
+    this.generation++;
+    this.beginRecovery();
+    this.readAttempts = 0;
+    this.send?.(this.opening());
+    this.schedule();
+    return true;
   }
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const job = this.serial.then(async () => {
@@ -462,6 +506,7 @@ export class CommandDelivery {
       if (frame.type === 'delivery-reset') {
         if (frame.exchangeId !== this.exchangeId) return;
         const reset = deliveryResetSchema.parse(frame);
+        if (await this.renewCompletedFlow(reset.error.code, reset.lane)) return;
         this.fatal = new Error(`${reset.error.code}: ${reset.error.message}`);
         this.disconnect();
         throw this.fatal;
@@ -712,9 +757,18 @@ export class CommandDelivery {
               exchangeId === this.exchangeId &&
               stopsDeliveryRecovery(error?.code)
             ) {
-              this.fatal =
-                error instanceof Error ? error : new Error(error.code);
-              this.disconnect();
+              await this.enqueue(async () => {
+                if (
+                  generation !== this.generation ||
+                  exchangeId !== this.exchangeId
+                )
+                  return;
+                if (await this.renewCompletedFlow(error?.code, lane)) return;
+                this.fatal =
+                  error instanceof Error ? error : new Error(error.code);
+                this.disconnect();
+              });
+              if (generation !== this.generation) return;
             }
             throw error;
           }

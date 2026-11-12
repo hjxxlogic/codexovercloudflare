@@ -35,6 +35,7 @@ private:
   bool authoritative_ = false;
   bool cleaning_ = false;
   int64_t next_retention_cleanup_ = 0;
+  std::map<std::string, int64_t> delivery_activity_;
   int64_t protected_history_seq_ = std::numeric_limits<int64_t>::min();
   void retention_init();
   void cache_forget(const std::string &physical_key);

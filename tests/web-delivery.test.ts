@@ -851,3 +851,119 @@ it.each(['ack', 'error'])(
     expect(restored.saved().normal.entries).toHaveLength(0);
   },
 );
+
+it('renews a fully completed flow after allocation loss and preserves terminal replay', async () => {
+  const h = harness();
+  await h.connect();
+  await h.sender.submit(command('done'));
+  await h.sender.receive({
+    type: 'delivery-result',
+    lane: 'normal',
+    window: window(1, 16, h.saved().normal.bytes),
+    ...resultFields({ type: 'ack', requestId: 'done' }),
+  });
+  const oldStream = h.saved().stream;
+  const oldExchange = h.exchange();
+  await h.sender.receive({
+    type: 'delivery-reset',
+    lane: 'normal',
+    exchangeId: oldExchange,
+    error: {
+      code: 'DELIVERY_STATE_MISMATCH',
+      message: 'Receiver credit allocation changed',
+    },
+  });
+  expect(h.saved().stream).toBe(oldStream);
+  expect(h.exchange()).not.toBe(oldExchange);
+  expect(h.frames('delivery-open').at(-1).allocations.normal).toBeUndefined();
+  expect(h.frames('delivery-open').at(-1).allocations.priority).toBeDefined();
+  expect(await h.sender.replayResult('done')).toBe(true);
+  await h.sender.receive({
+    type: 'delivery-reset',
+    lane: 'priority',
+    exchangeId: oldExchange,
+    error: { code: 'DELIVERY_STATE_MISMATCH', message: 'stale' },
+  });
+  await h.snapshot('normal');
+  await h.snapshot('priority', { ...window(), stream: 'priority-receiver' });
+  expect(h.sender.ready).toBe(true);
+  expect(h.frames('delivery-command')).toHaveLength(1);
+});
+
+it('does not renew an allocation with unpublished commands or buffered results', async () => {
+  for (const kind of ['unpublished', 'buffered']) {
+    const base = harness();
+    await base.connect();
+    base.sender.disconnect();
+    const saved = base.saved();
+    if (kind === 'unpublished')
+      saved.normal.entries.push({
+        seq: 0,
+        end: 0,
+        body: JSON.stringify(command('held')),
+      });
+    else saved.normal.results.buffer['2'] = { seq: 2 };
+    const h = harness(saved);
+    await h.sender.connect(h.wire);
+    await expect(
+      h.sender.receive({
+        type: 'delivery-reset',
+        lane: 'normal',
+        exchangeId: h.exchange(),
+        error: { code: 'DELIVERY_STATE_MISMATCH', message: 'allocation lost' },
+      }),
+    ).rejects.toThrow('allocation lost');
+    expect(h.saved().stream).toBe(saved.stream);
+    expect(h.frames('delivery-command')).toHaveLength(0);
+  }
+});
+
+it('commits the replacement flow before opening it and rolls back on storage failure', async () => {
+  const h = harness();
+  await h.connect();
+  const previous = h.saved();
+  const opens = h.frames('delivery-open').length;
+  const reset = {
+    type: 'delivery-reset',
+    lane: 'normal',
+    exchangeId: h.exchange(),
+    error: { code: 'DELIVERY_STATE_MISMATCH', message: 'allocation lost' },
+  };
+  h.storage.record.mockRejectedValueOnce(new Error('disk full'));
+  await expect(h.sender.receive(reset)).rejects.toThrow('disk full');
+  expect(h.saved()).toEqual(previous);
+  expect(h.frames('delivery-open')).toHaveLength(opens);
+  await h.sender.receive(reset);
+  expect(h.saved().normal.receiver).toBeUndefined();
+});
+
+it('renews completed allocations after an HTTP recovery mismatch', async () => {
+  const base = harness();
+  await base.connect();
+  base.sender.disconnect();
+  const saved = base.saved();
+  const wire = vi.fn();
+  let current = saved;
+  const sender = new CommandDelivery(
+    {
+      record: async (_key, value) => {
+        if (value !== undefined) current = structuredClone(value);
+        return structuredClone(current);
+      },
+    },
+    vi.fn(),
+    {
+      read: async () => {
+        throw Object.assign(new Error('allocation lost'), {
+          code: 'DELIVERY_STATE_MISMATCH',
+        });
+      },
+      send: async () => {},
+    },
+  );
+  active.push(sender);
+  await sender.connect(wire);
+  await sender.refresh();
+  expect(current.priority.receiver).toBeUndefined();
+  expect(wire.mock.calls.at(-1)?.[0].allocations.priority).toBeUndefined();
+});

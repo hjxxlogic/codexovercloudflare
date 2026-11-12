@@ -241,6 +241,21 @@ void total_storage_pressure() {
         "SQLite used-page threshold did not reclaim history");
   store.event("host~storage", "warning", {{"message", "new work"}});
 }
+void active_delivery_pressure() {
+  Temp temp;
+  Store store(temp.dir(), true, "", {{"storageMaxBytes", 1048576}});
+  store.save({{"id", "host~live"}, {"state", "ready"}, {"running", false}});
+  const auto proof = store.delivery_open("live", "host~live", 1, max_frame);
+  // Force SQLite pressure without creating reclaimable history pages.
+  sql(temp, "CREATE TABLE pressure(body BLOB); INSERT INTO pressure VALUES(zeroblob(1048576))");
+  store.retention_cleanup(now());
+  store.delivery_verify("live", proof);
+  store.retention_cleanup(now() + 30000);
+  store.delivery_verify("live", proof);
+  // Idle allocations remain reclaimable; the grace does not remove retention limits.
+  store.retention_cleanup(now() + 61000);
+  rejects([&] { store.delivery_verify("live", proof); }, "DELIVERY_STATE_MISMATCH");
+}
 void client_result_expiration() {
   Temp temp;
   Store client(temp.dir(), false);
@@ -280,6 +295,7 @@ int main() {
     history_scope_reclamation();
     compact_transport_counters();
     total_storage_pressure();
+    active_delivery_pressure();
     client_result_expiration();
     unknown_upload_expiration();
     std::cout << "Retention, pressure, client credentials and replay fencing passed\n";
