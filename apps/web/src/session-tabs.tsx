@@ -2,11 +2,14 @@ import { useCallback, useRef, useState, type ComponentType } from 'react';
 import type { Session } from '../../../packages/protocol/src/index.ts';
 import { t, useLanguage } from './i18n.ts';
 import './session-tabs.css';
+import { sessionTabLabels } from './session-tab-labels.ts';
 
 export type SessionTarget = {
   host: string;
   project?: string;
   session?: Session;
+  directory?: string;
+  projectName?: string;
 };
 export type SessionPaneProps = {
   initial?: SessionTarget;
@@ -108,6 +111,13 @@ export function SessionTabs({
         .filter((tab) => tab.id === focused.id || tab.id === other.id)
         .map((tab) => tab.id)
     : [focused.id];
+  const labels = sessionTabLabels(
+    tabs.map((tab) => ({
+      title: tab.title || t('新会话'),
+      directory: tab.target?.directory,
+      project: tab.target?.projectName || tab.target?.project,
+    })),
+  );
   return (
     <div
       className={`session-desktop${focused.navigation ? ' has-navigation' : ''}`}
@@ -119,7 +129,7 @@ export function SessionTabs({
           aria-label={t('打开的会话')}
           className="session-tabs"
         >
-          {tabs.map((tab) => (
+          {tabs.map((tab, index) => (
             <div className="session-tab" key={tab.id}>
               <button
                 role="tab"
@@ -151,13 +161,21 @@ export function SessionTabs({
                       ?.focus();
                   }
                 }}
-                title={tab.target?.host}
+                aria-label={labels[index].label}
+                title={[labels[index].label, tab.target?.host]
+                  .filter(Boolean)
+                  .join('\n')}
               >
-                {tab.title || t('新会话')}
+                <span className="session-tab-title">{labels[index].title}</span>
+                {labels[index].context && (
+                  <span className="session-tab-context">
+                    {labels[index].context}
+                  </span>
+                )}
               </button>
               <button
                 className="session-tab-close"
-                aria-label={t('关闭标签：{0}', tab.title || t('新会话'))}
+                aria-label={t('关闭标签：{0}', labels[index].label)}
                 onClick={() => close(tab.id)}
               >
                 ×

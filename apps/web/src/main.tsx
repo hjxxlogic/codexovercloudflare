@@ -283,15 +283,32 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
     [pending, setPending] = useState(false),
     [busy, setBusy] = useState(false),
     [takeover, setTakeover] = useState(false);
+  const tabProject = projects.find(
+    (item) => item.id === (selected?.projectId || project),
+  );
   useEffect(() => {
     workspace?.changed(
-      { host, project, session: selected },
+      {
+        host,
+        project,
+        session: selected,
+        directory: tabProject?.path,
+        projectName: tabProject?.name,
+      },
       selected?.title ||
         threads.find((item) => item.id === selected?.threadId)?.name ||
         (selected ? t('进行中的对话') : ''),
       navigationOpen,
     );
-  }, [host, project, selected, threads, navigationOpen]);
+  }, [
+    host,
+    project,
+    selected,
+    threads,
+    navigationOpen,
+    tabProject?.path,
+    tabProject?.name,
+  ]);
   function openSession(session: Session) {
     if (workspace?.activate({ host, project: session.projectId, session }))
       return;

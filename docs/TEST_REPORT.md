@@ -1,5 +1,13 @@
 # 测试说明
 
+## 2026-11-12 流式代码差异与同名 Tab
+
+新增 `web-streaming-diff.test.ts`，逐字符截断 JSON 输入，验证原始 diff、完整或部分 `data.diff`、顶层 diff、换行 / 引号 / 反斜杠、Unicode 转义及代理对边界，不将无关嵌套 diff 或元数据当作差异。`web-session-tab-labels.test.ts` 覆盖忽略标题大小写、目录区分、同目录项目区分、目录缺失、关闭后去重和路径大小写。
+
+新增 `tests/ui-stability.ts --diff-stream`：阻塞后续分块，在未完成时验证增删行已显示且无 JSON 包装；折叠外层分组暂停，重新展开自动续读；新 revision 首块到达前保留旧内容，之后替换，最终文本精确一致，每个偏移只读一次且完成后不轮询。`--tab-labels` 使用真实页面打开两个仅大小写不同的同名会话，验证目录显示、元数据刷新后同目录项目区分、关闭后恢复短标题。两项纳入默认 `npm run test:ui`。截图保存在忽略路径 `.local/ui-stability/diff-stream-prefix.png`、`diff-stream-complete.png`、`tab-duplicate-directories.png` 和 `tab-duplicate-projects.png`。
+
+网页构建、TypeScript、完整 ESLint / Prettier、39 个 Vitest 文件 / 436 项测试及完整 `npm run test:ui` 均通过。使用模拟后端及 Chromium，不调用模型；真实手机 / Safari 未单独验证。本次发布按用户明确要求提交并跳过 Actions，部署来源和在线核对另记。
+
 ## 2026-11-12 CW 多会话布局与独立预览滚动
 
 新增 `node node_modules/tsx/dist/cli.mjs tests/ui-stability.ts --multi-session`，并纳入默认 `npm run test:ui`：在两个项目中打开独立会话，验证草稿隔离、切换不重新附着、左右／上下双面板、输入区可见性与宽度、键盘调整分割比例、关闭标签以及手机布局。从空标签再次选择已打开会话复用已有控制器。会话测试使用模拟后端，不调用模型。

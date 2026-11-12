@@ -1,9 +1,19 @@
 import { t, useLanguage } from './i18n.ts';
-import { memo, useState, useEffect, useRef } from 'react';
+import {
+  memo,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  createContext,
+  useContext,
+  type ReactNode,
+} from 'react';
 import { MarkdownRenderer, Copy } from './markdown/renderer.tsx';
 import { FileText } from './file-links.tsx';
 import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
+import { streamingDiffText } from './streaming-diff.ts';
 import { groupToolEvents } from './events.ts';
 
 export function CopyText({ text }: { text: string }) {
@@ -58,6 +68,7 @@ type ConversationProps = {
   onRead: (seq: number, offset: number, revision: number) => void;
   reading?: Record<number, boolean>;
 };
+const ToolGroupOpen = createContext(true);
 const EventView = memo(
   function EventView({
     event,
@@ -74,39 +85,56 @@ const EventView = memo(
     const [expanded, setExpanded] = useState(false);
     const chat =
       event.type === 'user' || event.type === 'item/agentMessage/delta';
+    const groupOpen = useContext(ToolGroupOpen);
+    const diff = event.type === 'turn/diff/updated';
     const chunk =
       cached?.revision === (event.revision ?? 0) ? cached : undefined;
     const requested = useRef('');
     useEffect(() => {
-      if (!expanded) {
+      if (!expanded || !groupOpen) {
         requested.current = '';
         return;
       }
-      if (chat || event.contentSeq === undefined || chunk || reading) return;
-      const identity = `${event.contentSeq}:${event.revision ?? 0}`;
+      if (chat || event.contentSeq === undefined || reading) return;
+      const offset = chunk
+        ? diff && chunk.more
+          ? chunk.nextOffset
+          : undefined
+        : 0;
+      if (offset === undefined) return;
+      const identity = `${event.contentSeq}:${event.revision ?? 0}:${offset}`;
       if (requested.current === identity) return;
       // Coalesce rapidly changing tool revisions. Only expanded content is read;
       // a stale response cannot satisfy a newer revision or cause an idle poll.
-      const timer = setTimeout(() => {
-        requested.current = identity;
-        onRead(event.contentSeq!, 0, event.revision ?? 0);
-      }, 150);
+      const timer = setTimeout(
+        () => {
+          requested.current = identity;
+          onRead(event.contentSeq!, offset, event.revision ?? 0);
+        },
+        offset ? 0 : 150,
+      );
       return () => clearTimeout(timer);
     }, [
       expanded,
+      groupOpen,
       chat,
+      diff,
       event.contentSeq,
       event.revision,
       chunk,
       reading,
       onRead,
     ]);
-    const content =
+    const rawContent =
       !chat && !expanded
         ? undefined
         : event.contentSeq === undefined
           ? eventText(event)
-          : chunk?.text;
+          : (chunk || (diff ? cached : undefined))?.text;
+    const content = useMemo(
+      () => (diff ? streamingDiffText(rawContent || '') : rawContent),
+      [diff, rawContent],
+    );
     const pendingCopy = useRef<
       | {
           revision: number;
@@ -191,7 +219,7 @@ const EventView = memo(
         ) : (
           <>
             <Copy value={content || ''} floating />
-            {event.type === 'turn/diff/updated' ? (
+            {diff ? (
               <Diff text={content || ''} />
             ) : (
               <pre tabIndex={0}>
@@ -248,6 +276,11 @@ const EventView = memo(
       <details
         tabIndex={0}
         className="tool-output"
+        aria-busy={
+          diff && expanded && event.contentSeq !== undefined
+            ? !chunk || chunk.more || !!reading
+            : undefined
+        }
         data-event-seq={event.seq}
         key={event.seq}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
@@ -296,22 +329,36 @@ export const ConversationView = memo(function ConversationView({
     ),
   ).map((group) =>
     group.tools ? (
-      <details
-        className="tool-group"
-        key={`tools:${group.events[0].seq}`}
-        data-event-seq={group.events[0].seq}
-      >
-        <summary>
-          {t('工具调用 ·')} {group.events.length} {t('项')}
-          {group.events.some(toolFailed) ? t(' · 含失败') : ''}
-        </summary>
+      <ToolGroupView key={`tools:${group.events[0].seq}`} events={group.events}>
         {group.events.map(render)}
-      </details>
+      </ToolGroupView>
     ) : (
       render(group.events[0])
     ),
   );
 });
+function ToolGroupView({
+  events,
+  children,
+}: {
+  events: Event[];
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="tool-group"
+      data-event-seq={events[0].seq}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        {t('工具调用 ·')} {events.length} {t('项')}
+        {events.some(toolFailed) ? t(' · 含失败') : ''}
+      </summary>
+      <ToolGroupOpen.Provider value={open}>{children}</ToolGroupOpen.Provider>
+    </details>
+  );
+}
 function toolFailed(e: Event) {
   const d = e.data as { item?: { exitCode?: number; status?: string } };
   return (

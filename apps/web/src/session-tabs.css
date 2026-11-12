@@ -119,3 +119,29 @@
   top: 64px;
   max-width: calc(100% - 32px);
 }
+
+.session-tab [role='tab'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  padding: 2px 8px;
+  line-height: 16px;
+}
+.session-tab-title,
+.session-tab-context {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-tab-context {
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--muted);
+}
+.session-tab-close {
+  flex-shrink: 0;
+}

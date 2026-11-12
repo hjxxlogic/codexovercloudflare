@@ -26,6 +26,7 @@ const artifacts = process.env.COC_ARTIFACT_DIR || '.local/ui-stability';
 mkdirSync(artifacts, { recursive: true });
 const session = {
   id: 'sample~session',
+  title: undefined as string | undefined,
   projectId: 'project',
   mode: 'web',
   state: 'ready',
@@ -91,6 +92,12 @@ const promptCommands: { requestId: string; text: string; model?: string }[] =
   [];
 let modelListFailure = false;
 let contentCalls = 0;
+const diffPayloads = new Map<number, string>();
+const diffReads: { revision: number; offset: number }[] = [];
+let holdDiffContinuation = false;
+let holdDiffStart = false;
+let releaseDiff: (() => void) | undefined;
+
 let pagedHistory:
   | { seq: number; type: string; data: { text: string }; time: number }[]
   | undefined;
@@ -608,6 +615,33 @@ wss.on('connection', (ws, request) => {
     }
     if (history && data.operation === 'page') historyPages++;
     if (history && data.operation === 'content') {
+      if (data.seq === 96 && diffPayloads.has(data.revision)) {
+        diffReads.push({ revision: data.revision, offset: data.offset });
+        const chars = Array.from(diffPayloads.get(data.revision)!);
+        const nextOffset = Math.min(chars.length, data.offset + 4096);
+        const send = () => {
+          if (ws.readyState === WebSocket.OPEN)
+            ws.send(
+              JSON.stringify({
+                type: 'history',
+                requestId: data.requestId,
+                seq: 96,
+                revision: data.revision,
+                offset: data.offset,
+                text: chars.slice(data.offset, nextOffset).join(''),
+                nextOffset,
+                more: nextOffset < chars.length,
+              }),
+            );
+        };
+        if (
+          (holdDiffStart && !data.offset) ||
+          (holdDiffContinuation && data.offset)
+        )
+          releaseDiff = send;
+        else send();
+        return;
+      }
       if (data.seq === 90) {
         toolReads++;
         ws.send(
@@ -4340,6 +4374,215 @@ async function cacheQuotaScenario(failure: 'subscription' | 'events') {
     await context.close();
   }
 }
+async function tabLabelsUI() {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+  });
+  const page = await context.newPage();
+  const oldTitle = session.title,
+    oldOtherTitle = otherSession.title;
+  const oldProjects = availableProjects;
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    session.title = 'Shared Session';
+    otherSession.title = 'shared session';
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .locator('.unified-session-list')
+      .getByRole('button', { name: /Shared Session/ })
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await page.getByRole('button', { name: '选择项目', exact: true }).click();
+    await page
+      .locator('.session-pane.focused [data-project-id="other-project"]')
+      .click();
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /shared session/ })
+      .click();
+    const tabs = page.getByRole('tablist', { name: '打开的会话' });
+    await expect(
+      tabs.getByRole('tab', {
+        name: 'Shared Session · /workspace/example',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      tabs.getByRole('tab', {
+        name: 'shared session · /workspace/other',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: join(artifacts, 'tab-duplicate-directories.png'),
+    });
+    availableProjects = availableProjects.map((item) => ({
+      ...item,
+      path: '/workspace/example',
+    }));
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event('visibilitychange')),
+    );
+    await expect(
+      tabs.getByRole('tab', {
+        name: 'Shared Session · /workspace/example · 示例项目',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      tabs.getByRole('tab', {
+        name: 'shared session · /workspace/example · 第二项目',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: join(artifacts, 'tab-duplicate-projects.png'),
+    });
+    await page
+      .getByRole('button', {
+        name: '关闭标签：shared session · /workspace/example · 第二项目',
+        exact: true,
+      })
+      .click();
+    await expect(
+      tabs.getByRole('tab', { name: 'Shared Session', exact: true }),
+    ).toBeVisible();
+    await expect(tabs.locator('.session-tab-context')).toHaveCount(0);
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: case insensitive duplicate tab titles show directories, then projects; unique titles return to compact labels',
+    );
+  } finally {
+    await context.close();
+    session.title = oldTitle;
+    otherSession.title = oldOtherTitle;
+    availableProjects = oldProjects;
+  }
+}
+async function streamingDiffUI() {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  const patch =
+    'diff --git a/port/mcs_modes/microcode/fft_differential.py b/port/mcs_modes/microcode/fft_differential.py\n@@ -1 +1 @@\n-old value\n+new value\n' +
+    '+新代码 "value"\t\\path 😀\n'.repeat(700) +
+    '+FIRST-END\n';
+  const descriptor: Event = {
+    seq: 96,
+    revision: 96,
+    contentSeq: 96,
+    type: 'turn/diff/updated',
+    data: {},
+    time: 96,
+  };
+  const publish = (event: Event) => {
+    const previousRevision = Math.max(
+      ...events.map((row) => row.revision ?? row.seq),
+    );
+    const index = events.findIndex((row) => row.seq === 96);
+    if (index < 0) events.push(event);
+    else events[index] = event;
+    for (const ws of histories)
+      ws.send(
+        JSON.stringify({
+          type: 'event',
+          event,
+          previousRevision,
+          maxRevision: event.revision,
+        }),
+      );
+  };
+  try {
+    diffPayloads.set(96, JSON.stringify({ data: { diff: patch }, seq: 96 }));
+    holdDiffContinuation = true;
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    publish(descriptor);
+    const row = page.locator('.tool-output[data-event-seq="96"]');
+    const group = row.locator('xpath=..');
+    if ((await group.getAttribute('open')) === null)
+      await group.locator(':scope > summary').click();
+    await row.locator('summary').click();
+    await expect(row.locator('.diff-add')).toContainText(['+new value']);
+    await expect(row.locator('.diff-remove')).toContainText(['-old value']);
+    await expect
+      .poll(() => diffReads.some((read) => read.offset === 4096))
+      .toBe(true);
+    await expect(row.locator('pre')).not.toContainText('{"data":');
+    await expect(row.locator('pre')).not.toContainText('FIRST-END');
+    await expect(row).toHaveAttribute('aria-busy', 'true');
+    await page.screenshot({ path: join(artifacts, 'diff-stream-prefix.png') });
+    await group.locator(':scope > summary').click();
+    releaseDiff!();
+    releaseDiff = undefined;
+    const count = diffReads.length;
+    await page.waitForTimeout(250);
+    assert.equal(
+      diffReads.length,
+      count,
+      'collapsed diffs stop automatic continuation',
+    );
+    holdDiffContinuation = false;
+    await group.locator(':scope > summary').click();
+    await expect(row).toHaveAttribute('aria-busy', 'false');
+    assert.equal(await row.locator('pre').textContent(), patch + '\n');
+    const replacement = patch
+      .replaceAll('new value', 'next value')
+      .replace('FIRST-END', 'SECOND-END');
+    diffPayloads.set(
+      97,
+      JSON.stringify({ data: { diff: replacement }, seq: 96, revision: 97 }),
+    );
+    holdDiffStart = true;
+    publish({ ...descriptor, revision: 97 });
+    await expect
+      .poll(() => diffReads.some((read) => read.revision === 97))
+      .toBe(true);
+    await expect(row.locator('pre')).toContainText('FIRST-END');
+    holdDiffStart = false;
+    releaseDiff!();
+    releaseDiff = undefined;
+    await expect(row.locator('pre')).toContainText('SECOND-END');
+    await expect(row).toHaveAttribute('aria-busy', 'false');
+    assert.equal(await row.locator('pre').textContent(), replacement + '\n');
+    const finalReads = diffReads.length;
+    await page.waitForTimeout(250);
+    assert.equal(diffReads.length, finalReads, 'complete diffs do not poll');
+    assert.equal(
+      new Set(diffReads.map((read) => `${read.revision}:${read.offset}`)).size,
+      finalReads,
+      'each revision/offset is read once',
+    );
+    assert.deepEqual(failures, []);
+    await page.screenshot({
+      path: join(artifacts, 'diff-stream-complete.png'),
+    });
+    console.log(
+      'PASS: streamed diffs render before the last chunk, decode escapes, pause on collapse and replace revisions without JSON or idle polling',
+    );
+  } finally {
+    holdDiffContinuation = false;
+    holdDiffStart = false;
+    releaseDiff = undefined;
+    diffPayloads.clear();
+    diffReads.length = 0;
+    const index = events.findIndex((row) => row.seq === 96);
+    if (index >= 0) events.splice(index, 1);
+    await context.close();
+  }
+}
 async function multiSessionUI() {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -4518,8 +4761,14 @@ async function multiSessionUI() {
   }
 }
 try {
-  if (!process.argv.some((arg) => arg.startsWith('--'))) await multiSessionUI();
-  if (process.argv.includes('--multi-session')) await multiSessionUI();
+  if (!process.argv.some((arg) => arg.startsWith('--'))) {
+    await tabLabelsUI();
+    await streamingDiffUI();
+    await multiSessionUI();
+  }
+  if (process.argv.includes('--tab-labels')) await tabLabelsUI();
+  else if (process.argv.includes('--diff-stream')) await streamingDiffUI();
+  else if (process.argv.includes('--multi-session')) await multiSessionUI();
   else if (process.argv.includes('--active-sessions')) await activeSessionsUI();
   else if (process.argv.includes('--threads')) await threadManagementUI();
   else if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
@@ -4571,6 +4820,8 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--tab-labels') &&
+    !process.argv.includes('--diff-stream') &&
     !process.argv.includes('--multi-session') &&
     !process.argv.includes('--threads') &&
     !process.argv.includes('--active-sessions') &&
