@@ -4583,6 +4583,60 @@ async function streamingDiffUI() {
     await context.close();
   }
 }
+async function openingSessionUI() {
+  const originalProject = otherSession.projectId;
+  otherSession.projectId = session.projectId;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    let loading = false;
+    await page.route(
+      '**/api/v1/client/identity?hostId=sample',
+      async (route) => {
+        loading = true;
+        await blocked;
+        await route.continue();
+      },
+    );
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /第二项目对话/ })
+      .click();
+    await expect.poll(() => loading).toBe(true);
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    await page.getByRole('tab').first().click();
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /第二项目对话/ })
+      .click();
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    release();
+    await expect(
+      page.locator('.session-pane.focused').getByLabel('任务内容'),
+    ).toBeEnabled();
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    console.log(
+      'PASS: reopening a session while its catalog loads focuses the reserved tab without duplicate controllers',
+    );
+  } finally {
+    release();
+    await context.close();
+    otherSession.projectId = originalProject;
+  }
+}
 async function offlineSessionUI() {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -4839,8 +4893,10 @@ try {
     await streamingDiffUI();
     await multiSessionUI();
     await offlineSessionUI();
+    await openingSessionUI();
   }
-  if (process.argv.includes('--offline-session')) await offlineSessionUI();
+  if (process.argv.includes('--opening-session')) await openingSessionUI();
+  else if (process.argv.includes('--offline-session')) await offlineSessionUI();
   else if (process.argv.includes('--tab-labels')) await tabLabelsUI();
   else if (process.argv.includes('--diff-stream')) await streamingDiffUI();
   else if (process.argv.includes('--multi-session')) await multiSessionUI();
@@ -4895,6 +4951,7 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--opening-session') &&
     !process.argv.includes('--offline-session') &&
     !process.argv.includes('--tab-labels') &&
     !process.argv.includes('--diff-stream') &&

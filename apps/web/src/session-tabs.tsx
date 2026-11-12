@@ -30,6 +30,7 @@ type Tab = {
   target?: SessionTarget;
   title: string;
   navigation: boolean;
+  opening?: boolean;
 };
 
 // Each tab owns a complete session controller. Hiding a tab must not dispose its
@@ -69,16 +70,19 @@ export function SessionTabs({
     (target: SessionTarget) => {
       if (activate(target)) return;
       const id = next.current++;
-      setTabs((rows) => [
-        ...rows,
+      const rows = [
+        ...currentTabs.current,
         {
           id,
           initial: target,
           target,
           title: target.session?.title || '',
           navigation: true,
+          opening: !!target.session,
         },
-      ]);
+      ];
+      currentTabs.current = rows;
+      setTabs(rows);
       if (layout !== 'tabs') setPartner(active);
       setActive(id);
     },
@@ -230,11 +234,22 @@ export function SessionTabs({
                 activate,
                 changed: (target, title, navigation) =>
                   setTabs((rows) =>
-                    rows.map((row) =>
-                      row.id === tab.id
-                        ? { ...row, target, title, navigation }
-                        : row,
-                    ),
+                    rows.map((row) => {
+                      if (row.id !== tab.id) return row;
+                      const opening =
+                        row.opening &&
+                        !target.session &&
+                        target.host === row.target?.host &&
+                        (!target.project ||
+                          target.project === row.target?.project);
+                      return {
+                        ...row,
+                        target: opening ? row.target : target,
+                        title: opening ? row.title : title,
+                        opening,
+                        navigation,
+                      };
+                    }),
                   ),
               }}
             />

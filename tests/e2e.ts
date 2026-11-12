@@ -296,6 +296,13 @@ async function sessionId(page: Page) {
   await page.getByRole('button', { name: '关闭信息', exact: true }).click();
   return id;
 }
+async function keepFocusedTab(page: Page) {
+  // This suite measures one conversation at a time; tab lifetime and splits
+  // are covered separately by the UI suite.
+  const inactive = page.getByRole('tab', { selected: false });
+  while (await inactive.count())
+    await inactive.first().locator('..').getByRole('button').click();
+}
 async function focusedChat(page: Page) {
   // Approval and injected-disconnect checks can leave a dismissible advisory.
   // Close it before measuring the normal chat layout, as a user would.
@@ -2573,7 +2580,9 @@ try {
     'interrupted physical channel is replaced',
   );
   await expect(
-    visitorPage.getByText('stalled-channel-proof', { exact: true }),
+    visitorPage
+      .locator('.session-pane.focused .user-message')
+      .getByText('stalled-channel-proof', { exact: true }),
   ).toHaveCount(1);
 
   pass(
@@ -2650,6 +2659,7 @@ try {
   await expect(queuedButton.or(continueButton)).toBeVisible();
   if (await continueButton.isVisible()) await continueButton.click();
   await expect(queuedButton).toBeVisible();
+  await keepFocusedTab(visitorPage);
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await feature(visitorPage, /^会话详情/);
   await visitorPage
@@ -2816,6 +2826,7 @@ try {
     .click();
   await visitorPage.getByRole('dialog').waitFor({ state: 'hidden' });
   await visitorPage.getByRole('heading', { name: 'Restored reply' }).waitFor();
+  await keepFocusedTab(visitorPage);
   assert.equal(
     await visitorPage
       .getByRole('checkbox', { name: '自动批准当前会话', exact: true })

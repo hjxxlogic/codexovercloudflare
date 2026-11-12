@@ -901,3 +901,5 @@ Agent、CLI、网页和 Worker 需要配套升级。保留原 relayUrl、配置�
 运维发布公开 Actions 制品时，`scripts/deploy-cloud.py --gh-proxy` 可加速制品下载；仅适用于确认公开的仓库，仍保留完整 CI、源码身份与 SHA256 校验。步骤见 [发布操作](RELEASE.md)。
 
 运维在明确跳过 CI 时，可用 `scripts/deploy-downloads.py --deployment ... --local-build-dir ... --apply` 仅发布本地 Linux 静态下载包；网页与 Worker 复用线上版本，Windows 保留旧包，下载清单明确标注本地构建与未验证 CI。详见 [发布操作](RELEASE.md)。
+
+0.6.19 修复标签初始化期间重复打开同一会话的控制权冲突：加载目录期间也保留目标会话，重复打开会聚焦原标签，无需等待加载完成。
