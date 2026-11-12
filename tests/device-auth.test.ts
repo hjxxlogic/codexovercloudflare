@@ -14,6 +14,7 @@ import { RegistryDO, RegistryCore } from '../apps/relay/src/registry.ts';
 import { HostRelayDO } from '../apps/relay/src/host.ts';
 import worker from '../apps/relay/src/index.ts';
 import type { Env } from '../apps/relay/src/common.ts';
+import { AppError } from '../packages/protocol/src/admission.ts';
 
 class Storage extends MemoryStorage {}
 let storage: Storage, registry: RegistryDO, env: Env;
@@ -81,6 +82,92 @@ beforeEach(() => {
     },
   } as unknown as Env;
   registry = new RegistryDO({ storage } as unknown as DurableObjectState, env);
+});
+describe('forwarded relay failures', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it.each([
+    'agent',
+    'channel',
+    'manager',
+    'wake',
+    'migration',
+    'connections',
+    'admin-events',
+    'device-events',
+  ])(
+    'returns an error response for a rejected %s request without leaking raw errors',
+    async (route) => {
+      const agent = await grant('agent');
+      const client = await grant('cli', agent.hostId);
+      const owner = (await op('login', { secret: env.OWNER_SECRET })).data;
+      const paths: Record<string, [string, string]> = {
+        agent: ['/ws/v1/agent', agent.token],
+        channel: ['/ws/v1/channel/' + agent.hostId, client.token],
+        manager: ['/ws/v1/client-management/' + agent.hostId, client.token],
+        wake: ['/api/v1/hosts/' + agent.hostId + '/wake', client.token],
+        migration: ['/api/v1/agent/relay-migration', agent.token],
+        connections: [
+          '/api/v1/admin/hosts/' + agent.hostId + '/connections',
+          owner.token,
+        ],
+        'admin-events': ['/ws/v1/admin', owner.token],
+        'device-events': [
+          '/api/v1/auth/device/events?id=pending',
+          'pending-secret',
+        ],
+      };
+      const [path, token] = paths[route];
+      const error =
+        route === 'wake'
+          ? new AppError('BACKPRESSURE', 'Relay busy', 429)
+          : new Error('private transport error containing a token');
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      if (route.endsWith('events')) {
+        const original = registry.fetch.bind(registry);
+        vi.spyOn(registry, 'fetch').mockImplementation((request) =>
+          new URL(request.url).pathname === '/subscribe'
+            ? Promise.reject(error)
+            : original(request),
+        );
+      } else {
+        vi.spyOn(env.HOSTS, 'get').mockReturnValue({
+          fetch: () => Promise.reject(error),
+        } as any);
+      }
+      const response = await worker.fetch(
+        new Request('https://relay.test' + path, {
+          method: route === 'wake' ? 'POST' : 'GET',
+          headers: {
+            Origin: 'https://relay.test',
+            Upgrade: 'websocket',
+            Authorization: 'Bearer ' + token,
+          },
+        }),
+        env,
+      );
+      expect(response.status).toBe(route === 'wake' ? 429 : 500);
+      expect(await response.json()).toEqual({
+        error:
+          route === 'wake'
+            ? { code: 'BACKPRESSURE', message: 'Relay busy' }
+            : {
+                code: 'INTERNAL_ERROR',
+                message: 'Service temporarily unavailable',
+              },
+      });
+      if (route !== 'wake')
+        expect(log).toHaveBeenCalledWith(
+          JSON.stringify({
+            event: 'relay_failure',
+            stage: 'worker-fetch',
+            code: 'INTERNAL_ERROR',
+          }),
+        );
+      expect(JSON.stringify(log.mock.calls)).not.toContain(
+        'private transport error',
+      );
+    },
+  );
 });
 describe('scoped persistent device authorization', () => {
   it('restores a missing host identity with fresh credentials and rejects overwrite', async () => {

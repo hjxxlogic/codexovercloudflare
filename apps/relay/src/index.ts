@@ -207,7 +207,7 @@ export default {
             'Invalid connection target',
             400,
           );
-        return hostStub(env, hostId).fetch(
+        return await hostStub(env, hostId).fetch(
           internal(req, '/channel?target=' + target, auth, hostId),
         );
       }
@@ -327,7 +327,7 @@ export default {
           throw new AppError('UPGRADE_REQUIRED', 'WebSocket required', 426);
         const id = idSchema.parse(u.searchParams.get('id'));
         const secret = cookies(req).get('coc_pending_' + id) || bearer(req);
-        return registry(env).fetch(
+        return await registry(env).fetch(
           new Request('https://internal/subscribe', {
             headers: {
               Upgrade: 'websocket',
@@ -344,7 +344,7 @@ export default {
       }
       if (p === '/ws/v1/admin') {
         const auth = await authenticate(req, env, undefined, true);
-        return registry(env).fetch(
+        return await registry(env).fetch(
           new Request('https://internal/subscribe', {
             headers: {
               Upgrade: 'websocket',
@@ -531,7 +531,7 @@ export default {
         );
         if (connections && req.method === 'GET') {
           await registryCall(env, 'host', { id: connections[1] });
-          return hostStub(env, connections[1]).fetch(
+          return await hostStub(env, connections[1]).fetch(
             internal(req, '/connections', owner, connections[1]),
           );
         }
@@ -849,7 +849,7 @@ export default {
         ['GET', 'POST'].includes(req.method)
       ) {
         const auth = await authenticateAgent(req, env);
-        return hostStub(env, auth.hostId!).fetch(
+        return await hostStub(env, auth.hostId!).fetch(
           internal(
             req,
             '/relay-migration',
@@ -895,7 +895,7 @@ export default {
             403,
           );
         await registryCall(env, 'host', { id: hostId });
-        return hostStub(env, hostId).fetch(
+        return await hostStub(env, hostId).fetch(
           internal(req, '/client-management', auth, hostId),
         );
       }
@@ -905,14 +905,14 @@ export default {
         });
         if (auth.role !== 'agent' || !auth.hostId)
           throw new AppError('FORBIDDEN', 'Device credentials required', 403);
-        return hostStub(env, auth.hostId).fetch(
+        return await hostStub(env, auth.hostId).fetch(
           internal(req, '/agent', auth, auth.hostId),
         );
       }
       const wake = p.match(/^\/api\/v1\/hosts\/([\w-]+)\/wake$/);
       if (wake && req.method === 'POST') {
         const auth = await authenticate(req, env, wake[1]);
-        return hostStub(env, wake[1]).fetch(
+        return await hostStub(env, wake[1]).fetch(
           internal(req, '/wake', auth, wake[1], {}),
         );
       }
@@ -925,7 +925,7 @@ export default {
       }
       throw new AppError('NOT_FOUND', 'Unknown route', 404);
     } catch (e) {
-      return failure(e);
+      return failure(e, 'worker-fetch');
     }
   },
 };

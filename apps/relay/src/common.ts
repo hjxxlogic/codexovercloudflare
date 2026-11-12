@@ -91,16 +91,22 @@ export async function digest(s: string) {
 export function token() {
   return crypto.randomUUID() + crypto.randomUUID();
 }
-export function failure(e: unknown) {
+export function reportRelayFailure(stage: string, e: unknown) {
+  // Raw exception messages may include request fields or credentials.
+  console.error(
+    JSON.stringify({ event: 'relay_failure', stage, code: errorData(e).code }),
+  );
+}
+export function failure(e: unknown, stage?: string) {
   const error = errorData(e);
-  return json(
-    { error },
+  const status =
     e instanceof AppError
       ? e.status
       : error.code === 'INVALID_REQUEST'
         ? 400
-        : 500,
-  );
+        : 500;
+  if (stage && status >= 500) reportRelayFailure(stage, e);
+  return json({ error }, status);
 }
 export function authorizationFailed(error: unknown) {
   return error instanceof AppError && [401, 403].includes(error.status);

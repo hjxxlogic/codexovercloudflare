@@ -60,7 +60,11 @@ function harness(storage = new MemoryStorage()) {
     auth,
   });
   const sockets = [agent, client],
-    ctx = { storage, getWebSockets: () => sockets };
+    ctx = {
+      storage,
+      getWebSockets: () => sockets,
+      acceptWebSocket: (ws: any) => sockets.push(ws),
+    };
   let relay = new HostRelayDO(ctx as any, {} as any);
   const frame = (ws: any, d: any) =>
     relay.webSocketMessage(ws, JSON.stringify(d));
@@ -112,7 +116,11 @@ beforeEach(() => {
           : {},
     );
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 describe('opaque relay connection routing', () => {
   it('binds only Worker-authenticated identity and forwards arbitrary opaque application records', async () => {
     const h = harness(),
@@ -390,6 +398,81 @@ describe('opaque relay connection routing', () => {
     ).resolves.toBeUndefined();
     expect(h.agent.deserializeAttachment().retired).toBe(true);
     expect(h.client.deserializeAttachment().retired).toBe(true);
+  });
+  it.each([
+    ['/agent', 'agent', 'read'],
+    ['/client-management', 'cli', 'write'],
+    ['/channel', 'web', 'welcome'],
+  ])(
+    'returns an error and retires a failed %s upgrade at %s/%s',
+    async (path, role, stage) => {
+      const h = harness();
+      await h.fetch('/status');
+      const accepted = socket({});
+      vi.stubGlobal(
+        'WebSocketPair',
+        class {
+          0 = socket({});
+          1 = accepted;
+        },
+      );
+      if (stage === 'read')
+        vi.spyOn(h.storage, 'getAlarm').mockRejectedValue(
+          new Error('storage unavailable'),
+        );
+      else if (stage === 'write')
+        vi.spyOn(h.storage, 'setAlarm').mockRejectedValue(
+          new Error('storage unavailable'),
+        );
+      else
+        accepted.send.mockImplementation(() => {
+          throw new Error('transport closed');
+        });
+      const response = await h.relay().fetch(
+        new Request('https://internal' + path, {
+          headers: {
+            'x-host': 'host',
+            'x-auth': encodeURIComponent(JSON.stringify({ ...auth, role })),
+          },
+        }),
+      );
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({
+        error: { code: 'INTERNAL_ERROR' },
+      });
+      expect(accepted.deserializeAttachment().retired).toBe(true);
+      expect(accepted.close).toHaveBeenCalledWith(1011, 'Connection closed');
+    },
+  );
+  it('retires the client when sending its handshake error fails and keeps other routes live', async () => {
+    const h = harness();
+    const healthy = socket({
+      ...h.client.deserializeAttachment(),
+      id: 'healthy',
+    });
+    h.sockets.push(healthy);
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      bound: false,
+    });
+    h.client.send.mockImplementation(() => {
+      throw new Error('transport closed');
+    });
+    await expect(
+      h.frame(h.client, { type: 'channel-connect', key: 'A'.repeat(43) + '=' }),
+    ).resolves.toBeUndefined();
+    expect(h.client.deserializeAttachment().retired).toBe(true);
+    expect(healthy.deserializeAttachment().retired).not.toBe(true);
+    expect(h.agent.deserializeAttachment().retired).not.toBe(true);
+    h.agent.serializeAttachment({
+      ...h.agent.deserializeAttachment(),
+      bound: true,
+    });
+    await h.frame(healthy, {
+      type: 'channel-connect',
+      key: 'A'.repeat(43) + '=',
+    });
+    expect(healthy.deserializeAttachment().bound).toBe(true);
   });
   it('only changes an alarm when the earliest live connection deadline changes', async () => {
     const h = harness();

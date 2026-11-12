@@ -8,6 +8,7 @@ import {
   failure,
   json,
   registryCall,
+  reportRelayFailure,
   type Auth,
   type Env,
 } from './common.ts';
@@ -173,10 +174,19 @@ export class HostRelayDO extends DurableObject<Env> {
         : {}),
     };
     pair[1].serializeAttachment(a);
-    this.ctx.acceptWebSocket(pair[1]);
-    await this.schedule();
-    this.send(pair[1], { type: 'channel-welcome', version: 1, id });
-    return new Response(null, { status: 101, webSocket: pair[0] });
+    try {
+      this.ctx.acceptWebSocket(pair[1]);
+      await this.schedule();
+      this.send(pair[1], { type: 'channel-welcome', version: 1, id });
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    } catch (error) {
+      try {
+        this.close(pair[1], 1011);
+      } catch (cleanupError) {
+        reportRelayFailure('host-upgrade-cleanup', cleanupError);
+      }
+      throw error;
+    }
   }
   private async schedule() {
     const alarm = await this.ctx.storage.getAlarm();
@@ -517,26 +527,26 @@ export class HostRelayDO extends DurableObject<Env> {
         auth.role === 'agent' &&
         auth.hostId === hostId
       )
-        return this.upgrade(req, 'agent', auth, hostId);
+        return await this.upgrade(req, 'agent', auth, hostId);
       if (
         u.pathname === '/client-management' &&
         auth.role === 'cli' &&
         auth.hostId === hostId
       )
-        return this.upgrade(req, 'manager', auth, hostId);
+        return await this.upgrade(req, 'manager', auth, hostId);
       if (
         u.pathname === '/channel' &&
         (auth.role === 'owner' ||
           (['cli', 'web'].includes(auth.role) && auth.hostId === hostId))
       )
-        return this.upgrade(req, 'client', auth, hostId);
+        return await this.upgrade(req, 'client', auth, hostId);
       throw new AppError(
         'UPGRADE_REQUIRED',
         'Use encrypted endpoint channel',
         426,
       );
     } catch (error) {
-      return failure(error);
+      return failure(error, 'host-fetch');
     }
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -787,21 +797,27 @@ export class HostRelayDO extends DurableObject<Env> {
         });
       } else this.send(client, { type: d.type, data: d.data });
     } catch (error) {
-      if (
-        error instanceof AppError &&
-        this.a(ws).kind === 'client' &&
-        !this.a(ws).bound
-      ) {
-        this.send(ws, {
-          type: 'channel-error',
-          error: {
-            code: error.code,
-            message: error.message,
-            status: error.status,
-          },
-        });
+      reportRelayFailure('host-message', error);
+      try {
+        if (
+          error instanceof AppError &&
+          this.a(ws).kind === 'client' &&
+          !this.a(ws).bound
+        ) {
+          this.send(ws, {
+            type: 'channel-error',
+            error: {
+              code: error.code,
+              message: error.message,
+              status: error.status,
+            },
+          });
+        }
+      } catch (notificationError) {
+        reportRelayFailure('host-channel-error', notificationError);
+      } finally {
+        this.close(ws, 1011);
       }
-      this.close(ws, 1011);
     }
   }
   async webSocketClose(ws: WebSocket) {
