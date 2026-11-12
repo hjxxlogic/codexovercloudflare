@@ -1,0 +1,121 @@
+.session-desktop {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+.session-tab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 4px 10px 4px 52px;
+  border-bottom: 1px solid var(--border);
+}
+.session-desktop.has-navigation .session-tab-toolbar {
+  margin-left: 304px;
+  padding-left: 8px;
+}
+.session-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.session-tab {
+  display: flex;
+  flex-shrink: 0;
+  max-width: 240px;
+  align-items: center;
+  border-right: 1px solid var(--border);
+}
+.session-tab button {
+  border: 0;
+  background: transparent;
+  min-height: 30px;
+  padding: 4px 8px;
+  color: var(--muted);
+}
+.session-tab [role='tab'] {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.session-tab [aria-selected='true'] {
+  color: var(--text);
+  background: var(--hover);
+  box-shadow: inset 0 -2px var(--link);
+}
+.session-tab-toolbar > button,
+.session-tab-toolbar select {
+  min-height: 30px;
+  padding: 4px;
+}
+.session-pane-area {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+}
+.session-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.session-pane[hidden] {
+  display: none;
+}
+.session-desktop .session-pane > .happier-site.unified-shell {
+  height: 100%;
+  min-height: 0;
+  padding-left: 0;
+}
+.session-pane .cw-workbench {
+  min-height: 0;
+}
+.session-pane:not(.focused) .unified-navigation,
+.session-pane:not(.focused) .happier-navigation-toggle {
+  display: none;
+}
+.session-pane .unified-settings {
+  top: 44px;
+}
+.session-desktop.has-navigation .session-pane-area {
+  margin-left: 304px;
+}
+.session-divider {
+  background: var(--border);
+  touch-action: none;
+  cursor: col-resize;
+}
+.session-desktop[data-layout='vertical'] .session-divider {
+  cursor: row-resize;
+}
+.session-divider:hover,
+.session-divider:focus-visible {
+  background: var(--link);
+}
+@media (max-width: 900px) {
+  .session-desktop.has-navigation .session-tab-toolbar {
+    margin-left: 0;
+    padding-left: 52px;
+  }
+  .session-desktop.has-navigation .session-pane-area {
+    margin-left: 0;
+  }
+  .session-tab-toolbar select {
+    max-width: 108px;
+  }
+}
+
+/* Floating errors belong to their pane and sit below its session toolbar. */
+.session-desktop .session-pane {
+  position: relative;
+}
+.session-desktop .session-pane .unified-shell > .floating-cw-error {
+  position: absolute;
+  top: 64px;
+  max-width: calc(100% - 32px);
+}

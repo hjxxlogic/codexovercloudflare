@@ -1,5 +1,15 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  打开的会话: 'Open sessions',
+  新会话: 'New session',
+  '关闭标签：{0}': 'Close tab: {0}',
+  新建会话标签: 'New session tab',
+  会话布局: 'Session layout',
+  标签页: 'Tabs',
+  '水平分割（左右）': 'Horizontal split (side by side)',
+  '垂直分割（上下）': 'Vertical split (stacked)',
+  调整会话分割比例: 'Resize session split',
+
   '测试站若需要专用 Access 配置，请使用站点提供的文件，并在登录命令后添加 --access-config /path/to/access.json。':
     'If this test site requires an Access configuration, use the file provided by the site and append --access-config /path/to/access.json to the login command.',
   '运行登录命令，将配对码交给管理员批准。':

@@ -66,11 +66,21 @@ export function FilePreview() {
       ) : !file ? (
         <p role="status">{t('正在读取…')}</p>
       ) : fileType(path).kind === 'markdown' ? (
-        <article className="markdown file-preview-document">
+        <article
+          className="markdown file-preview-document"
+          tabIndex={0}
+          aria-label={t('文件预览')}
+        >
           <MarkdownRenderer text={text} tools />
         </article>
       ) : (
-        <pre className="file-preview-text">{text}</pre>
+        <pre
+          className="file-preview-text"
+          tabIndex={0}
+          aria-label={t('文件预览')}
+        >
+          {text}
+        </pre>
       )}
     </main>
   );

@@ -99,7 +99,9 @@ export function Workbench({
   reference,
   terminal,
   activity,
+  focused = true,
 }: {
+  focused?: boolean;
   children: ReactNode;
   menuTarget: HTMLElement | null;
   closeMenu: () => void;
@@ -150,6 +152,7 @@ export function Workbench({
     activity.ready,
     activity.approvals,
     events,
+    focused,
   );
   const [terminalShown, setTerminalShown] = useState(false);
   const [terminalLoaded, setTerminalLoaded] = useState(false);

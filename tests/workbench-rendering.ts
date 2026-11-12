@@ -45,7 +45,13 @@ const oversized =
   '\n```\n\n```mermaid\ninvalid diagram syntax\n```\n\n```math\n' +
   Array.from({ length: 60 }, (_, i) => `x_{${i}}`).join('+') +
   '\n```\n';
-const bytes = Buffer.from(source + openAiSource + oversized);
+const bytes = Buffer.from(
+  source +
+    openAiSource +
+    oversized +
+    '\n\n独立预览长文正文。\n'.repeat(100) +
+    '\n\n文档末尾\n',
+);
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost');
   if (url.pathname.startsWith('/api/v1/')) {
@@ -155,6 +161,33 @@ try {
     [],
     'built web initializes and opens the encrypted channel without eval CSP violations',
   );
+  async function checkDocumentScroll() {
+    const document = page.locator('.file-preview-document');
+    const end = page.getByText('文档末尾', { exact: true });
+    await document.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    assert(
+      await document.evaluate((node) => node.scrollHeight > node.clientHeight),
+      'long preview has a bounded scroll container',
+    );
+    await expect(end).not.toBeInViewport();
+    await document.focus();
+    await page.keyboard.press('Control+End');
+    await expect(end).toBeInViewport();
+    await expect(page.locator('.file-preview-toolbar')).toBeInViewport();
+    assert(
+      await document.evaluate((node) => node.scrollTop > 0),
+      'keyboard scroll reaches the document end',
+    );
+    await page.screenshot({
+      path: join(artifacts, `preview-scroll-${page.viewportSize()!.width}.png`),
+    });
+    await document.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+  }
+  await checkDocumentScroll();
   await expect(page.locator('.callout-warning')).toContainText('注意事项');
   await expect(page.locator('table')).toHaveCount(2);
   async function enterElementFullscreen(element: Locator) {
@@ -409,6 +442,7 @@ try {
     ),
     'mobile has no horizontal overflow',
   );
+  await checkDocumentScroll();
   await page.screenshot({
     path: join(artifacts, 'markdown-mobile.png'),
     fullPage: true,

@@ -1268,13 +1268,17 @@ progress {
 }
 
 .file-preview-page {
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: min(100%, 1120px);
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   margin: 0 auto;
-  padding: 0 24px 40px;
+  padding: 0 24px;
 }
 .file-preview-toolbar {
+  flex-shrink: 0;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -1294,6 +1298,10 @@ progress {
 }
 .file-preview-document,
 .file-preview-text {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
   padding: 24px 0;
   overflow-wrap: anywhere;
 }
@@ -1319,7 +1327,7 @@ progress {
 }
 @media (max-width: 600px) {
   .file-preview-page {
-    padding: 0 12px 24px;
+    padding: 0 12px;
   }
 }
 

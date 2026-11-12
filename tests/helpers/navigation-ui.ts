@@ -392,10 +392,11 @@ export async function navigationUI(
   const conversationX = (await page.locator('.conversation').boundingBox())!.x;
   await page.getByRole('button', { name: '关闭会话导航', exact: true }).click();
   await expect(chooseHost).not.toBeVisible();
-  assert(
-    (await page.locator('.conversation').boundingBox())!.x < conversationX,
-    'collapse releases navigation width',
-  );
+  await expect
+    .poll(async () => (await page.locator('.conversation').boundingBox())!.x, {
+      message: 'collapse releases navigation width',
+    })
+    .toBeLessThan(conversationX);
   await page.getByRole('button', { name: '打开会话导航', exact: true }).click();
   await page
     .getByLabel('搜索会话', { exact: true })
@@ -511,7 +512,10 @@ export async function navigationUI(
   ).not.toBeVisible();
   await expect(page.locator('.unified-output')).toBeVisible();
   await expect(page.locator('.unified-output')).toContainText('echo example-2');
-  await page.getByRole('button', { name: '信息', exact: true }).click();
+  await page
+    .locator('.session-pane.focused .workspace-toolbar')
+    .getByRole('button', { name: '信息', exact: true })
+    .click();
   await expect(
     page.getByRole('dialog', { name: '会话详情', exact: true }),
   ).toBeVisible();
@@ -545,7 +549,9 @@ export async function navigationUI(
   await page.keyboard.press('Escape');
   await expect(information).toHaveCount(0);
   await expect(
-    page.getByRole('button', { name: '信息', exact: true }),
+    page
+      .locator('.session-pane.focused .workspace-toolbar')
+      .getByRole('button', { name: '信息', exact: true }),
   ).toBeFocused();
   await page.getByRole('button', { name: '命令输出', exact: true }).click();
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
@@ -620,7 +626,15 @@ export async function navigationUI(
     .locator('#navigation-sessions')
     .getByRole('button', { name: /第二项目对话/ })
     .click();
-  await expect(page.getByLabel('任务内容')).toHaveValue('');
+  await expect(
+    page.getByLabel('任务内容').filter({ visible: true }),
+  ).toHaveValue('');
+  // Close the retained controller so reopening exercises the original observer
+  // and explicit takeover scenario, rather than simply focusing its live tab.
+  await page
+    .getByRole('button', { name: /^关闭标签：/ })
+    .first()
+    .click();
   attachMode = 'conflict';
   await chooseProject.click();
   await page
@@ -630,6 +644,10 @@ export async function navigationUI(
   await page
     .locator('#navigation-sessions')
     .getByRole('button', { name: /进行中的对话/ })
+    .click();
+  await page
+    .getByRole('button', { name: /^关闭标签：/ })
+    .first()
     .click();
   const continuation = page
     .locator('.readonly-hint')
@@ -672,7 +690,10 @@ export async function navigationUI(
   await expect(page.locator('.readonly-hint')).toHaveCount(0);
   await expect.poll(() => takeoverCalls).toBe(1);
   await expect(page.locator('.connection-notice')).toHaveCount(0);
-  await page.getByRole('button', { name: '信息', exact: true }).click();
+  await page
+    .locator('.session-pane.focused .workspace-toolbar')
+    .getByRole('button', { name: '信息', exact: true })
+    .click();
   await expect(
     page.getByRole('button', { name: '重试连接', exact: true }),
   ).toHaveCount(0);
@@ -789,6 +810,14 @@ export async function navigationUI(
     .locator('#navigation-sessions')
     .getByRole('button', { name: /进行中的对话/ })
     .click();
+  while (await page.getByRole('tab', { selected: false }).count()) {
+    await page
+      .getByRole('tab', { selected: false })
+      .first()
+      .locator('..')
+      .getByRole('button', { name: /^关闭标签：/ })
+      .click();
+  }
   await expect(page.getByLabel('任务内容')).toHaveValue('统一导航保留草稿');
   for (const viewport of [
     { width: 390, height: 844 },
@@ -816,7 +845,10 @@ export async function navigationUI(
     await expect(
       page.getByRole('dialog', { name: '会话导航', exact: true }),
     ).not.toBeVisible();
-    await page.getByRole('button', { name: '信息', exact: true }).click();
+    await page
+      .locator('.session-pane.focused .workspace-toolbar')
+      .getByRole('button', { name: '信息', exact: true })
+      .click();
     await insideViewport(
       page.getByRole('button', { name: '关闭信息', exact: true }),
     );

@@ -1,5 +1,13 @@
 # 测试说明
 
+## 2026-11-12 CW 多会话布局与独立预览滚动
+
+新增 `node node_modules/tsx/dist/cli.mjs tests/ui-stability.ts --multi-session`，并纳入默认 `npm run test:ui`：在两个项目中打开独立会话，验证草稿隔离、切换不重新附着、左右／上下双面板、输入区可见性与宽度、键盘调整分割比例、关闭标签以及手机布局。从空标签再次选择已打开会话复用已有控制器。会话测试使用模拟后端，不调用模型。
+
+`npm run test:markdown` 增加桌面及手机长文滚动验证：正文存在有界滚动区域，可聚焦并用 Ctrl + End 到达文档末尾，下载工具栏仍在视口内。保留原有公式、表格、代码、Mermaid、全屏与 CSP 检查。预览布局只保留一处定义，避免 CSS 加载顺序导致 flex 被覆盖。
+
+网页构建、TypeScript、完整 ESLint / Prettier、`npm test`（16 项 CTest、37 个 Vitest 文件 / 418 项测试）、完整 `npm run test:ui` 和 `npm run test:markdown` 均通过。关闭最后一个标签不恢复刚关闭的会话；错误提示限制在各自面板内，保留工具栏点击区域。截图保存在忽略目录 `.local/ui-stability/multi-session-horizontal.png`、`multi-session-vertical.png`、`multi-session-mobile.png` 及 `.local/workbench-evidence/preview-scroll-*.png`。本次未执行线上发布、真实模型调用或真实手机／Safari 验证；标签集合和分屏布局不跨页面刷新恢复。
+
 2026-11-09 的 0.6.18 移除同项目单写连接及模型任务互斥。`native-endpoint` 覆盖同项目独立控制、待决票据、同 session 接管和关闭隔离；`test:runtime` 保持同项目两条轮次同时运行并验证停止其中一条不影响另一条；`test:e2e` 使用 3 / 5 个独立浏览器并发创建同项目 session，全部进入审批后分别处理，关闭其中一个后其余继续发送任务。项目 Terminal 互斥及全局资源预算保留。最终 CI 六项必需作业全部成功，37 个 Vitest 文件 / 411 项测试通过；已使用 CI 制品部署主站及本机 Agent / CLI。首次 CI 刷新失败的修复、发布来源和验证结果见 [0.6.18 发布记录](MULTI_SESSION_RELEASE_20261109.md)。
 
 本文列出当前入口与验证边界；本次集成结果见文末。历史预览不代表当前提交或线上部署，准确来源见 [r2 历史发布记录](R2_DEPLOYMENT.md)。

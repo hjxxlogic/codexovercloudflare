@@ -4340,8 +4340,187 @@ async function cacheQuotaScenario(failure: 'subscription' | 'events') {
     await context.close();
   }
 }
+async function multiSessionUI() {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .locator('.session-pane.focused')
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    const first = page.locator('.session-pane.focused');
+    await expect(first.getByLabel('任务内容')).toBeEnabled();
+    await first.getByLabel('任务内容').fill('第一个会话的独立草稿');
+    const firstId = await first.getAttribute('id');
+    await page.getByRole('button', { name: '选择项目', exact: true }).click();
+    await page
+      .locator('.session-pane.focused [data-project-id="other-project"]')
+      .click();
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /第二项目对话/ })
+      .click();
+    await expect(
+      page.getByRole('tablist', { name: '打开的会话' }).getByRole('tab'),
+    ).toHaveCount(2);
+    const secondId = await page
+      .locator('.session-pane.focused')
+      .getAttribute('id');
+    await expect(
+      page.locator(`#${secondId}`).getByLabel('任务内容'),
+    ).toBeEnabled();
+    await page
+      .locator(`#${secondId}`)
+      .getByLabel('任务内容')
+      .fill('第二个会话的独立草稿');
+    const attachBefore = attachCalls;
+    await page
+      .getByRole('tablist', { name: '打开的会话' })
+      .getByRole('tab')
+      .first()
+      .click();
+    await expect(
+      page.locator(`#${firstId}`).getByLabel('任务内容'),
+    ).toHaveValue('第一个会话的独立草稿');
+    await page
+      .getByRole('tablist', { name: '打开的会话' })
+      .getByRole('tab')
+      .nth(1)
+      .click();
+    await expect(
+      page.locator(`#${secondId}`).getByLabel('任务内容'),
+    ).toHaveValue('第二个会话的独立草稿');
+    assert.equal(
+      attachCalls,
+      attachBefore,
+      'tab switching must keep controllers mounted',
+    );
+    await page
+      .getByLabel('会话布局', { exact: true })
+      .selectOption('horizontal');
+    await expect(page.locator('.session-pane:visible')).toHaveCount(2);
+    let a = await page.locator(`#${firstId}`).boundingBox();
+    let b = await page.locator(`#${secondId}`).boundingBox();
+    assert(a && b && Math.abs(a.y - b.y) < 2 && Math.abs(a.x - b.x) > 200);
+    assert(
+      (await page.locator(`#${firstId} .composer`).boundingBox())!.width >
+        a!.width * 0.7,
+      'split pane uses its available width',
+    );
+    await expect(
+      page.locator(`#${firstId}`).getByLabel('任务内容'),
+    ).toBeInViewport();
+    await expect(
+      page.locator(`#${secondId}`).getByLabel('任务内容'),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: join(artifacts, 'multi-session-horizontal.png'),
+    });
+    const divider = page.getByRole('separator', { name: '调整会话分割比例' });
+    await divider.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(divider).toHaveAttribute('aria-valuenow', '52');
+    await page.getByLabel('会话布局', { exact: true }).selectOption('vertical');
+    a = await page.locator(`#${firstId}`).boundingBox();
+    b = await page.locator(`#${secondId}`).boundingBox();
+    assert(a && b && Math.abs(a.x - b.x) < 2 && Math.abs(a.y - b.y) > 100);
+    await expect(
+      page.locator(`#${firstId}`).getByLabel('任务内容'),
+    ).toBeInViewport();
+    await expect(
+      page.locator(`#${secondId}`).getByLabel('任务内容'),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: join(artifacts, 'multi-session-vertical.png'),
+    });
+    await page.getByLabel('会话布局', { exact: true }).selectOption('tabs');
+    await page
+      .getByRole('tablist', { name: '打开的会话' })
+      .getByRole('tab')
+      .first()
+      .click();
+    await page
+      .getByRole('button', { name: '新建会话标签', exact: true })
+      .click();
+    await page
+      .locator('.session-pane.focused [data-project-id="project"]')
+      .click();
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /进行中的对话/ })
+      .click();
+    await expect(page.locator(`#${firstId}`)).toHaveClass(/focused/);
+    await expect(
+      page.getByRole('tablist', { name: '打开的会话' }).getByRole('tab'),
+    ).toHaveCount(3);
+    assert.equal(
+      attachCalls,
+      attachBefore,
+      'opening an existing session from an empty tab must reuse its controller',
+    );
+    await page
+      .getByRole('button', { name: /^关闭标签：/ })
+      .nth(2)
+      .click();
+    await page
+      .getByRole('button', { name: /^关闭标签：/ })
+      .nth(1)
+      .click();
+    await expect(
+      page.getByRole('tablist', { name: '打开的会话' }).getByRole('tab'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(`#${firstId}`).getByLabel('任务内容'),
+    ).toHaveValue('第一个会话的独立草稿');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(
+      page.locator(`#${firstId}`).getByLabel('任务内容'),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: join(artifacts, 'multi-session-mobile.png'),
+    });
+    await page.getByRole('button', { name: /^关闭标签：/ }).click();
+    await expect(
+      page.getByRole('tablist', { name: '打开的会话' }).getByRole('tab'),
+    ).toHaveCount(1);
+    await expect(page.getByLabel('任务内容')).toHaveCount(0);
+    await expect(
+      page.locator('.session-pane.focused .chat-welcome'),
+    ).toBeVisible();
+    assert.equal(
+      attachCalls,
+      attachBefore,
+      'closing the last tab leaves a blank view without reopening its session',
+    );
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: session tabs retain independent drafts/controllers; both split axes, keyboard resize, close and mobile layout',
+    );
+  } catch (error) {
+    console.log(
+      'FAILED UI',
+      await page.locator('.session-pane.focused').innerText(),
+    );
+    await page.screenshot({
+      path: join(artifacts, 'multi-session-failure.png'),
+    });
+    throw error;
+  } finally {
+    await context.close();
+  }
+}
 try {
-  if (process.argv.includes('--active-sessions')) await activeSessionsUI();
+  if (!process.argv.some((arg) => arg.startsWith('--'))) await multiSessionUI();
+  if (process.argv.includes('--multi-session')) await multiSessionUI();
+  else if (process.argv.includes('--active-sessions')) await activeSessionsUI();
   else if (process.argv.includes('--threads')) await threadManagementUI();
   else if (process.argv.includes('--cache-quota')) await cacheQuotaUI();
   else if (process.argv.includes('--behavior')) await currentBehaviorUI();
@@ -4392,6 +4571,7 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--multi-session') &&
     !process.argv.includes('--threads') &&
     !process.argv.includes('--active-sessions') &&
     !process.argv.includes('--cache-quota') &&

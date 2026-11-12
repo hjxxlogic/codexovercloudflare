@@ -7,6 +7,7 @@ type Level = 'hosts' | 'projects' | 'sessions';
 type Host = { id: string; name: string; online: boolean };
 type Project = { id: string; name: string; path: string; available?: boolean };
 export function WorkspaceNavigation({
+  initialLevel = 'hosts',
   hosts,
   projects,
   host,
@@ -23,6 +24,7 @@ export function WorkspaceNavigation({
   projectAction,
   children,
 }: {
+  initialLevel?: Level;
   hosts: Host[];
   projects: Project[];
   host: string;
@@ -39,7 +41,7 @@ export function WorkspaceNavigation({
   projectAction: ReactNode;
   children: ReactNode;
 }) {
-  const [active, setActive] = useState<Level>('hosts');
+  const [active, setActive] = useState<Level>(initialLevel);
   const currentHost = hosts.find((item) => item.id === host);
   const currentProject =
     currentHost &&

@@ -1,4 +1,5 @@
 import './zod-config.ts';
+import { SessionTabs, type SessionPaneProps } from './session-tabs.tsx';
 import {
   AgentSetup,
   DeviceAuthorization,
@@ -37,6 +38,7 @@ import React, {
   useState,
   useCallback,
   useMemo,
+  useId,
 } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -126,7 +128,8 @@ type View = 'chat' | 'connection' | 'devices' | 'keys';
 type Mode = 'cw' | 'admin';
 import './happier/unified-shell.css';
 
-function App() {
+function App({ initial, focused = true, workspace }: SessionPaneProps) {
+  const domId = useId();
   const language = useLanguage();
   const theme = useThemePreference();
   const [view, setView] = useState<View>('chat');
@@ -148,7 +151,11 @@ function App() {
   const [navigationOpen, setNavigationOpen] = useState(
     () => !matchMedia('(max-width: 900px)').matches,
   );
-  const manualHostSelection = useRef<string | undefined>(undefined);
+  const manualHostSelection = useRef<string | undefined>(
+    initial?.host && !initial.project && !initial.session
+      ? initial.host
+      : undefined,
+  );
   const [appearanceTarget, setAppearanceTarget] =
     useState<HTMLDivElement | null>(null);
   const [workbenchMenuTarget, setWorkbenchMenuTarget] =
@@ -222,7 +229,11 @@ function App() {
   }>({ enabled: false });
   const welcomeSelection = useRef<
     { hostId: string; session: Session } | undefined
-  >(undefined);
+  >(
+    initial?.session
+      ? { hostId: initial.host, session: initial.session }
+      : undefined,
+  );
   const accountRef = useRef('');
   const authorizationRequest = useRef('');
   const autoAdminAttempt = useRef('');
@@ -257,7 +268,7 @@ function App() {
     [generating, setGenerating] = useState(false),
     [secret, setSecret] = useState(''),
     [hosts, setHosts] = useState<any[]>([]),
-    [host, setHost] = useState(''),
+    [host, setHost] = useState(initial?.host || ''),
     [projects, setProjects] = useState<any[]>([]),
     [project, setProject] = useState(''),
     [sessions, setSessions] = useState<Session[]>([]),
@@ -272,6 +283,25 @@ function App() {
     [pending, setPending] = useState(false),
     [busy, setBusy] = useState(false),
     [takeover, setTakeover] = useState(false);
+  useEffect(() => {
+    workspace?.changed(
+      { host, project, session: selected },
+      selected?.title ||
+        threads.find((item) => item.id === selected?.threadId)?.name ||
+        (selected ? t('进行中的对话') : ''),
+      navigationOpen,
+    );
+  }, [host, project, selected, threads, navigationOpen]);
+  function openSession(session: Session) {
+    if (workspace?.activate({ host, project: session.projectId, session }))
+      return;
+    if (workspace && selected && selected.id !== session.id) {
+      workspace.open({ host, project: session.projectId, session });
+    } else {
+      setTakeover(false);
+      setSelected(session);
+    }
+  }
   const [controlElsewhere, setControlElsewhere] = useState(false);
   const [createOperation, setCreateOperation] = useState<{
     requestId: string;
@@ -817,7 +847,7 @@ function App() {
     catalog.current?.close();
     catalog.current = null;
     if (!host) return;
-    rememberHost(host);
+    if (focused) rememberHost(host);
     let cache: HistoryCache | undefined;
     let operationClient: OperationClient | undefined;
     let loading: Promise<void> | undefined;
@@ -845,13 +875,15 @@ function App() {
           ]);
           if (disposed) return;
           const restored = restoreWorkspace(
-            navigation,
+            initial ? undefined : navigation,
             host,
             stored?.projects || [],
             stored?.sessions || [],
           );
           savedWorkspace.current =
-            manualHostSelection.current === host ? undefined : navigation;
+            initial || manualHostSelection.current === host
+              ? undefined
+              : navigation;
           setProjects(stored?.projects || []);
           const pending = welcomeSelection.current;
           const continued =
@@ -860,7 +892,7 @@ function App() {
           setProject(
             manualHostSelection.current === host
               ? ''
-              : continued?.projectId || restored.projectId,
+              : continued?.projectId || initial?.project || restored.projectId,
           );
           setSessions(stored?.sessions || []);
           setSelected(
@@ -909,7 +941,12 @@ function App() {
     };
   }, [host, emailIdentity.accountId]);
   useEffect(() => {
-    if (catalogHost !== host || catalogScope.current !== host || !project)
+    if (
+      !focused ||
+      catalogHost !== host ||
+      catalogScope.current !== host ||
+      !project
+    )
       return;
     const navigation: WorkspaceState = {
       projectId: project,
@@ -919,7 +956,7 @@ function App() {
     void catalog.current?.record('workspace', navigation).catch(() => {
       setNotice('本机浏览状态未能保存，刷新后可能无法恢复当前会话。');
     });
-  }, [host, catalogHost, project, selected]);
+  }, [host, catalogHost, project, selected, focused]);
   useEffect(() => {
     if (projects.length && catalog.current && catalogScope.current === host)
       void catalog.current
@@ -964,8 +1001,7 @@ function App() {
           session,
           ...sessions.filter((s) => s.id !== session.id),
         ]);
-        setSelected(session);
-        setTakeover(false);
+        openSession(session);
         setPanel(null);
         setCreateOperation(undefined);
       })
@@ -2550,7 +2586,7 @@ function App() {
   useEffect(() => {
     if (managing && view === 'devices')
       document
-        .getElementById(`request-${managing}`)
+        .getElementById(`${domId}request-${managing}`)
         ?.scrollIntoView({ block: 'nearest' });
   }, [managing, view, devices.pending.length]);
   async function manage(action: 'approve' | 'reject' | 'revoke', id: string) {
@@ -2620,8 +2656,7 @@ function App() {
         setError('此线程正在 CLI 会话中使用，请先结束原会话。');
         return;
       }
-      setTakeover(false);
-      setSelected(existing);
+      openSession(existing);
       setPanel(null);
       return;
     }
@@ -2665,8 +2700,7 @@ function App() {
       )
         return;
       setSessions((v) => [s, ...v.filter((session) => session.id !== s.id)]);
-      setTakeover(false);
-      setSelected(s);
+      openSession(s);
       setPanel(null);
       void loadThreads();
     } catch (e) {
@@ -3033,329 +3067,353 @@ function App() {
     <main
       className={`happier-site unified-shell${navigationOpen ? ' navigation-open' : ''}${view === 'chat' && logged ? ' chat-workspace' : ''}${mode === 'cw' && view === 'chat' && logged ? ' happier-chat-shell' : ''}${mode === 'admin' && admin ? ' admin-workspace' : ''}`}
     >
-      <SessionNavigation
-        email={emailIdentity.email}
-        open={navigationOpen}
-        onOpenChange={setNavigationOpen}
-        modeAction={
-          (admin || mode === 'admin') && (
-            <IconButton
-              icon="devices"
-              label={t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
-              disabled={fileBusy}
-              onClick={switchMode}
-            />
-          )
-        }
-        onSettings={() => {
-          setMenuOpen(true);
-          if (matchMedia('(max-width: 900px)').matches)
-            setNavigationOpen(false);
-        }}
-      >
-        {mode === 'cw' && (
-          <WorkspaceNavigation
-            hosts={hosts}
-            projects={projects}
-            host={host}
-            project={project}
-            session={selected?.id}
-            sessionTitle={
-              threads.find((item) => item.id === selected?.threadId)?.name ||
-              selected?.title ||
-              (selected ? t('进行中的对话') : undefined)
-            }
-            locked={fileBusy}
-            refreshing={refreshing}
-            refresh={() => void refreshView()}
-            onHost={(next) => {
-              if (next !== host) {
-                manualHostSelection.current = next;
-                setSelected(undefined);
-                setProject('');
-                setProjects([]);
-                setSessions([]);
-                rememberHost(next);
-                setHost(next);
-              }
-              setMenuOpen(false);
-            }}
-            onProject={(next) => {
-              manualHostSelection.current = undefined;
-              if (next !== project) {
-                setSelected(undefined);
-                setProject(next);
-              }
-              setMenuOpen(false);
-            }}
-            requestAuthorization={() => setAdding((value) => !value)}
-            authorization={
-              <>
-                {adding && (
-                  <section
-                    className="navigation-authorization"
-                    aria-label={t('申请授权')}
-                  >
-                    {emailControls}
-                    {loginForm}
-                    {logged && (
-                      <button
-                        disabled={!host || fileBusy}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              t(
-                                '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
-                              ),
-                            )
-                          )
-                            void api('/auth/forget', { hostId: host })
-                              .then(() => {
-                                rememberHost('');
-                                forgetEmailHost(host);
-                                setHost('');
-                                socket.current?.close();
-                                setSelected(undefined);
-                                return refresh();
-                              })
-                              .catch(report);
-                        }}
-                      >
-                        {t(
-                          emailIdentity.enabled
-                            ? '断开当前浏览器连接'
-                            : '移除本地授权',
-                        )}
-                      </button>
-                    )}
-                  </section>
-                )}
-                {host && !online && wakeConfigured && (
-                  <IconButton
-                    icon="power"
-                    label={t('重试唤醒')}
-                    onClick={() =>
-                      void api(`/hosts/${host}/wake`, {})
-                        .then(() => setNotice('已请求唤醒，请刷新确认上线状态'))
-                        .catch(report)
-                    }
-                  />
-                )}
-              </>
-            }
-            projectAction={
-              host && (
-                <ProjectManager
-                  key={host}
-                  operations={operations.current}
-                  hostId={host}
-                  hostName={
-                    hosts.find((item) => item.id === host)?.name || host
-                  }
-                  changed={refreshView}
-                  defaultProjectPath={
-                    projects.find((item) => item.id === project)?.path ||
-                    projects[0]?.path
-                  }
-                  creationOnly
-                />
-              )
-            }
-          >
-            <aside className="session-sidebar unified-session-list">
-              <button
-                className="new-chat"
-                disabled={!online || !host || !project || creating}
-                onClick={() => {
-                  setMenuOpen(false);
-                  if (matchMedia('(max-width: 900px)').matches)
-                    setNavigationOpen(false);
-                  void create();
-                }}
-              >
-                {t('＋ 新建对话')}
-              </button>
-              <input
-                className="session-search"
-                aria-label={t('搜索会话')}
-                placeholder={t('搜索已加载的会话…')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+      {focused && (
+        <SessionNavigation
+          email={emailIdentity.email}
+          open={navigationOpen}
+          onOpenChange={setNavigationOpen}
+          modeAction={
+            (admin || mode === 'admin') && (
               <IconButton
-                icon="refresh"
-                label={loadingThreads ? t('正在加载…') : t('刷新会话')}
-                disabled={!host || loadingThreads}
-                onClick={() => {
-                  void loadThreads();
-                  void loadSessionCatalog(host, new AbortController().signal)
-                    .then((page) => {
-                      setSessions(page.data);
-                      setSessionCursor(page.nextCursor);
-                    })
-                    .catch(report);
-                }}
+                icon="devices"
+                label={t('切换到{0}模式', mode === 'cw' ? t('管理员') : 'CW')}
+                disabled={fileBusy}
+                onClick={switchMode}
               />
-              <label className="archive-filter">
-                <input
-                  type="checkbox"
-                  checked={archivedThreads}
-                  onChange={(event) => setArchivedThreads(event.target.checked)}
-                />
-                {t('已归档会话')}
-              </label>
-              <p className="sidebar-caption">
-                {t('与远程 Codex 共用历史 · 当前项目')}
-              </p>
-              <SessionHistory
-                compact
-                archived={archivedThreads}
-                managing={managingThread}
-                onManage={(id, operation) => void manageThread(id, operation)}
-                sessions={sessions.map((session) =>
-                  session.id === selected?.id
-                    ? { ...session, running: busy }
-                    : session,
-                )}
-                threads={threads}
-                project={project}
-                projectName={
-                  projects.find((p) => p.id === project)?.name || project
+            )
+          }
+          onSettings={() => {
+            setMenuOpen(true);
+            if (matchMedia('(max-width: 900px)').matches)
+              setNavigationOpen(false);
+          }}
+        >
+          {mode === 'cw' && (
+            <WorkspaceNavigation
+              initialLevel={
+                initial?.host
+                  ? initial.project || initial.session
+                    ? 'sessions'
+                    : 'projects'
+                  : 'hosts'
+              }
+              hosts={hosts}
+              projects={projects}
+              host={host}
+              project={project}
+              session={selected?.id}
+              sessionTitle={
+                threads.find((item) => item.id === selected?.threadId)?.name ||
+                selected?.title ||
+                (selected ? t('进行中的对话') : undefined)
+              }
+              locked={fileBusy}
+              refreshing={refreshing}
+              refresh={() => void refreshView()}
+              onHost={(next) => {
+                if (next !== host && selected && workspace) {
+                  workspace.open({ host: next });
+                  return;
                 }
-                selected={selected}
-                search={search}
-                online={online}
-                loading={loadingThreads}
-                error={threadError}
-                creating={creating}
-                onSelect={(session) => {
-                  setTakeover(false);
-                  setSelected(session);
-                  setPanel(null);
-                  setView('chat');
-                  setMenuOpen(false);
-                  if (matchMedia('(max-width: 900px)').matches)
-                    setNavigationOpen(false);
-                }}
-                onResume={(threadId) => {
-                  setMenuOpen(false);
-                  if (matchMedia('(max-width: 900px)').matches)
-                    setNavigationOpen(false);
-                  void create(threadId);
-                }}
-              />
-              {sessionCursor && (
-                <IconButton
-                  icon="plus"
-                  label={t('加载更多会话记录')}
-                  disabled={!online}
-                  onClick={() =>
-                    void api(
-                      `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
-                    )
-                      .then((page) => {
-                        setSessions((old) =>
-                          mergeSessionCatalog(old, page.data),
-                        );
-                        setSessionCursor(page.nextCursor);
-                      })
-                      .catch(report)
-                  }
-                />
-              )}
-              {cursor && (
-                <IconButton
-                  icon="plus"
-                  label={t('加载更多')}
-                  disabled={loadingThreads}
-                  onClick={() => void loadThreads(true)}
-                />
-              )}
-            </aside>
-          </WorkspaceNavigation>
-        )}
-        {mode === 'admin' && admin && (
-          <nav className="admin-tabs" role="tablist" aria-label={t('管理功能')}>
-            {(
-              [
-                ['pending', t('待授权请求')],
-                ['authorized', t('已授权设备')],
-                ['versions', t('Agent 运行版本')],
-                ['wake', t('服务器唤醒配置')],
-                ['emails', t('Agent 邮箱关联')],
-                ['projects', t('项目管理')],
-                ['keys', t('API Key 管理')],
-                ['sessions', t('管理会话')],
-                ['misc', t('杂项')],
-              ] as const
-            ).map(([id, label]) => {
-              const selected =
-                view === 'keys' ? id === 'keys' : id === adminTab;
-              return (
+                if (next !== host) {
+                  manualHostSelection.current = next;
+                  setSelected(undefined);
+                  setProject('');
+                  setProjects([]);
+                  setSessions([]);
+                  rememberHost(next);
+                  setHost(next);
+                }
+                setMenuOpen(false);
+              }}
+              onProject={(next) => {
+                if (next !== project && selected && workspace) {
+                  workspace.open({ host, project: next });
+                  return;
+                }
+                manualHostSelection.current = undefined;
+                if (next !== project) {
+                  setSelected(undefined);
+                  setProject(next);
+                }
+                setMenuOpen(false);
+              }}
+              requestAuthorization={() => setAdding((value) => !value)}
+              authorization={
+                <>
+                  {adding && (
+                    <section
+                      className="navigation-authorization"
+                      aria-label={t('申请授权')}
+                    >
+                      {emailControls}
+                      {loginForm}
+                      {logged && (
+                        <button
+                          disabled={!host || fileBusy}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                t(
+                                  '移除此 A 的本地凭证？R 上的授权保持不变，已有任务不会停止。',
+                                ),
+                              )
+                            )
+                              void api('/auth/forget', { hostId: host })
+                                .then(() => {
+                                  rememberHost('');
+                                  forgetEmailHost(host);
+                                  setHost('');
+                                  socket.current?.close();
+                                  setSelected(undefined);
+                                  return refresh();
+                                })
+                                .catch(report);
+                          }}
+                        >
+                          {t(
+                            emailIdentity.enabled
+                              ? '断开当前浏览器连接'
+                              : '移除本地授权',
+                          )}
+                        </button>
+                      )}
+                    </section>
+                  )}
+                  {host && !online && wakeConfigured && (
+                    <IconButton
+                      icon="power"
+                      label={t('重试唤醒')}
+                      onClick={() =>
+                        void api(`/hosts/${host}/wake`, {})
+                          .then(() =>
+                            setNotice('已请求唤醒，请刷新确认上线状态'),
+                          )
+                          .catch(report)
+                      }
+                    />
+                  )}
+                </>
+              }
+              projectAction={
+                host && (
+                  <ProjectManager
+                    key={host}
+                    operations={operations.current}
+                    hostId={host}
+                    hostName={
+                      hosts.find((item) => item.id === host)?.name || host
+                    }
+                    changed={refreshView}
+                    defaultProjectPath={
+                      projects.find((item) => item.id === project)?.path ||
+                      projects[0]?.path
+                    }
+                    creationOnly
+                  />
+                )
+              }
+            >
+              <aside className="session-sidebar unified-session-list">
                 <button
-                  key={id}
-                  id={`admin-tab-${id}`}
-                  role="tab"
-                  aria-selected={selected}
-                  aria-controls={`admin-panel-${id}`}
-                  tabIndex={selected ? 0 : -1}
+                  className="new-chat"
+                  disabled={!online || !host || !project || creating}
                   onClick={() => {
                     setMenuOpen(false);
                     if (matchMedia('(max-width: 900px)').matches)
                       setNavigationOpen(false);
-                    if (id === 'keys') setView('keys');
-                    else {
-                      setAdminTab(id);
-                      setView('devices');
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    const tabs = Array.from(
-                      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
-                        '[role="tab"]',
-                      ),
-                    );
-                    const index = tabs.indexOf(event.currentTarget);
-                    const next =
-                      event.key === 'ArrowRight'
-                        ? (index + 1) % tabs.length
-                        : event.key === 'ArrowLeft'
-                          ? (index + tabs.length - 1) % tabs.length
-                          : event.key === 'Home'
-                            ? 0
-                            : event.key === 'End'
-                              ? tabs.length - 1
-                              : -1;
-                    if (next < 0) return;
-                    event.preventDefault();
-                    tabs[next].focus();
-                    tabs[next].click();
+                    void create();
                   }}
                 >
-                  <Icon
-                    name={
-                      (
-                        {
-                          pending: 'shield',
-                          authorized: 'devices',
-                          versions: 'activity',
-                          wake: 'power',
-                          emails: 'mail',
-                          projects: 'folder',
-                          keys: 'key',
-                          sessions: 'chat',
-                          misc: 'settings',
-                        } as Record<string, IconName>
-                      )[id]
+                  {t('＋ 新建对话')}
+                </button>
+                <input
+                  className="session-search"
+                  aria-label={t('搜索会话')}
+                  placeholder={t('搜索已加载的会话…')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <IconButton
+                  icon="refresh"
+                  label={loadingThreads ? t('正在加载…') : t('刷新会话')}
+                  disabled={!host || loadingThreads}
+                  onClick={() => {
+                    void loadThreads();
+                    void loadSessionCatalog(host, new AbortController().signal)
+                      .then((page) => {
+                        setSessions(page.data);
+                        setSessionCursor(page.nextCursor);
+                      })
+                      .catch(report);
+                  }}
+                />
+                <label className="archive-filter">
+                  <input
+                    type="checkbox"
+                    checked={archivedThreads}
+                    onChange={(event) =>
+                      setArchivedThreads(event.target.checked)
                     }
                   />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-      </SessionNavigation>
+                  {t('已归档会话')}
+                </label>
+                <p className="sidebar-caption">
+                  {t('与远程 Codex 共用历史 · 当前项目')}
+                </p>
+                <SessionHistory
+                  compact
+                  archived={archivedThreads}
+                  managing={managingThread}
+                  onManage={(id, operation) => void manageThread(id, operation)}
+                  sessions={sessions.map((session) =>
+                    session.id === selected?.id
+                      ? { ...session, running: busy }
+                      : session,
+                  )}
+                  threads={threads}
+                  project={project}
+                  projectName={
+                    projects.find((p) => p.id === project)?.name || project
+                  }
+                  selected={selected}
+                  search={search}
+                  online={online}
+                  loading={loadingThreads}
+                  error={threadError}
+                  creating={creating}
+                  onSelect={(session) => {
+                    openSession(session);
+                    setPanel(null);
+                    setView('chat');
+                    setMenuOpen(false);
+                    if (matchMedia('(max-width: 900px)').matches)
+                      setNavigationOpen(false);
+                  }}
+                  onResume={(threadId) => {
+                    setMenuOpen(false);
+                    if (matchMedia('(max-width: 900px)').matches)
+                      setNavigationOpen(false);
+                    void create(threadId);
+                  }}
+                />
+                {sessionCursor && (
+                  <IconButton
+                    icon="plus"
+                    label={t('加载更多会话记录')}
+                    disabled={!online}
+                    onClick={() =>
+                      void api(
+                        `/sessions?paged=true&hostId=${host}&cursor=${encodeURIComponent(sessionCursor)}`,
+                      )
+                        .then((page) => {
+                          setSessions((old) =>
+                            mergeSessionCatalog(old, page.data),
+                          );
+                          setSessionCursor(page.nextCursor);
+                        })
+                        .catch(report)
+                    }
+                  />
+                )}
+                {cursor && (
+                  <IconButton
+                    icon="plus"
+                    label={t('加载更多')}
+                    disabled={loadingThreads}
+                    onClick={() => void loadThreads(true)}
+                  />
+                )}
+              </aside>
+            </WorkspaceNavigation>
+          )}
+          {mode === 'admin' && admin && (
+            <nav
+              className="admin-tabs"
+              role="tablist"
+              aria-label={t('管理功能')}
+            >
+              {(
+                [
+                  ['pending', t('待授权请求')],
+                  ['authorized', t('已授权设备')],
+                  ['versions', t('Agent 运行版本')],
+                  ['wake', t('服务器唤醒配置')],
+                  ['emails', t('Agent 邮箱关联')],
+                  ['projects', t('项目管理')],
+                  ['keys', t('API Key 管理')],
+                  ['sessions', t('管理会话')],
+                  ['misc', t('杂项')],
+                ] as const
+              ).map(([id, label]) => {
+                const selected =
+                  view === 'keys' ? id === 'keys' : id === adminTab;
+                return (
+                  <button
+                    key={id}
+                    id={`${domId}admin-tab-${id}`}
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls={`${domId}admin-panel-${id}`}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (matchMedia('(max-width: 900px)').matches)
+                        setNavigationOpen(false);
+                      if (id === 'keys') setView('keys');
+                      else {
+                        setAdminTab(id);
+                        setView('devices');
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      const tabs = Array.from(
+                        event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                          '[role="tab"]',
+                        ),
+                      );
+                      const index = tabs.indexOf(event.currentTarget);
+                      const next =
+                        event.key === 'ArrowRight'
+                          ? (index + 1) % tabs.length
+                          : event.key === 'ArrowLeft'
+                            ? (index + tabs.length - 1) % tabs.length
+                            : event.key === 'Home'
+                              ? 0
+                              : event.key === 'End'
+                                ? tabs.length - 1
+                                : -1;
+                      if (next < 0) return;
+                      event.preventDefault();
+                      tabs[next].focus();
+                      tabs[next].click();
+                    }}
+                  >
+                    <Icon
+                      name={
+                        (
+                          {
+                            pending: 'shield',
+                            authorized: 'devices',
+                            versions: 'activity',
+                            wake: 'power',
+                            emails: 'mail',
+                            projects: 'folder',
+                            keys: 'key',
+                            sessions: 'chat',
+                            misc: 'settings',
+                          } as Record<string, IconName>
+                        )[id]
+                      }
+                    />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+        </SessionNavigation>
+      )}
       {mode === 'admin' && admin && (
         <div className="admin-refresh">
           <IconButton
@@ -3547,8 +3605,8 @@ function App() {
         <section
           className="card"
           role="tabpanel"
-          id={`admin-panel-${adminTab}`}
-          aria-labelledby={`admin-tab-${adminTab}`}
+          id={`${domId}admin-panel-${adminTab}`}
+          aria-labelledby={`${domId}admin-tab-${adminTab}`}
         >
           <h2>
             {t(
@@ -3622,7 +3680,7 @@ function App() {
                     className={
                       d.id === managing ? 'highlight-request' : undefined
                     }
-                    id={`request-${d.id}`}
+                    id={`${domId}request-${d.id}`}
                     key={d.id}
                   >
                     <th scope="row">
@@ -3842,8 +3900,8 @@ function App() {
         <section
           className="card"
           role="tabpanel"
-          id="admin-panel-misc"
-          aria-labelledby="admin-tab-misc"
+          id={`${domId}admin-panel-misc`}
+          aria-labelledby={`${domId}admin-tab-misc`}
           hidden={view !== 'devices' || adminTab !== 'misc'}
         >
           <h2>{t('杂项')}</h2>
@@ -3855,8 +3913,8 @@ function App() {
         <section
           className="card"
           role="tabpanel"
-          id="admin-panel-keys"
-          aria-labelledby="admin-tab-keys"
+          id={`${domId}admin-panel-keys`}
+          aria-labelledby={`${domId}admin-tab-keys`}
         >
           <h2>{t('API Key 管理')}</h2>
           <p>
@@ -4018,6 +4076,7 @@ function App() {
         <>
           {view === 'chat' && (
             <Workbench
+              focused={focused}
               menuTarget={workbenchMenuTarget}
               closeMenu={() => setPanel(null)}
               appearanceTarget={appearanceTarget}
@@ -4190,7 +4249,7 @@ function App() {
                 <dialog
                   className="chat-panel"
                   ref={panelDialog}
-                  aria-labelledby="chat-panel-title"
+                  aria-labelledby={`${domId}chat-panel-title`}
                   onClose={() => setPanel(null)}
                   onCancel={(event) => {
                     event.preventDefault();
@@ -4198,7 +4257,7 @@ function App() {
                   }}
                 >
                   <div className="panel-heading">
-                    <h2 id="chat-panel-title">{t('选择模型')}</h2>
+                    <h2 id={`${domId}chat-panel-title`}>{t('选择模型')}</h2>
                     <IconButton
                       icon="close"
                       label={t('关闭面板')}
@@ -4683,6 +4742,14 @@ function App() {
                         hosts={hosts}
                         revision={revision}
                         onContinue={(hostId, session) => {
+                          if (
+                            workspace?.activate({
+                              host: hostId,
+                              project: session.projectId,
+                              session,
+                            })
+                          )
+                            return;
                           manualHostSelection.current = undefined;
                           setTakeover(false);
                           setMenuOpen(false);
@@ -4736,7 +4803,7 @@ createRoot(document.getElementById('root')!).render(
     {new URLSearchParams(location.hash.slice(1)).get('preview') === 'file' ? (
       <FilePreview />
     ) : (
-      <App />
+      <SessionTabs Pane={App} />
     )}
   </SiteTheme>,
 );

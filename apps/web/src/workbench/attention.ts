@@ -7,6 +7,7 @@ export function useWorkbenchAttention(
   ready: boolean,
   approvals: string[],
   events: Event[],
+  focused = true,
 ) {
   const [enabled, setEnabled] = useState(false);
   const [notice, setNotice] = useState('');
@@ -24,18 +25,17 @@ export function useWorkbenchAttention(
   const signature = approvals.join('\n');
   const previous = useRef({ scope, busy, signature, identity });
   useEffect(() => {
-    const title = document.title;
     return () => {
-      document.title = title;
       notification.current?.close();
     };
   }, []);
   useEffect(() => {
-    document.title = approvals.length
-      ? `(${approvals.length}) ${t('待确认请求')} · CW`
-      : busy
-        ? `${t('执行中')} · CW`
-        : 'CW';
+    if (focused)
+      document.title = approvals.length
+        ? `(${approvals.length}) ${t('待确认请求')} · CW`
+        : busy
+          ? `${t('执行中')} · CW`
+          : 'CW';
     const old = previous.current;
     previous.current = { scope, busy, signature, identity };
     if (
@@ -62,7 +62,7 @@ export function useWorkbenchAttention(
         setNotice(t('此浏览器不支持页面通知'));
       }
     }
-  }, [scope, busy, ready, signature, identity, enabled]);
+  }, [scope, busy, ready, signature, identity, enabled, focused]);
   async function toggle() {
     if (enabled) {
       notification.current?.close();

@@ -763,22 +763,6 @@
   background: var(--cw-surface, var(--surface));
   opacity: 1;
 }
-.file-preview-page {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-  padding-bottom: 0;
-}
-.file-preview-toolbar {
-  flex-shrink: 0;
-}
-.file-preview-page > :is(.file-preview-document, .file-preview-text) {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
 
 .copy-control {
   position: relative;
