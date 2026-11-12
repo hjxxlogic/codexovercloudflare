@@ -2535,6 +2535,7 @@ try {
   await selectProjectId(visitorPage, 'test-project');
   await feature(visitorPage, /^会话记录/);
   await visitorPage
+    .locator('.session-pane.focused .unified-session-list')
     .getByRole('button', { name: /browser hello/ })
     .first()
     .click();
@@ -2605,6 +2606,7 @@ try {
   await selectProjectId(visitorPage, 'test-project');
   await feature(visitorPage, /^会话记录/);
   await visitorPage
+    .locator('.session-pane.focused .unified-session-list')
     .getByRole('button', { name: /browser hello/ })
     .first()
     .click();

@@ -4583,6 +4583,79 @@ async function streamingDiffUI() {
     await context.close();
   }
 }
+async function offlineSessionUI() {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .locator('.session-pane.focused .unified-session-list')
+      .getByRole('button', { name: /进行中的对话/ })
+      .first()
+      .click();
+    await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await page.getByText('任务已完成。', { exact: true }).waitFor();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            new Promise<boolean>((resolve, reject) => {
+              const opening = indexedDB.open('coc-history-v3');
+              opening.onerror = () => reject(opening.error);
+              opening.onsuccess = () => {
+                const db = opening.result;
+                const request = db
+                  .transaction('events')
+                  .objectStore('events')
+                  .getAll();
+                request.onsuccess = () => {
+                  db.close();
+                  resolve(
+                    JSON.stringify(request.result).includes('任务已完成。'),
+                  );
+                };
+                request.onerror = () => {
+                  db.close();
+                  reject(request.error);
+                };
+              };
+            }),
+        ),
+      )
+      .toBe(true);
+    for (const offline of [false, true]) {
+      if (offline)
+        await page.routeWebSocket('**/ws/v1/channel/**', (route) =>
+          route.close({ code: 1013, reason: 'offline' }),
+        );
+      await page.reload();
+      await selectHostId(page, 'sample');
+      await selectProjectId(page, 'project');
+      await page
+        .locator('.session-pane.focused .unified-session-list')
+        .getByRole('button', { name: /进行中的对话/ })
+        .first()
+        .click();
+      await expect(page.getByText('任务已完成。', { exact: true })).toBeVisible(
+        { timeout: 10000 },
+      );
+      await expect(
+        page.locator('.session-pane.focused .composer'),
+      ).toBeVisible();
+      await expect(page.getByRole('tab')).toHaveCount(1);
+    }
+    console.log(
+      'PASS: online and offline reload select the cached session without closing its restored tab',
+    );
+  } catch (e) {
+    console.log(await page.locator('body').innerText());
+    throw e;
+  } finally {
+    await context.close();
+  }
+}
 async function multiSessionUI() {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -4765,8 +4838,10 @@ try {
     await tabLabelsUI();
     await streamingDiffUI();
     await multiSessionUI();
+    await offlineSessionUI();
   }
-  if (process.argv.includes('--tab-labels')) await tabLabelsUI();
+  if (process.argv.includes('--offline-session')) await offlineSessionUI();
+  else if (process.argv.includes('--tab-labels')) await tabLabelsUI();
   else if (process.argv.includes('--diff-stream')) await streamingDiffUI();
   else if (process.argv.includes('--multi-session')) await multiSessionUI();
   else if (process.argv.includes('--active-sessions')) await activeSessionsUI();
@@ -4820,6 +4895,7 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--offline-session') &&
     !process.argv.includes('--tab-labels') &&
     !process.argv.includes('--diff-stream') &&
     !process.argv.includes('--multi-session') &&

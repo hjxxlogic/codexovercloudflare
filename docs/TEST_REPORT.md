@@ -1,5 +1,9 @@
 # 测试说明
 
+## 2026-11-12 0.6.19 发布前端到端选择器修正
+
+首次 [CI 43193231174](https://github.com/hjxxlogic/codexovercloudflare/actions/runs/43193231174) 五项平台 / 内存检查成功，综合回归在缓存会话重载检查失败。复现发现按会话标题全页查找按钮会命中新加入的“关闭标签”按钮，误关会话；`tests/e2e.ts` 将两处重载后的选择限定在当前面板的会话列表。新增 `tests/ui-stability.ts --offline-session`，纳入默认 UI 套件：先确认完成消息落入 IndexedDB，再分别在线 / 阻断通道重载，选择缓存会话，验证消息、输入区及单标签保留。该修正只涉及测试，不改变生产行为。
+
 ## 2026-11-12 0.6.19 CW 交付分配回收恢复
 
 `tests/web-delivery.test.ts` 36 项通过，新增覆盖已完成通道分配丢失后的原 stream 重新申请、保留最近结果、忽略旧 exchange 的 reset、未发送 / 待确认命令和不连续结果禁止自动换分配、落盘失败回滚以及 HTTP 恢复错误。`native-retention` 新增 SQLite 压力下保护近期活动且尚未关闭的交付分配、60 秒闲置后仍可回收；`native-core` 验证关闭通道元数据仍可及时回收，两项均通过。原生构建、网页构建、TypeScript、改动文件 ESLint / Prettier 通过。首次沙箱原生回归因 socket 权限失败，已在沙箱外重跑，完整 CTest 16/16 通过。
