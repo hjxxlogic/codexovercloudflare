@@ -1,5 +1,7 @@
 # 发布操作
 
+最近发布证据：[0.6.19（2026-11-12）](RELEASE_0.6.19_2026-11-12.md)。
+
 ## 制品与来源
 
 正式制品由 `.github/workflows/checks.yml` 构建。推送干净源码后，等待准确提交的完整 Actions 成功，逐项检查 regression、sanitizers、Ubuntu 20.04、Debian 12、musl 和 Windows x64。本地构建用于开发，不能替代已验证发行制品。
