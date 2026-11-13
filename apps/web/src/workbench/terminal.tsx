@@ -106,10 +106,10 @@ export default function InteractiveTerminal({
       terminal.current.options.theme =
         theme === 'dark'
           ? {
-              background: '#191717',
-              foreground: '#efefef',
-              cursor: '#efefef',
-              selectionBackground: '#453d3d',
+              background: '#212121',
+              foreground: '#ececec',
+              cursor: '#ececec',
+              selectionBackground: '#424242',
             }
           : {
               background: '#ffffff',

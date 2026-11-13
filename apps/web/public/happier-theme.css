@@ -1,4 +1,5 @@
-/* Happier surface/text palette adapted under MIT; see happier-LICENSE.txt. */
+/* Light palette adapted from Happier under MIT; see happier-LICENSE.txt.
+ * Dark surfaces use the neutral gray Codex palette. */
 :root {
   color-scheme: light;
   --bg: #fff;
@@ -24,16 +25,16 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #191717;
-  --surface: #221c1c;
-  --surface-raised: #292121;
-  --hover: #342c2c;
-  --text: #efefef;
-  --muted: #b2aaa6;
-  --border: #453d3d;
-  --accent: #aec4ff;
-  --link: #aec4ff;
-  --focus: #aec4ff;
+  --bg: #212121;
+  --surface: #181818;
+  --surface-raised: #2f2f2f;
+  --hover: #373737;
+  --text: #ececec;
+  --muted: #b4b4b4;
+  --border: #424242;
+  --accent: #a6c7ff;
+  --link: #a6c7ff;
+  --focus: #a6c7ff;
   --warning: #e7cf97;
   --warning-bg: #342d20;
   --danger: #f1b4bc;
@@ -45,16 +46,16 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #191717;
-    --surface: #221c1c;
-    --surface-raised: #292121;
-    --hover: #342c2c;
-    --text: #efefef;
-    --muted: #b2aaa6;
-    --border: #453d3d;
-    --accent: #aec4ff;
-    --link: #aec4ff;
-    --focus: #aec4ff;
+    --bg: #212121;
+    --surface: #181818;
+    --surface-raised: #2f2f2f;
+    --hover: #373737;
+    --text: #ececec;
+    --muted: #b4b4b4;
+    --border: #424242;
+    --accent: #a6c7ff;
+    --link: #a6c7ff;
+    --focus: #a6c7ff;
     --warning: #e7cf97;
     --warning-bg: #342d20;
     --danger: #f1b4bc;
