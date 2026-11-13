@@ -8,7 +8,7 @@
 
 `npm run test:tools:web` 使用实际 `ConversationView`、隔离 Vite 入口、确定性分页与 Chromium，验证文件 diff／MCP／命令未读完即显示正文，收起分组后暂停、展开后续读，MCP 与推理通知更新，revision 从起点替换且保留文件展开状态，完成后不轮询，以及 390px 无页面横向溢出、键盘 Enter、深浅色截图和不自动请求外部媒体。入口已加入 CI regression；截图位于忽略目录 `.local/tool-presentation/`，可用 `COC_ARTIFACT_DIR` 覆盖。
 
-完整 Vitest 41 个文件 / 485 项、TypeScript、ESLint / Prettier、网页构建、工具专项浏览器及完整 `npm run test:ui` 通过。后者保留原有流式差异、实时工具 revision、会话分屏、缓存额度、导航、审批等集成回归。本次不调用模型；未验证真实手机／Safari，未执行线上发布。
+完整 Vitest 41 个文件 / 485 项、TypeScript、ESLint / Prettier、网页构建、工具专项浏览器及完整 `npm run test:ui` 通过。后者保留原有流式差异、实时工具 revision、会话分屏、缓存额度、导航、审批等集成回归。本次不调用模型；未验证真实手机／Safari。随后按用户明确要求跳过 Actions，以网页专用模式发布主站并完成在线资源逐字节、健康接口及 Worker 保全核验；来源与限制见 [发布记录](CW_TOOL_STREAMING_DEPLOYMENT_20261113.md)。
 
 ## 2026-11-12 Relay 异步错误边界与失败连接清理（0.6.20）
 
