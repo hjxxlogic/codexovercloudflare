@@ -520,6 +520,75 @@ pre {
   max-height: 360px;
   overflow-y: auto;
 }
+.file-changes {
+  margin: 6px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.file-change + .file-change {
+  border-top: 1px solid var(--border);
+}
+.file-change > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  list-style: none;
+}
+.file-change > summary::-webkit-details-marker {
+  display: none;
+}
+.cw-workbench .conversation .file-change:first-child > summary {
+  padding-right: 52px;
+}
+.file-change > summary::before {
+  content: '›';
+  flex-shrink: 0;
+}
+.file-change[open] > summary::before {
+  transform: rotate(90deg);
+}
+.file-change-kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.file-change-kind-add,
+.file-change-added {
+  color: var(--success);
+}
+.file-change-kind-delete,
+.file-change-removed {
+  color: var(--danger);
+}
+.file-change-path {
+  min-width: 0;
+  flex: 1;
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+.file-change-stats {
+  flex-shrink: 0;
+  font:
+    12px ui-monospace,
+    monospace;
+  white-space: nowrap;
+}
+.tool-output .file-change pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow: auto;
+}
+.file-change p {
+  padding: 0 12px;
+  color: var(--muted);
+}
 .composer {
   position: relative;
   background: var(--surface);
@@ -1427,4 +1496,110 @@ progress {
   max-height: 5rem;
   overflow: auto;
   margin: 0.25rem 0;
+}
+
+.tool-body {
+  min-width: 0;
+  padding: 8px 0 12px;
+}
+.tool-fields {
+  margin: 6px 0;
+  min-width: 0;
+}
+.tool-fields > div {
+  display: grid;
+  grid-template-columns: minmax(80px, 120px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tool-fields > div:last-child {
+  border-bottom: 0;
+}
+.tool-fields dt,
+.tool-status,
+.tool-loading {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.tool-fields dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tool-output .tool-fields pre {
+  padding: 0;
+  margin: 0;
+}
+.tool-fields .tool-fields > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 4px 0;
+}
+.tool-command > pre:first-child {
+  border-left: 2px solid var(--border);
+  margin: 4px 12px 12px;
+  padding: 6px 12px;
+  color: var(--text);
+}
+.tool-plan {
+  margin: 8px 0;
+  padding: 0 12px 0 32px;
+}
+.tool-plan li {
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+.tool-plan .tool-status {
+  margin-right: 10px;
+}
+.tool-plan [data-status='completed'] {
+  color: var(--success);
+}
+.tool-plan [data-status='inProgress'] {
+  font-weight: 600;
+}
+.tool-agent-states section,
+.tool-search-result {
+  margin: 8px 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.tool-agent-states strong {
+  font:
+    12px ui-monospace,
+    monospace;
+  margin-right: 12px;
+}
+.tool-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+.tool-loading {
+  margin: 8px 12px;
+}
+@media (max-width: 520px) {
+  .tool-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+.tool-result {
+  padding: 6px 12px;
+}
+.tool-result > strong {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin-bottom: 6px;
+}
+.tool-output .tool-result pre {
+  padding: 0;
+  margin: 0;
 }

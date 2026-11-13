@@ -52,7 +52,9 @@ CW 通过独立历史通道接收事件，IndexedDB 保存页面、草稿和原�
 
 ## 工作台与 Terminal
 
-`streaming-diff.ts` 从历史的完整或部分序列化事件中提取顶层 `diff` / `data.diff` 字符串，支持跨分块 JSON 转义及 Unicode，保留原始缓存文本和 SQLite 字符偏移，不改变历史协议。`EventView` 在差异与外层工具分组均展开时按 revision / offset 自动续读，折叠后暂停；新 revision 首块前保留上次内容，首块起替换，禁止跨 revision 追加。普通工具仍采用原有按需读取。
+`tool-model.ts` 统一工具标签、状态、历史包装识别及复制正文；`tool-presentation.tsx` 按命令、文件、MCP／动态工具、搜索、代理和其他活动分型渲染。`streaming-json.ts` 只解码已到达的 JSON 前缀，未完成的 key／转义／Unicode 代理对等待后续分块；限制嵌套深度并使用无原型对象，不执行输入。前端保留未知工具；`events.ts` 合并内联 MCP 进度、计划、推理增量，引用正文与独立输出段保持隔离。原始缓存和内容偏移保持原值，不修改协议、RPC allowlist 或审批。外部媒体不会自动请求。
+
+`streaming-diff.ts` 从历史的完整或部分序列化事件中提取顶层 `diff` / `data.diff` 字符串，支持跨分块 JSON 转义及 Unicode，保留原始缓存文本和 SQLite 字符偏移，不改变历史协议。`EventView` 在差异与外层工具分组均展开时按 revision / offset 自动续读，折叠后暂停；新 revision 首块前保留上次内容，首块起替换，禁止跨 revision 追加。所有非聊天工具详情采用同样的展开后续读、折叠暂停与 revision 替换规则。
 
 `session-tab-labels.ts` 根据所有已打开标签计算显示名：标题以小写判重，冲突时增加项目工作目录，同目录冲突再增加项目名。工作目录保留文件系统大小写；目录和项目来自各标签的已认证项目目录，元数据更新或关闭标签时重新计算。显示标签、悬停提示、读屏和关闭按钮采用相同的区分信息。
 

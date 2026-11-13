@@ -123,6 +123,8 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 活动会话专项：`npm run build:web && npx tsx tests/ui-stability.ts --active-sessions` 使用 100 条较新的历史记录及分页活动目录，验证欢迎页优先显示、直接进入对应主机 / 项目、左侧活动记录补齐、项目切换、状态颜色与手机布局；也纳入默认 `test:ui`。单元测试 `tests/web-active-sessions.test.ts` 覆盖全部活动状态分页、游标异常、历史游标保留及迟到状态 / 删除屏障合并；`tests/session-history.test.tsx` 覆盖排序与文字状态。
 
+工具展示专项：`npm run test:tools:web` 用隔离 Vite 入口和 Chromium 验证文件 diff、MCP、命令分页未完成时的前缀显示、分组收起暂停／展开续读、MCP 与推理通知、revision 替换、读取完成停止请求、移动布局及键盘展开，不调用模型或读取真实凭据。单元测试 `web-tool-presentation.test.tsx` 验证 JSON 每个前缀、转义、安全回退、各类型展示、生命周期状态和事件合并；CI regression 包含该浏览器入口。
+
 ### 统一导航专项验证
 
 `npm run build:web && npm run test:ui:navigation` 使用本地模拟接收端检查新版左栏、设置、工作面板、文件预览和管理界面，无原生 Agent 或模型调用。`npm run test:markdown` 检查富文本。r2 上线可运行 `node node_modules/tsx/dist/cli.mjs scripts/verify-web-navigation.ts --access-config <0600 文件> --owner-secret-file <0600 文件> --host <现有隔离测试主机> --output .local/<目录>`；仅检查 Web，不创建会话或启动 Terminal，临时网页授权在结束时撤销。不要将它解释为完整发布门禁通过。

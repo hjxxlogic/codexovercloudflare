@@ -1,5 +1,15 @@
 # 测试说明
 
+## 2026-11-13 CW 工具格式化与流式详情
+
+检查本机 Codex `0.167.2` 生成的 app-server schema 后，补齐命令、文件、MCP／动态工具、网页搜索、子代理、图片、计划、推理、函数输出、等待、审查、上下文压缩和 Hook 活动；未知工具按字段回退，不再被内联类型过滤隐藏。此检查不启动模型，也不修改 Agent 协议或审批。
+
+`tests/web-file-changes.test.tsx` 与 `tests/web-tool-presentation.test.tsx` 覆盖原生 item／params／完整事件包装、每个 JSON 前缀、残缺转义与 Unicode、嵌套上限及无原型对象、路径和 diff HTML 转义、统一 diff 计数、原始 JSON 命令输出、各工具渲染、未知工具、失败／拒绝／中断状态、当前正文复制、MCP／计划／推理增量合并，以及计划和引用段边界。
+
+`npm run test:tools:web` 使用实际 `ConversationView`、隔离 Vite 入口、确定性分页与 Chromium，验证文件 diff／MCP／命令未读完即显示正文，收起分组后暂停、展开后续读，MCP 与推理通知更新，revision 从起点替换且保留文件展开状态，完成后不轮询，以及 390px 无页面横向溢出、键盘 Enter、深浅色截图和不自动请求外部媒体。入口已加入 CI regression；截图位于忽略目录 `.local/tool-presentation/`，可用 `COC_ARTIFACT_DIR` 覆盖。
+
+完整 Vitest 41 个文件 / 485 项、TypeScript、ESLint / Prettier、网页构建、工具专项浏览器及完整 `npm run test:ui` 通过。后者保留原有流式差异、实时工具 revision、会话分屏、缓存额度、导航、审批等集成回归。本次不调用模型；未验证真实手机／Safari，未执行线上发布。
+
 ## 2026-11-12 Relay 异步错误边界与失败连接清理（0.6.20）
 
 `relay-order.test.ts` 新增升级读 alarm、写 alarm 和发送 welcome 失败三种注入，分别覆盖 Agent、CLI 管理和客户端通道：返回结构化错误并退休已接受连接。另验证握手错误通知再次发送失败仍清理连接，其他连接及后续握手正常。四项在修复前失败、修复后通过。`device-auth.test.ts` 覆盖八类 Host / Registry 转发拒绝，保留背压状态码、转换未知错误，并确认错误响应及阶段日志不泄露原始异常文本。

@@ -15,6 +15,8 @@ import type { Event } from '../../../packages/protocol/src/index.ts';
 import { visibleEvents } from './events.ts';
 import { streamingDiffText } from './streaming-diff.ts';
 import { groupToolEvents } from './events.ts';
+import { Diff, ToolBody } from './tool-presentation.tsx';
+import { toolModel, toolStatus, toolLabel, toolCopy } from './tool-model.ts';
 
 export function CopyText({ text }: { text: string }) {
   useLanguage();
@@ -35,27 +37,7 @@ export function CopyText({ text }: { text: string }) {
     </>
   );
 }
-export function Diff({ text }: { text: string }) {
-  return (
-    <pre tabIndex={0}>
-      {text.split('\n').map((line, index) => (
-        <span
-          className={
-            line.startsWith('+')
-              ? 'diff-add'
-              : line.startsWith('-')
-                ? 'diff-remove'
-                : undefined
-          }
-          key={index}
-        >
-          {line}
-          {'\n'}
-        </span>
-      ))}
-    </pre>
-  );
-}
+export { Diff, FileChanges } from './tool-presentation.tsx';
 export type ContentChunk = {
   text: string;
   nextOffset: number;
@@ -97,7 +79,7 @@ const EventView = memo(
       }
       if (chat || event.contentSeq === undefined || reading) return;
       const offset = chunk
-        ? diff && chunk.more
+        ? !chat && chunk.more
           ? chunk.nextOffset
           : undefined
         : 0;
@@ -130,11 +112,27 @@ const EventView = memo(
         ? undefined
         : event.contentSeq === undefined
           ? eventText(event)
-          : (chunk || (diff ? cached : undefined))?.text;
+          : (chunk || (!chat ? cached : undefined))?.text;
     const content = useMemo(
       () => (diff ? streamingDiffText(rawContent || '') : rawContent),
       [diff, rawContent],
     );
+    const model = useMemo(
+      () => toolModel(event, rawContent),
+      [event, rawContent],
+    );
+    const item =
+      event.type === 'turn/plan/updated'
+        ? { ...model.data, ...model.payload, type: 'planUpdate' }
+        : model.item;
+    const loading =
+      !chat &&
+      event.contentSeq !== undefined &&
+      (!chunk || chunk.more || !!reading);
+    const copyContent = item ? toolCopy(item) : content || '';
+    const title = model.item
+      ? eventTitle({ ...event, data: { ...model.data, item: model.item } })
+      : eventTitle(event);
     const pendingCopy = useRef<
       | {
           revision: number;
@@ -218,17 +216,40 @@ const EventView = memo(
           </div>
         ) : (
           <>
-            <Copy value={content || ''} floating />
-            {diff ? (
+            <Copy value={copyContent} floating />
+            {item ? (
+              <div className="tool-body">
+                <ToolBody item={item} />
+              </div>
+            ) : diff || event.type === 'item/fileChange/outputDelta' ? (
               <Diff text={content || ''} />
             ) : (
               <pre tabIndex={0}>
                 <FileText text={content || ''} />
               </pre>
             )}
+            {item &&
+              event.contentSeq !== undefined &&
+              chunk &&
+              !chunk.more &&
+              !model.structured &&
+              item.type !== 'commandExecution' &&
+              content && (
+                <details className="tool-original">
+                  <summary>{t('原始记录')}</summary>
+                  <pre tabIndex={0}>
+                    <FileText text={content} />
+                  </pre>
+                </details>
+              )}
+            {loading && (
+              <p className="tool-loading" role="status">
+                {t('正在读取…')}
+              </p>
+            )}
           </>
         )}
-        {event.contentSeq !== undefined && (
+        {event.contentSeq !== undefined && (!item || !chunk || chunk.more) && (
           <>
             <button
               onClick={() =>
@@ -269,7 +290,7 @@ const EventView = memo(
               : undefined
           }
         />
-        <strong className="message-role">{eventTitle(event)}</strong>
+        <strong className="message-role">{title}</strong>
         {body}
       </article>
     ) : (
@@ -277,15 +298,18 @@ const EventView = memo(
         tabIndex={0}
         className="tool-output"
         aria-busy={
-          diff && expanded && event.contentSeq !== undefined
+          !chat && expanded && event.contentSeq !== undefined
             ? !chunk || chunk.more || !!reading
             : undefined
         }
         data-event-seq={event.seq}
         key={event.seq}
-        onToggle={(event) => setExpanded(event.currentTarget.open)}
+        onToggle={(event) => {
+          if (event.target === event.currentTarget)
+            setExpanded(event.currentTarget.open);
+        }}
       >
-        <summary title={eventTitle(event)}>{eventTitle(event)}</summary>
+        <summary title={title}>{title}</summary>
         {expanded ? body : null}
       </details>
     );
@@ -349,7 +373,10 @@ function ToolGroupView({
     <details
       className="tool-group"
       data-event-seq={events[0].seq}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => {
+        if (event.target === event.currentTarget)
+          setOpen(event.currentTarget.open);
+      }}
     >
       <summary>
         {t('工具调用 ·')} {events.length} {t('项')}
@@ -360,33 +387,14 @@ function ToolGroupView({
   );
 }
 function toolFailed(e: Event) {
-  const d = e.data as { item?: { exitCode?: number; status?: string } };
-  return (
-    (d.item?.exitCode != null && d.item.exitCode !== 0) ||
-    d.item?.status === 'failed'
-  );
+  const item = (e.data as { item?: Record<string, unknown> }).item;
+  return !!item && toolStatus(item) === t('失败');
 }
 export function eventTitle(e: Event) {
-  const data = e.data as {
-    item?: {
-      command?: string;
-      type?: string;
-      status?: string;
-      exitCode?: number;
-      changes?: unknown[];
-    };
-  };
+  const data = e.data as { item?: Record<string, unknown> };
   if (data.item) {
     const item = data.item;
-    const label =
-      item.command ||
-      (item.type === 'fileChange'
-        ? t(
-            '修改文件{0}',
-            item.changes ? t(' · {0} 项', item.changes.length) : '',
-          )
-        : t('工具调用'));
-    return `${label} · ${item.exitCode != null ? t('退出码 {0}', item.exitCode) : e.type === 'item/completed' ? t('已完成') : t('进行中')}`;
+    return `${toolLabel(item)} · ${toolStatus(item, e.type === 'item/completed')}${item.exitCode != null ? ` · ${t('退出码 {0}', item.exitCode)}` : ''}`;
   }
   return (
     (
@@ -401,6 +409,10 @@ export function eventTitle(e: Event) {
         'item/completed': t('工具结果'),
         'item/commandExecution/outputDelta': t('命令输出'),
         'item/fileChange/outputDelta': t('文件变更'),
+        'item/mcpToolCall/progress': t('工具进度'),
+        'item/plan/delta': t('执行计划'),
+        'item/reasoning/summaryTextDelta': t('思考摘要'),
+        'item/reasoning/textDelta': t('思考过程'),
         queueAccepted: t('已加入原客户端队列 · 等待执行'),
         warning: t('提示'),
         error: t('错误'),

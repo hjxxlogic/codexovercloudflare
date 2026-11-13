@@ -52,6 +52,10 @@ export function visibleEvents(events: Event[]) {
     'turn/plan/updated',
     'item/commandExecution/outputDelta',
     'item/fileChange/outputDelta',
+    'item/mcpToolCall/progress',
+    'item/plan/delta',
+    'item/reasoning/summaryTextDelta',
+    'item/reasoning/textDelta',
     'item/started',
     'item/completed',
     'queueAccepted',
@@ -65,6 +69,7 @@ export function visibleEvents(events: Event[]) {
   const seen = new Set<number>();
   const fragments = new Map<string, number>();
   const tools = new Map<string, number>();
+  let planIndex: number | undefined;
   for (const event of mergeEvents(events)) {
     if (seen.has(event.seq)) continue;
     seen.add(event.seq);
@@ -73,13 +78,19 @@ export function visibleEvents(events: Event[]) {
     if (['user', 'turn/started', 'turn/completed'].includes(event.type)) {
       fragments.clear();
       tools.clear();
+      planIndex = undefined;
+    }
+    if (event.type === 'turn/plan/updated') {
+      if (planIndex !== undefined) {
+        result[planIndex] = { ...event, seq: result[planIndex].seq };
+        continue;
+      }
+      planIndex = result.length;
     }
     if (['item/started', 'item/completed'].includes(event.type)) {
       if (
         event.contentSeq === undefined &&
-        !['commandExecution', 'fileChange', 'mcpToolCall'].includes(
-          data.item?.type,
-        )
+        (!data.item || ['userMessage', 'agentMessage'].includes(data.item.type))
       )
         continue;
       const previous = data.item?.id ? tools.get(data.item.id) : undefined;
@@ -97,11 +108,54 @@ export function visibleEvents(events: Event[]) {
       }
       if (data.item?.id) tools.set(data.item.id, result.length);
     }
+    if (
+      event.contentSeq === undefined &&
+      [
+        'item/mcpToolCall/progress',
+        'item/plan/delta',
+        'item/reasoning/summaryTextDelta',
+        'item/reasoning/textDelta',
+      ].includes(event.type)
+    ) {
+      const index = data.itemId ? tools.get(data.itemId) : undefined;
+      if (
+        index !== undefined &&
+        (event.type === 'item/mcpToolCall/progress' ||
+          result[index].contentSeq === undefined)
+      ) {
+        const previous = result[index];
+        const item = { ...(previous.data as any).item };
+        if (event.type === 'item/mcpToolCall/progress')
+          item.progress = [item.progress, data.message]
+            .filter(Boolean)
+            .join('\n');
+        else if (event.type === 'item/plan/delta')
+          item.text = (item.text || '') + (data.delta || '');
+        else {
+          const field = event.type.includes('summary') ? 'summary' : 'content';
+          const position = data.summaryIndex ?? data.contentIndex ?? 0;
+          if (
+            !Number.isSafeInteger(position) ||
+            position < 0 ||
+            position > 10000
+          )
+            continue;
+          const parts = [...(Array.isArray(item[field]) ? item[field] : [])];
+          parts[position] = (parts[position] || '') + (data.delta || '');
+          item[field] = parts;
+        }
+        result[index] = {
+          ...previous,
+          data: { ...(previous.data as any), item },
+        };
+        continue;
+      }
+    }
     if (event.contentSeq !== undefined) {
       // A reference is an immutable segment, not an inline prefix. Later
       // fragments must not merge across it or disappear behind its body.
       fragments.delete(
-        `${event.type}:${data.turnId || ''}:${data.itemId || ''}`,
+        `${event.type}:${data.turnId || ''}:${data.itemId || ''}:${data.summaryIndex ?? data.contentIndex ?? ''}`,
       );
       if (event.type.endsWith('/outputDelta') && data.itemId)
         tools.delete(data.itemId);
@@ -116,6 +170,7 @@ export function visibleEvents(events: Event[]) {
         result[index] = {
           ...previous,
           data: {
+            ...(previous.data as any),
             item: {
               ...item,
               aggregatedOutput:
@@ -126,8 +181,14 @@ export function visibleEvents(events: Event[]) {
         continue;
       }
     }
-    if (event.type.endsWith('/delta') || event.type.endsWith('/outputDelta')) {
-      const key = `${event.type}:${data.turnId || ''}:${data.itemId || ''}`;
+    if (
+      event.type.endsWith('/delta') ||
+      event.type.endsWith('/outputDelta') ||
+      ['item/reasoning/summaryTextDelta', 'item/reasoning/textDelta'].includes(
+        event.type,
+      )
+    ) {
+      const key = `${event.type}:${data.turnId || ''}:${data.itemId || ''}:${data.summaryIndex ?? data.contentIndex ?? ''}`;
       const index = data.itemId
         ? fragments.get(key)
         : result.at(-1)?.type === event.type &&
