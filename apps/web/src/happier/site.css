@@ -329,17 +329,17 @@ button.primary:hover:enabled,
   color: #b83a36;
 }
 [data-theme='dark'] .session-status-running {
-  color: #73d69b;
+  color: var(--success);
 }
 [data-theme='dark'] .session-status-open {
-  color: #8db8ff;
+  color: var(--link);
 }
 [data-theme='dark'] .session-status-starting,
 [data-theme='dark'] .session-status-closing {
-  color: #ebc465;
+  color: var(--warning);
 }
 [data-theme='dark'] .session-status-failed {
-  color: #ff9b95;
+  color: var(--danger);
 }
 .unified-session-list .session-compact > .session-status {
   flex: 0 0 auto;

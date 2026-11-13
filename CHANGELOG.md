@@ -1,6 +1,6 @@
 # 当前版本与能力
 
-- CW DARK 主题统一为 Codex 风格的中性深灰配色，同步独立预览和 Terminal，跟随系统进入深色时使用相同配色。
+- 修正 CW DARK 的主题来源，按 Codex CLI 默认 Catppuccin Mocha 对齐文字、Markdown、代码高亮、工具标题、状态、差异、选区和 Terminal ANSI 16 色；输入区及用户消息使用加亮表面。
 
 - 对话中的 MP3 等音频文件直接显示小型播放／暂停按钮，点击即可试听，无需先展开文件链接。
 

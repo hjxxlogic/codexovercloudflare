@@ -52,7 +52,7 @@
   line-height: 1.75;
 }
 .cw-workbench .user-message {
-  background: var(--cw-hover);
+  background: var(--prompt-bg);
   border-radius: 12px;
 }
 .cw-workbench :is(.composer, .approval-queue, .tool-output, .tool-group) {
@@ -360,18 +360,18 @@
 }
 .hljs-keyword,
 .hljs-selector-tag {
-  color: #bd93f9;
+  color: var(--syntax-keyword);
 }
-.hljs-string,
-.hljs-attr {
-  color: #5eab8e;
+.hljs-string {
+  color: var(--syntax-string);
 }
 .hljs-number,
 .hljs-literal {
-  color: #d59b48;
+  color: var(--syntax-number);
 }
-.hljs-comment {
-  color: var(--border);
+.hljs-comment,
+.hljs-quote {
+  color: var(--syntax-comment);
 }
 .density-compact .message {
   margin-bottom: 16px;
@@ -787,4 +787,69 @@
   white-space: normal;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+/* Shared semantic colors also apply in file previews outside the chat panel. */
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--syntax-function);
+}
+.hljs-title.class_,
+.hljs-type {
+  color: var(--syntax-type);
+}
+.hljs-attr,
+.hljs-attribute {
+  color: var(--syntax-property);
+}
+.hljs-built_in {
+  color: var(--syntax-builtin);
+}
+.hljs-operator,
+.hljs-punctuation {
+  color: var(--syntax-operator);
+}
+.hljs-meta,
+.hljs-symbol,
+.hljs-regexp {
+  color: var(--syntax-meta);
+}
+.hljs-variable,
+.hljs-params {
+  color: var(--syntax-variable);
+}
+.hljs-addition {
+  color: var(--success);
+  background: var(--success-bg);
+}
+.hljs-deletion {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.cw-workbench .composer,
+.cw-workbench .composer textarea {
+  background: var(--composer-bg);
+}
+[data-theme='dark'] .cw-workbench .assistant-message > .message-role {
+  color: var(--syntax-keyword);
+}
+[data-theme='dark'] .cw-workbench .user-message > .message-role {
+  color: var(--syntax-function);
+}
+[data-theme='dark']
+  .cw-workbench
+  :is(.tool-output > summary, .tool-group > summary, .file-change-path) {
+  color: var(--syntax-function);
+}
+[data-theme='dark'] .markdown :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--syntax-function);
+}
+[data-theme='dark'] .markdown strong {
+  color: var(--syntax-number);
+}
+[data-theme='dark'] .markdown em {
+  color: var(--syntax-keyword);
+}
+[data-theme='dark'] .markdown :not(pre) > code {
+  color: var(--syntax-string);
 }
