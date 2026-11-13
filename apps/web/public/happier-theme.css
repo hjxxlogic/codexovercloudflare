@@ -1,5 +1,6 @@
 /* Light palette adapted from Happier under MIT; see happier-LICENSE.txt.
- * Dark colors follow Codex CLI’s default Catppuccin Mocha syntax palette.
+ * Dark text colors follow Codex CLI’s Catppuccin Mocha syntax palette.
+ * Background surfaces use black and neutral gray.
  * CLI default foreground/background still belong to its terminal. */
 :root {
   color-scheme: light;
@@ -40,13 +41,13 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #1e1e2e;
-  --surface: #181825;
-  --surface-raised: #313244;
-  --hover: #45475a;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-raised: #181818;
+  --hover: #333333;
   --text: #cdd6f4;
   --muted: #a6adc8;
-  --border: #45475a;
+  --border: #333333;
   --accent: #89b4fa;
   --link: #89b4fa;
   --focus: #89b4fa;
@@ -68,20 +69,20 @@
   --syntax-operator: #89dceb;
   --syntax-meta: #f5c2e7;
   --syntax-variable: #cdd6f4;
-  --prompt-bg: #42424f;
-  --composer-bg: #393947;
-  --selection-bg: #585b70;
+  --prompt-bg: #282828;
+  --composer-bg: #1e1e1e;
+  --selection-bg: #444444;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #1e1e2e;
-    --surface: #181825;
-    --surface-raised: #313244;
-    --hover: #45475a;
+    --bg: #000000;
+    --surface: #0a0a0a;
+    --surface-raised: #181818;
+    --hover: #333333;
     --text: #cdd6f4;
     --muted: #a6adc8;
-    --border: #45475a;
+    --border: #333333;
     --accent: #89b4fa;
     --link: #89b4fa;
     --focus: #89b4fa;
@@ -103,9 +104,9 @@
     --syntax-operator: #89dceb;
     --syntax-meta: #f5c2e7;
     --syntax-variable: #cdd6f4;
-    --prompt-bg: #42424f;
-    --composer-bg: #393947;
-    --selection-bg: #585b70;
+    --prompt-bg: #282828;
+    --composer-bg: #1e1e1e;
+    --selection-bg: #444444;
   }
 }
 
