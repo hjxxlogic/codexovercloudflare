@@ -170,6 +170,101 @@ export function FileLink({
   );
 }
 
+function AudioResource({
+  host,
+  project,
+  path,
+  children,
+  disabled,
+}: {
+  host: string;
+  project: string;
+  path: string;
+  children: ReactNode;
+  disabled: boolean;
+}) {
+  const player = useRef<HTMLAudioElement>(null);
+  const transfer = useRef<AbortController | null>(null);
+  const url = useRef<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [status, setStatus] = useState('');
+  useEffect(
+    () => () => {
+      transfer.current?.abort();
+      if (url.current) URL.revokeObjectURL(url.current);
+    },
+    [],
+  );
+  return (
+    <span className="file-audio">
+      <button
+        type="button"
+        disabled={disabled || busy}
+        aria-label={t(playing ? '暂停 {0}' : '播放 {0}', path)}
+        title={t(playing ? '暂停 {0}' : '播放 {0}', path)}
+        onClick={() => {
+          const audio = player.current;
+          if (!audio || transfer.current) return;
+          if (!audio.paused) {
+            audio.pause();
+            return;
+          }
+          const controller = new AbortController();
+          transfer.current = controller;
+          setBusy(true);
+          setStatus('');
+          void (async () => {
+            if (!url.current) {
+              const blob = await readFile(
+                host,
+                project,
+                path,
+                controller.signal,
+              );
+              controller.signal.throwIfAborted();
+              url.current = URL.createObjectURL(
+                blob.slice(0, blob.size, fileType(path).mime),
+              );
+              audio.src = url.current;
+            }
+            await audio.play();
+          })()
+            .catch((error: unknown) => {
+              if (!controller.signal.aborted)
+                setStatus(
+                  `播放失败：${error instanceof Error ? error.message : String(error)}`,
+                );
+            })
+            .finally(() => {
+              if (!controller.signal.aborted) {
+                transfer.current = null;
+                setBusy(false);
+              }
+            });
+        }}
+      >
+        <span aria-hidden="true">{busy ? '…' : playing ? 'Ⅱ' : '▶'}</span>
+      </button>
+      <span>{children}</span>
+      <audio
+        ref={player}
+        preload="none"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onError={() => {
+          if (url.current) URL.revokeObjectURL(url.current);
+          url.current = null;
+          setPlaying(false);
+          setStatus('播放失败，请重试。');
+        }}
+      />
+      {status && <small role="status">{t(status)}</small>}
+    </span>
+  );
+}
+
 export function FileResource({
   host,
   project,
@@ -206,6 +301,18 @@ export function FileResource({
     },
     [media],
   );
+  if (type.kind === 'audio')
+    return (
+      <AudioResource
+        key={JSON.stringify([host, project, path])}
+        host={host}
+        project={project}
+        path={path}
+        disabled={disabled}
+      >
+        {children}
+      </AudioResource>
+    );
   const text = type.kind === 'text' || type.kind === 'markdown';
   const downloadable = type.kind === 'download';
   const action = text
@@ -293,13 +400,6 @@ export function FileResource({
               src={media.url}
               alt={path}
               onError={() => setStatus('浏览器无法显示此文件，请下载查看。')}
-            />
-          ) : type.kind === 'audio' ? (
-            <audio
-              src={media.url}
-              controls
-              preload="metadata"
-              onError={() => setStatus('浏览器不支持此媒体格式，请下载查看。')}
             />
           ) : (
             <video

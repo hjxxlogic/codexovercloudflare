@@ -1603,3 +1603,24 @@ progress {
   padding: 0;
   margin: 0;
 }
+
+.file-audio {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.file-audio > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+}
+.file-audio > audio {
+  display: none;
+}

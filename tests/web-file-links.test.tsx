@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   FileContext,
+  FileResource,
   fileReferences,
   projectFilePath,
 } from '../apps/web/src/file-links.tsx';
@@ -28,6 +29,18 @@ function demandResponse(body: string) {
   });
 }
 describe('chat file paths', () => {
+  it('renders audio as an immediate compact play button without an expand link', () => {
+    const html = renderToStaticMarkup(
+      <FileResource host="host" project="project" path="test.mp3">
+        test.mp3
+      </FileResource>,
+    );
+    expect(html).toContain('aria-label="播放 test.mp3"');
+    expect(html).toContain('<audio');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('autoplay');
+    expect(html).not.toContain('src=');
+  });
   it('resolves absolute, relative, encoded and editor paths within the project', () => {
     for (const path of [
       'docs/report.txt',
