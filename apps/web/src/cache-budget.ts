@@ -242,7 +242,27 @@ export class CacheBudget {
               else delete ledger.scopes[scopeKey];
               this.write(data, key, value);
             };
-            if (!fits()) this.reclaim(scope, key, fits, persist);
+            if (!fits())
+              this.reclaim(
+                store,
+                scope,
+                key,
+                value,
+                fits,
+                () =>
+                  own.bytes + delta >
+                    cacheLimits.scopeBytes +
+                      (recovery ? cacheLimits.scopeRecoveryBytes : 0) ||
+                  own.records + records >
+                    cacheLimits.scopeRecords +
+                      (recovery ? cacheLimits.scopeRecoveryRecords : 0),
+                persist,
+                () => {
+                  this.tx.objectStore('pages').put(this.ledger!, ledgerKey);
+                  this.busy = false;
+                  this.next();
+                },
+              );
             else persist();
             return;
           }
@@ -278,10 +298,14 @@ export class CacheBudget {
     };
   }
   private reclaim(
+    store: string,
     scope: string,
     key: IDBValidKey,
+    value: unknown,
     fits: () => unknown,
+    ownFull: () => boolean,
     done: () => void,
+    skip: () => void,
   ) {
     const pages = this.tx.objectStore('pages');
     const scan = (local: boolean) => {
@@ -298,16 +322,17 @@ export class CacheBudget {
         }
         if (!row) {
           if (local) scan(false);
-          else done();
+          else reclaimEvents();
           return;
         }
         const candidate = row.key as IDBValidKey[];
-        // Only redundant page projections and on-demand bodies are disposable.
-        // Events, checkpoints, subscription proofs, drafts and originals survive.
+        // Drop redundant projections before evicting canonical history.
+        // Checkpoints, subscription proofs, drafts and originals survive.
         if (
           Array.isArray(candidate) &&
           (typeof candidate[1] === 'number' ||
-            String(candidate[1]).startsWith('content:')) &&
+            String(candidate[1]).startsWith('content:') ||
+            candidate[1] === 'history-archive') &&
           indexedDB.cmp(row.key, key) !== 0
         ) {
           const ledger = this.ledger!;
@@ -324,6 +349,95 @@ export class CacheBudget {
           }
         }
         row.continue();
+      };
+    };
+    const reclaimEvents = () => {
+      // Optional projections must never displace newer canonical history.
+      if (
+        store === 'pages' &&
+        Array.isArray(key) &&
+        (typeof key[1] === 'number' ||
+          String(key[1]).startsWith('content:') ||
+          key[1] === 'history-archive')
+      ) {
+        skip();
+        return;
+      }
+      if (!this.tx.objectStoreNames.contains('events')) {
+        done();
+        return;
+      }
+      const localPressure = ownFull();
+      // Reclaim a small batch so a full cache does not rescan every retained
+      // event for each arriving delta. Recovery state may consume this headroom.
+      const reclaimed = () => {
+        const ledger = this.ledger!;
+        const usage = localPressure
+          ? ledger.scopes[JSON.stringify(scope)]
+          : ledger;
+        return (
+          !usage ||
+          (usage.bytes <=
+            (localPressure ? cacheLimits.scopeBytes : cacheLimits.bytes) *
+              0.9 &&
+            usage.records <=
+              (localPressure ? cacheLimits.scopeRecords : cacheLimits.records) *
+                0.9)
+        );
+      };
+      const events = this.tx.objectStore('events');
+      const candidates: { key: IDBValidKey; value: any }[] = [];
+      const scan = events.openCursor();
+      scan.onsuccess = () => {
+        const row = scan.result;
+        if (row) {
+          if (!(store === 'events' && indexedDB.cmp(row.key, key) === 0))
+            candidates.push({ key: row.key, value: row.value });
+          row.continue();
+          return;
+        }
+        candidates.sort(
+          (a, b) =>
+            (a.value.event.time ?? 0) - (b.value.event.time ?? 0) ||
+            a.value.seq - b.value.seq,
+        );
+        let retainedNewer = false;
+        for (const candidate of candidates) {
+          if (fits() && reclaimed()) break;
+          const ledger = this.ledger!;
+          if (
+            (ownFull() || (localPressure && fits())) &&
+            candidate.value.scope !== scope
+          )
+            continue;
+          if (store === 'events' && value !== undefined) {
+            const incoming = value as any;
+            const newer =
+              candidate.value.scope === scope
+                ? (candidate.value.event.revision ?? candidate.value.seq) >=
+                  (incoming.event.revision ?? incoming.seq)
+                : (candidate.value.event.time ?? 0) >=
+                  (incoming.event.time ?? 0);
+            // Backfilling old pages must not push recent messages out of cache.
+            if (newer) {
+              retainedNewer = true;
+              continue;
+            }
+          }
+          const owner = JSON.stringify(candidate.value.scope);
+          const usage = ledger.scopes[owner];
+          if (!usage) continue;
+          const bytes = charge(candidate.key, candidate.value);
+          ledger.bytes -= bytes;
+          ledger.records--;
+          usage.bytes -= bytes;
+          usage.records--;
+          if (!usage.records) delete ledger.scopes[owner];
+          events.delete(candidate.key);
+        }
+        // An older backfill can be omitted while its online page remains visible.
+        if (!fits() && store === 'events' && retainedNewer) skip();
+        else done();
       };
     };
     scan(true);

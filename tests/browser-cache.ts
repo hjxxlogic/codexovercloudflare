@@ -172,6 +172,151 @@ try {
     for (const item of caches) item.close();
   });
   await fullPage.close();
+  const rollingPage = await context.newPage();
+  await rollingPage.route('https://rolling-cache.invalid/**', (route) =>
+    route.fulfill({ body: '<html></html>', contentType: 'text/html' }),
+  );
+  await rollingPage.goto('https://rolling-cache.invalid/');
+  await rollingPage.addScriptTag({
+    content: source + '\nglobalThis.__name = (value) => value;',
+  });
+  await rollingPage.evaluate(async () => {
+    const { HistoryCache: Cache, cacheLimits: limits } = globalThis as any;
+    limits.bytes = 24 * 1024;
+    limits.scopeBytes = 12 * 1024;
+    limits.records = 100;
+    limits.scopeRecords = 50;
+    const cache = new Cache('rolling');
+    await cache.record('draft', 'keep draft');
+    await cache.record('pending', { text: 'keep pending' });
+    await cache.record('delivery-outbox:test', { original: 'keep command' });
+    await cache.record('history-subscription:reader', {
+      acknowledgedRevision: 0,
+    });
+    const event = (seq: number) => ({
+      seq,
+      time: seq,
+      type: 'user',
+      data: { text: 'x'.repeat(1024) },
+    });
+    for (let seq = 1; seq <= 40; seq++)
+      await cache.writeSnapshot([event(seq)], seq);
+    const latest = await cache.latest();
+    if (
+      latest.checkpoint !== 40 ||
+      latest.events.at(-1)?.seq !== 40 ||
+      latest.events.some((e: any) => e.seq === 1)
+    )
+      throw new Error('Full history must retain newest events and checkpoint');
+    await cache.writeSnapshot(
+      [{ ...event(1), revision: 100, data: { text: 'revised'.repeat(200) } }],
+      100,
+    );
+    const updated = await cache.latest();
+    if (
+      updated.events.find((e: any) => e.seq === 1)?.revision !== 100 ||
+      updated.checkpoint !== 100
+    )
+      throw new Error(
+        'Newest revision of an old event was lost under pressure',
+      );
+    const retained = updated.events.map((e: any) => e.seq);
+    // Old pages may be read online but cannot displace newer cached events.
+    await cache.writeSnapshot([event(1), event(2)], undefined, 3, {
+      events: [event(1), event(2)],
+      cursor: 1,
+      more: false,
+      direction: 'before',
+      snapshotSeq: 40,
+    });
+    const afterBackfill = await cache.latest();
+    if (
+      retained.some(
+        (seq: number) => !afterBackfill.events.some((e: any) => e.seq === seq),
+      )
+    )
+      throw new Error('Backfill evicted newer history');
+    if (
+      (await cache.record('draft')) !== 'keep draft' ||
+      (await cache.record('pending')).text !== 'keep pending' ||
+      (await cache.record('delivery-outbox:test')).original !==
+        'keep command' ||
+      (await cache.record('history-subscription:reader'))
+        .acknowledgedRevision !== 0
+    )
+      throw new Error('Rolling retention removed recovery state');
+    // New scopes use the global oldest event, independent of lexical scope order.
+    const newest = new Cache('aaa-newest');
+    await newest.writeSnapshot([event(100)], 100);
+    const other = new Cache('zzz-other');
+    for (let seq = 50; seq <= 70; seq++)
+      await other.writeSnapshot([event(seq)], seq);
+    if ((await newest.latest()).events.at(-1)?.seq !== 100)
+      throw new Error(
+        'Global retention evicted a newer event from another scope',
+      );
+    cache.close();
+    const reopened = new Cache('rolling');
+    if ((await reopened.latest()).checkpoint !== 100)
+      throw new Error('Retention lost the durable checkpoint after reopen');
+    // Verify the persisted global ledger against the actual surviving rows.
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coc-history-v3', 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['events', 'pages']);
+      let bytes = 0,
+        records = 0;
+      let ledger: any;
+      for (const name of ['events', 'pages']) {
+        const scan = tx.objectStore(name).openCursor();
+        scan.onsuccess = () => {
+          const row = scan.result;
+          if (!row) return;
+          if (
+            JSON.stringify(row.key) ===
+            JSON.stringify(['$coc-transport2-budget', 'ledger'])
+          )
+            ledger = row.value;
+          else if (!(
+            name === 'pages' &&
+            String((row.key as any[])[1]).startsWith('delivery-outbox')
+          )) {
+            bytes +=
+              new TextEncoder().encode(JSON.stringify([row.key, row.value]))
+                .length + 512;
+            records++;
+          }
+          row.continue();
+        };
+      }
+      tx.oncomplete = () =>
+        bytes === ledger.bytes && records === ledger.records
+          ? resolve()
+          : reject(new Error('Eviction corrupted global storage accounting'));
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    limits.scopeRecords = 6;
+    const counted = new Cache('record-limit');
+    for (let seq = 200; seq <= 220; seq++)
+      await counted.writeSnapshot(
+        [{ ...event(seq), data: { text: 'small' } }],
+        seq,
+      );
+    const countedLatest = await counted.latest();
+    if (
+      countedLatest.events.length > 5 ||
+      countedLatest.events.at(-1)?.seq !== 220 ||
+      countedLatest.events.some((e: any) => e.seq === 200) ||
+      countedLatest.checkpoint !== 220
+    )
+      throw new Error('Record-count pressure must also rotate oldest history');
+    for (const item of [newest, other, reopened, counted]) item.close();
+  });
+  await rollingPage.close();
   const gapPage = await context.newPage();
   await gapPage.route('https://gap-cache.invalid/**', (route) =>
     route.fulfill({ body: '<html></html>', contentType: 'text/html' }),

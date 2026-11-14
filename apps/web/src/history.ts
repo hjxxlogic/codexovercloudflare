@@ -510,7 +510,7 @@ export class HistoryCache {
     if (value !== undefined && generation !== this.generation) return;
     const result = await new Promise((resolve, reject) => {
       const tx = db.transaction(
-        'pages',
+        ['events', 'pages'],
         value === undefined ? 'readonly' : 'readwrite',
       );
       const key = [this.scope, `content:${seq}:${revision}:${offset}`];
@@ -552,7 +552,7 @@ export class HistoryCache {
   ): Promise<T> {
     const db = await this.db;
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('pages', 'readwrite');
+      const tx = db.transaction(['events', 'pages'], 'readwrite');
       const budget = new CacheBudget(tx);
       const request = tx.objectStore('pages').get([this.scope, key]);
       let result: T;
@@ -592,7 +592,7 @@ export class HistoryCache {
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction(
-        'pages',
+        ['events', 'pages'],
         value === undefined ? 'readonly' : 'readwrite',
       );
       const budget = value === undefined ? undefined : new CacheBudget(tx);
