@@ -2476,6 +2476,21 @@ public:
     if (params.contains("threadId") && s.contains("threadId") &&
         params.at("threadId") != s.at("threadId"))
       return;
+    if (method == "thread/tokenUsage/updated" && params.contains("tokenUsage") &&
+        params.value("threadId", "") == s.value("threadId", "") &&
+        params.at("tokenUsage").is_object() &&
+        params.at("tokenUsage").value("last", Json()).is_object()) {
+      const auto &usage = params.at("tokenUsage");
+      const auto used = usage.value("last", Json::object()).value("totalTokens", Json());
+      const auto window = usage.value("modelContextWindow", Json());
+      const auto valid_count = [](const Json &v, int64_t minimum) {
+        return v.is_number_integer() && v >= minimum && v <= 9007199254740991LL;
+      };
+      if (valid_count(used, 0) && (window.is_null() || valid_count(window, 1))) {
+        s["contextUsage"] = {{"usedTokens", used}, {"contextWindow", window}};
+        store_.save(s);
+      }
+    }
     const bool completed_active_turn =
         method == "turn/completed" && s.contains("turnId") &&
         m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==

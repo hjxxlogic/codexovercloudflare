@@ -6,6 +6,7 @@ import {
   EmailSelfServiceSettings,
 } from './email-self-service.tsx';
 import { PromptQueue } from './prompt-queue.tsx';
+import { ContextUsage, contextUsageFromEvent } from './context-usage.tsx';
 import {
   SessionNavigation,
   SessionHeading,
@@ -56,7 +57,7 @@ import {
   setThemePreference,
   type ThemePreference,
 } from './theme.ts';
-import { eventWindow, mergeEvents } from './events.ts';
+import { eventWindow, mergeEvents, eventBelongsToThread } from './events.ts';
 import {
   api,
   ApiError,
@@ -1224,6 +1225,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
     const seen = new Map<number, number>();
     let stateSeq = 0;
     let queueSeq = 0;
+    let contextSeq = 0;
     const displayEvents = new Map<number, Event>();
     let displayTimer: ReturnType<typeof setTimeout> | undefined;
     const flushDisplay = () => {
@@ -1247,6 +1249,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
       });
     };
     const add = (e: Event, live = true) => {
+      if (!eventBelongsToThread(e, selected.threadId)) return;
       const revision = e.revision ?? e.seq;
       if ((seen.get(e.seq) ?? -1) >= revision) return;
       seen.set(e.seq, revision);
@@ -1269,6 +1272,17 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
             ? { ...current, promptQueue: d.queue }
             : current,
         );
+      }
+      if (e.type === 'thread/tokenUsage/updated' && e.seq > contextSeq) {
+        const usage = contextUsageFromEvent(d, selected.threadId);
+        if (usage) {
+          contextSeq = e.seq;
+          setSelected((current) =>
+            current?.id === selected.id
+              ? { ...current, contextUsage: usage }
+              : current,
+          );
+        }
       }
       if (!live) return;
       if (
@@ -1559,6 +1573,9 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
               setBusy(d.session.running);
               if (!d.session.running && !pendingCommand.current)
                 setPromptProgress(undefined);
+              if (d.session.contextUsage)
+                for (const e of d.events)
+                  contextSeq = Math.max(contextSeq, e.seq);
               for (const e of d.events) add(e);
               if (d.gap) setError('部分历史已清理，当前显示保留记录。');
               if (d.more)
@@ -1787,7 +1804,12 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
       applyHistoryGap(page);
       if (olderView.current) captureHistoryAnchor();
       setEvents((previous) => {
-        const merged = mergeEvents([...page.events, ...previous]);
+        const merged = mergeEvents([
+          ...page.events.filter((event) =>
+            eventBelongsToThread(event, selected.threadId),
+          ),
+          ...previous,
+        ]);
         return olderView.current ? merged : eventWindow(merged);
       });
       setOlderCursor(page.events[0]?.seq ?? 0);
@@ -2017,7 +2039,14 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
           if (disposed) return;
           if (stored) {
             historySync.restore(stored.checkpoint);
-            setEvents((v) => eventWindow([...stored.events, ...v]));
+            setEvents((v) =>
+              eventWindow([
+                ...stored.events.filter((event) =>
+                  eventBelongsToThread(event, selected.threadId),
+                ),
+                ...v,
+              ]),
+            );
             setOlderCursor(stored.events[0]?.seq ?? 0);
             setHasOlder(stored.events.length > 0);
           }
@@ -2321,6 +2350,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
               running = snapshot.session.running;
               activeTask = snapshot.session.activeTask;
               stateSeq = Math.max(stateSeq, page.snapshotSeq);
+              contextSeq = Math.max(contextSeq, page.snapshotSeq);
               setBusy(running);
               setPromptProgress((progress) =>
                 pendingCommand.current
@@ -4710,6 +4740,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
                                   : t('发送')}
                             </button>
                           }
+                          <ContextUsage usage={selected.contextUsage} />
                           <AutoApproval
                             key={`${host}:${selected.id}`}
                             enabled={selected.autoApproval}

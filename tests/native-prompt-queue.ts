@@ -304,6 +304,19 @@ try {
   assert.equal(state().running, true);
   assert.equal(state().turnId, 'turn-1');
   assert.equal(state().activeTask.turnId, 'turn-1');
+  assert.equal(
+    database!
+      .prepare(
+        "SELECT count(*) AS n FROM history WHERE session=? AND json_extract(value,'$.data.threadId')='child-thread'",
+      )
+      .get(session.id)!.n,
+    0,
+    'child messages and lifecycle events never enter main history',
+  );
+  assert.deepEqual((await snapshot()).session.contextUsage, {
+    usedTokens: 112000,
+    contextWindow: 212000,
+  });
   const stopped = await command(
     'interrupt',
     { target: state().activeTask },
@@ -402,6 +415,10 @@ try {
   await until(() => peer);
   const recovered = await snapshot();
   assert.equal(recovered.session.state, 'failed');
+  assert.deepEqual(recovered.session.contextUsage, {
+    usedTokens: 112000,
+    contextWindow: 212000,
+  });
   assert.equal(recovered.session.promptQueue[0].id, retainedId);
   assert.equal(
     recovered.session.promptQueue[0].text,

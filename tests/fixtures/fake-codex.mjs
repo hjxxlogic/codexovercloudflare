@@ -334,6 +334,29 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     queueTestText = text;
     if (text.includes('child-agent-notifications')) {
       send({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: m.params.threadId,
+          turnId: result.turn.id,
+          tokenUsage: {
+            last: { totalTokens: 112000 },
+            total: { totalTokens: 999999 },
+            modelContextWindow: 212000,
+          },
+        },
+      });
+      send({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          tokenUsage: {
+            last: { totalTokens: 200000 },
+            modelContextWindow: 212000,
+          },
+        },
+      });
+      send({
         method: 'turn/started',
         params: {
           threadId: 'child-thread',

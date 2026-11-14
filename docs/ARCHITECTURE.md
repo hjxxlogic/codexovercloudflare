@@ -107,3 +107,9 @@ SQLite 新增有界 `transport2_thread_jobs` 与 `transport2_thread_state`。扫
 原生申请继续使用原有短期 device 记录及秘密领取；浏览器 `/api/v1/auth/device/:id/authorize` 仅接收 Worker 验证的 Access 身份，确认终端配对码后事务建立 Agent 或限定主机的 CLI 凭据。自助 CLI 要求目标 Agent 的管理邮箱匹配，不能修改申请目标；管理 CLI 仍走独立身份验证。平台管理员批准与用户自助批准共用发凭据逻辑，Agent 主机记录保存 `approvedAdminEmail`，作为管理邮箱首选值，本机配置不能覆盖。CW 沿用已有邮箱关联与按浏览器恢复流程。审批结果通过原 device 通知唤醒申请者，不增加轮询。
 
 SETTINGS 采用 Wrangler 按 Worker 自动创建的 KV 绑定；r2 部署拒绝带固定生产 KV ID 的配置，确保测试与生产开关独立。欢迎页根据当前邮箱的有效主机管理邮箱判断是否显示配置引导，共享授权及主机在线状态不作为已拥有 Agent 的依据。
+
+## Context 剩余量
+
+Agent 接收主线程 `thread/tokenUsage/updated` 后，将 `last.totalTokens` 和可空的 `modelContextWindow` 保存为会话 `contextUsage`，通过既有会话快照恢复。累计 `total.totalTokens` 不作为当前上下文占用；其他 threadId 的通知在状态处理前过滤。网页对实时通知、历史分页和本机缓存恢复再次按 threadId 过滤，保留主线程的子 Agent 工具活动，排除子线程正文、生命周期和用量；用事件序号防止较旧历史覆盖已取得快照，实时通知更新输入区指示器。
+
+百分比与 [Codex TUI 算法](https://github.com/openai/codex/blob/main/codex-rs/tui/src/token_usage.rs) 一致：扣除 12,000 token 基线，对可控窗口计算并四舍五入至 0–100%。详情展示原始最近占用及 `max(0, window - used)` 剩余 token；该估算与剩余 token 的简单比值可能不同。窗口未知不显示百分比，尚无用量时显示未知。会话累计消耗、额度与账单不由此指标推断；外部 reader 未报告的用量不猜测。

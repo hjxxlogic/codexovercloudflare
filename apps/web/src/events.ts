@@ -1,5 +1,15 @@
 import type { Event } from '../../../packages/protocol/src/index.ts';
 
+export function eventBelongsToThread(event: Event, threadId?: string) {
+  const data = event.data as { threadId?: unknown } | null;
+  return (
+    !threadId ||
+    !data ||
+    typeof data.threadId !== 'string' ||
+    data.threadId === threadId
+  );
+}
+
 export function mergeEvents(events: Event[]) {
   const latest = new Map<number, Event>();
   for (const event of events) {

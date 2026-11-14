@@ -1,5 +1,11 @@
 // Chinese source strings are stable translation keys. Keep placeholders in both languages.
 export const english: Record<string, string> = {
+  'Context 剩余': 'Context remaining',
+  最近上下文占用: 'Latest context usage',
+  剩余: 'Remaining',
+  未知: 'Unknown',
+  '等待 Codex 报告上下文用量': 'Waiting for Codex context usage',
+
   打开的会话: 'Open sessions',
   新会话: 'New session',
   '关闭标签：{0}': 'Close tab: {0}',

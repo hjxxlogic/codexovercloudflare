@@ -277,6 +277,16 @@ export const promptQueueEntrySchema = z.object({
   task: commandTargetSchema,
   error: z.string().max(200).optional(),
 });
+export const contextUsageSchema = z.object({
+  usedTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  contextWindow: z
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .nullable(),
+});
+
 export const sessionSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,100}~[a-zA-Z0-9_-]{1,100}$/),
   projectId: idSchema,
@@ -288,6 +298,7 @@ export const sessionSchema = z.object({
   external: z.boolean().optional(),
   queueEnabled: z.boolean().optional(),
   promptQueue: z.array(promptQueueEntrySchema).max(16).optional(),
+  contextUsage: contextUsageSchema.optional(),
   approvalConfigured: z.boolean().optional(),
   approvalForwarding: z.boolean().optional(),
   autoApproval: z.boolean().optional(),

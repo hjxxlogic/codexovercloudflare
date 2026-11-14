@@ -32,6 +32,7 @@ const session = {
   state: 'ready',
   running: false,
   autoApproval: false,
+  contextUsage: { usedTokens: 112000, contextWindow: 212000 },
   promptQueue: [] as {
     id: string;
     text: string;
@@ -3749,6 +3750,23 @@ async function currentBehaviorUI() {
       .first()
       .click();
     await expect(page.getByLabel('任务内容')).toBeEnabled();
+    await expect(
+      page.getByText('Context 剩余 50%', { exact: true }),
+    ).toBeVisible();
+    session.contextUsage = { usedTokens: 162000, contextWindow: 212000 };
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByText('Context 剩余 25%', { exact: true }),
+    ).toBeVisible();
+    session.contextUsage = { usedTokens: 12000, contextWindow: 212000 };
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+    await expect(
+      page.getByText('Context 剩余 100%', { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: join(artifacts, 'cw-context-mobile.png') });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: join(artifacts, 'cw-context-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
     const draft = '恢复与语言切换保留草稿';
     await page.getByLabel('任务内容').fill(draft);
     await expect

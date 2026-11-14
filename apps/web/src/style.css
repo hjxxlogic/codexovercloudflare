@@ -1624,3 +1624,9 @@ progress {
 .file-audio > audio {
   display: none;
 }
+
+.context-usage {
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}

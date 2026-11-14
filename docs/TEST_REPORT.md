@@ -1,5 +1,9 @@
 # 测试说明
 
+## 2026-11-14 CW Context 剩余量
+
+使用本机 Codex app-server schema 的 thread/tokenUsage/updated 通知及上游 TUI token_usage.rs 的 12k 基线百分比算法。单元测试覆盖 last / total 区分、未知窗口、越界、压缩回升与子线程隔离；原生队列集成测试注入主/子线程通知并校验快照和 Agent 重启后的保存值。浏览器回归覆盖输入区 50% 快照、刷新后 25% 用量及压缩回升 100%；桌面和 390px 手机截图保存在忽略目录 .local/ui-stability/cw-context-desktop.png 与 cw-context-mobile.png。未调用模型或部署服务。验证：Vitest 42 个文件 / 490 项、完整 UI 稳定性回归、原生队列集成（包含子线程事件未进入主历史及重启恢复）、native-core、TypeScript、网页构建、协议生成一致性、C++ 格式及相关文件 ESLint 通过。
+
 ## 2026-11-14 CW 轮内追加消息
 
 本机 Codex 生成的 `TurnSteerParams` / `TurnSteerResponse` schema 确认 `turn/steer` 使用 threadId、expectedTurnId、input，返回 turnId。运行中的普通 CW 队列改用该接口；空闲仍通过 turn/start 开始新轮。未调用模型或部署线上服务。
