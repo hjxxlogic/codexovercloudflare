@@ -314,6 +314,32 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       params: { turn: result.turn, model: m.params.model },
     });
     queueTestText = text;
+    if (text.includes('child-agent-notifications')) {
+      send({
+        method: 'turn/started',
+        params: {
+          threadId: 'child-thread',
+          turn: { id: 'child-turn', rootTurnId: result.turn.id },
+        },
+      });
+      send({
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          itemId: 'child-reply',
+          delta: 'child only',
+        },
+      });
+      send({
+        method: 'turn/completed',
+        params: {
+          threadId: 'child-thread',
+          turn: { id: result.turn.id, status: 'completed' },
+        },
+      });
+      send({ method: 'test/childNotificationsProcessed', params: {} });
+    }
     if (text.includes('stale-completion')) {
       send({
         method: 'turn/completed',
@@ -375,6 +401,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     send({
       id: m.id,
       error: { code: -32000, message: 'Synthetic interruption refused' },
+    });
+    return;
+  }
+  if (m.method === 'turn/interrupt' && m.params.turnId !== 'turn-' + turn) {
+    send({
+      id: m.id,
+      error: { code: -32000, message: 'Wrong active turn ID' },
     });
     return;
   }

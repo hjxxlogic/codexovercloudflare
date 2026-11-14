@@ -282,6 +282,25 @@ try {
       )
       .all(session.id)
       .map((row) => JSON.parse(String(row.value)).data.text);
+  // Child thread notifications cannot replace or complete the main active turn.
+  await command('prompt', { text: 'hold child-agent-notifications' });
+  await until(() =>
+    database!
+      .prepare(
+        "SELECT 1 FROM history WHERE session=? AND json_extract(value,'$.type')='test/childNotificationsProcessed'",
+      )
+      .get(session.id),
+  );
+  assert.equal(state().running, true);
+  assert.equal(state().turnId, 'turn-1');
+  assert.equal(state().activeTask.turnId, 'turn-1');
+  const stopped = await command(
+    'interrupt',
+    { target: state().activeTask },
+    true,
+  );
+  assert(!stopped.result.error, JSON.stringify(stopped.result));
+  await until(() => !state().running);
   // Hold a real native turn while the queue is modified and recovered by direct reads.
   await command('prompt', { text: 'hold queue-test-delay' });
   await until(() => !!state().turnId);

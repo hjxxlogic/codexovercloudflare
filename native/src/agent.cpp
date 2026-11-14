@@ -2470,6 +2470,12 @@ public:
               {{"code", -32601}, {"message", "External reader does not handle approvals"}}}});
       return;
     }
+    // Codex also emits notifications for spawned agent threads on this process.
+    // Their turns must never replace or complete the owning session's turn.
+    const auto params = m.value("params", Json::object());
+    if (params.contains("threadId") && s.contains("threadId") &&
+        params.at("threadId") != s.at("threadId"))
+      return;
     const bool completed_active_turn =
         method == "turn/completed" && s.contains("turnId") &&
         m.value("params", Json::object()).value("turn", Json::object()).value("id", "") ==
