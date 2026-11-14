@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   FileContext,
   FileResource,
+  FileText,
   fileReferences,
   projectFilePath,
 } from '../apps/web/src/file-links.tsx';
@@ -105,6 +106,36 @@ describe('chat file paths', () => {
     ]);
     expect(fileReferences('https://example.com/a.txt')).toEqual([]);
   });
+  it('keeps slash-separated prose as text while retaining unambiguous file paths', () => {
+    for (const text of [
+      'ping/pong的映射',
+      'ping/pong',
+      '输入/输出',
+      'TCP/IP',
+      'and/or',
+    ])
+      expect(fileReferences(text)).toEqual([]);
+    for (const text of [
+      'docs/报告.txt:12:3',
+      'docs/code.ts#L12',
+      './src/Dockerfile',
+      '/workspace/example/LICENSE',
+      'file:///workspace/example/README',
+      './.env',
+    ])
+      expect(fileReferences(text)).toEqual([{ index: 0, text }]);
+    expect(projectFilePath('src/Dockerfile', root)).toBe('src/Dockerfile');
+    const html = renderToStaticMarkup(
+      <FileContext.Provider
+        value={{ host: 'sample', project: 'project', root }}
+      >
+        <FileText text="ping/pong的映射 `ping/pong` 输入/输出 docs/report.txt" />
+      </FileContext.Provider>,
+    );
+    expect(html).toContain('ping/pong的映射');
+    expect(html.match(/<a /g)).toHaveLength(1);
+    expect(html).toContain('aria-label="预览 docs/report.txt"');
+  });
   it('handles long streamed prose without treating it as a path', () => {
     expect(fileReferences('完整正文'.repeat(32768))).toEqual([]);
     expect(fileReferences('完整正文'.repeat(32768) + '.')).toEqual([]);
@@ -130,7 +161,7 @@ describe('chat file paths', () => {
               type: 'item/agentMessage/delta',
               data: {
                 delta:
-                  '[`报告`](/workspace/example/report.txt:12) `docs/code.txt` docs/plain.txt\n\n[外网](https://example.com/a.txt) [外部文件](/etc/passwd)\n\n```sh\ncat docs/script.txt\n```',
+                  'ping/pong的映射 `ping/pong` 输入/输出 [`报告`](/workspace/example/report.txt:12) `docs/code.txt` docs/plain.txt\n\n[外网](https://example.com/a.txt) [外部文件](/etc/passwd)\n\n```sh\ncat docs/script.txt\n```',
               },
             },
           ]}
@@ -144,6 +175,9 @@ describe('chat file paths', () => {
       'docs/plain.txt',
     ])
       expect(html).toContain(`aria-label="预览 ${path}"`);
+    expect(html).not.toContain('下载 ping/pong');
+    expect(html).not.toContain('下载 输入/输出');
+    expect(html).toContain('ping/pong的映射');
     expect(html).toContain('href="https://example.com/a.txt"');
     expect(html).not.toContain('href="/etc/passwd"');
     expect(html).toContain('预览 docs/script.txt');
@@ -157,7 +191,7 @@ describe('file preview selection', () => {
     for (const path of [
       'index.html',
       'index.ts',
-      '.env',
+      './.env',
       'Dockerfile',
       'log.txt',
     ])

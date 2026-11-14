@@ -72,7 +72,8 @@ export function projectFilePath(value: string, root: string): string | null {
   return parts.length ? parts.join('/') : null;
 }
 
-// Plain prose needs a path separator or filename extension; explicit links can use any filename.
+// Auto-links need an explicit path prefix or filename extension; a slash alone
+// also occurs in prose such as ping/pong. Explicit links can use any filename.
 export function fileReferences(text: string) {
   const pattern =
     /^(?:file:\/\/\/|[a-z]:[\\/]|\.{0,2}[\\/]|[\p{L}\p{N}_@-]+[\\/])[^\s<>"'`，。；！？（）【】]+|^[\p{L}\p{N}_@-]+(?:\.[\p{L}\p{N}_-]+)+(?:，|。)?(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?/giu;
@@ -91,7 +92,16 @@ export function fileReferences(text: string) {
       .map((match) => ({
         index: token.index + match.index,
         text: match[0].replace(/[.,;!?)\]}，。]+$/, ''),
-      }));
+      }))
+      .filter(({ text }) => {
+        if (/^(?:file:\/\/\/|[a-z]:[\\/]|\.{0,2}[\\/])/i.test(text))
+          return true;
+        const filename = text
+          .replace(/(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)$/, '')
+          .split(/[\\/]/)
+          .pop()!;
+        return /\.[a-z\d][a-z\d_-]*$/i.test(filename);
+      });
   });
 }
 
