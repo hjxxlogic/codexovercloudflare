@@ -1,5 +1,11 @@
 # 测试说明
 
+## 2026-11-14 CW 轮内追加消息
+
+本机 Codex 生成的 `TurnSteerParams` / `TurnSteerResponse` schema 确认 `turn/steer` 使用 threadId、expectedTurnId、input，返回 turnId。运行中的普通 CW 队列改用该接口；空闲仍通过 turn/start 开始新轮。未调用模型或部署线上服务。
+
+`tests/native-prompt-queue.ts` 使用真实原生 Agent 与确定性 Codex peer，验证主轮次保持运行时顺序接收两条追加输入、重复回执不重复追加、activeTask / turnId 保持原身份、空闲自动开始、拒绝追加不清除运行状态、陈旧停止目标拒绝、待发取消与容量限制、停止失败、结果未知阻塞以及重启不重放。`npm run test:queue`、原生 CTest 16/16、TypeScript、C++ 格式、测试文件 ESLint 和 Prettier 均通过。专项测试显式确认结果回执以回收 delivery 窗口，并等待独立通知持久化后断言，避免将异步通知先后误判为队列丢失。
+
 ## 2026-11-14 子 Agent 通知与停止轮次隔离
 
 本机 Agent 0.6.20 的只读历史确认：主线程与子线程的 turn/started 使用不同 threadId，子轮次 rootTurnId 指向主轮次，但子轮次 ID 被写入主会话状态。修复在处理通知时拒绝明确属于其他线程的事件；无 threadId 的既有通知保持兼容。未重启或替换本机运行服务。

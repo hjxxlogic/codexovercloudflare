@@ -269,6 +269,16 @@ try {
       lane,
       seq,
     });
+    send({
+      type: 'delivery-receipt',
+      sessionId: session.id,
+      mode: 'web',
+      stream,
+      lane,
+      received: result.record.resultSeq,
+      receivedBytes: result.record.resultEnd,
+    });
+    await control('probe');
     return {
       result: JSON.parse(result.record.resultBody),
       replay: () =>
@@ -301,118 +311,90 @@ try {
   );
   assert(!stopped.result.error, JSON.stringify(stopped.result));
   await until(() => !state().running);
-  // Hold a real native turn while the queue is modified and recovered by direct reads.
-  await command('prompt', { text: 'hold queue-test-delay' });
+  // Enqueued messages steer the current turn, without waiting for completion.
+  await command('prompt', { text: 'hold running turn' });
   await until(() => !!state().turnId);
+  const activeTurn = state().turnId;
+  const activeTask = state().activeTask;
   const first = await command('enqueue', {
-    text: 'queued first',
+    text: 'first follow-up',
     model: 'gpt-test',
   });
-  assert.equal(first.result.result.state, 'queued-local');
-  const firstId = first.result.result.queueId;
   first.replay();
   first.replay();
-  await control('probe');
-  assert.equal(
-    state().promptQueue.length,
-    1,
-    'duplicate delivery cannot enqueue twice',
-  );
-  const second = await command('enqueue', { text: 'queued second' });
-  const secondId = second.result.result.queueId;
-  const third = await command('enqueue', { text: 'cancel this message' });
-  await command('queueCancel', { queueId: third.result.result.queueId }, true);
+  await command('enqueue', { text: 'second follow-up' });
+  await until(() => state().promptQueue.length === 0);
+  assert.equal(state().running, true, 'steering must not end the active turn');
+  assert.equal(state().turnId, activeTurn);
   assert.deepEqual(
-    (await snapshot()).session.promptQueue.map((entry: any) => entry.id),
-    [firstId, secondId],
+    state().activeTask,
+    activeTask,
+    'steer retains original cancellation identity',
   );
-  assert(!users().includes('queued first'), 'queue admission is not execution');
-  const tooLarge = await command('enqueue', { text: '\\'.repeat(30000) });
-  assert.equal(tooLarge.result.error.code, 'BACKPRESSURE');
-  assert.equal(state().promptQueue.length, 2, 'byte limit refusal is atomic');
-  // A second controller inherits the session queue, not the original command flow.
-  queueEpoch = 2;
-  await control('attach', {
-    sessionId: session.id,
-    epoch: queueEpoch,
-    expires: Date.now() + 15000,
+  assert.deepEqual(users().slice(-2), ['first follow-up', 'second follow-up']);
+  assert.equal(users().filter((text) => text === 'first follow-up').length, 1);
+  await until(
+    () =>
+      database!
+        .prepare(
+          "SELECT count(*) AS n FROM history WHERE session=? AND json_extract(value,'$.type')='test/steered'",
+        )
+        .get(session.id)!.n === 2,
+  );
+  const steered = database!
+    .prepare(
+      "SELECT value FROM history WHERE session=? AND json_extract(value,'$.type')='test/steered' ORDER BY seq",
+    )
+    .all(session.id)
+    .map((row) => JSON.parse(String(row.value)).data);
+  assert.deepEqual(
+    steered.map((event) => event.text),
+    ['first follow-up', 'second follow-up'],
+  );
+  assert(steered.every((event) => event.turnId === activeTurn));
+  await command('interrupt', { target: state().activeTask }, true);
+  await until(() => !state().running);
+  await command('enqueue', { text: 'idle enqueue' });
+  await until(() => state().promptQueue.length === 0 && !state().running);
+  assert(users().includes('idle enqueue'));
+  // A definite steering refusal pauses the queue without marking the turn idle.
+  await command('prompt', { text: 'hold queue-test-reject' });
+  await until(() => !!state().turnId);
+  const paused = await command('enqueue', {
+    text: 'steer-reject retained message',
   });
-  queuePrefix = 'takeover-queue';
-  normalSeq = 0;
-  normalEnd = 0;
-  prioritySeq = 0;
-  priorityEnd = 0;
-  await open(session.id, 'web', queuePrefix + '-normal');
-  await open(session.id, 'web', queuePrefix + '-priority', 'priority');
-  // A stale immediate action must not interrupt a different turn.
+  await until(() => state().promptQueue[0]?.state === 'failed');
+  assert.equal(state().running, true);
   const rejected = await command(
     'queueRun',
     {
-      queueId: secondId,
+      queueId: paused.result.result.queueId,
       target: { ...state().activeTask, turnId: 'wrong-turn' },
     },
     true,
   );
   assert.equal(rejected.result.error.code, 'TARGET_NOT_FOUND');
-  const run = await command(
-    'queueRun',
-    { queueId: secondId, target: state().activeTask },
-    true,
-  );
-  assert(!run.result.error);
-  run.replay();
-  assert.equal(state().promptQueue[0].state, 'stopping');
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  assert(
-    !users().includes('queued second'),
-    'interrupt ACK is not turn completion',
-  );
-  await until(() => state().promptQueue.length === 0 && !state().running);
-  assert.deepEqual(
-    users().slice(-2),
-    ['queued second', 'queued first'],
-    'run now promotes one entry and preserves the rest',
-  );
-  assert(!users().includes('cancel this message'));
-  assert.equal(users().filter((text) => text === 'queued second').length, 1);
-  // Enqueue on an idle session starts automatically (including the UI busy/idle race).
-  await command('enqueue', { text: 'idle enqueue' });
-  await until(() => state().promptQueue.length === 0 && !state().running);
-  assert(users().includes('idle enqueue'));
-  // Waiting approvals belong to the interrupted turn, never its queued successor.
-  await command('prompt', { text: 'approval queue hold' });
-  await until(() =>
-    frames.some(
-      (frame) =>
-        frame.sessionId === session.id &&
-        frame.payload?.event?.type === 'approval',
-    ),
-  );
-  assert.equal((await snapshot()).approvals.length, 1);
-  const afterApproval = await command('enqueue', {
-    text: 'queued successor',
-  });
   await command(
     'queueRun',
     {
-      queueId: afterApproval.result.result.queueId,
+      queueId: paused.result.result.queueId,
       target: state().activeTask,
     },
     true,
   );
-  await until(() => state().promptQueue.length === 0 && !state().running);
-  assert.equal((await snapshot()).approvals.length, 0);
-  // A failed interrupt leaves the message pending and prevents automatic execution.
-  await command('prompt', { text: 'hold queue-test-reject' });
-  await until(() => !!state().turnId);
-  const paused = await command('enqueue', { text: 'must remain queued' });
+  await until(() => state().promptQueue[0]?.state === 'failed');
+  const pending = await command('enqueue', {
+    text: 'cancel pending follow-up',
+  });
   await command(
-    'queueRun',
-    { queueId: paused.result.result.queueId, target: state().activeTask },
+    'queueCancel',
+    { queueId: pending.result.result.queueId },
     true,
   );
-  await until(() => state().promptQueue[0].state === 'failed');
-  assert(!users().includes('must remain queued'));
+  assert.equal(state().promptQueue.length, 1);
+  assert(!users().includes('cancel pending follow-up'));
+  const tooLarge = await command('enqueue', { text: '\\'.repeat(30000) });
+  assert.equal(tooLarge.result.error.code, 'BACKPRESSURE');
   const retainedId = state().promptQueue[0].id;
   // Restart preserves unexecuted content and cannot replay the interrupted session.
   await stopAgent();
@@ -421,8 +403,10 @@ try {
   const recovered = await snapshot();
   assert.equal(recovered.session.state, 'failed');
   assert.equal(recovered.session.promptQueue[0].id, retainedId);
-  assert.equal(recovered.session.promptQueue[0].text, 'must remain queued');
-  assert(!users().includes('must remain queued'));
+  assert.equal(
+    recovered.session.promptQueue[0].text,
+    'steer-reject retained message',
+  );
   queueEpoch = 1;
   session = await control('create', {
     key: 'unknown-queue-session',
@@ -439,7 +423,9 @@ try {
   normalEnd = 0;
   await open(session.id, 'web', queuePrefix + '-normal');
   await open(session.id, 'web', queuePrefix + '-priority', 'priority');
-  await command('enqueue', { text: 'hold queue-test-unknown' });
+  await command('prompt', { text: 'hold current turn' });
+  await until(() => !!state().turnId);
+  await command('enqueue', { text: 'steer-unknown' });
   await until(
     () => state().promptQueue[0]?.state === 'starting' && !!state().turnId,
   );
@@ -450,13 +436,10 @@ try {
   const uncertain = await snapshot();
   assert.equal(uncertain.session.promptQueue[0].state, 'unknown');
   assert.equal(uncertain.session.promptQueue[1].state, 'queued');
-  assert.equal(
-    users().filter((text) => text === 'hold queue-test-unknown').length,
-    1,
-  );
+  assert.equal(users().filter((text) => text === 'steer-unknown').length, 1);
   assert(!users().includes('retained behind unknown'));
   console.log(
-    'PASS: durable managed prompt queue, duplicate delivery, cancellation, priority selection, delayed turn completion, idle race, stop failure and restart preservation',
+    'PASS: same-turn FIFO steering, deduplication, cancellation identity, idle start, refusal, stop failure and restart preservation',
   );
 } finally {
   database?.close();

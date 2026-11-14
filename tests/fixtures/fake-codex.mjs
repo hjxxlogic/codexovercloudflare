@@ -304,6 +304,24 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       nextCursor: null,
     };
   }
+  if (m.method === 'turn/steer') {
+    if (m.params.expectedTurnId !== 'turn-' + turn) {
+      send({ id: m.id, error: { code: -32000, message: 'Wrong steer turn' } });
+      return;
+    }
+    const text = m.params.input[0].text;
+    if (text.includes('steer-unknown')) return;
+    if (text.includes('steer-reject')) {
+      send({
+        id: m.id,
+        error: { code: -32000, message: 'Synthetic steer refused' },
+      });
+      return;
+    }
+    send({ id: m.id, result: { turnId: 'turn-' + turn } });
+    send({ method: 'test/steered', params: { turnId: 'turn-' + turn, text } });
+    return;
+  }
   if (m.method === 'turn/start') {
     const text = m.params.input[0].text;
     turn++;

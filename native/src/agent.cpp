@@ -2615,10 +2615,10 @@ public:
     }
     // All final history and CC output above are durable before unused capacity
     // can be retired. An unrelated/late terminal event cannot refund a new turn.
-    if (completed_active_turn) {
+    if (completed_active_turn)
       store_.history_release(id);
+    if (completed_active_turn || method == "turn/started")
       schedule_prompt_queue(id);
-    }
   }
   void schedule_prompt_queue(const std::string &id) {
     asio::post(io_, [this, id] {
@@ -2628,8 +2628,12 @@ public:
       auto rt = found->second;
       auto s = store_.get(id);
       auto queue = s.value("promptQueue", Json::array());
-      if (s["state"] != "ready" || s.value("external", false) || s["running"] == true ||
-          rt->queue_dispatching || rt->busy || queue.empty())
+      if (s["state"] != "ready" || s.value("external", false) || rt->queue_dispatching ||
+          rt->busy || queue.empty())
+        return;
+      const bool steer = s.value("running", false);
+      // Admission may precede turn/started. Never steer using an old turn ID.
+      if (steer && (!s.contains("turnId") || queue.front()["state"] == "stopping"))
         return;
       auto entry = queue.front();
       if (entry["state"] == "stopping") {
@@ -2640,7 +2644,8 @@ public:
         return;
       const auto queue_id = entry.at("id").get<std::string>();
       try {
-        check_busy(s);
+        if (!steer)
+          check_busy(s);
         publish(id, store_.prompt_queue_state(id, queue_id, "starting"));
       } catch (const std::exception &error) {
         publish(id, store_.prompt_queue_state(id, queue_id, "failed",
@@ -2652,22 +2657,23 @@ public:
                      {"input", Json::array({{{"type", "text"},
                                              {"text", entry.at("text")},
                                              {"text_elements", Json::array()}}})}};
-      if (entry.contains("model"))
+      if (steer)
+        params["expectedTurnId"] = s.at("turnId");
+      else if (entry.contains("model"))
         params["model"] = entry.at("model");
       rt->process->request(
-          "turn/start", params,
-          [this, id, rt, queue_id](Json result, Json error) {
+          steer ? "turn/steer" : "turn/start", params,
+          [this, id, rt, queue_id, steer](Json, Json error) {
             rt->queue_dispatching = false;
             auto current = store_.get(id);
             if (error.is_null()) {
-              if (current.value("running", false))
-                current["turnId"] = result.at("turn").at("id");
-              store_.save(current);
+              // Notifications own the active identity; delayed replies cannot
+              // overwrite a successor's turn ID.
               publish(id, store_.prompt_queue_state(id, queue_id, ""));
               schedule_prompt_queue(id);
             } else {
               const auto code = error.value("code", "ERROR");
-              if (code != "RESULT_UNKNOWN") {
+              if (!steer && code != "RESULT_UNKNOWN") {
                 current["running"] = false;
                 store_.save(current);
               }
@@ -2675,11 +2681,12 @@ public:
                               id, queue_id, code == "RESULT_UNKNOWN" ? "unknown" : "failed", code));
             }
           },
-          [this, id, entry] {
+          [this, id, entry, params, steer] {
             flush_events();
             const auto event = store_.history_turn_admit(
-                id, entry, redact(Json{{"text", entry.at("text")}, {"queueId", entry.at("id")}}),
-                entry.at("task"), true);
+                id, steer ? params : entry,
+                redact(Json{{"text", entry.at("text")}, {"queueId", entry.at("id")}}),
+                entry.at("task"), !steer);
             publish(id, event);
           });
     });

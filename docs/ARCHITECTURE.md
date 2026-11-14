@@ -86,7 +86,7 @@ Client 将启动标记保持到认证的 TUI 在传输握手完成后发出 `ini
 
 普通网页会话使用 `enqueue`、`queueCancel`、`queueRun` 命令。入队走 normal delivery lane，取消与立即执行走 priority lane，沿用服务端控制证明与可靠请求去重。Agent 将有界 `promptQueue` 保存在 sessions JSON，队列修改、`promptQueueChanged` 历史事件及请求最终回执在同一 SQLite 事务提交。快照包含当前队列，浏览器也从队列事件更新状态；历史补读不触发执行。
 
-队列使用独立历史预算 reservation，最多 16 条 / 96 KiB 编码内容，不依赖浏览器存活。调度只在会话 ready、当前轮空闲且命令处理空闲时启动队首；开始前持久化 starting，再通过既有 history_turn_admit 保存原任务身份和用户消息后调用 turn/start。成功移除队列条目，明确失败保留 failed，未知结果保留 unknown 并阻塞后续条目。
+队列使用独立历史预算 reservation，最多 16 条 / 96 KiB 编码内容，不依赖浏览器存活。调度在会话 ready 且命令处理空闲时处理队首；当前轮运行中且已取得 turnId 时调用 turn/steer，携带 expectedTurnId，在 Codex 的下一个可处理节点追加输入。尚未收到 turn/started 时等待该通知再调度；轮次空闲时调用 turn/start。开始前持久化 starting，再通过 history_turn_admit 保存用户消息；steer 保留原 activeTask 和 turnId，新增输入不改变停止目标。steer 不支持切换模型，入队模型仅用于新轮次。成功移除队列条目，明确失败保留 failed，未知结果保留 unknown 并阻塞后续条目；steer 失败不将当前轮标记为空闲。
 
 立即执行验证点击时的原 activeTask 身份，将指定条目提升至队首并保存 stopping，提交 turn/interrupt 后等待匹配的 turn/completed；中断 ACK 不释放执行条件。陈旧任务身份不能中断新轮次。已有队列在控制权转移后继续属于原会话，新控制端可管理它。运行时关闭及 Agent 重启沿用现有会话失败语义，不重建 Codex runtime、不搬运旧队列、不重放未知任务；原队列保留供用户核对。
 
