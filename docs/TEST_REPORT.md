@@ -1,5 +1,11 @@
 # 测试说明
 
+## 2026-11-14 CW Mermaid 连续更新性能
+
+移除随源码变化重建代码块的 key；Mermaid 复用沙箱与引擎，保留旧图、防抖源码更新，串行渲染并合并等待中的请求，按请求 ID 忽略过期结果。渲染截止时间由 2 秒调整为 10 秒。浏览器回归验证连续 12 次源码更新显示最后一张图、源码及主题更新保持 iframe 身份，并覆盖尺寸、深浅主题、缩放、全屏、错误回退和无外部请求。同步修正旧测试中深色背景预期为当前纯黑主题。
+
+验证：`npm run build:web`、`npm run typecheck`、相关文件 ESLint 与 `npm run test:markdown` 通过；构建和浏览器测试因沙箱阻止本地 IPC，在获得执行许可后运行。未测量生产网络下首次下载引擎的耗时，未部署。
+
 ## 2026-11-14 CW Context 剩余量
 
 使用本机 Codex app-server schema 的 thread/tokenUsage/updated 通知及上游 TUI token_usage.rs 的 12k 基线百分比算法。单元测试覆盖 last / total 区分、未知窗口、越界、压缩回升与子线程隔离；原生队列集成测试注入主/子线程通知并校验快照和 Agent 重启后的保存值。浏览器回归覆盖输入区 50% 快照、刷新后 25% 用量及压缩回升 100%；桌面和 390px 手机截图保存在忽略目录 .local/ui-stability/cw-context-desktop.png 与 cw-context-mobile.png。未调用模型或部署服务。验证：Vitest 42 个文件 / 490 项、完整 UI 稳定性回归、原生队列集成（包含子线程事件未进入主历史及重启恢复）、native-core、TypeScript、网页构建、协议生成一致性、C++ 格式及相关文件 ESLint 通过。

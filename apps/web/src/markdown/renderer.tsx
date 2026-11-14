@@ -252,6 +252,7 @@ function CodeBlock({ source, language }: { source: string; language: string }) {
   const overflow = useContentOverflow(content, fullscreen.active);
   const [diagramOverflow, setDiagramOverflow] = useState(false);
   const [highlight, setHighlight] = useState('');
+  useEffect(() => setHighlight(''), [source, language]);
   const special = language === 'mermaid' || language === 'math';
   async function colorize() {
     if (source.length > 100000) return;
@@ -361,13 +362,7 @@ export function MarkdownRenderer({
         const language = isValidElement<{ className?: string }>(child)
           ? child.props.className?.match(/language-([^\s]+)/)?.[1] || ''
           : '';
-        return (
-          <CodeBlock
-            key={textOf(children)}
-            source={textOf(children)}
-            language={language}
-          />
-        );
+        return <CodeBlock source={textOf(children)} language={language} />;
       },
       code: ({ children, className }) =>
         className?.includes('math-inline') ||

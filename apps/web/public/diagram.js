@@ -1,6 +1,8 @@
 /* global window, parent, document, mermaid, TextEncoder */
 // Opaque sandbox: no application DOM, cookies, storage, or network access.
-let initialized = false;
+let rendering = false;
+let pending;
+let sequence = 0;
 const viewport = document.getElementById('diagram-viewport');
 const scene = document.getElementById('diagram');
 let scale = 1,
@@ -229,17 +231,22 @@ window.addEventListener('message', async (event) => {
     layout(event.data.expanded, event.data.language);
     return;
   }
-  if (
-    event.source !== parent ||
-    initialized ||
-    event.data?.type !== 'cw-diagram'
-  )
-    return;
-  initialized = true;
-  const source = event.data.source;
-  const theme = event.data.theme === 'dark' ? 'dark' : 'light';
+  if (event.source !== parent || event.data?.type !== 'cw-diagram') return;
+  pending = event.data;
+  if (rendering) return;
+  rendering = true;
+  while (pending) {
+    const input = pending;
+    pending = undefined;
+    await renderDiagram(input);
+  }
+  rendering = false;
+});
+async function renderDiagram(input) {
+  const source = input.source;
+  const theme = input.theme === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = theme;
-  layout(event.data.expanded, event.data.language);
+  layout(input.expanded, input.language);
   const element = document.getElementById('diagram');
   try {
     if (
@@ -265,15 +272,20 @@ window.addEventListener('message', async (event) => {
         'themeVariables',
       ],
     });
-    const result = await mermaid.render('cwdiagram', source);
+    const result = await mermaid.render(`cwdiagram${++sequence}`, source);
     if (result.svg.length > 2 * 1024 * 1024)
       throw new Error('Diagram output exceeds limit');
+    if (pending) return;
     element.innerHTML = result.svg;
-    parent.postMessage({ type: 'cw-diagram-result' }, '*');
+    parent.postMessage({ type: 'cw-diagram-result', id: input.id }, '*');
     if (expanded()) fit();
     else measureDiagram();
   } catch {
+    if (pending) return;
     element.textContent = 'Unable to render diagram; view source.';
-    parent.postMessage({ type: 'cw-diagram-result', error: true }, '*');
+    parent.postMessage(
+      { type: 'cw-diagram-result', error: true, id: input.id },
+      '*',
+    );
   }
-});
+}

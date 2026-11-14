@@ -307,6 +307,32 @@ try {
     (await smallDiagram.locator('iframe').boundingBox())!.height < 200,
     'small diagram has compact automatic height',
   );
+  const retainedSmallDiagram = await smallDiagram
+    .locator('iframe')
+    .elementHandle();
+  await smallDiagram.locator('iframe').evaluate((node) => {
+    const frame = node as HTMLIFrameElement;
+    for (let id = 0; id < 12; id++) {
+      frame.contentWindow!.postMessage(
+        {
+          type: 'cw-diagram',
+          source: `flowchart LR\nA[Update ${id}] --> B[Done]`,
+          theme: 'light',
+          id: 1000 + id,
+        },
+        '*',
+      );
+    }
+  });
+  await expect(
+    smallDiagram.frameLocator('iframe').locator('svg'),
+  ).toContainText('Update 11');
+  assert(
+    await smallDiagram
+      .locator('iframe')
+      .evaluate((node, previous) => node === previous, retainedSmallDiagram),
+    'source bursts render the latest update in the existing sandbox',
+  );
   const diagram = page.locator('.rich-code[data-language="mermaid"]').nth(1);
   await diagram.scrollIntoViewIfNeeded();
   await expect(diagram.frameLocator('iframe').locator('svg')).toBeVisible({
@@ -324,7 +350,7 @@ try {
       await frame
         .locator('body')
         .evaluate((node) => getComputedStyle(node).backgroundColor),
-      theme === 'dark' ? 'rgb(25, 23, 23)' : 'rgb(255, 255, 255)',
+      theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)',
     );
     return frame.locator('svg .node rect').first().getAttribute('style');
   }
@@ -342,6 +368,7 @@ try {
       );
     }, theme);
   }
+  const retainedDiagram = await diagram.locator('iframe').elementHandle();
   await preference('dark');
   await expectDiagramTheme('dark');
   assert.notEqual(
@@ -351,6 +378,12 @@ try {
       .first()
       .evaluate((node) => getComputedStyle(node).fill),
     lightFill,
+  );
+  assert(
+    await diagram
+      .locator('iframe')
+      .evaluate((node, previous) => node === previous, retainedDiagram),
+    'theme updates reuse the loaded Mermaid sandbox',
   );
   const diagramFrame = await diagram.locator('iframe').elementHandle();
   await enterElementFullscreen(diagram);

@@ -25,6 +25,21 @@ export default function RichBlock({
   overflow.current = onOverflow;
   const frame = useRef<HTMLIFrameElement>(null);
   const deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const loaded = useRef(false);
+  const request = useRef(0);
+  function renderDiagram() {
+    if (!loaded.current) return;
+    clearTimeout(deadline.current);
+    const id = ++request.current;
+    deadline.current = setTimeout(
+      () => setError(t('图表无法渲染，已显示源码')),
+      10000,
+    );
+    frame.current?.contentWindow?.postMessage(
+      { type: 'cw-diagram', source, theme, expanded, language, id },
+      '*',
+    );
+  }
   useEffect(() => {
     frame.current?.contentWindow?.postMessage(
       { type: 'cw-diagram-layout', expanded, language },
@@ -57,7 +72,11 @@ export default function RichBlock({
         );
         return;
       }
-      if (event.data?.type !== 'cw-diagram-result') return;
+      if (
+        event.data?.type !== 'cw-diagram-result' ||
+        event.data.id !== request.current
+      )
+        return;
       clearTimeout(deadline.current);
       if (event.data.error) setError(t('图表无法渲染，已显示源码'));
     };
@@ -69,7 +88,7 @@ export default function RichBlock({
   }, [source, kind, theme]);
   useEffect(() => {
     let active = true;
-    setResult('');
+    if (kind !== 'mermaid') setResult('');
     setError('');
     overflow.current?.(false);
     const timer = setTimeout(() => {
@@ -80,7 +99,10 @@ export default function RichBlock({
         )
           throw new Error(t('内容超过预览上限'));
         if (kind === 'mermaid') {
-          if (active) setResult('diagram');
+          if (active) {
+            setResult('diagram');
+            renderDiagram();
+          }
         } else {
           const [{ default: katex }, { default: sanitize }] = await Promise.all(
             [import('katex'), import('dompurify')],
@@ -118,7 +140,6 @@ export default function RichBlock({
   if (kind === 'mermaid')
     return (
       <iframe
-        key={JSON.stringify([source, theme])}
         ref={frame}
         title={t('Mermaid 图表')}
         sandbox="allow-scripts"
@@ -126,15 +147,8 @@ export default function RichBlock({
         src={relayPath('/diagram')}
         style={expanded ? undefined : { height }}
         onLoad={() => {
-          clearTimeout(deadline.current);
-          deadline.current = setTimeout(
-            () => setError(t('图表无法渲染，已显示源码')),
-            2000,
-          );
-          frame.current?.contentWindow?.postMessage(
-            { type: 'cw-diagram', source, theme, expanded, language },
-            '*',
-          );
+          loaded.current = true;
+          renderDiagram();
         }}
         onError={() => setError(t('图表无法渲染，已显示源码'))}
         className="diagram-frame"
