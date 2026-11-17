@@ -1295,6 +1295,10 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
       )
         setPromptProgress('replying');
       if (e.type === 'sessionClosed') {
+        terminal = true;
+        clearTimeout(timer);
+        clearTimeout(handshake);
+        commandDelivery?.disconnect();
         setApprovals([]);
         setReady(false);
         setStatus(
@@ -1688,7 +1692,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
           policyRequests.current.clear();
           setReady(false);
           setPending(false);
-          setStatus('已断开');
+          if (!terminal) setStatus('已断开');
           if (code === 4009) {
             terminal = true;
             setStatus('只读观察 · 其他设备控制');
@@ -2464,7 +2468,7 @@ function App({ initial, focused = true, workspace }: SessionPaneProps) {
       socket.current?.close();
       socket.current = null;
     };
-  }, [selected?.id, takeover, host, reconnect]);
+  }, [selected?.id, selected?.state === 'ready', takeover, host, reconnect]);
   const loadModels = useCallback(
     (cursor?: string): Promise<ModelPage> => {
       const ws = socket.current;

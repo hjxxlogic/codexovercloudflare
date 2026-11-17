@@ -4601,6 +4601,70 @@ async function streamingDiffUI() {
     await context.close();
   }
 }
+async function sessionLifecycleUI() {
+  const saved = structuredClone(session);
+  session.state = 'starting';
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const failures: string[] = [];
+  page.on('pageerror', (error) => failures.push(error.message));
+  const notify = () => {
+    for (const ws of sockets)
+      if (!controls.has(ws) && !histories.has(ws))
+        ws.send(JSON.stringify({ type: 'change', scope: 'sessions' }));
+  };
+  try {
+    await page.goto(origin);
+    await selectHostId(page, 'sample');
+    await selectProjectId(page, 'project');
+    await page
+      .locator('.history-row')
+      .first()
+      .getByRole('button')
+      .first()
+      .click();
+    await expect(
+      page.getByText('会话启动中，请稍候。', { exact: true }).first(),
+    ).toBeVisible();
+    const before = attachCalls;
+    session.state = 'ready';
+    notify();
+    await expect(page.getByLabel('任务内容')).toBeEnabled({ timeout: 5000 });
+    await expect.poll(() => attachCalls, { timeout: 5000 }).toBe(before + 1);
+    await page.getByLabel('任务内容').fill('保留结束前的草稿');
+    session.state = 'closed';
+    for (const ws of controls)
+      ws.send(
+        JSON.stringify({
+          type: 'event',
+          event: {
+            seq: 20000,
+            type: 'sessionClosed',
+            data: { state: 'closed' },
+            time: Date.now(),
+          },
+        }),
+      );
+    await expect(
+      page.getByRole('button', { name: '继续对话', exact: true }).first(),
+    ).toBeVisible();
+    await expect.poll(() => controls.size).toBe(0);
+    const ended = attachCalls;
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('online'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(1200);
+    assert.equal(attachCalls, ended, 'ended runtimes do not retry attachment');
+    assert.deepEqual(failures, []);
+    console.log(
+      'PASS: runtime readiness starts control promptly and session closure retires control without retry',
+    );
+  } finally {
+    await context.close();
+    Object.assign(session, saved);
+  }
+}
 async function openingSessionUI() {
   const originalProject = otherSession.projectId;
   otherSession.projectId = session.projectId;
@@ -4907,13 +4971,15 @@ async function multiSessionUI() {
 }
 try {
   if (!process.argv.some((arg) => arg.startsWith('--'))) {
+    await sessionLifecycleUI();
     await tabLabelsUI();
     await streamingDiffUI();
     await multiSessionUI();
     await offlineSessionUI();
     await openingSessionUI();
   }
-  if (process.argv.includes('--opening-session')) await openingSessionUI();
+  if (process.argv.includes('--session-lifecycle')) await sessionLifecycleUI();
+  else if (process.argv.includes('--opening-session')) await openingSessionUI();
   else if (process.argv.includes('--offline-session')) await offlineSessionUI();
   else if (process.argv.includes('--tab-labels')) await tabLabelsUI();
   else if (process.argv.includes('--diff-stream')) await streamingDiffUI();
@@ -4937,6 +5003,12 @@ try {
           return;
         }
         session.state = state;
+        // Ended sessions retire their control stream. Later state changes must
+        // arrive through the host subscription, as they do in production.
+        for (const ws of sockets)
+          if (!controls.has(ws) && !histories.has(ws))
+            ws.send(JSON.stringify({ type: 'change', scope: 'sessions' }));
+        if (state !== 'closed' && state !== 'failed') return;
         for (const ws of controls)
           ws.send(
             JSON.stringify({
@@ -4969,6 +5041,7 @@ try {
     if (!process.argv.includes('--navigation')) await currentBehaviorUI();
   } else await legacyUI();
   if (
+    !process.argv.includes('--session-lifecycle') &&
     !process.argv.includes('--opening-session') &&
     !process.argv.includes('--offline-session') &&
     !process.argv.includes('--tab-labels') &&

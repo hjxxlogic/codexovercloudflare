@@ -121,6 +121,8 @@ C++ 和 TypeScript 均使用两空格缩进。C++ 使用 snake_case 函数、Pas
 
 旧库升级演练使用 `python3 tests/legacy-upgrade.py --legacy-source <独立旧源码目录> --agent build/coc-agent`。CI 固定旧源码为 `666d1af`，编译其原 Store 创建 SQLite 0/1，再验证备份、写入失败后的重试、旧程序拒绝版本 2、新 Agent 沿用配置和项目连续启动两次。POSIX 文件大小限制仅施加于隔离子进程，不耗尽宿主磁盘。该演练不安装 Agent，也不连接线上目标；正式安装仍需同一准确提交的成功 CI 制品。自动更新演练、默认 E2E 入口与公共原生 Agent 测试 harness 固定 `COC_NO_STARTUP_REPAIR=1`，避免测试启动失败触发修复模型；专门的启动修复测试使用自己的隔离模拟程序。
 
+会话连接生命周期专项：构建网页后运行 `npx tsx tests/ui-stability.ts --session-lifecycle`，验证同一会话从启动中变为就绪时自动建立控制连接，以及结束后清理控制连接、不因网络恢复或页面可见性变化重新附着；也纳入默认 `test:ui`。
+
 活动会话专项：`npm run build:web && npx tsx tests/ui-stability.ts --active-sessions` 使用 100 条较新的历史记录及分页活动目录，验证欢迎页优先显示、直接进入对应主机 / 项目、左侧活动记录补齐、项目切换、状态颜色与手机布局；也纳入默认 `test:ui`。单元测试 `tests/web-active-sessions.test.ts` 覆盖全部活动状态分页、游标异常、历史游标保留及迟到状态 / 删除屏障合并；`tests/session-history.test.tsx` 覆盖排序与文字状态。
 
 工具展示专项：`npm run test:tools:web` 用隔离 Vite 入口和 Chromium 验证文件 diff、MCP、命令分页未完成时的前缀显示、分组收起暂停／展开续读、MCP 与推理通知、revision 替换、读取完成停止请求、移动布局及键盘展开，不调用模型或读取真实凭据。单元测试 `web-tool-presentation.test.tsx` 验证 JSON 每个前缀、转义、安全回退、各类型展示、生命周期状态和事件合并；CI regression 包含该浏览器入口。
