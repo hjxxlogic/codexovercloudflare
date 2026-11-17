@@ -186,14 +186,13 @@ python3 scripts/deploy-downloads.py \
 脚本复用已验证的线上 Worker / 网页，前后核对 Worker 模块摘要，只更新下载资源；下载页沿用现有主题，并明确说明 Linux 构建来源和 Windows 版本。Linux 三个入口使用同一份完全静态 musl 二进制，保留原 Windows 包；下载清单标记 `localBuild=true`、`ciVerified=false` 和 Windows 的旧版本 / 来源。制品仍校验源码身份、静态 ELF、SHA256 与发布后的在线字节，不能称为 Actions 验证发行。
 
 
-## 显式跳过 Actions，同步本地 Linux 与云端版本
+## 统一网页、Worker 与原生下载版本
 
-用户明确授权跳过 Actions 时，可在干净源码上完成静态 musl 构建与本地验证，然后统一发布 Worker、网页和 Linux 下载；Windows 保留原包并在下载清单标明旧版本。更新通知只在所有在线资源及下载包校验成功后发送。以下路径为示例：
+需要统一升级 Agent / CLI 时，完整发布必须使用准确提交的成功 Actions，并显式添加 `--publish-downloads`；默认云端部署保留原生下载，因此单独发布网页不会更新 Agent 目标版本。四个平台与云端必须来自同一提交，完成在线包 SHA256 校验后，管理员再在网页点击“通知所有 coc-agent 更新”：
 
 ```bash
-python3 scripts/deploy-cloud.py --commit HEAD --local-build \
-  --local-native-build-dir build-musl-release --notify-release \
-  --admin-session-file .local/online-tests/auth/admin.json --apply
+python3 scripts/deploy-cloud.py --commit SOURCE_COMMIT --run-id ACTIONS_RUN_ID \
+  --target production --publish-downloads --apply
 ```
 
-`--admin-session-file` 使用权限 0600、当前用户持有的 Playwright storage state，仅提取与部署目标域名完全匹配的 `coc_admin` cookie；凭据不进入参数或发布记录。也可以改用 `--owner-secret-file`，两者只能选一项。本地构建标记 `localBuild=true`、`ciVerified=false`，不触发 Actions。通知成功不代表全部 Agent 已安装：关闭自动更新、离线或仍有会话的主机需要后续检查或等待空闲。
+主机列表显示实际运行的 Agent 版本。通知成功只代表目标版本已广播，各主机仍按自动更新配置、在线状态与空闲条件安装；不把通知提交当作全部安装完成。

@@ -15,7 +15,6 @@ import email
 import email.policy
 from concurrent.futures import ThreadPoolExecutor
 import urllib.error
-import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -37,10 +36,9 @@ def artifact_url(repository, run_id, artifact_id, gh_proxy=False):
             str(artifact_id) + '.zip')
 
 
-def release_post(base, path, data, token, admin_cookie=False):
+def release_post(base, path, data, token):
     # Credentials stay in memory, never in subprocess arguments or evidence.
-    headers = {'Content-Type': 'application/json'}
-    headers.update({'Cookie': 'coc_admin=' + token} if admin_cookie else {'Authorization': 'Bearer ' + token})
+    headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token}
     for line in (agent._access.request_headers(base) or b'').decode().splitlines():
         key, value = line.split(': ', 1)
         headers[key] = value
@@ -52,20 +50,7 @@ def release_post(base, path, data, token, admin_cookie=False):
         raise RuntimeError('Release API request failed: HTTP ' + str(error.code)) from None
 
 
-def notify_release(base, manifest, secret_file=None, admin_session_file=None):
-    if admin_session_file:
-        if os.name != 'nt' and (admin_session_file.stat().st_mode & 0o077 or admin_session_file.stat().st_uid != os.geteuid()):
-            raise RuntimeError('Admin session file must be private (0600) and owned by the current user')
-        host = urllib.parse.urlparse(base).hostname
-        cookies = [cookie for cookie in json.loads(admin_session_file.read_text())['cookies']
-                   if cookie['name'] == 'coc_admin' and cookie['domain'] == host and cookie.get('path') == '/']
-        if len(cookies) != 1 or not re.fullmatch(r'[A-Za-z0-9._~-]+', cookies[0]['value']):
-            raise RuntimeError('Expected one admin session cookie for the deployment target')
-        expected = {key: manifest[key] for key in ('version', 'commit')}
-        result = release_post(base, '/api/v1/admin/releases', expected, cookies[0]['value'], admin_cookie=True)
-        if result != expected:
-            raise RuntimeError('Release notification identity mismatch')
-        return expected
+def notify_release(base, manifest, secret_file):
     if os.name != 'nt' and (secret_file.stat().st_mode & 0o077 or secret_file.stat().st_uid != os.geteuid()):
         raise RuntimeError('Owner secret must be private (0600) and owned by the current user')
     secret = secret_file.read_text().strip()
@@ -387,7 +372,6 @@ def main():
     parser.add_argument('--skip-native-platform', choices=['linux-musl'], help='Explicitly defer musl while preserving its previous verified download; requires --publish-downloads')
     parser.add_argument('--notify-release', action='store_true', help='Notify automatic updaters after deployment and all online package checks pass')
     parser.add_argument('--owner-secret-file', type=pathlib.Path, help='Private owner secret file used only for release notification')
-    parser.add_argument('--admin-session-file', type=pathlib.Path, help='Private Playwright storage state with an existing coc_admin session for release notification')
     args = parser.parse_args()
     previous_web_worker = None
     if args.web_only_from:
@@ -424,15 +408,14 @@ def main():
         parser.error('--allow-uncommitted requires --local-build')
     if args.local_native_build_dir and not args.local_build:
         parser.error('--local-native-build-dir requires --local-build')
-    if args.local_build and (args.run_id or args.cloud_only_after_windows_failure or args.publish_downloads):
+    if args.local_build and (args.run_id or args.cloud_only_after_windows_failure or args.publish_downloads or args.notify_release):
         parser.error('--local-build forbids CI run selection and native publication/notification')
     if args.cloud_only_after_windows_failure and (args.publish_downloads or args.notify_release or not args.run_id):
         parser.error('Cloud-only exception requires --run-id and forbids native publication/notification')
     if args.skip_native_platform and (not args.publish_downloads or args.notify_release):
         parser.error('--skip-native-platform requires --publish-downloads and forbids --notify-release')
-    if args.notify_release and (not (args.publish_downloads or args.local_native_build_dir) or
-                                bool(args.owner_secret_file) == bool(args.admin_session_file)):
-        parser.error('--notify-release requires published downloads and exactly one owner secret or admin session file')
+    if args.notify_release and (not args.publish_downloads or not args.owner_secret_file):
+        parser.error('--notify-release requires --publish-downloads and --owner-secret-file')
     if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', name) for name in args.delete_secret):
         parser.error('Invalid secret name')
     if not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repository):
@@ -639,7 +622,7 @@ def main():
     evidence['verification'] = {'health': health, 'publicAssetBytesMatch': True}
     evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     if args.notify_release:
-        evidence['releaseNotification'] = notify_release(base, published, args.owner_secret_file, args.admin_session_file)
+        evidence['releaseNotification'] = notify_release(base, published, args.owner_secret_file)
         evidence_path.write_text(json.dumps(evidence, indent=2) + '\n')
     print('Deployed and verified ' + base + ' from ' + commit)
 
