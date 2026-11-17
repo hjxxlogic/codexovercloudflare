@@ -326,7 +326,38 @@ try {
   const snapshot = () =>
     api(`/sessions/${session.id}/snapshot?historyVersion=2`);
   await wait(
-    async () => (await snapshot()).session.promptQueue?.length === 1,
+    () =>
+      messages.some(
+        (d) =>
+          d.event?.type === 'test/steered' && d.event.data.text === queued.text,
+      ),
+    'deduplicated encrypted steering',
+  );
+  assert.equal(
+    messages.filter(
+      (d) =>
+        d.event?.type === 'test/steered' && d.event.data.text === queued.text,
+    ).length,
+    1,
+  );
+  assert.equal((await snapshot()).session.running, true);
+  await wait(
+    async () => !(await snapshot()).session.promptQueue?.length,
+    'steered queue drained',
+  );
+  // Successful enqueue now steers immediately. A definite refusal retains an
+  // entry so encrypted cancellation and explicit run-now remain testable.
+  const refused = {
+    ...queued,
+    requestId: 'queue-refused',
+    text: 'steer-reject secret-queue-body',
+  };
+  window.send(JSON.stringify(refused));
+  window.send(JSON.stringify(refused));
+  await wait(
+    async () =>
+      (await snapshot()).session.promptQueue?.length === 1 &&
+      (await snapshot()).session.promptQueue[0].state === 'failed',
     'deduplicated encrypted queue',
   );
   const queueId = (await snapshot()).session.promptQueue[0].id;
@@ -345,11 +376,11 @@ try {
     JSON.stringify({
       action: 'enqueue',
       requestId: 'queue-run-message',
-      text: 'run queued message',
+      text: 'steer-reject run queued message',
     }),
   );
   await wait(
-    async () => (await snapshot()).session.promptQueue?.length === 1,
+    async () => (await snapshot()).session.promptQueue[0]?.state === 'failed',
     'second queue entry',
   );
   window.send(
@@ -461,23 +492,25 @@ try {
     console.error('Draft:', await page.getByLabel('任务内容').inputValue());
     throw error;
   }
-  await page.getByLabel('任务内容').fill('browser queued body');
+  await page.getByLabel('任务内容').fill('steer-reject browser queued body');
   await page.getByRole('button', { name: '排队消息', exact: true }).click();
   const panel = page.getByRole('region', { name: '排队消息', exact: true });
   await expect(
-    panel.getByText('browser queued body', { exact: true }),
+    panel.getByText('steer-reject browser queued body', { exact: true }),
   ).toBeVisible();
   const artifacts = process.env.COC_ARTIFACT_DIR || '.local/screenshots';
   mkdirSync(artifacts, { recursive: true });
   await page.screenshot({ path: join(artifacts, 'opaque-queue-mobile.png') });
   await page.reload();
   await expect(
-    panel.getByText('browser queued body', { exact: true }),
+    panel.getByText('steer-reject browser queued body', { exact: true }),
   ).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: join(artifacts, 'opaque-queue-desktop.png') });
   await panel.getByRole('button', { name: '立即执行', exact: true }).click();
-  await page.getByText('echo: browser queued body', { exact: true }).waitFor();
+  await page
+    .getByText('echo: steer-reject browser queued body', { exact: true })
+    .waitFor();
   await expect(panel).toHaveCount(0);
 
   assert.equal(errors.length, 0, errors.join('\n'));
