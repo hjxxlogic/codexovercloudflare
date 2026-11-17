@@ -3135,6 +3135,9 @@ async function legacyUI() {
   await expect(configEditor).toHaveCount(0);
   await fixtureRoutes.unroute('**/api/v1/admin/hosts/sample/configuration');
   const notifyUpdate = updates.getByRole('button');
+  await expect(updates).toContainText(
+    `Website version: ${webVersion}. Agent updates use a separately published download version, which may differ from the website version.`,
+  );
   const publishedRelease = {
     version: '0.5.15',
     commit: 'a'.repeat(40),
@@ -3199,7 +3202,7 @@ async function legacyUI() {
   }
   finishNotification();
   await expect(updates.getByRole('status')).toHaveText(
-    'Update notification submitted for 0.5.15.',
+    'Update notification submitted for Agent 0.5.15; the target version comes from the published Agent download package.',
   );
   await expect(notifyUpdate).toBeEnabled();
   assert.deepEqual(

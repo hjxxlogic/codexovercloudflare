@@ -312,7 +312,10 @@ export const english: Record<string, string> = {
   'Agent 更新': 'Agent updates',
   '通知所有 coc-agent 更新': 'Notify all coc-agent instances to update',
   '正在发送更新通知…': 'Sending update notification…',
-  '已提交 {0} 更新通知。': 'Update notification submitted for {0}.',
+  '网页版本：{0}。Agent 更新使用单独发布的下载版本，可能与网页版本不同。':
+    'Website version: {0}. Agent updates use a separately published download version, which may differ from the website version.',
+  '已提交 Agent {0} 更新通知；目标版本来自已发布的 Agent 下载包。':
+    'Update notification submitted for Agent {0}; the target version comes from the published Agent download package.',
   '无法读取已发布版本，请稍后重试。':
     'Could not read the published release. Please try again later.',
   '更新通知失败，请重试。': 'Update notification failed. Please try again.',

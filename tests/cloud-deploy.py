@@ -18,6 +18,38 @@ COMMIT = 'a' * 40
 
 
 class CloudArtifactTests(unittest.TestCase):
+    def test_admin_session_notification_is_private_and_target_bound(self):
+        manifest = {'version': '0.6.25', 'commit': COMMIT}
+        with tempfile.TemporaryDirectory() as directory:
+            session = pathlib.Path(directory) / 'admin.json'
+            cookie = {'name': 'coc_admin', 'domain': 'r.xlogic.cc', 'path': '/', 'value': 'private-session'}
+            session.write_text(json.dumps({'cookies': [cookie]}))
+            session.chmod(0o600)
+            with patch.object(cloud, 'release_post', return_value=manifest) as post:
+                self.assertEqual(cloud.notify_release('https://r.xlogic.cc', manifest, admin_session_file=session), manifest)
+                post.assert_called_once_with('https://r.xlogic.cc', '/api/v1/admin/releases', manifest,
+                                             'private-session', admin_cookie=True)
+            with patch.object(cloud, 'release_post') as post:
+                with self.assertRaisesRegex(RuntimeError, 'deployment target'):
+                    cloud.notify_release('https://r2.xlogic.cc', manifest, admin_session_file=session)
+                post.assert_not_called()
+            session.chmod(0o644)
+            with self.assertRaisesRegex(RuntimeError, 'private'):
+                cloud.notify_release('https://r.xlogic.cc', manifest, admin_session_file=session)
+
+    def test_local_notification_requires_native_publication_and_one_credential(self):
+        options = ['--local-build', '--local-native-build-dir', 'build-musl-release',
+                   '--notify-release', '--admin-session-file', '/private/admin.json']
+        with patch('sys.argv', ['deploy-cloud.py', *options]), \
+                patch.object(cloud.subprocess, 'check_output', side_effect=RuntimeError('source validation reached')):
+            with self.assertRaisesRegex(RuntimeError, 'source validation reached'):
+                cloud.main()
+        for extra in ([], ['--admin-session-file', '/private/admin.json', '--owner-secret-file', '/private/owner']):
+            with patch('sys.argv', ['deploy-cloud.py', '--local-build', '--local-native-build-dir',
+                                   'build-musl-release', '--notify-release', *extra]):
+                with self.assertRaises(SystemExit):
+                    cloud.main()
+
     def test_public_artifact_download_routes_preserve_identity(self):
         self.assertEqual(cloud.artifact_url('owner/repo', 12, 34),
                          'https://nightly.link/owner/repo/actions/artifacts/34.zip')

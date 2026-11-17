@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { z } from 'zod';
+import { version as webVersion } from '../../../package.json';
 import { api } from './api.ts';
 import { t } from './i18n.ts';
 
@@ -52,13 +53,26 @@ export function AgentUpdates() {
       <h3>{t('Agent 更新')}</h3>
       <p>
         {t(
+          '网页版本：{0}。Agent 更新使用单独发布的下载版本，可能与网页版本不同。',
+          webVersion,
+        )}
+      </p>
+      <p>
+        {t(
           '通知所有已授权 Agent 检查已发布版本。仅启用自动更新的 Agent 会升级，并等待所有会话结束；相同版本不重复通知。',
         )}
       </p>
       <button disabled={busy} onClick={() => void notify()}>
         {busy ? t('正在发送更新通知…') : t('通知所有 coc-agent 更新')}
       </button>
-      {version && <p role="status">{t('已提交 {0} 更新通知。', version)}</p>}
+      {version && (
+        <p role="status">
+          {t(
+            '已提交 Agent {0} 更新通知；目标版本来自已发布的 Agent 下载包。',
+            version,
+          )}
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
     </section>
   );
