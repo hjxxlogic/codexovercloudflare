@@ -260,17 +260,29 @@ try {
     .getByRole('button', { name: '项目管理 · Multi-project test', exact: true })
     .click();
   await expect(page.getByText('尚未登记项目', { exact: true })).toBeVisible();
-  const projectPath = join(root, 'work', 'first');
-  await page.getByLabel('远程目录绝对路径').fill(projectPath);
+  const projectParent = join(root, 'work');
+  mkdirSync(projectParent);
+  const projectPath = join(projectParent, 'first');
+  await page.getByText('按路径跳转', { exact: true }).click();
+  await page.getByLabel('远程目录绝对路径').fill(projectParent);
+  await page.getByRole('button', { name: '打开目录', exact: true }).click();
+  await expect(page.locator('.project-wizard-path code')).toHaveText(
+    projectParent,
+  );
+  await page.getByRole('button', { name: '新建子目录', exact: true }).click();
+  await page.getByLabel('新目录名称').fill('first');
+  await page.getByRole('button', { name: '创建并选用', exact: true }).click();
+  await expect(page.locator('.project-wizard-path code')).toHaveText(
+    projectPath,
+  );
+  assert(existsSync(projectPath));
+  await expect(page.getByText('尚未登记项目', { exact: true })).toBeVisible();
   await page.getByLabel('项目显示名', { exact: true }).fill('First project');
-  await page.getByLabel('目录不存在时创建').check();
   await page.getByRole('button', { name: '添加项目', exact: true }).click();
   await expect(page.locator('.project-management strong')).toHaveText(
     'First project',
   );
-  assert(existsSync(projectPath));
-  await page.getByLabel('远程目录绝对路径').fill(join(root, 'work'));
-  await page.getByRole('button', { name: '浏览目录', exact: true }).click();
+  await page.getByRole('button', { name: '上级目录', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'first', exact: true }),
   ).toBeVisible();

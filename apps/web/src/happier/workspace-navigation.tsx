@@ -153,6 +153,7 @@ export function WorkspaceNavigation({
             )}
             {level.id === 'projects' && (
               <>
+                <div className="navigation-project-action">{projectAction}</div>
                 <div className="navigation-list" aria-label={t('项目列表')}>
                   {projects.map((item) => (
                     <button
@@ -177,7 +178,6 @@ export function WorkspaceNavigation({
                     <p className="empty-hint">{t('尚未登记项目')}</p>
                   )}
                 </div>
-                <div className="navigation-project-action">{projectAction}</div>
               </>
             )}
             {level.id === 'sessions' && children}

@@ -47,7 +47,8 @@ struct Peer {
   std::string partial;
   std::string controller_id;
   std::vector<Json> packets;
-  Peer(Fixture &f, std::string owner = "owner", bool manage = false, int64_t expiry = now() + 60000)
+  Peer(Fixture &f, std::string owner = "owner", bool manage = false, int64_t expiry = now() + 60000,
+       bool access = true)
       : f(f), own(std::move(owner)), cipher(true, "binding:" + link) {
     f.endpoint.receive(
         {{"type", "channel-open"},
@@ -60,7 +61,8 @@ struct Peer {
            {"role", "web"},
            {"accountId", "mailbox"},
            {"expires", expiry},
-           {"permissions", {{"access", true}, {"projects", manage}, {"configuration", manage}}}}}});
+           {"permissions",
+            {{"access", access}, {"projects", manage}, {"configuration", manage}}}}}});
     std::string header;
     for (const auto &d : f.wire)
       if (d.value("link", "") == link) {
@@ -117,10 +119,18 @@ struct Peer {
 void permissions() {
   Fixture f;
   Peer a(f);
-  check(a.request("/hosts/host/project-management", {{"operation", "register"}})
-                .at("error")
-                .at("code") == "FORBIDDEN",
-        "Ordinary client cannot manage projects");
+  const std::string projects = "/hosts/host/project-management";
+  for (const auto *op : {"rename", "remove", "register"})
+    check(a.request(projects, {{"operation", op}}).at("error").at("code") == "FORBIDDEN",
+          "Ordinary access grants only the allowed project operations");
+  Peer denied(f, "denied", false, now() + 60000, false);
+  for (const auto *op : {"list", "browse", "add", "mkdir"})
+    check(denied.request(projects, {{"operation", op}}).at("error").at("code") == "FORBIDDEN",
+          "Host access is required to create a project");
+  check(
+      a.request("/hosts/other/project-management", {{"operation", "add"}}).at("error").at("code") ==
+          "FORBIDDEN",
+      "Host access cannot create a project on another host");
   check(a.request("/admin/hosts/host/configuration").at("error").at("code") == "FORBIDDEN",
         "Self reported admin path cannot elevate role");
   check(a.request("/hosts/other/projects").at("error").at("code") == "FORBIDDEN",
@@ -128,6 +138,29 @@ void permissions() {
   check(f.business.empty(), "Denied calls never reach business handler");
   a.request("/hosts/host/projects");
   check(f.business.size() == 1, "Ordinary project reads remain supported");
+  const auto catalog = a.request(projects).at("data");
+  check(catalog.at("canCreate") == true && catalog.at("canManage") == false,
+        "Ordinary project catalogs allow creation");
+  Peer manager(f, "manager", true, now() + 60000, false);
+  const auto managed = manager.request(projects).at("data");
+  check(managed.at("canCreate") == true && managed.at("canManage") == true,
+        "Project managers can create projects through their management permission");
+  check(a.request(projects, {{"operation", "browse"}}).at("data").at("ok") == true,
+        "Ordinary host access can browse directories");
+  for (const auto *op : {"add", "mkdir"}) {
+    check(a.request(projects, {{"operation", op}}).at("error").at("code") == "UPGRADE_REQUIRED",
+          "Project mutations require an original request");
+    a.send({{"type", "request"},
+            {"id", uuid()},
+            {"path", projects},
+            {"body", {{"operation", op}, {"requestId", op}}},
+            {"requestId", op},
+            {"intent", {{"instance", "instance"}}}});
+    check(a.packets.back().at("data").at("canCreate") == true &&
+              f.business.back().at("data").at("operation") == op &&
+              f.business.back().at("intent").at("owner") == a.own,
+          "Ordinary host access can submit an owner-bound creation request");
+  }
   auto reply = a.claim();
   const auto ticket = reply.at("data").at("ticket").get<std::string>();
   Peer b(f, "other");

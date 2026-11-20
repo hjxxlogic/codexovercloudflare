@@ -290,11 +290,13 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
     return list();
   if (operation == "browse") {
     const auto raw = d.at("path").get<std::string>();
+    auto requested = std::filesystem::u8path(raw);
+    if (raw == "/" && !requested.is_absolute())
+      requested = std::filesystem::current_path().root_path();
     if (raw.empty() || raw.size() > 4096 || raw.find('\0') != std::string::npos ||
-        !std::filesystem::u8path(raw).is_absolute())
+        !requested.is_absolute())
       throw Error("INVALID_REQUEST", "Directory path must be absolute and valid");
-    auto path =
-        std::filesystem::canonical(std::filesystem::u8path(d.at("path").get<std::string>()));
+    auto path = std::filesystem::canonical(requested);
     Json directories = Json::array();
     bool truncated = false;
     size_t bytes = 0, scanned = 0;
@@ -323,7 +325,7 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
             {"directories", directories},
             {"truncated", truncated}};
   }
-  if (operation != "add" && operation != "rename" && operation != "remove")
+  if (operation != "add" && operation != "rename" && operation != "remove" && operation != "mkdir")
     throw Error("INVALID_REQUEST", "Unknown project operation");
   if (!d.at("revision").is_number_integer() || d.at("revision").get<int64_t>() < 0 ||
       d.at("revision").get<int64_t>() > 9007199254740991LL)
@@ -367,7 +369,23 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   std::filesystem::path create_path, expected_path;
   auto next = state_;
   auto &projects = next["projects"];
-  if (operation == "add") {
+  if (operation == "mkdir") {
+    const auto raw = d.at("path").get<std::string>();
+    const auto name = d.at("directoryName").get<std::string>();
+    const auto parent = std::filesystem::u8path(raw);
+    if (raw.empty() || raw.size() > 4096 || raw.find('\0') != std::string::npos ||
+        !parent.is_absolute() || name.empty() || name.size() > 255 || name == "." || name == ".." ||
+        name.find_first_of("/\\:") != std::string::npos ||
+        std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32; }))
+      throw Error("INVALID_REQUEST", "Provide an absolute parent path and a single directory name");
+    const auto real = std::filesystem::canonical(parent);
+    if (real != parent || !std::filesystem::is_directory(real))
+      throw Error("PROJECT_PATH", "Parent directory changed; browse the directory again");
+    create_path = real / std::filesystem::u8path(name);
+    expected_path = create_path;
+    if (expected_path.u8string().size() > 4096)
+      throw Error("INVALID_REQUEST", "Canonical project path exceeds its budget");
+  } else if (operation == "add") {
     const auto id = d.value("id", uuid());
     if (!valid_id(id))
       throw Error("INVALID_REQUEST", "Invalid project ID");
@@ -423,6 +441,11 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   }
   next["revision"] = state_.at("revision").get<int64_t>() + 1;
   Json result = {{"revision", next["revision"]}, {"projects", next["projects"]}};
+  if (operation == "mkdir") {
+    result["path"] = expected_path.u8string();
+    if (result.dump().size() > max_frame - 8192)
+      throw Error("MESSAGE_TOO_LARGE", "Project result exceeds frame budget");
+  }
   check_catalog(next);
   auto started = state_;
   started["journal"]["keys"][key] = {{"owner", owner},
@@ -444,7 +467,11 @@ Json Projects::execute(const Json &d, const std::function<bool(const std::string
   commit(std::move(started));
   try {
     if (!create_path.empty()) {
-      std::filesystem::create_directories(create_path);
+      if (operation == "mkdir") {
+        if (!std::filesystem::create_directory(create_path))
+          throw Error("PROJECT_PATH", "Directory already exists; browse to select it");
+      } else
+        std::filesystem::create_directories(create_path);
       const auto real = std::filesystem::canonical(create_path);
       if (real != expected_path || !std::filesystem::is_directory(real) ||
           !readable_directory(real))

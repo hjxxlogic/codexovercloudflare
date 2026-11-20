@@ -376,10 +376,11 @@ void EndpointService::request(const std::string &link, const Json &d) {
     if (action == "projectManage") {
       if (!args.contains("operation"))
         args["operation"] = "list";
-      if (args.value("operation", "list") != "list")
-        require_access(link, "projects");
-      else if (!identity.at("permissions").value("projects", false))
-        require_access(link, "access");
+      const auto operation = args.at("operation").get<std::string>();
+      const bool host_access_operation = operation == "list" || operation == "browse" ||
+                                         operation == "add" || operation == "mkdir";
+      const bool manages_projects = identity.at("permissions").value("projects", false);
+      require_access(link, host_access_operation && !manages_projects ? "access" : "projects");
       if (args.contains("requestId"))
         args["requestId"] = delivery_digest(own + ":" + args.at("requestId").get<std::string>());
     } else if (action == "configuration" || action == "build")
@@ -508,8 +509,12 @@ void EndpointService::request(const std::string &link, const Json &d) {
   call(link, action, args, original, [this, link, id, action](Json result) {
     if (result.contains("data")) {
       auto &data = result["data"];
-      if (action == "projectManage" && data.is_object())
-        data["canManage"] = links_.at(link).identity.at("permissions").value("projects", false);
+      if (action == "projectManage" && data.is_object()) {
+        const auto &permissions = links_.at(link).identity.at("permissions");
+        const bool manages_projects = permissions.value("projects", false);
+        data["canManage"] = manages_projects;
+        data["canCreate"] = manages_projects || permissions.value("access", false);
+      }
       if ((action == "get" || action == "create" || action == "stop") && data.is_object())
         data.erase("endpointLease");
       if (action == "list") {

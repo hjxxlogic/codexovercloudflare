@@ -172,6 +172,8 @@ HostRelayDO 的首次访问迁移沿用 namespace/object identity；每批至多
 
 主站仅更新网页使用 `python3 scripts/deploy-cloud.py --local-build --target production --web-only-from .local/deploy-cloud/PREVIOUS/deployment.json --apply`。必须使用此前已验证且当前执行模块仍一致的主站证据；不能使用 r2 证据。原生下载从主站读取并保留，不安装或重启 Agent。
 
+2026-11-20 主站 CW 项目向导仅更新网页，Cloudflare 版本为 `3ad3baed-16c2-43a7-95cf-5ace4f162858`。网页从本地工作树构建，基准提交 `cd98bed8309d06f0bae34274fcdbbc00e22f0416`，源码摘要 `1d42a2b89fa38029e1e116909f8d3f99ebbce31ad984690e28e4f572825bbbd4`。按要求跳过 GitHub Actions，`ciVerified=false`。线上健康检查与网页静态资源逐字节校验通过，首页 SHA256 为 `0fb8e8ec212cb5c08b588a0001443c93251eee21323550e5d73129ebf71f65e0`。重新核对的 Worker 执行模块 SHA256 为 `fc317c9a1ca88607471d09ff8cf49de36f8914aa17832acb3ee2bd259a6f1b58`。本次保留现有 Agent 与下载，向导的“新建子目录”需要支持该操作的 Agent。
+
 ## 显式跳过 CI，仅发布本地 Linux 下载
 
 仅在用户明确要求时使用；需要干净源码提交与相同身份的静态 musl 构建。不会触发 Actions，不会安装或重启 Agent，也不发送更新通知：

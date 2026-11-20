@@ -219,6 +219,37 @@ void owner_isolation(const std::filesystem::path &root) {
   check(projects.request(second, idle).at("revision") == 3,
         "Local control has an independent server-selected identity namespace");
 }
+void create_project_directory(const std::filesystem::path &root) {
+  const auto config = catalog_config(root, "mkdir", Json::array());
+  const auto idle = [](const std::string &) { return false; };
+  const auto parent = std::filesystem::canonical(root);
+  const auto child = parent / "wizard-directory";
+  Store::Lock lock(config.at("dataDir"), true);
+  Projects projects(config);
+  Json mkdir = {{"operation", "mkdir"},
+                {"requestId", "create-child"},
+                {"revision", 0},
+                {"path", parent.u8string()},
+                {"directoryName", ".."}};
+  rejects([&] { projects.request(mkdir, idle); }, "INVALID_REQUEST");
+  mkdir["directoryName"] = child.filename().u8string();
+  const auto created = projects.request(mkdir, idle);
+  check(created.at("path") == child.u8string() && std::filesystem::is_directory(child),
+        "Creating a subdirectory returns the real path");
+  check(created.at("projects").empty(), "Directory creation does not register a project");
+  auto duplicate = mkdir;
+  duplicate["requestId"] = "duplicate-child";
+  duplicate["revision"] = created.at("revision");
+  rejects([&] { projects.request(duplicate, idle); }, "PROJECT_PATH");
+  const auto added = projects.request({{"operation", "add"},
+                                       {"revision", created.at("revision")},
+                                       {"requestId", "select-child"},
+                                       {"path", created.at("path")}},
+                                      idle);
+  check(added.at("projects").size() == 1, "The directory can be registered separately");
+  Projects reopened(config);
+  check(reopened.request(mkdir, idle) == created, "Directory receipt survives restart");
+}
 void catalog_limits(const std::filesystem::path &root) {
   const auto idle = [](const std::string &) { return false; };
   const auto work = root / "catalog-new";
@@ -583,6 +614,7 @@ int main() {
     journal_limits(root);
     owner_isolation(root);
     catalog_limits(root);
+    create_project_directory(root);
     admission_faults(root);
 #ifdef __linux__
     interrupted_projects(root);

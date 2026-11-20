@@ -1,5 +1,5 @@
 import { IconButton } from './happier/icon-button.tsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, readApi, queryApi } from './api.ts';
 import { observe } from './notifications.ts';
 import { HistoryCache } from './history.ts';
@@ -7,7 +7,12 @@ import { OperationClient } from './operations.ts';
 import { t } from './i18n.ts';
 
 type Project = { id: string; name: string; path: string; available?: boolean };
-type Catalog = { revision: number; projects: Project[]; canManage: boolean };
+type Catalog = {
+  revision: number;
+  projects: Project[];
+  canManage: boolean;
+  canCreate?: boolean;
+};
 function siblingDirectory(path = '') {
   const normalized = path.trim().replace(/[\\/]+$/, '');
   const separator = normalized.includes('\\') ? '\\' : '/';
@@ -41,20 +46,29 @@ export function ProjectManager({
   const client = operations || ownOperations;
   const [catalog, setCatalog] = useState<Catalog>();
   const [path, setPath] = useState(() => siblingDirectory(defaultProjectPath));
-  const pathEdited = useRef(false);
-  useEffect(() => {
-    if (!pathEdited.current) setPath(siblingDirectory(defaultProjectPath));
-  }, [defaultProjectPath]);
   const [name, setName] = useState('');
-  const [mkdir, setMkdir] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [selectedPath, setSelectedPath] = useState('');
+  const [directoryName, setDirectoryName] = useState<string>();
+  const [working, setBusy] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const busy = working || recovering;
   const [error, setError] = useState('');
+  const [created, setCreated] = useState(false);
+  const formId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const projectNameInput = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<Record<string, unknown>>();
   const [directories, setDirectories] = useState<{
+    path: string;
     parent: string;
     directories: { name: string; path: string }[];
     truncated: boolean;
   }>();
+  useEffect(() => {
+    if (busy) return;
+    if (created) trigger.current?.focus();
+    if (selectedPath) projectNameInput.current?.focus();
+  }, [created, busy, selectedPath]);
   const endpoint = `${admin ? '/admin' : ''}/hosts/${hostId}/project-management`;
   useEffect(() => {
     if (!admin || !activated) return;
@@ -90,45 +104,49 @@ export function ProjectManager({
     if (!open || !client) return;
     let disposed = false;
     const controller = new AbortController();
+    setRecovering(true);
     void client
       .records()
       .then(async (records) => {
         const original = records.find(
           (record) => record.path === endpoint && record.state !== 'confirmed',
         );
-        if (!original) return;
-        if (!disposed) {
-          setPending(original.body);
-          setBusy(true);
-        }
+        if (!original?.body) return;
+        if (disposed) return;
+        setPending(original.body);
         const result = await client.resume(
           original.requestId,
           controller.signal,
         );
         if (disposed) return;
-        setCatalog(result);
-        setPending(undefined);
-        await changed?.();
+        setRecovering(false);
+        await applyResult(original.body, result);
       })
       .catch((error) => {
         if (!disposed) setError(String(error));
       })
       .finally(() => {
-        if (!disposed) setBusy(false);
+        if (!disposed) setRecovering(false);
       });
     return () => {
       disposed = true;
       controller.abort();
     };
   }, [open, client, endpoint]);
-  async function refresh(refreshList = false) {
+  async function refresh(refreshList = false, initialize = false) {
     setBusy(true);
     setError('');
     try {
       const next: Catalog = await readApi(endpoint);
       setCatalog(next);
-      if (!pathEdited.current)
-        setPath(siblingDirectory(defaultProjectPath || next.projects[0]?.path));
+      const canCreate = next.canCreate ?? next.canManage;
+      if ((open || initialize) && canCreate && !directories && !selectedPath) {
+        const initial = siblingDirectory(
+          defaultProjectPath || next.projects[0]?.path,
+        );
+        setPath(initial);
+        await loadDirectory(initial);
+      }
       if (refreshList) await changed?.();
     } catch (e) {
       setError(String(e));
@@ -151,6 +169,7 @@ export function ProjectManager({
     };
   }, [open, admin, hostId, endpoint]);
   async function mutate(data: Record<string, unknown>) {
+    setCreated(false);
     const request = data.requestId
       ? data
       : {
@@ -163,19 +182,15 @@ export function ProjectManager({
     setPending(request);
     try {
       if (!client) throw new Error('本机存储尚未就绪，请稍后重试');
-      setCatalog(
-        await client.submit(endpoint, request, String(request.requestId), {
+      const result = await client.submit(
+        endpoint,
+        request,
+        String(request.requestId),
+        {
           kind: 'project',
-        }),
+        },
       );
-      setPending(undefined);
-      if (request.operation === 'add') {
-        pathEdited.current = false;
-        setPath(siblingDirectory(String(request.path)));
-        setName('');
-        setDirectories(undefined);
-      }
-      await changed?.();
+      await applyResult(request, result);
     } catch (e) {
       setError(String(e));
       const original = (await client?.records().catch(() => []))?.find(
@@ -186,11 +201,51 @@ export function ProjectManager({
       setBusy(false);
     }
   }
-  async function browse() {
+  async function applyResult(
+    request: Record<string, unknown>,
+    result: Catalog & { path?: string },
+  ) {
+    setCatalog(result);
+    setPending(undefined);
+    if (request.operation === 'mkdir' && result.path) {
+      setPath(result.path);
+      setDirectories({
+        path: result.path,
+        parent: String(request.path),
+        directories: [],
+        truncated: false,
+      });
+      setDirectoryName(undefined);
+      setSelectedPath(result.path);
+      return;
+    }
+    if (request.operation === 'add') {
+      setName('');
+      setSelectedPath('');
+      setDirectoryName(undefined);
+      if (creationOnly) {
+        setDirectories(undefined);
+        setCreated(true);
+        setOpen(false);
+      }
+    }
+    await changed?.();
+  }
+  async function loadDirectory(directory: string) {
+    const result = await queryApi(endpoint, {
+      operation: 'browse',
+      path: directory,
+    });
+    setPath(result.path);
+    setDirectories(result);
+    setDirectoryName(undefined);
+  }
+  async function browse(directory: string) {
+    if (!directory.trim()) return;
     setBusy(true);
     setError('');
     try {
-      setDirectories(await queryApi(endpoint, { operation: 'browse', path }));
+      await loadDirectory(directory);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -210,13 +265,17 @@ export function ProjectManager({
         )}
         {creationOnly ? (
           <IconButton
-            icon="plus"
-            label={t('新建项目')}
+            icon={open ? 'close' : 'plus'}
+            label={t(open ? '收起新建项目' : '新建项目')}
+            showLabel
+            ref={trigger}
             aria-expanded={open}
+            aria-controls={open ? formId : undefined}
+            disabled={busy}
             onClick={() => {
-              setActivated(true);
+              setCreated(false);
               setOpen(!open);
-              if (!open) void refresh();
+              if (!open) void refresh(false, true);
             }}
           />
         ) : (
@@ -224,15 +283,20 @@ export function ProjectManager({
             onClick={() => {
               setActivated(true);
               setOpen(!open);
-              if (!open) void refresh();
+              if (!open) void refresh(false, true);
             }}
           >
             {t('项目管理')} · {hostName}
           </button>
         )}
       </div>
+      {created && <p role="status">{t('项目已添加')}</p>}
+      {!open && creationOnly && error && <p role="alert">{error}</p>}
       {open && (
-        <>
+        <div
+          id={formId}
+          className={creationOnly ? 'project-creation' : undefined}
+        >
           <p>
             {t('目标 Agent：')}
             {hostName} <code>{hostId}</code>
@@ -246,6 +310,17 @@ export function ProjectManager({
             />
           )}
           {error && <p role="alert">{error}</p>}
+          {busy && creationOnly && (
+            <p role="status">
+              {t(
+                pending?.operation === 'mkdir'
+                  ? '正在新建目录…'
+                  : pending
+                    ? '正在确认项目登记…'
+                    : '正在读取…',
+              )}
+            </p>
+          )}
           {pending && !busy && (
             <div role="status">
               <p>{t('操作结果未确认，请重试原请求或刷新核对后继续。')}</p>
@@ -313,104 +388,208 @@ export function ProjectManager({
                   ))}
                 </ul>
               )}
-              {catalog.canManage ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void mutate({
-                      operation: 'add',
-                      path,
-                      mkdir,
-                      ...(name.trim() ? { name: name.trim() } : {}),
-                    });
-                  }}
-                >
-                  <p>
-                    {t(
-                      '新增项目对该 Agent 已授权的使用者可见。文件访问使用 Agent 的系统用户权限。',
-                    )}
-                  </p>
-                  <label>
-                    {t('远程目录绝对路径')}
-                    <input
-                      required
-                      value={path}
-                      maxLength={4096}
-                      onChange={(e) => {
-                        pathEdited.current = true;
-                        setPath(e.target.value);
+              {(catalog.canCreate ?? catalog.canManage) ? (
+                <div className="project-wizard">
+                  {selectedPath ? (
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (busy || pending) return;
+                        void mutate({
+                          operation: 'add',
+                          path: selectedPath,
+                          ...(name.trim() ? { name: name.trim() } : {}),
+                        });
                       }}
-                      disabled={busy || !!pending}
-                    />
-                  </label>
-                  <IconButton
-                    icon="folder"
-                    label={t('浏览目录')}
-                    type="button"
-                    disabled={!path || busy || !!pending}
-                    onClick={() => void browse()}
-                  />
-                  {directories && (
-                    <div>
-                      <IconButton
-                        icon="back"
-                        label={t('上级目录')}
-                        type="button"
-                        onClick={() => {
-                          pathEdited.current = true;
-                          setPath(directories.parent);
-                          setDirectories(undefined);
-                        }}
-                      />
-                      {directories.directories.map((d) => (
+                    >
+                      <h3>{t('第 2 步 · 确认项目')}</h3>
+                      <div className="project-wizard-path">
+                        <span>{t('已选目录')}</span>
+                        <code>{selectedPath}</code>
+                      </div>
+                      <label>
+                        {t('项目显示名')}
+                        <input
+                          ref={projectNameInput}
+                          value={name}
+                          placeholder={t('留空则使用目录名')}
+                          maxLength={100}
+                          onChange={(event) => setName(event.target.value)}
+                          disabled={busy || !!pending}
+                        />
+                      </label>
+                      <p>
+                        {t(
+                          '新增项目对该 Agent 已授权的使用者可见。文件访问使用 Agent 的系统用户权限。',
+                        )}
+                      </p>
+                      <div className="project-wizard-actions">
                         <button
                           type="button"
-                          key={d.path}
+                          disabled={busy || !!pending}
                           onClick={() => {
-                            pathEdited.current = true;
-                            setPath(d.path);
-                            setDirectories(undefined);
+                            setError('');
+                            setSelectedPath('');
+                            void browse(selectedPath);
                           }}
                         >
-                          {d.name}
+                          {t('返回选择目录')}
                         </button>
-                      ))}
-                      {directories.truncated && (
-                        <p>{t('目录过多，请输入更具体的路径')}</p>
+                        <button
+                          className="primary"
+                          type="submit"
+                          disabled={busy || !!pending}
+                        >
+                          {t('添加项目')}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <h3>{t('第 1 步 · 选择远程目录')}</h3>
+                      {directories && (
+                        <>
+                          <div className="project-wizard-path">
+                            <span>{t('当前目录')}</span>
+                            <code>{directories.path}</code>
+                          </div>
+                          <div className="project-wizard-actions">
+                            <button
+                              type="button"
+                              disabled={
+                                busy ||
+                                !!pending ||
+                                !directories.parent ||
+                                directories.parent === directories.path
+                              }
+                              onClick={() => void browse(directories.parent)}
+                            >
+                              {t('上级目录')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                busy || !!pending || directoryName !== undefined
+                              }
+                              onClick={() => setDirectoryName('')}
+                            >
+                              {t('新建子目录')}
+                            </button>
+                          </div>
+                          {directoryName !== undefined && (
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                if (busy || pending || !directoryName.trim())
+                                  return;
+                                void mutate({
+                                  operation: 'mkdir',
+                                  path: directories.path,
+                                  directoryName: directoryName.trim(),
+                                });
+                              }}
+                            >
+                              <p>{t('目录会立即在此主机上创建。')}</p>
+                              <label>
+                                {t('新目录名称')}
+                                <input
+                                  required
+                                  value={directoryName}
+                                  maxLength={255}
+                                  onChange={(event) =>
+                                    setDirectoryName(event.target.value)
+                                  }
+                                  disabled={busy || !!pending}
+                                />
+                              </label>
+                              <div className="project-wizard-actions">
+                                <button
+                                  type="button"
+                                  disabled={busy || !!pending}
+                                  onClick={() => setDirectoryName(undefined)}
+                                >
+                                  {t('取消新建目录')}
+                                </button>
+                                <button
+                                  type="submit"
+                                  className="primary"
+                                  disabled={
+                                    busy || !!pending || !directoryName.trim()
+                                  }
+                                >
+                                  {t('创建并选用')}
+                                </button>
+                              </div>
+                            </form>
+                          )}
+                          <div className="project-directory-list">
+                            {directories.directories.map((directory) => (
+                              <IconButton
+                                icon="folder"
+                                label={directory.name}
+                                showLabel
+                                key={directory.path}
+                                disabled={busy || !!pending}
+                                onClick={() => void browse(directory.path)}
+                              />
+                            ))}
+                          </div>
+                          {!directories.directories.length && (
+                            <p>{t('没有子目录')}</p>
+                          )}
+                          {directories.truncated && (
+                            <p>{t('目录过多，请输入更具体的路径')}</p>
+                          )}
+                          {directoryName === undefined && (
+                            <button
+                              className="primary"
+                              type="button"
+                              disabled={busy || !!pending}
+                              onClick={() => {
+                                setError('');
+                                setSelectedPath(directories.path);
+                              }}
+                            >
+                              {t('选用当前目录')}
+                            </button>
+                          )}
+                        </>
                       )}
-                    </div>
+                      <details>
+                        <summary>{t('按路径跳转')}</summary>
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (!busy && !pending) void browse(path);
+                          }}
+                        >
+                          <label>
+                            {t('远程目录绝对路径')}
+                            <input
+                              required
+                              value={path}
+                              maxLength={4096}
+                              onChange={(event) => setPath(event.target.value)}
+                              disabled={busy || !!pending}
+                            />
+                          </label>
+                          <button
+                            type="submit"
+                            disabled={busy || !!pending || !path.trim()}
+                          >
+                            {t('打开目录')}
+                          </button>
+                        </form>
+                      </details>
+                    </>
                   )}
-                  <label>
-                    {t('项目显示名')}
-                    <input
-                      value={name}
-                      maxLength={100}
-                      onChange={(e) => setName(e.target.value)}
-                      disabled={busy || !!pending}
-                    />
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={mkdir}
-                      onChange={(e) => setMkdir(e.target.checked)}
-                      disabled={busy || !!pending}
-                    />
-                    {t('目录不存在时创建')}
-                  </label>
-                  <IconButton
-                    icon="plus"
-                    label={t('添加项目')}
-                    disabled={busy || !!pending}
-                    type="submit"
-                  />
-                </form>
+                </div>
               ) : (
-                <p>{t('仅 Agent 管理员邮箱或系统管理员可以更改项目登记。')}</p>
+                <p>{t('当前主机未授予新建项目权限。')}</p>
               )}
             </>
           )}
-        </>
+        </div>
       )}
     </section>
   );

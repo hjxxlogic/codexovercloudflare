@@ -75,6 +75,22 @@ export const projectManagementSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('list') }),
   z.object({ operation: z.literal('browse'), path: projectPathSchema }),
   z.object({
+    operation: z.literal('mkdir'),
+    ...projectChange,
+    path: projectPathSchema,
+    directoryName: z
+      .string()
+      .min(1)
+      .max(255)
+      .refine(
+        (name) =>
+          name !== '.' &&
+          name !== '..' &&
+          !/[\\/:]/.test(name) &&
+          !Array.from(name).some((character) => character.charCodeAt(0) < 32),
+      ),
+  }),
+  z.object({
     operation: z.literal('add'),
     ...projectChange,
     path: projectPathSchema,

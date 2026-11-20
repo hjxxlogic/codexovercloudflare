@@ -71,26 +71,111 @@ export async function navigationUI(
     attachMode = 'normal';
     return route.fulfill({ json: { ticket: 'synthetic-ticket' } });
   });
-  let canManage = true;
+  let canCreate = false;
+  const projects = [
+    { id: 'project', name: '示例项目', path: '/workspace/example' },
+    { id: 'other-project', name: '第二项目', path: '/workspace/other' },
+  ];
+  let revision = 1;
+  let createdDirectory = false;
+  const catalog = () => ({
+    revision,
+    canCreate,
+    canManage: false,
+    projects,
+  });
+  const projectResults = new Map<string, unknown>();
+  fixtureRoutes.route('**/api/v1/hosts/sample/projects', (route) =>
+    route.fulfill({ json: projects }),
+  );
+  fixtureRoutes.route(
+    '**/api/v1/hosts/sample/operations/ui-project-*',
+    (route) =>
+      route.fulfill({
+        json: projectResults.get(route.request().url().split('/').at(-1)!),
+      }),
+  );
   fixtureRoutes.route(
     '**/api/v1/hosts/sample/project-management',
-    async (route) =>
-      route.fulfill({
-        json: {
-          revision: 1,
-          canManage,
-          projects: [
-            { id: 'project', name: '示例项目', path: '/workspace/example' },
-          ],
+    async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') return route.fulfill({ json: catalog() });
+      const data = request.postDataJSON();
+      if (data.operation === 'browse') {
+        const path = data.path.replace(/\/$/, '') || '/';
+        const names =
+          path === '/workspace'
+            ? ['team', ...(createdDirectory ? ['new-project'] : [])]
+            : path === '/workspace/team'
+              ? ['repo']
+              : [];
+        return route.fulfill({
+          json: {
+            path,
+            parent: path.slice(0, path.lastIndexOf('/')) || '/',
+            directories: names.map((name) => ({
+              name,
+              path: path + '/' + name,
+            })),
+            truncated: false,
+          },
+        });
+      }
+      const headers = request.headers();
+      const ack = headers['X-CoC-Operation-Ack'] === '1';
+      const requestId = headers['Idempotency-Key'];
+      const mkdir = data.operation === 'mkdir';
+      if (mkdir) {
+        assert.equal(data.path, '/workspace');
+        assert.equal(data.directoryName, 'new-project');
+      } else {
+        assert.equal(data.operation, 'add');
+        assert.equal(data.path, '/workspace/new-project');
+        assert.ok(!data.mkdir);
+        assert.equal(data.name, 'New UI project');
+      }
+      if (!ack) {
+        assert.equal(data.revision, revision++);
+        if (mkdir) createdDirectory = true;
+        else
+          projects.push({
+            id: 'new-project',
+            name: data.name,
+            path: data.path,
+          });
+      }
+      const operationId = 'ui-project-' + requestId + (ack ? '-ack' : '');
+      projectResults.set(operationId, {
+        state: 'completed',
+        intent: {
+          owner: 'a'.repeat(64),
+          instance: headers['X-CoC-Operation-Instance'],
+          requestId,
+          ...(ack ? { ack } : {}),
         },
-        headers: { 'X-CoC-Demand': '1', 'X-CoC-Delivery': '2' },
-      }),
+        result: ack
+          ? { confirmed: true }
+          : {
+              ...catalog(),
+              ...(mkdir ? { path: '/workspace/new-project' } : {}),
+            },
+      });
+      return route.fulfill({
+        status: 202,
+        json: { hostId: 'sample', operationId },
+      });
+    },
   );
   fixtureRoutes.route('**/api/v1/hosts/second/projects', (route) =>
     route.fulfill({ json: [] }),
   );
   fixtureRoutes.route('**/api/v1/hosts/second/project-management', (route) =>
-    route.fulfill({ json: { revision: 1, projects: [], canManage: true } }),
+    route.fulfill({
+      json:
+        route.request().method() === 'GET'
+          ? { revision: 1, projects: [], canManage: true }
+          : { path: '/', parent: '/', directories: [], truncated: false },
+    }),
   );
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -234,36 +319,64 @@ export async function navigationUI(
       (await newProject.boundingBox())!.x,
   );
   await projectRefresh.click();
-  await page.getByRole('button', { name: '新建项目', exact: true }).click();
-  await expect(
-    page.getByLabel('远程目录绝对路径', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel('远程目录绝对路径', { exact: true }),
-  ).toHaveValue('/workspace/');
-  await page
-    .getByLabel('远程目录绝对路径', { exact: true })
-    .fill('/workspace/new-project');
-  await page.getByLabel('项目显示名', { exact: true }).fill('New UI project');
+  await expect(newProject).toHaveText('新建项目');
+  await newProject.click();
+  const pathInput = page.getByLabel('远程目录绝对路径', { exact: true });
+  const useDirectory = page.getByRole('button', {
+    name: '选用当前目录',
+    exact: true,
+  });
+  const addProject = page.getByRole('button', {
+    name: '添加项目',
+    exact: true,
+  });
+  const goBack = page.getByRole('button', {
+    name: '返回选择目录',
+    exact: true,
+  });
+  const pathDisplay = page.locator('.project-wizard-path code');
+  await expect(page.getByText('当前主机未授予新建项目权限。')).toBeVisible();
+  await expect(useDirectory).not.toBeVisible();
+  canCreate = true;
+  await projectRefresh.click();
+  await expect(pathDisplay).toHaveText('/workspace');
+  await expect(pathInput).not.toBeVisible();
+  await expect(page.getByLabel('目录不存在时创建')).toHaveCount(0);
+  await page.getByRole('button', { name: 'team', exact: true }).click();
+  await page.getByRole('button', { name: 'repo', exact: true }).click();
+  await expect(pathDisplay).toHaveText('/workspace/team/repo');
+  await useDirectory.click();
+  await expect(addProject).toBeVisible();
+  await expect(pathDisplay).toHaveText('/workspace/team/repo');
+  await goBack.click();
+  await page.getByRole('button', { name: '上级目录', exact: true }).click();
+  await expect(pathDisplay).toHaveText('/workspace/team');
+  await page.getByText('按路径跳转', { exact: true }).click();
+  await pathInput.fill('/workspace');
+  await page.getByRole('button', { name: '打开目录', exact: true }).click();
+  await expect(pathDisplay).toHaveText('/workspace');
+  await page.getByText('按路径跳转', { exact: true }).click();
   await page.screenshot({
     path: join(artifacts, 'hierarchy-projects-new.png'),
     fullPage: true,
     animations: 'disabled',
   });
-  canManage = false;
-  await page.getByRole('button', { name: '刷新项目', exact: true }).click();
-  await expect(
-    page.getByText('仅 Agent 管理员邮箱或系统管理员可以更改项目登记。'),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel('远程目录绝对路径', { exact: true }),
-  ).not.toBeVisible();
-  canManage = true;
-  await projectRefresh.click();
-  await expect(
-    page.getByLabel('远程目录绝对路径', { exact: true }),
-  ).toHaveValue('/workspace/new-project');
-  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page.getByRole('button', { name: '新建子目录', exact: true }).click();
+  await page.getByLabel('新目录名称', { exact: true }).fill('new-project');
+  await page.getByRole('button', { name: '创建并选用', exact: true }).click();
+  await expect(pathDisplay).toHaveText('/workspace/new-project');
+  await expect(page.locator('[data-project-id="new-project"]')).toHaveCount(0);
+  await expect(addProject).toBeVisible();
+  await page.getByLabel('项目显示名', { exact: true }).fill('New UI project');
+  await page.screenshot({
+    path: join(artifacts, 'hierarchy-projects-confirm.png'),
+    animations: 'disabled',
+  });
+  await addProject.click();
+  await expect(page.getByText('项目已添加', { exact: true })).toBeVisible();
+  await expect(newProject).toBeFocused();
+  await expect(addProject).not.toBeVisible();
+  await expect(page.locator('[data-project-id="new-project"]')).toBeVisible();
   await page
     .locator('#navigation-projects .navigation-option')
     .filter({ hasText: '示例项目' })
@@ -796,9 +909,7 @@ export async function navigationUI(
   await expect(chooseSession).toBeDisabled();
   await expect(page.getByLabel('任务内容')).not.toBeVisible();
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
-  await expect(
-    page.getByLabel('远程目录绝对路径', { exact: true }),
-  ).toHaveValue('/');
+  await expect(pathDisplay).toHaveText('/');
   await chooseHost.click();
   await page.getByRole('button', { name: /示例服务器.*在线/ }).click();
   await expect(chooseSession).toBeDisabled();
@@ -834,6 +945,18 @@ export async function navigationUI(
     await expect(
       page.getByRole('dialog', { name: '会话导航', exact: true }),
     ).toBeVisible();
+    if (viewport.width === 390) {
+      await chooseProject.click();
+      await newProject.click();
+      await expect(useDirectory).toBeEnabled();
+      await noOverflow();
+      await page.screenshot({
+        path: join(artifacts, 'hierarchy-projects-new-mobile.png'),
+        animations: 'disabled',
+      });
+      await page.getByRole('button', { name: '收起新建项目' }).click();
+      await chooseSession.click();
+    }
     await page.keyboard.press('Escape');
     await expect(
       page.getByRole('button', { name: '打开会话导航', exact: true }),
@@ -954,6 +1077,8 @@ export async function navigationUI(
   fixtureRoutes.unroute('**/api/v1/sessions/sample~session/takeover');
   fixtureRoutes.unroute('**/api/v1/hosts/sample/files');
   fixtureRoutes.unroute('**/api/v1/hosts/sample/project-management');
+  fixtureRoutes.unroute('**/api/v1/hosts/sample/projects');
+  fixtureRoutes.unroute('**/api/v1/hosts/sample/operations/ui-project-*');
   console.log(
     'PASS: unified navigation, project/session switching, mobile drawer, toolbar, merged file transfers, exclusive right panels, retained Terminal/draft, themes, density and administration; no browser errors',
   );

@@ -37,6 +37,7 @@ async function intercept(
       request: () => ({
         url: () => url,
         method: () => init.method || 'GET',
+        headers: () => init.headers,
         postDataJSON: () => JSON.parse(init.body),
       }),
       fulfill: async (options: any) => {
